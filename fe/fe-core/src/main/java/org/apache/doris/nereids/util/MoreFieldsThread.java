@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.parser.Origin;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.function.Supplier;
 
@@ -27,8 +28,10 @@ import java.util.function.Supplier;
  */
 public class MoreFieldsThread extends Thread {
     private static final ThreadLocal<Boolean> keepFunctionSignatureThreadLocal = new ThreadLocal<>();
+    private static final ThreadLocal<ConnectContext> connectContextThreadLocal = new ThreadLocal<>();
 
     private Origin origin;
+    private ConnectContext connectContext;
     private boolean keepFunctionSignature;
 
     public MoreFieldsThread() {
@@ -68,6 +71,34 @@ public class MoreFieldsThread extends Thread {
 
     public final Origin getOrigin() {
         return this.origin;
+    }
+
+    public static void removeConnectContext() {
+        setConnectContext(null);
+    }
+
+    /** setConnectContext */
+    public static void setConnectContext(ConnectContext connectContext) {
+        Thread thread = Thread.currentThread();
+        if (thread instanceof MoreFieldsThread) {
+            ((MoreFieldsThread) thread).connectContext = connectContext;
+        } else {
+            if (connectContext == null) {
+                MoreFieldsThread.connectContextThreadLocal.remove();
+            } else {
+                MoreFieldsThread.connectContextThreadLocal.set(connectContext);
+            }
+        }
+    }
+
+    /** getConnectContext */
+    public static ConnectContext getConnectContext() {
+        Thread thread = Thread.currentThread();
+        if (thread instanceof MoreFieldsThread) {
+            return ((MoreFieldsThread) thread).connectContext;
+        } else {
+            return MoreFieldsThread.connectContextThreadLocal.get();
+        }
     }
 
     /** when keepFunctionSignature is true, we will use the origin function signature for the rewritten expression */

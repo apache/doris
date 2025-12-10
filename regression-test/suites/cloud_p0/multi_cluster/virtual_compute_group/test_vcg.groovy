@@ -198,7 +198,7 @@ suite('test_vcg', 'multi_cluster,docker') {
             // test manual cancel warm up job, generate new jobs
             sql """CANCEL WARM UP JOB WHERE ID=${showWarmup[0].JobId}"""
 
-            dockerAwaitUntil(50, 3) {
+            awaitUntil(50, 3) {
                 showWarmup = sql_return_maparray """SHOW WARM UP JOB"""
                 // cancel 2, generate 2
                 showWarmup.size() == 4
@@ -295,7 +295,7 @@ suite('test_vcg', 'multi_cluster,docker') {
                     assertTrue(json.code.equalsIgnoreCase("OK"))
             }
 
-            dockerAwaitUntil(20) {
+            awaitUntil(20) {
                 showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
                 log.info("show compute group after alter {}", showComputeGroup)
                 vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
@@ -307,7 +307,7 @@ suite('test_vcg', 'multi_cluster,docker') {
             assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster2","standbyComputeGroup":"newcluster1"'))
             // alter active -> sync to fe -> cancel old jobs -> generate new jobs
             // -> sync to ms -> sync to fe -> save new jobs
-            dockerAwaitUntil(50, 3) { 
+            awaitUntil(50, 3) { 
                 showWarmup = sql_return_maparray """SHOW WARM UP JOB"""
                 // cancel 2, generate 2
                 showWarmup.size() == 6
@@ -326,7 +326,7 @@ suite('test_vcg', 'multi_cluster,docker') {
             cluster.stopBackends(6)
 
             // test warm up job destory and generate new jobs
-            dockerAwaitUntil(50, 3) { 
+            awaitUntil(50, 3) { 
                 sql """USE @${normalVclusterName}"""
                 sql """select count(*) from ${tbl}"""
                 showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
@@ -337,7 +337,7 @@ suite('test_vcg', 'multi_cluster,docker') {
             assertEquals(showWarmup.size(), 6)
 
             cluster.startBackends(6)
-            dockerAwaitUntil(50, 3) {
+            awaitUntil(50, 3) {
                 showWarmup = sql_return_maparray """SHOW WARM UP JOB"""
                 showWarmup.size() == 8
             }
@@ -350,7 +350,7 @@ suite('test_vcg', 'multi_cluster,docker') {
             // test rename vcg
             def newNormalVclusterName = "newNormalVirtualClusterName"
             rename_cloud_cluster.call(newNormalVclusterName, normalVclusterId, ms)
-            dockerAwaitUntil(20) {
+            awaitUntil(20) {
                 showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
                 log.info("show compute group after rename {}", showComputeGroup)
                 vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
@@ -365,7 +365,7 @@ suite('test_vcg', 'multi_cluster,docker') {
 
             // rename back to 
             rename_cloud_cluster.call(normalVclusterName, normalVclusterId, ms)
-            dockerAwaitUntil(20) {
+            awaitUntil(20) {
                 showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
                 log.info("show compute group after rename back {}", showComputeGroup)
                 vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
@@ -393,7 +393,7 @@ suite('test_vcg', 'multi_cluster,docker') {
             jsonObject = jsonSlurper.parseText(tag)
             cloudClusterId = jsonObject.compute_group_id
             drop_cluster(clusterName2, cloudClusterId, ms)
-            dockerAwaitUntil(20) {
+            awaitUntil(20) {
                 def showRet = sql """SHOW COMPUTE GROUPS"""
                 log.info("show cgs: {}", showRet)
                 showRet.size() == 2

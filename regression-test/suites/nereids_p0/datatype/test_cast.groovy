@@ -68,12 +68,12 @@ suite("test_cast") {
     }
 
     test {
-        sql "select * from ${tbl} where case when k0 = 101 then 'false' else 0 end"
+        sql "select * from ${tbl} where case when k0 = 101 then false else 0 end"
         result([])
     }
 
     test {
-        sql "select * from ${tbl} where case when k0 = 101 then 'true' else 1 end"
+        sql "select * from ${tbl} where case when k0 = 101 then true else 1 end"
         result([[101]])
     }
 
@@ -240,6 +240,6 @@ suite("test_cast") {
         """
     explain {
         sql """select k0 from table_decimal38_4 union all select k0 from table_decimal27_9;"""
-        contains """AS decimalv3(38,4)"""
+        contains """AS decimalv3(38,6)"""
     }
 }

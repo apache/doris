@@ -72,9 +72,6 @@ public:
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (!slot_desc->is_materialized()) {
-                    continue;
-                }
                 columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
                                                         slot_desc->col_name());
             }
@@ -86,23 +83,16 @@ public:
         NameAndTypePairs name_with_types;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (!slot_desc->is_materialized()) {
-                    continue;
-                }
                 name_with_types.emplace_back(slot_desc->col_name(), slot_desc->get_data_type_ptr());
             }
         }
         return name_with_types;
     }
 
-    static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc,
-                                                     bool ignore_trivial_slot = true) {
+    static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (ignore_trivial_slot && !slot_desc->is_materialized()) {
-                    continue;
-                }
                 columns_with_type_and_name.emplace_back(
                         slot_desc->get_data_type_ptr()->create_column(),
                         slot_desc->get_data_type_ptr(), slot_desc->col_name());
@@ -110,6 +100,20 @@ public:
         }
         return columns_with_type_and_name;
     }
+
+    // Helper function to extract null map from column (including ColumnConst cases)
+    static const NullMap* get_null_map(const ColumnPtr& col) {
+        if (col->is_nullable()) {
+            return &static_cast<const ColumnNullable&>(*col).get_null_map_data();
+        }
+        // Handle Const(Nullable) case
+        if (const auto* const_col = check_and_get_column<ColumnConst>(col.get());
+            const_col != nullptr && const_col->is_concrete_nullable()) {
+            return &static_cast<const ColumnNullable&>(const_col->get_data_column())
+                            .get_null_map_data();
+        }
+        return nullptr;
+    };
 
     // is_single: whether src is null map of a ColumnConst
     static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
@@ -237,13 +241,13 @@ inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
 }
 
 // change null element to true element
-inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) {
+inline void change_null_to_true(MutableColumnPtr column, ColumnPtr argument = nullptr) {
     size_t rows = column->size();
     if (is_column_const(*column)) {
-        change_null_to_true(assert_cast<const ColumnConst*>(column.get())->get_data_column_ptr());
+        change_null_to_true(
+                assert_cast<ColumnConst*>(column.get())->get_data_column_ptr()->assume_mutable());
     } else if (column->has_null()) {
-        auto* nullable =
-                const_cast<ColumnNullable*>(assert_cast<const ColumnNullable*>(column.get()));
+        auto* nullable = assert_cast<ColumnNullable*>(column.get());
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
                                         ->get_data()
                                         .data();
@@ -255,10 +259,7 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
     } else if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
-        auto* __restrict data =
-                const_cast<ColumnUInt8*>(assert_cast<const ColumnUInt8*>(column.get()))
-                        ->get_data()
-                        .data();
+        auto* __restrict data = assert_cast<ColumnUInt8*>(column.get())->get_data().data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
@@ -286,10 +287,9 @@ inline size_t calculate_false_number(ColumnPtr column) {
 }
 
 template <typename T>
-T read_from_json(const std::string& json_str) {
+T read_from_json(std::string& json_str) {
     auto memBufferIn = std::make_shared<apache::thrift::transport::TMemoryBuffer>(
-            reinterpret_cast<uint8_t*>(const_cast<char*>(json_str.data())),
-            static_cast<uint32_t>(json_str.size()));
+            reinterpret_cast<uint8_t*>(json_str.data()), static_cast<uint32_t>(json_str.size()));
     auto jsonProtocolIn = std::make_shared<apache::thrift::protocol::TJSONProtocol>(memBufferIn);
     T params;
     params.read(jsonProtocolIn.get());

@@ -131,9 +131,11 @@ void StreamLoadAction::handle(HttpRequest* req) {
     str = str + '\n';
     HttpChannel::send_reply(req, str);
 #ifndef BE_TEST
-    if (config::enable_stream_load_record) {
-        str = ctx->prepare_stream_load_record(str);
-        _save_stream_load_record(ctx, str);
+    if (config::enable_stream_load_record || config::enable_stream_load_record_to_audit_log_table) {
+        if (req->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
+            str = ctx->prepare_stream_load_record(str);
+            _save_stream_load_record(ctx, str);
+        }
     }
 #endif
 
@@ -238,9 +240,12 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         str = str + '\n';
         HttpChannel::send_reply(req, str);
 #ifndef BE_TEST
-        if (config::enable_stream_load_record) {
-            str = ctx->prepare_stream_load_record(str);
-            _save_stream_load_record(ctx, str);
+        if (config::enable_stream_load_record ||
+            config::enable_stream_load_record_to_audit_log_table) {
+            if (req->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
+                str = ctx->prepare_stream_load_record(str);
+                _save_stream_load_record(ctx, str);
+            }
         }
 #endif
         return -1;
@@ -491,16 +496,18 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     } else {
         request.__set_negative(false);
     }
+    bool strictMode = false;
     if (!http_req->header(HTTP_STRICT_MODE).empty()) {
         if (iequal(http_req->header(HTTP_STRICT_MODE), "false")) {
-            request.__set_strictMode(false);
+            strictMode = false;
         } else if (iequal(http_req->header(HTTP_STRICT_MODE), "true")) {
-            request.__set_strictMode(true);
+            strictMode = true;
         } else {
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
         }
+        request.__set_strictMode(strictMode);
     }
-    // timezone first. if not, try time_zone
+    // timezone first. if not, try system time_zone
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
     } else if (!http_req->header(HTTP_TIME_ZONE).empty()) {
@@ -528,6 +535,23 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     } else {
         request.__set_strip_outer_array(false);
     }
+
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            request.__set_read_json_by_line(true);
+        } else {
+            request.__set_read_json_by_line(false);
+        }
+    } else {
+        request.__set_read_json_by_line(false);
+    }
+
+    if (http_req->header(HTTP_READ_JSON_BY_LINE).empty() &&
+        http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
+        request.__set_read_json_by_line(true);
+        request.__set_strip_outer_array(false);
+    }
+
     if (!http_req->header(HTTP_NUM_AS_STRING).empty()) {
         if (iequal(http_req->header(HTTP_NUM_AS_STRING), "true")) {
             request.__set_num_as_string(true);
@@ -545,16 +569,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     } else {
         request.__set_fuzzy_parse(false);
-    }
-
-    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
-        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
-            request.__set_read_json_by_line(true);
-        } else {
-            request.__set_read_json_by_line(false);
-        }
-    } else {
-        request.__set_read_json_by_line(false);
     }
 
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
@@ -740,7 +754,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
 
-    if (!http_req->header(HTTP_CLOUD_CLUSTER).empty()) {
+    if (!http_req->header(HTTP_COMPUTE_GROUP).empty()) {
+        request.__set_cloud_cluster(http_req->header(HTTP_COMPUTE_GROUP));
+    } else if (!http_req->header(HTTP_CLOUD_CLUSTER).empty()) {
         request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
     }
 
@@ -768,6 +784,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
+    DCHECK(ctx->put_result.__isset.pipeline_params);
+    ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
+    ctx->put_result.pipeline_params.query_options.__set_enable_insert_strict(strictMode);
     if (config::is_cloud_mode() && ctx->two_phase_commit && ctx->is_mow_table()) {
         return Status::NotSupported("stream load 2pc is unsupported for mow table");
     }
@@ -792,10 +811,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                 content_length *= 3;
             }
         }
-        ctx->put_result.params.__set_content_length(content_length);
+        ctx->put_result.pipeline_params.__set_content_length(content_length);
     }
 
-    VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
+    VLOG_NOTICE << "params is "
+                << apache::thrift::ThriftDebugString(ctx->put_result.pipeline_params);
     // if we not use streaming, we must download total content before we begin
     // to process this load
     if (!ctx->use_streaming) {

@@ -112,6 +112,12 @@ struct LazyReadContext {
     std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
     // lazy read missing columns or all missing columns
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+
+    std::vector<std::string> partial_predicate_columns;
+
+    // Record the number of rows filled in filter phase for lazy materialization
+    // This is used to check if a column was already processed in filter phase
+    size_t filter_phase_rows = 0;
 };
 
 class OrcReader : public GenericReader {
@@ -148,39 +154,26 @@ public:
               const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
 
-    ~OrcReader() override;
+    ~OrcReader() override = default;
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
     Status init_reader(
             const std::vector<std::string>* column_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const VExprContextSPtrs& conjuncts, bool is_acid,
             const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
-                    TableSchemaChangeHelper::ConstNode::get_instance());
+                    TableSchemaChangeHelper::ConstNode::get_instance(),
+            const std::set<uint64_t>& column_ids = {},
+            const std::set<uint64_t>& filter_column_ids = {});
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
-    Status _fill_partition_columns(
-            Block* block, uint64_t rows,
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_columns);
-    Status _fill_missing_columns(
-            Block* block, uint64_t rows,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
-
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
-    Status get_next_block_impl(Block* block, size_t* read_rows, bool* eof);
-
-    void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
-                         orc::ColumnVectorBatch* batch, int idx);
-
-    void _build_delete_row_filter(const Block* block, size_t rows);
 
     int64_t size() const;
 
@@ -195,7 +188,6 @@ public:
     void set_position_delete_rowids(std::vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
     }
-    void _execute_filter_position_delete_rowids(IColumn::Filter& filter);
 
     void set_delete_rows(const TransactionalHiveReader::AcidRowIDSet* delete_rows) {
         _delete_rows = delete_rows;
@@ -211,7 +203,8 @@ public:
             std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
             bool* is_stripe_filtered);
 
-    static DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
+    DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
+
     static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
 
     void set_row_id_column_iterator(
@@ -315,8 +308,12 @@ private:
     static bool _check_acid_schema(const orc::Type& type);
 
     // functions for building search argument until _init_search_argument
-    std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_literal(
-            const VSlotRef* slot_ref, const VLiteral* literal);
+    // Get predicate type from slot reference
+    std::pair<bool, orc::PredicateDataType> _get_orc_predicate_type(const VSlotRef* slot_ref);
+
+    // Make ORC literal from Doris literal
+    std::pair<bool, orc::Literal> _make_orc_literal(const VSlotRef* slot_ref,
+                                                    const VLiteral* literal);
     bool _check_slot_can_push_down(const VExprSPtr& expr);
     bool _check_literal_can_push_down(const VExprSPtr& expr, size_t child_id);
     bool _check_rest_children_can_push_down(const VExprSPtr& expr);
@@ -334,8 +331,19 @@ private:
                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _init_search_argument(const VExprSPtrs& exprs);
 
-    void _init_bloom_filter(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    void _execute_filter_position_delete_rowids(IColumn::Filter& filter);
+    void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
+                         orc::ColumnVectorBatch* batch, int idx);
+
+    void _build_delete_row_filter(const Block* block, size_t rows);
+    Status _get_next_block_impl(Block* block, size_t* read_rows, bool* eof);
+    Status _fill_partition_columns(
+            Block* block, uint64_t rows,
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns);
+    Status _fill_missing_columns(
+            Block* block, uint64_t rows,
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
     void _init_system_properties();
     void _init_file_description();
 
@@ -379,8 +387,8 @@ private:
         if (scale_params.scale_type != DecimalScaleParams::NOT_INIT) {
             return;
         }
-        auto* decimal_type = reinterpret_cast<DataTypeDecimal<DecimalPrimitiveType>*>(
-                const_cast<IDataType*>(remove_nullable(data_type).get()));
+        auto* decimal_type = reinterpret_cast<const DataTypeDecimal<DecimalPrimitiveType>*>(
+                remove_nullable(data_type).get());
         auto dest_scale = decimal_type->get_scale();
         if (dest_scale > orc_decimal_scale) {
             scale_params.scale_type = DecimalScaleParams::SCALE_UP;
@@ -430,7 +438,7 @@ private:
                 if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
                     value = static_cast<int128_t>(cvb_data[i]);
                 } else {
-                    // cast data to non const
+                    // cast data to non const, to use a third-party dependency method to obtain an integer
                     auto* non_const_data = const_cast<OrcColumnType*>(data);
                     uint64_t hi = non_const_data->values[i].getHighBits();
                     uint64_t lo = non_const_data->values[i].getLowBits();
@@ -446,7 +454,7 @@ private:
                 if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
                     value = static_cast<int128_t>(cvb_data[i]);
                 } else {
-                    // cast data to non const
+                    // cast data to non const, to use a third-party dependency method to obtain an integer
                     auto* non_const_data = const_cast<OrcColumnType*>(data);
                     uint64_t hi = non_const_data->values[i].getHighBits();
                     uint64_t lo = non_const_data->values[i].getLowBits();
@@ -462,7 +470,7 @@ private:
                 if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
                     value = static_cast<int128_t>(cvb_data[i]);
                 } else {
-                    // cast data to non const
+                    // cast data to non const, to use a third-party dependency method to obtain an integer
                     auto* non_const_data = const_cast<OrcColumnType*>(data);
                     uint64_t hi = non_const_data->values[i].getHighBits();
                     uint64_t lo = non_const_data->values[i].getLowBits();
@@ -553,15 +561,13 @@ private:
                                  size_t num_values);
 
     template <bool is_filter>
-    Status _decode_string_non_dict_encoded_column(const std::string& col_name,
-                                                  const MutableColumnPtr& data_column,
+    Status _decode_string_non_dict_encoded_column(const MutableColumnPtr& data_column,
                                                   const orc::TypeKind& type_kind,
                                                   const orc::EncodedStringVectorBatch* cvb,
                                                   size_t num_values);
 
     template <bool is_filter>
-    Status _decode_string_dict_encoded_column(const std::string& col_name,
-                                              const MutableColumnPtr& data_column,
+    Status _decode_string_dict_encoded_column(const MutableColumnPtr& data_column,
                                               const orc::TypeKind& type_kind,
                                               const orc::EncodedStringVectorBatch* cvb,
                                               size_t num_values);
@@ -570,8 +576,6 @@ private:
                                      ColumnArray::Offsets64& doris_offsets,
                                      const orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
                                      size_t* element_size);
-
-    void _collect_profile_on_close();
 
     bool _can_filter_by_dict(int slot_id);
 
@@ -606,12 +610,12 @@ private:
     Status _fill_row_id_columns(Block* block);
 
     bool _seek_to_read_one_line() {
-        if (_read_line_mode_mode) {
-            if (_read_lines.empty()) {
+        if (_read_by_rows) {
+            if (_row_ids.empty()) {
                 return false;
             }
-            _row_reader->seekToRow(_read_lines.front());
-            _read_lines.pop_front();
+            _row_reader->seekToRow(_row_ids.front());
+            _row_ids.pop_front();
         }
         return true;
     }
@@ -621,7 +625,6 @@ private:
         return Status::OK();
     }
 
-private:
     // This is only for count(*) short circuit read.
     // save the total number of rows in range
     int64_t _remaining_rows = 0;
@@ -634,7 +637,7 @@ private:
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
-    const std::string& _ctz;
+    std::string _ctz;
 
     int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
@@ -657,6 +660,9 @@ private:
     // file column name to orc type
     std::unordered_map<std::string, const orc::Type*> _type_map;
 
+    // Column ID to file original type mapping for handling incomplete MAP type due to column pruning.
+    std::unordered_map<uint64_t, const orc::Type*> _column_id_to_file_type;
+
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
@@ -677,7 +683,6 @@ private:
     std::vector<DecimalScaleParams> _decimal_scale_params;
     size_t _decimal_scale_params_index;
 
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter;
     LazyReadContext _lazy_read_ctx;
@@ -694,7 +699,7 @@ private:
     bool _disable_dict_filter = false;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
-    std::shared_ptr<ObjectPool> _obj_pool;
+    std::unique_ptr<ObjectPool> _obj_pool;
     std::unique_ptr<StringDictFilterImpl> _string_dict_filter;
     bool _dict_cols_has_converted = false;
 
@@ -719,6 +724,12 @@ private:
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
             TableSchemaChangeHelper::ConstNode::get_instance();
 
+    std::set<uint64_t> _column_ids;
+    std::set<uint64_t> _filter_column_ids;
+
+    // Pointer to external column name to block index mapping (from FileScanner)
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
+
     VExprSPtrs _push_down_exprs;
 };
 
@@ -727,7 +738,7 @@ public:
     StripeStreamInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
                             const io::IOContext* io_ctx, RuntimeProfile* profile)
             : _file_name(file_name),
-              _inner_reader(inner_reader),
+              _inner_reader(std::move(inner_reader)),
               _io_ctx(io_ctx),
               _profile(profile) {}
 
@@ -746,11 +757,6 @@ public:
     const std::string& getName() const override { return _file_name; }
 
     RuntimeProfile* profile() const { return _profile; }
-
-    void beforeReadStripe(
-            std::unique_ptr<orc::StripeInformation> current_strip_information,
-            const std::vector<bool>& selected_columns,
-            std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams) override {}
 
 protected:
     void _collect_profile_at_runtime() override {};
@@ -784,17 +790,7 @@ public:
               _io_ctx(io_ctx),
               _profile(profile) {}
 
-    ~ORCFileInputStream() override {
-        if (_tracing_file_reader != nullptr) {
-            _tracing_file_reader->collect_profile_before_close();
-        }
-        for (const auto& stripe_stream : _stripe_streams) {
-            if (stripe_stream != nullptr) {
-                stripe_stream->collect_profile_before_close();
-            }
-        }
-        _stripe_streams.clear();
-    }
+    ~ORCFileInputStream() override { _collect_profile_before_close_file_stripe(); }
 
     uint64_t getLength() const override { return _tracing_file_reader->size(); }
 
@@ -819,7 +815,18 @@ public:
 
 protected:
     void _collect_profile_at_runtime() override {};
-    void _collect_profile_before_close() override;
+    void _collect_profile_before_close() override { _collect_profile_before_close_file_stripe(); }
+
+    void _collect_profile_before_close_file_stripe() {
+        if (_file_reader != nullptr) {
+            _file_reader->collect_profile_before_close();
+        }
+        for (const auto& stripe_stream : _stripe_streams) {
+            if (stripe_stream != nullptr) {
+                stripe_stream->collect_profile_before_close();
+            }
+        }
+    }
 
 private:
     void _build_input_stripe_streams(

@@ -35,6 +35,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -63,10 +64,10 @@ import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.persist.CreateTableInfo;
@@ -558,8 +559,8 @@ public abstract class TestWithFeService {
                 && connectContext.getState().getErrorCode() == null) {
             return stmtExecutor;
         } else {
-            // throw new IllegalStateException(connectContext.getState().getErrorMessage());
-            return null;
+            throw new IllegalStateException(connectContext.getState().getErrorMessage());
+            // return null;
         }
     }
 
@@ -573,7 +574,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    public void executeNereidsSql(String queryStr) throws Exception {
+    public StmtExecutor executeNereidsSql(String queryStr) throws Exception {
         connectContext.getState().reset();
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(queryStr, 0));
@@ -589,6 +590,7 @@ public abstract class TestWithFeService {
                 || connectContext.getState().getErrorCode() != null) {
             throw new IllegalStateException(connectContext.getState().getErrorMessage());
         }
+        return stmtExecutor;
     }
 
     public void createDatabase(String db) throws Exception {
@@ -708,6 +710,12 @@ public abstract class TestWithFeService {
     public void createView(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         CreateViewCommand command = (CreateViewCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
+    }
+
+    public void dropView(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        DropViewCommand command = (DropViewCommand) nereidsParser.parseSingle(sql);
         command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 

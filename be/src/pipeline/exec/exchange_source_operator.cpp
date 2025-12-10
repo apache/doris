@@ -49,15 +49,8 @@ ExchangeLocalState::~ExchangeLocalState() {
 
 std::string ExchangeLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
-    fmt::format_to(debug_string_buffer, ", Queues: (");
-    const auto& queues = stream_recvr->sender_queues();
-    for (size_t i = 0; i < queues.size(); i++) {
-        fmt::format_to(debug_string_buffer,
-                       "No. {} queue: (_num_remaining_senders = {}, block_queue size = {})", i,
-                       queues[i]->_num_remaining_senders, queues[i]->_block_queue.size());
-    }
-    fmt::format_to(debug_string_buffer, ")");
+    fmt::format_to(debug_string_buffer, "{}, recvr: ({})", Base::debug_string(indentation_level),
+                   stream_recvr->debug_string());
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -193,7 +186,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             }
         }
         // Merge actually also handles the limit, but handling the limit one more time will not cause correctness issues
-        if (local_state.num_rows_returned() + block->rows() < _limit) {
+        if (_limit == -1 || local_state.num_rows_returned() + block->rows() < _limit) {
             local_state.add_num_rows_returned(block->rows());
         } else {
             *eos = true;

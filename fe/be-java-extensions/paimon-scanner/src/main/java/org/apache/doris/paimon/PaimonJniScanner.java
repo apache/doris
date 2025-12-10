@@ -172,20 +172,23 @@ public class PaimonJniScanner extends JniScanner {
             }
 
             while (recordIterator != null) {
+                long startTime = System.nanoTime();
+
                 InternalRow record;
                 while ((record = recordIterator.next()) != null) {
+                    rows++;
                     columnValue.setOffsetRow(record);
                     for (int i = 0; i < fields.length; i++) {
                         columnValue.setIdx(i, types[i], paimonDataTypeList.get(i));
-                        long l = System.nanoTime();
                         appendData(i, columnValue);
-                        appendDataTime += System.nanoTime() - l;
                     }
-                    rows++;
                     if (rows >= batchSize) {
+                        appendDataTime += System.nanoTime() - startTime;
                         return rows;
                     }
                 }
+                appendDataTime += System.nanoTime() - startTime;
+
                 recordIterator.releaseBatch();
                 recordIterator = reader.readBatch();
             }

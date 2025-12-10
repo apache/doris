@@ -34,10 +34,10 @@
 -- !groupby_pushdown_complex_conditions --
 
 -- !groupby_pushdown_with_aggregate --
-1	1.0
-2	2.0
-3	3.0
-6	2.0
+1	1
+2	2
+3	3
+6	2
 
 -- !groupby_pushdown_subquery --
 
@@ -152,10 +152,10 @@ c	3	3
 -- !with_hint_groupby_pushdown_complex_conditions --
 
 -- !with_hint_groupby_pushdown_with_aggregate --
-1	1.0
-2	2.0
-3	3.0
-6	2.0
+1	1
+2	2
+3	3
+6	2
 
 -- !with_hint_groupby_pushdown_subquery --
 

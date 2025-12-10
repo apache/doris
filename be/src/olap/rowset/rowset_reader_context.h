@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
+#include <vector>
+
 #include "io/io_common.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
@@ -56,9 +58,9 @@ struct RowsetReaderContext {
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
-    const std::vector<ColumnPredicate*>* predicates = nullptr;
+    const std::vector<std::shared_ptr<ColumnPredicate>>* predicates = nullptr;
     // value column predicate in UNIQUE table
-    const std::vector<ColumnPredicate*>* value_predicates = nullptr;
+    const std::vector<std::shared_ptr<ColumnPredicate>>* value_predicates = nullptr;
     const std::vector<RowCursor>* lower_bound_keys = nullptr;
     const std::vector<bool>* is_lower_keys_included = nullptr;
     const std::vector<RowCursor>* upper_bound_keys = nullptr;
@@ -76,7 +78,7 @@ struct RowsetReaderContext {
     uint64_t* merged_rows = nullptr;
     // for unique key merge on write
     bool enable_unique_key_merge_on_write = false;
-    const DeleteBitmap* delete_bitmap = nullptr;
+    DeleteBitmapPtr delete_bitmap = nullptr;
     bool record_rowids = false;
     RowIdConversion* rowid_conversion = nullptr;
     bool is_key_column_group = false;
@@ -90,9 +92,14 @@ struct RowsetReaderContext {
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
 
+    std::map<int32_t, TColumnAccessPaths> all_access_paths;
+    std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
+
     std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
+
+    uint64_t condition_cache_digest = 0;
 };
 
 } // namespace doris

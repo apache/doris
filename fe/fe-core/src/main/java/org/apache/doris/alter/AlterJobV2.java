@@ -30,7 +30,10 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.task.AgentTask;
+import org.apache.doris.thrift.TQueryGlobals;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
@@ -110,6 +113,17 @@ public abstract class AlterJobV2 implements Writable {
     @SerializedName(value = "uid")
     protected UserIdentity userIdentity = null;
 
+    @SerializedName(value = "queryOptions")
+    protected TQueryOptions queryOptions = new TQueryOptions();
+
+    @SerializedName(value = "queryGlobals")
+    protected TQueryGlobals queryGlobals = new TQueryGlobals();
+
+    // for show alter table command, master fe change the job state to FINISHED before writing edit log.
+    // We set showJobState to FINISHED after writing edit log. otherwise, query to non master fe may read
+    // data before schema change finished.
+    protected JobState showJobState;
+
     public AlterJobV2(String rawSql, long jobId, JobType jobType, long dbId, long tableId, String tableName,
                       long timeoutMs) {
         this.rawSql = rawSql;
@@ -122,9 +136,12 @@ public abstract class AlterJobV2 implements Writable {
 
         this.createTimeMs = System.currentTimeMillis();
         this.jobState = JobState.PENDING;
+        this.showJobState = JobState.PENDING;
 
         if (ConnectContext.get() != null) {
             userIdentity = ConnectContext.get().getCurrentUserIdentity();
+            this.queryOptions = ConnectContext.get().getSessionVariable().toThrift();
+            this.queryGlobals = CoordinatorContext.createQueryGlobals(ConnectContext.get());
         }
     }
 
@@ -158,6 +175,7 @@ public abstract class AlterJobV2 implements Writable {
 
     public void setJobState(JobState jobState) {
         this.jobState = jobState;
+        this.showJobState = jobState;
     }
 
     public JobType getType() {

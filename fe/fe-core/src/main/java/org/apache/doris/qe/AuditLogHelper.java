@@ -38,6 +38,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -90,6 +91,23 @@ public class AuditLogHelper {
         }
     }
 
+    public static String handleCommand(String origStmt, Command command) {
+        if (origStmt == null) {
+            return null;
+        }
+        // 1. handle insert statement first
+        Optional<String> res = handleInsertCommand(origStmt, command);
+        if (res.isPresent()) {
+            return res.get();
+        }
+
+        // 2. handle other statement
+        int maxLen = GlobalVariable.auditPluginMaxSqlLength;
+        origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
+            + " */");
+        return origStmt;
+    }
+
     /**
      * Truncate sql and if SQL is in the following situations, count the number of rows:
      * <ul>
@@ -113,6 +131,27 @@ public class AuditLogHelper {
         origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
                 + " */");
         return origStmt;
+    }
+
+    private static Optional<String> handleInsertCommand(String origStmt, Command command) {
+        int rowCnt = 0;
+        // nereids planner
+        if (command instanceof InsertIntoTableCommand) {
+            LogicalPlan query = ((InsertIntoTableCommand) command).getLogicalQuery();
+            if (query instanceof UnboundTableSink) {
+                rowCnt = countValues(query.children());
+            }
+        }
+        if (rowCnt > 0) {
+            // This is an insert statement.
+            int maxLen = Math.max(0,
+                    Math.min(GlobalVariable.auditPluginMaxInsertStmtLength, GlobalVariable.auditPluginMaxSqlLength));
+            origStmt = truncateByBytes(origStmt, maxLen, " ... /* total " + rowCnt
+                + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */");
+            return Optional.of(origStmt);
+        } else {
+            return Optional.empty();
+        }
     }
 
     private static Optional<String> handleInsertStmt(String origStmt, StatementBase parsedStmt) {
@@ -367,9 +406,12 @@ public class AuditLogHelper {
                             statistics == null ? 0 : statistics.getScanBytesFromRemoteStorage());
         }
 
-        boolean isAnalysisErr = ctx.getState().getStateType() == MysqlStateType.ERR
-                && ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR;
-        String encryptSql = isAnalysisErr ? ctx.getState().getErrorMessage() : origStmt;
+        boolean isSyntaxErr = ctx.getState().getStateType() == MysqlStateType.ERR
+                && ctx.getState().getErrType() == QueryState.ErrType.SYNTAX_PARSE_ERR;
+        String encryptSql = isSyntaxErr ? "Syntax Error" : origStmt;
+        if (isSyntaxErr) {
+            auditEventBuilder.setErrorMessage("Syntax Error");
+        }
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();

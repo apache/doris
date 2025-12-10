@@ -38,6 +38,18 @@ suite("distinct_agg_strategy_selector") {
     sql "drop stats t1000"
     qt_no_stats_should_use_cte """explain shape plan
     select count(distinct a_1) , count(distinct b_5) from t1000;"""
-    qt_no_stats_should_use_cte_with_group_by """explain shape plan
+    qt_no_stats_should_use_multi_distinct """explain shape plan
     select count(distinct d_20) , count(distinct b_5) from t1000 group by a_1;"""
+
+    test {
+        sql "select count(distinct d_20,b_5) , count(distinct b_5) from t1000 group by grouping sets ((d_20, b_5),())"
+        exception "Unsupported query"
+    }
+    // multi_distinct_strategy = 2 means use cte, but it will be ignored because agg with source repeat should not use cte split
+    sql "set multi_distinct_strategy=2"
+    explain {
+        sql "logical plan select count(distinct d_20) , count(distinct b_5) from t1000 group by grouping sets ((d_20, b_5),())"
+        contains "multi_distinct_count"
+    }
+    sql "set multi_distinct_strategy=0 "
 }

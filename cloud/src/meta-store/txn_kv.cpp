@@ -187,29 +187,36 @@ TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* bounda
     RangeGetOptions opts;
     opts.snapshot = true;
     std::unique_ptr<RangeGetIterator> iter;
-    do {
+    int num_iterations = 0;
+    int num_kvs = 0;
+    while (iter == nullptr /* may be not init */ || iter->more()) {
         code = txn->get(begin_key, end_key, &iter, opts);
         if (code != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get fdb boundaries")
+                    .tag("code", code)
+                    .tag("begin_key", hex(begin_key))
+                    .tag("end_key", hex(end_key))
+                    .tag("num_iterations", num_iterations)
+                    .tag("num_kvs", num_kvs);
             if (code == TxnErrorCode::TXN_TOO_OLD) {
                 code = create_txn_with_system_access(&txn);
                 if (code == TxnErrorCode::TXN_OK) {
                     continue;
                 }
             }
-            LOG_WARNING("failed to get fdb boundaries")
-                    .tag("code", code)
-                    .tag("begin_key", hex(begin_key))
-                    .tag("end_key", hex(end_key));
+            LOG_WARNING("failed to recreate txn when get fdb boundaries").tag("code", code);
             return code;
         }
 
         while (iter->has_next()) {
             auto&& [key, value] = iter->next();
             boundaries->emplace_back(key);
+            ++num_kvs;
         }
 
         begin_key = iter->next_begin_key();
-    } while (iter->more());
+        ++num_iterations;
+    }
 
     return TxnErrorCode::TXN_OK;
 }
@@ -233,11 +240,16 @@ TxnErrorCode Transaction::batch_scan(
 
 namespace doris::cloud::fdb {
 
+// https://apple.github.io/foundationdb/known-limitations.html#design-limitations
+constexpr size_t FDB_VALUE_BYTES_LIMIT = 100'000; // 100 KB
+
 // Ref https://apple.github.io/foundationdb/api-error-codes.html#developer-guide-error-codes.
 constexpr fdb_error_t FDB_ERROR_CODE_TIMED_OUT = 1004;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_TOO_OLD = 1007;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_CONFLICT = 1020;
+constexpr fdb_error_t FDB_ERROR_COMMIT_UNKNOWN_RESULT = 1021;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_TIMED_OUT = 1031;
+constexpr fdb_error_t FDB_ERROR_CODE_TOO_MANY_WATCHES = 1032;
 constexpr fdb_error_t FDB_ERROR_CODE_INVALID_OPTION_VALUE = 2006;
 constexpr fdb_error_t FDB_ERROR_CODE_INVALID_OPTION = 2007;
 constexpr fdb_error_t FDB_ERROR_CODE_VERSION_INVALID = 2011;
@@ -274,6 +286,8 @@ static TxnErrorCode cast_as_txn_code(fdb_error_t err) {
         return TxnErrorCode::TXN_TOO_OLD;
     case FDB_ERROR_CODE_TXN_CONFLICT:
         return TxnErrorCode::TXN_CONFLICT;
+    case FDB_ERROR_CODE_TOO_MANY_WATCHES:
+        return TxnErrorCode::TXN_TOO_MANY_WATCHES;
     }
 
     if (fdb_error_predicate(FDB_ERROR_PREDICATE_MAYBE_COMMITTED, err)) {
@@ -437,6 +451,13 @@ void Transaction::put(std::string_view key, std::string_view val) {
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
     approximate_bytes_ += key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
+
+    if (val.size() > FDB_VALUE_BYTES_LIMIT) {
+        LOG_WARNING("txn put with large value")
+                .tag("key", hex(key))
+                .tag("value", hex(val.substr(0, 64)) + "...")
+                .tag("value_size", val.size());
+    }
 }
 
 // return 0 for success otherwise error
@@ -579,6 +600,13 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
     approximate_bytes_ += key.size() * 3 + val.size();
+
+    if (val.size() > FDB_VALUE_BYTES_LIMIT) {
+        LOG_WARNING("atomic_set_ver_key with large value")
+                .tag("key", hex(key_prefix))
+                .tag("value", hex(val.substr(0, 64)) + "...")
+                .tag("value_size", val.size());
+    }
 }
 
 bool Transaction::atomic_set_ver_key(std::string_view key, uint32_t offset, std::string_view val) {
@@ -601,6 +629,14 @@ bool Transaction::atomic_set_ver_key(std::string_view key, uint32_t offset, std:
     ++num_put_keys_;
     put_bytes_ += key_buf.size() + val.size();
     approximate_bytes_ += key_buf.size() * 3 + val.size();
+
+    if (val.size() > FDB_VALUE_BYTES_LIMIT) {
+        LOG_WARNING("atomic_set_ver_key with large value")
+                .tag("key", hex(key))
+                .tag("value", hex(val.substr(0, 64)) + "...")
+                .tag("value_size", val.size());
+    }
+
     return true;
 }
 
@@ -621,6 +657,13 @@ void Transaction::atomic_set_ver_value(std::string_view key, std::string_view va
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
     approximate_bytes_ += key.size() * 3 + val.size();
+
+    if (val.size() > FDB_VALUE_BYTES_LIMIT) {
+        LOG_WARNING("atomic_set_ver_value with large value")
+                .tag("key", hex(key))
+                .tag("value", hex(val.substr(0, 64)) + "...")
+                .tag("value_size", val.size());
+    }
 }
 
 void Transaction::atomic_add(std::string_view key, int64_t to_add) {
@@ -725,9 +768,35 @@ TxnErrorCode Transaction::commit() {
             return cast_as_txn_code(err);
         }
 
-        versionstamp_result_ = std::string((char*)versionstamp_data, versionstamp_length);
+        if (versionstamp_length == 10) {
+            versionstamp_result_ = Versionstamp(versionstamp_data);
+        } else {
+            LOG(WARNING) << "unexpected versionstamp length: " << versionstamp_length;
+        }
     }
 
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::watch_key(std::string_view key) {
+    StopWatch sw;
+    auto* fut = fdb_transaction_watch(txn_, (uint8_t*)key.data(), key.size());
+    DORIS_CLOUD_DEFER {
+        fdb_future_destroy(fut);
+        g_bvar_txn_kv_watch_key << sw.elapsed_us();
+    };
+
+    RETURN_IF_ERROR(commit());
+    RETURN_IF_ERROR(await_future(fut));
+    auto err = fdb_future_get_error(fut);
+    TEST_SYNC_POINT_CALLBACK("transaction:watch_key:get_err", &err);
+    if (err) {
+        if (err == FDB_ERROR_COMMIT_UNKNOWN_RESULT) {
+            fdb_future_cancel(fut);
+        }
+        LOG(WARNING) << "fdb watch key " << hex(key) << ": " << fdb_get_error(err);
+        return cast_as_txn_code(err);
+    }
     return TxnErrorCode::TXN_OK;
 }
 
@@ -773,13 +842,13 @@ void Transaction::enable_get_versionstamp() {
     versionstamp_enabled_ = true;
 }
 
-TxnErrorCode Transaction::get_versionstamp(std::string* versionstamp) {
+TxnErrorCode Transaction::get_versionstamp(Versionstamp* versionstamp) {
     if (!versionstamp_enabled_) {
         LOG(WARNING) << "get_versionstamp called but versionstamp not enabled";
         return TxnErrorCode::TXN_INVALID_ARGUMENT;
     }
 
-    if (versionstamp_result_.empty()) {
+    if (versionstamp_result_ == Versionstamp()) {
         LOG(WARNING) << "versionstamp not available, commit may not have been called or failed";
         return TxnErrorCode::TXN_KEY_NOT_FOUND;
     }

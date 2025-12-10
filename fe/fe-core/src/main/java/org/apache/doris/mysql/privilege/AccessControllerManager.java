@@ -18,7 +18,6 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
@@ -28,7 +27,7 @@ import org.apache.doris.common.util.ClassLoaderUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -213,11 +212,6 @@ public class AccessControllerManager {
     }
 
     // ==== Table ====
-    public boolean checkTblPriv(ConnectContext ctx, TableName tableName, PrivPredicate wanted) {
-        Preconditions.checkState(tableName.isFullyQualified());
-        return checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(), tableName.getTbl(), wanted);
-    }
-
     public boolean checkTblPriv(ConnectContext ctx, TableNameInfo tableName, PrivPredicate wanted) {
         Preconditions.checkState(tableName.isFullyQualified());
         return checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(), tableName.getTbl(), wanted);

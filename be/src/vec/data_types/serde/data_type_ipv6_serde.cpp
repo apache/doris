@@ -31,44 +31,16 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <bool is_binary_format>
-Status DataTypeIPv6SerDe::_write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<is_binary_format>& result,
-                                                 int64_t row_idx, bool col_const,
-                                                 const FormatOptions& options) const {
+Status DataTypeIPv6SerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                       MysqlRowBinaryBuffer& result,
+                                                       int64_t row_idx, bool col_const) const {
     auto& data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     IPv6Value ipv6_val(data[col_index]);
-    // _nesting_level >= 2 means this datetimev2 is in complex type
-    // and we should add double quotes
-    if (_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
     if (UNLIKELY(0 != result.push_ipv6(ipv6_val))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
-    if (_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
     return Status::OK();
-}
-
-Status DataTypeIPv6SerDe::write_column_to_mysql(const IColumn& column,
-                                                MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
-                                                bool col_const,
-                                                const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeIPv6SerDe::write_column_to_mysql(const IColumn& column,
-                                                MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
-                                                bool col_const,
-                                                const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {

@@ -56,7 +56,6 @@ import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.generator.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -114,7 +113,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -281,10 +280,6 @@ public class BindExpression implements AnalysisRuleFactory {
 
             Expression boundGenerator = analyzer.analyze(generate.getGenerators().get(i));
 
-            if (boundGenerator instanceof RewriteWhenAnalyze) {
-                boundGenerator = ((RewriteWhenAnalyze) boundGenerator).rewrite();
-            }
-
             if (!(boundGenerator instanceof TableGeneratingFunction)) {
                 throw new AnalysisException(boundGenerator.toSql() + " is not a TableGeneratingFunction");
             }
@@ -299,14 +294,20 @@ public class BindExpression implements AnalysisRuleFactory {
             // 2. the expandColumnsAlias is empty, we should use origin boundSlot
             if (generate.getExpandColumnAlias() != null && i < generate.getExpandColumnAlias().size()
                     && !CollectionUtils.isEmpty(generate.getExpandColumnAlias().get(i))) {
-                // if the alias is not empty, we should bind it with struct_element as child expr with alias
-                // struct_element(#expand_col#k, #k) as #k
-                // struct_element(#expand_col#v, #v) as #v
-                List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
-                for (int idx = 0; idx < fields.size(); ++idx) {
-                    expandAlias.add(new Alias(new StructElement(
-                            boundSlot, new StringLiteral(fields.get(idx).getName())),
-                            generate.getExpandColumnAlias().get(i).get(idx),
+                if (boundSlot.getDataType() instanceof StructType
+                        && generate.getExpandColumnAlias().get(i).size() > 1) {
+                    // if the alias is not empty, we should bind it with struct_element as child expr with alias
+                    // struct_element(#expand_col#k, #k) as #k
+                    // struct_element(#expand_col#v, #v) as #v
+                    List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
+                    for (int idx = 0; idx < fields.size(); ++idx) {
+                        expandAlias.add(new Alias(new StructElement(
+                                boundSlot, new StringLiteral(fields.get(idx).getName())),
+                                generate.getExpandColumnAlias().get(i).get(idx),
+                                slot.getQualifier()));
+                    }
+                } else {
+                    expandAlias.add(new Alias(boundSlot, generate.getExpandColumnAlias().get(i).get(0),
                             slot.getQualifier()));
                 }
             }
@@ -468,12 +469,12 @@ public class BindExpression implements AnalysisRuleFactory {
             Scope groupBySlotsScope = toScope(cascadesContext, groupBySlots.build());
 
             return (analyzer, unboundSlot) -> {
-                List<Slot> boundInGroupBy = analyzer.bindSlotByScope(unboundSlot, groupBySlotsScope);
+                List<Expression> boundInGroupBy = analyzer.bindSlotByScope(unboundSlot, groupBySlotsScope);
                 if (!boundInGroupBy.isEmpty()) {
                     return ImmutableList.of(boundInGroupBy.get(0));
                 }
 
-                List<Slot> boundInAggOutput = analyzer.bindSlotByScope(unboundSlot, aggOutputScope);
+                List<Expression> boundInAggOutput = analyzer.bindSlotByScope(unboundSlot, aggOutputScope);
                 if (!boundInAggOutput.isEmpty()) {
                     return ImmutableList.of(boundInAggOutput.get(0));
                 }
@@ -529,7 +530,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Set<Expression> havingExprs = having.getConjuncts();
         ImmutableSet.Builder<Expression> analyzedHaving = ImmutableSet.builder();
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(having, cascadesContext);
         Map<Expression, Expression> bindUniqueIdReplaceMap
                 = getGroupByUniqueFuncReplaceMap(aggregate.getGroupByExpressions());
         for (Expression expression : havingExprs) {
@@ -552,7 +553,7 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
                 having, cascadesContext, defaultScope, false, true,
                 (self, unboundSlot) -> {
-                    List<Slot> slots = self.bindSlotByScope(unboundSlot, defaultScope);
+                    List<Expression> slots = self.bindSlotByScope(unboundSlot, defaultScope);
                     if (!slots.isEmpty()) {
                         return slots;
                     }
@@ -668,7 +669,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Scope leftScope = toScope(cascadesContext, using.left().getOutput(), using.left().getAsteriskOutput());
         Scope rightScope = toScope(cascadesContext, using.right().getOutput(), using.right().getAsteriskOutput());
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(using, cascadesContext);
 
         Builder<Expression> hashEqExprs = ImmutableList.builderWithExpectedSize(unboundHashJoinConjunct.size());
         List<Slot> rightConjunctsSlots = Lists.newArrayList();
@@ -1005,7 +1006,7 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
                 qualify, cascadesContext, defaultScope.get(), true, true,
                 (self, unboundSlot) -> {
-                List<Slot> slots = self.bindSlotByScope(unboundSlot, defaultScope.get());
+                List<Expression> slots = self.bindSlotByScope(unboundSlot, defaultScope.get());
                 if (!slots.isEmpty()) {
                     return slots;
                 }
@@ -1043,11 +1044,11 @@ public class BindExpression implements AnalysisRuleFactory {
             Scope groupBySlotsScope = toScope(cascadesContext, groupBySlots.build());
 
             return (analyzer, unboundSlot) -> {
-                List<Slot> boundInGroupBy = analyzer.bindSlotByScope(unboundSlot, groupBySlotsScope);
+                List<Expression> boundInGroupBy = analyzer.bindSlotByScope(unboundSlot, groupBySlotsScope);
                 if (!boundInGroupBy.isEmpty()) {
                     return ImmutableList.of(boundInGroupBy.get(0));
                 }
-                List<Slot> boundInAggOutput = analyzer.bindSlotByScope(unboundSlot, aggOutputScope);
+                List<Expression> boundInAggOutput = analyzer.bindSlotByScope(unboundSlot, aggOutputScope);
                 if (!boundInAggOutput.isEmpty()) {
                     return ImmutableList.of(boundInAggOutput.get(0));
                 }
@@ -1066,7 +1067,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Map<Expression, Expression> bindUniqueIdReplaceMap
                 = getGroupByUniqueFuncReplaceMap(aggregate.getGroupByExpressions());
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(qualify, cascadesContext);
         for (Expression expression : qualify.getConjuncts()) {
             Expression boundExpr = qualifyAnalyzer.analyze(expression, rewriteContext);
             // logical plan builder no extract conjunction
@@ -1119,10 +1120,9 @@ public class BindExpression implements AnalysisRuleFactory {
             }
         }
 
-        Supplier<Scope> aggOutputScopeWithoutAggFun =
-                buildAggOutputScopeWithoutAggFun(boundProjections, cascadesContext);
+        Supplier<Scope> aggOutputScope = buildAggOutputScope(boundProjections, cascadesContext);
         List<Expression> boundGroupBy = bindGroupBy(
-                agg, agg.getGroupByExpressions(), boundProjections, aggOutputScopeWithoutAggFun, cascadesContext);
+                agg, agg.getGroupByExpressions(), boundProjections, aggOutputScope, cascadesContext);
         boundGroupBy = bindGroupByUniqueId(boundGroupBy);
         boundProjections = bindExprsUniqueIdWithGroupBy(boundProjections, boundGroupBy);
         boundProjections = processNonStandardAggregate(boundProjections, boundGroupBy);
@@ -1264,9 +1264,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         SimpleExprAnalyzer repeatOutputAnalyzer = buildSimpleExprAnalyzer(repeat, cascadesContext, repeat.children());
         List<NamedExpression> boundRepeatOutput = repeatOutputAnalyzer.analyzeToList(repeat.getOutputExpressions());
-        Supplier<Scope> aggOutputScopeWithoutAggFun =
-                buildAggOutputScopeWithoutAggFun(boundRepeatOutput, cascadesContext);
-
+        Supplier<Scope> aggOutputScope = buildAggOutputScope(boundRepeatOutput, cascadesContext);
         Builder<List<Expression>> boundGroupingSetsBuilder =
                 ImmutableList.builderWithExpectedSize(repeat.getGroupingSets().size());
         Set<Expression> flatBoundGroupingSet = Sets.newHashSet();
@@ -1274,7 +1272,7 @@ public class BindExpression implements AnalysisRuleFactory {
         Map<Expression, Expression> ignoreUniqueIdGroupByExpressions = Maps.newHashMap();
         for (List<Expression> groupingSet : repeat.getGroupingSets()) {
             List<Expression> boundGroupingSet = bindGroupBy(
-                    repeat, groupingSet, boundRepeatOutput, aggOutputScopeWithoutAggFun, cascadesContext);
+                    repeat, groupingSet, boundRepeatOutput, aggOutputScope, cascadesContext);
             ImmutableList.Builder<Expression> groupByBuilder
                     = ImmutableList.builderWithExpectedSize(boundGroupingSet.size());
             for (Expression groupBy : boundGroupingSet) {
@@ -1358,7 +1356,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private List<Expression> bindGroupBy(
             Aggregate<Plan> agg, List<Expression> groupBy, List<NamedExpression> boundAggOutput,
-            Supplier<Scope> aggOutputScopeWithoutAggFun, CascadesContext cascadesContext) {
+            Supplier<Scope> aggOutputScope, CascadesContext cascadesContext) {
         Scope childOutputScope = toScope(cascadesContext, agg.child().getOutput());
 
         SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
@@ -1367,7 +1365,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     // see: https://github.com/apache/doris/pull/15240
                     //
                     // first, try to bind by agg.child.output
-                    List<Slot> slotsInChildren = self.bindExactSlotsByThisScope(unboundSlot, childOutputScope);
+                    List<Expression> slotsInChildren = self.bindExactSlotsByThisScope(unboundSlot, childOutputScope);
                     if (slotsInChildren.size() == 1) {
                         // bind succeed
                         return slotsInChildren;
@@ -1375,8 +1373,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     // second, bind failed:
                     // if the slot not found, or more than one candidate slots found in agg.child.output,
                     // then try to bind by agg.output
-                    List<Slot> slotsInOutput = self.bindExactSlotsByThisScope(
-                            unboundSlot, aggOutputScopeWithoutAggFun.get());
+                    List<Expression> slotsInOutput = self.bindExactSlotsByThisScope(unboundSlot, aggOutputScope.get());
                     if (slotsInOutput.isEmpty()) {
                         // if slotsInChildren.size() > 1 && slotsInOutput.isEmpty(),
                         // we return slotsInChildren to throw an ambiguous slots exception
@@ -1384,8 +1381,8 @@ public class BindExpression implements AnalysisRuleFactory {
                     }
 
                     Builder<Expression> useOutputExpr = ImmutableList.builderWithExpectedSize(slotsInOutput.size());
-                    for (Slot slotInOutput : slotsInOutput) {
-                        // mappingSlot is provided by aggOutputScopeWithoutAggFun
+                    for (Expression slotInOutput : slotsInOutput) {
+                        // mappingSlot is provided by aggOutputScope
                         // and no non-MappingSlot slot exist in the Scope, so we
                         // can direct cast it safely
                         MappingSlot mappingSlot = (MappingSlot) slotInOutput;
@@ -1413,19 +1410,17 @@ public class BindExpression implements AnalysisRuleFactory {
         return boundGroupBy;
     }
 
-    private Supplier<Scope> buildAggOutputScopeWithoutAggFun(
+    private Supplier<Scope> buildAggOutputScope(
             List<? extends NamedExpression> boundAggOutput, CascadesContext cascadesContext) {
         return Suppliers.memoize(() -> {
-            Builder<Slot> nonAggFunOutput = ImmutableList.builderWithExpectedSize(boundAggOutput.size());
+            Builder<Slot> outputBuilder = ImmutableList.builderWithExpectedSize(boundAggOutput.size());
             for (NamedExpression output : boundAggOutput) {
-                if (!output.containsType(AggregateFunction.class)) {
-                    Slot outputSlot = output.toSlot();
-                    Slot mappingSlot = new MappingSlot(outputSlot,
-                            output instanceof Alias ? output.child(0) : output);
-                    nonAggFunOutput.add(mappingSlot);
-                }
+                Slot outputSlot = output.toSlot();
+                Slot mappingSlot = new MappingSlot(outputSlot,
+                        output instanceof Alias ? output.child(0) : output);
+                outputBuilder.add(mappingSlot);
             }
-            return toScope(cascadesContext, nonAggFunOutput.build());
+            return toScope(cascadesContext, outputBuilder.build());
         });
     }
 
@@ -1434,6 +1429,10 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalSort<Plan> sort = ctx.root;
         Plan input = sort.child();
         List<Slot> childOutput = input.getOutput();
+
+        if (input instanceof LogicalQualify) {
+            input = input.child(0);
+        }
 
         // we should skip distinct project to bind slot in LogicalSort;
         // check input.child(0) to avoid process SELECT DISTINCT a FROM t ORDER BY b by mistake
@@ -1445,6 +1444,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 || input.child(0) instanceof LogicalRepeat)) {
             input = input.child(0);
         }
+
         // we should skip LogicalHaving to bind slot in LogicalSort;
         if (input instanceof LogicalHaving) {
             input = input.child(0);
@@ -1475,7 +1475,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 sort, cascadesContext, inputScope, true, false,
                 (self, unboundSlot) -> {
                     // first, try to bind slot in Scope(input.output)
-                    List<Slot> slotsInInput = self.bindExactSlotsByThisScope(unboundSlot, inputScope);
+                    List<Expression> slotsInInput = self.bindExactSlotsByThisScope(unboundSlot, inputScope);
                     if (!slotsInInput.isEmpty()) {
                         // bind succeed
                         return ImmutableList.of(slotsInInput.get(0));
@@ -1593,7 +1593,7 @@ public class BindExpression implements AnalysisRuleFactory {
             Plan currentPlan, CascadesContext cascadesContext, List<Plan> children) {
         Scope scope = toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(children),
                 PlanUtils.fastGetChildrenAsteriskOutputs(children));
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(currentPlan, cascadesContext);
         ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(currentPlan,
                 scope, cascadesContext, true, true);
         return expr -> expressionAnalyzer.analyze(expr, rewriteContext);
@@ -1602,7 +1602,7 @@ public class BindExpression implements AnalysisRuleFactory {
     private SimpleExprAnalyzer buildCustomSlotBinderAnalyzer(
             Plan currentPlan, CascadesContext cascadesContext, Scope defaultScope,
             boolean enableExactMatch, boolean bindSlotInOuterScope, CustomSlotBinderAnalyzer customSlotBinder) {
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(currentPlan, cascadesContext);
         ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(currentPlan, defaultScope, cascadesContext,
                 enableExactMatch, bindSlotInOuterScope) {
             @Override
@@ -1677,7 +1677,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 sort, cascadesContext, inputScope, true, false,
                 (analyzer, unboundSlot) -> {
                     if (finalInput instanceof LogicalAggregate) {
-                        List<Slot> boundInOutputWithoutAggFunc = analyzer.bindSlotByScope(unboundSlot,
+                        List<Expression> boundInOutputWithoutAggFunc = analyzer.bindSlotByScope(unboundSlot,
                                 outputWithoutAggFunc);
                         if (!boundInOutputWithoutAggFunc.isEmpty()) {
                             return ImmutableList.of(boundInOutputWithoutAggFunc.get(0));

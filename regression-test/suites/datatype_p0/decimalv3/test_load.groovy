@@ -74,7 +74,7 @@ suite("test_load") {
         "replication_num" = "1"
         );
     """
-    sql "set enable_insert_strict=true;"
+    sql "set enable_insert_strict=false;"
     def sessionVarOrigValue = sql("select @@enable_strict_cast")
     sql "set enable_strict_cast=false"
     // overflow, null is inserted
@@ -94,6 +94,7 @@ suite("test_load") {
     """
 
     sql "set enable_strict_cast=true"
+    sql "set enable_insert_strict=true;"
     // overflow, return error
     test {
         sql """

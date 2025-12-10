@@ -69,6 +69,7 @@
 #include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/field_visitors.h"
+#include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -573,7 +574,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
             // In this case, we should finlize the root and cast to JSON type
             auto expected_root_type =
                     make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
-            const_cast<ColumnVariant&>(var).ensure_root_node_type(expected_root_type);
+            var.ensure_root_node_type(expected_root_type);
             variant_column = var.assume_mutable();
         }
 
@@ -613,8 +614,7 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     const auto& column_new = new_schema->column(new_col_idx);
     const auto& column_old = old_schema->column(old_col_idx);
 
-    if (column_new.is_bf_column() != column_old.is_bf_column() ||
-        column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+    if (column_new.is_bf_column() != column_old.is_bf_column()) {
         return true;
     }
 
@@ -650,6 +650,32 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     return res;
 }
 
+TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_index) {
+    TabletColumn res;
+    std::string name = variant.name_lower_case() + "." + SPARSE_COLUMN_PATH + ".b" +
+                       std::to_string(bucket_index);
+    res.set_name(name);
+    res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
+    res.set_aggregation_method(variant.aggregation());
+    res.set_parent_unique_id(variant.unique_id());
+    res.set_default_value("NULL");
+    PathInData path(name);
+    res.set_path_info(path);
+    TabletColumn child_tcolumn;
+    child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    res.add_sub_column(child_tcolumn);
+    res.add_sub_column(child_tcolumn);
+    return res;
+}
+
+uint32_t variant_sparse_shard_of(const StringRef& path, uint32_t bucket_num) {
+    if (bucket_num <= 1) return 0;
+    SipHash hash;
+    hash.update(path.data, path.size);
+    uint64_t h = hash.get64();
+    return static_cast<uint32_t>(h % bucket_num);
+}
+
 Status VariantCompactionUtil::aggregate_path_to_stats(
         const RowsetSharedPtr& rs,
         std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats) {
@@ -672,8 +698,10 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
+            auto* variant_column_reader =
+                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            // load external meta before getting stats
+            RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -711,8 +739,10 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
+            auto* variant_column_reader =
+                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            // load external meta before getting stats
+            RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -1077,9 +1107,19 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                     output_schema);
         }
 
-        // append sparse column
-        TabletColumn sparse_column = create_sparse_column(*column);
-        output_schema->append_column(sparse_column);
+        // append sparse column(s)
+        // If variant uses bucketized sparse columns, append one sparse bucket column per bucket.
+        // Otherwise, append the single sparse column.
+        int bucket_num = std::max(1, column->variant_sparse_hash_shard_count());
+        if (bucket_num > 1) {
+            for (int b = 0; b < bucket_num; ++b) {
+                TabletColumn sparse_bucket_column = create_sparse_shard_column(*column, b);
+                output_schema->append_column(sparse_bucket_column);
+            }
+        } else {
+            TabletColumn sparse_column = create_sparse_column(*column);
+            output_schema->append_column(sparse_column);
+        }
     }
 
     target = output_schema;
@@ -1380,9 +1420,16 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                 }
 
                 CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-                const auto* subcolumn_meta_info =
-                        assert_cast<VariantColumnReader*>(column_reader.get())
-                                ->get_subcolumns_meta_info();
+                auto* variant_column_reader =
+                        assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+                // load external meta before getting subcolumn meta info
+                st = variant_column_reader->load_external_meta_once();
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed to load external meta for column: " << column->name()
+                                 << " error: " << st.to_string();
+                    continue;
+                }
+                const auto* subcolumn_meta_info = variant_column_reader->get_subcolumns_meta_info();
                 for (const auto& entry : *subcolumn_meta_info) {
                     if (entry->path.empty()) {
                         continue;

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
@@ -26,15 +25,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.load.EtlJobType;
@@ -44,6 +42,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.load.NereidsDataDescription;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -57,10 +56,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -211,7 +206,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             .put(PRIORITY, (Function<String, LoadTask.Priority>) s -> LoadTask.Priority.valueOf(s))
             .build();
     private static final Logger LOG = LogManager.getLogger(LoadCommand.class);
-    private final LabelName label;
+    private final LabelNameInfo label;
     private final List<NereidsDataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
     private final ResourceDesc resourceDesc;
@@ -227,7 +222,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
     /**
      * constructor of LoadCommand
      */
-    public LoadCommand(LabelName label, List<NereidsDataDescription> dataDescriptions, BrokerDesc brokerDesc,
+    public LoadCommand(LabelNameInfo label, List<NereidsDataDescription> dataDescriptions, BrokerDesc brokerDesc,
                            ResourceDesc resourceDesc, Map<String, String> properties, String comment) {
         super(PlanType.LOAD_COMMAND);
         this.label = label;
@@ -242,7 +237,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         return etlJobType;
     }
 
-    public LabelName getLabel() {
+    public LabelNameInfo getLabel() {
         return label;
     }
 
@@ -351,7 +346,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             if (!partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("append")
                     && !partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("error")) {
                 throw new DdlException(PARTIAL_UPDATE_NEW_KEY_POLICY + " should be one of [append, error], but found "
-                    + partialUpdateNewKeyPolicyProperty);
+                        + partialUpdateNewKeyPolicyProperty);
             }
         }
 
@@ -388,13 +383,13 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (Strings.isNullOrEmpty(label.getDbName())) {
+        if (Strings.isNullOrEmpty(label.getDb())) {
             if (Strings.isNullOrEmpty(ctx.getDatabase())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            label.setDbName(ctx.getDatabase());
+            label.setDb(ctx.getDatabase());
         }
-        FeNameFormat.checkLabel(label.getLabelName());
+        FeNameFormat.checkLabel(label.getLabel());
 
         if (dataDescriptions == null || dataDescriptions.isEmpty()) {
             throw new AnalysisException("No data file in load statement.");
@@ -407,7 +402,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             if (brokerDesc == null && resourceDesc == null) {
                 dataDescription.setIsHadoopLoad(true);
             }
-            String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), ctx);
+            String fullDbName = dataDescription.analyzeFullDbName(label.getDb(), ctx);
             dataDescription.analyze(fullDbName);
 
             if (dataDescription.isLoadFromTable()) {
@@ -421,6 +416,16 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             }
             if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && !table.hasDeleteSign()) {
                 throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+            }
+            if (properties != null) {
+                String loadToSingleTablet = properties.get(LOAD_TO_SINGLE_TABLET);
+                if (loadToSingleTablet != null && loadToSingleTablet.equalsIgnoreCase("true")) {
+                    if (!(table.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
+                        throw new AnalysisException(
+                                "if load_to_single_tablet set to true, "
+                                + "the olap table must be with random distribution");
+                    }
+                }
             }
             if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
@@ -451,7 +456,13 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
-            checkS3Param();
+            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
+                    && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
+                //@zykkk todo We should use a unified connectivity check — it doesn’t really belong here.
+                ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
+                String endpoint = storageProperties.getEndpoint();
+                S3Util.validateAndTestEndpoint(endpoint);
+            }
         } else {
             etlJobType = EtlJobType.UNKNOWN;
         }
@@ -468,82 +479,6 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         }
 
         handleLoadCommand(ctx, executor);
-    }
-
-    /**
-     * check for s3 param
-     */
-    public void checkS3Param() throws UserException {
-        if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
-            ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
-            String endpoint = storageProperties.getEndpoint();
-            checkEndpoint(endpoint);
-            checkWhiteList(endpoint);
-            List<String> filePaths = new ArrayList<>();
-            if (dataDescriptions != null && !dataDescriptions.isEmpty()) {
-                for (NereidsDataDescription dataDescription : dataDescriptions) {
-                    if (dataDescription.getFilePaths() != null) {
-                        for (String filePath : dataDescription.getFilePaths()) {
-                            if (filePath != null && !filePath.isEmpty()) {
-                                filePaths.add(filePath);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * check endpoint
-     */
-    private void checkEndpoint(String endpoint) throws UserException {
-        HttpURLConnection connection = null;
-        try {
-            String urlStr = endpoint;
-            // Add default protocol if not specified
-            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
-                urlStr = "http://" + endpoint;
-            }
-            SecurityChecker.getInstance().startSSRFChecking(urlStr);
-            URL url = new URL(urlStr);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(10000);
-            connection.connect();
-        } catch (Exception e) {
-            LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
-            String msg;
-            if (e instanceof UserException) {
-                msg = ((UserException) e).getDetailMessage();
-            } else {
-                msg = e.getMessage();
-            }
-            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                "Failed to access object storage, message=" + msg, e);
-        } finally {
-            if (connection != null) {
-                try {
-                    connection.disconnect();
-                } catch (Exception e) {
-                    LOG.warn("Failed to disconnect connection, endpoint={}, err={}", endpoint, e);
-                }
-            }
-            SecurityChecker.getInstance().stopSSRFChecking();
-        }
-    }
-
-    /**
-     * check WhiteList
-     */
-    public void checkWhiteList(String endpoint) throws UserException {
-        endpoint = endpoint.replaceFirst("^http://", "");
-        endpoint = endpoint.replaceFirst("^https://", "");
-        List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
-        whiteList.removeIf(String::isEmpty);
-        if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {
-            throw new UserException("endpoint: " + endpoint
-                + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
-        }
     }
 
     /**

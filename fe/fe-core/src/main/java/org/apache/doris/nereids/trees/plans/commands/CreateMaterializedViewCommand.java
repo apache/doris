@@ -35,6 +35,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -71,7 +72,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithC
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -168,11 +168,14 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         return originStatement;
     }
 
+    /**getWhereClauseItemColumn*/
     public Column getWhereClauseItemColumn(OlapTable olapTable) throws DdlException {
         if (whereClauseItem == null) {
             return null;
         }
-        return whereClauseItem.toMVColumn(olapTable);
+        // sessionVars is null because in BindSink, the where clause guard expr
+        // can directly use the session var in materialized view metadata.
+        return whereClauseItem.toMVColumn(olapTable, null);
     }
 
     public MVColumnItem getWhereClauseItem() {
@@ -271,6 +274,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             if (olapTable.isTemporary()) {
                 throw new AnalysisException("do not support create materialized view on temporary table");
             }
+            if (olapScan.isDirectMvScan()) {
+                throw new AnalysisException("do not support create materialized view on another synchronized mv");
+            }
             validateContext.baseIndexName = olapTable.getName();
             validateContext.dbName = olapTable.getDBName();
             validateContext.keysType = olapTable.getKeysType();
@@ -301,8 +307,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                         Column column = ((SlotReference) slot).getOriginalColumn().orElse(null);
                         if (column != null) {
                             if (column.isVisible()) {
-                                AggregateType aggregateType = column.getAggregationType();
-                                if (aggregateType != null && aggregateType != AggregateType.NONE) {
+                                if (context.keysType.isAggregationFamily() && !column.isKey()) {
                                     throw new AnalysisException(String.format(
                                             "The where clause contained aggregate column is not supported, expr is %s",
                                             expr));

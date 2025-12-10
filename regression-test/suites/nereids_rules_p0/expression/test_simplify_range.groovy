@@ -37,7 +37,7 @@ suite('test_simplify_range') {
         )
         unique key(pk_id, collect_time)
         auto partition by list(collect_time)()
-        distributed by hash(pk_id) buckets auto
+        distributed by hash(pk_id) buckets 10
         properties (
             "replication_allocation" = "tag.location.default: 1",
             "enable_unique_key_merge_on_write" = "true"

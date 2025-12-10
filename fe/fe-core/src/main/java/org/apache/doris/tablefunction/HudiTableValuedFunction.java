@@ -17,13 +17,13 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THudiMetadataParams;
@@ -75,7 +75,7 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
     private THudiQueryType queryType;
 
     // here tableName represents the name of a table in Hudi.
-    private final TableName hudiTableName;
+    private final TableNameInfo hudiTableName;
 
     public HudiTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> validParams = Maps.newHashMap();
@@ -95,7 +95,7 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
         if (names.length != 3) {
             throw new AnalysisException("The hudi table name contains the catalogName, databaseName, and tableName");
         }
-        this.hudiTableName = new TableName(names[0], names[1], names[2]);
+        this.hudiTableName = new TableNameInfo(names[0], names[1], names[2]);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), this.hudiTableName, PrivPredicate.SELECT)) {

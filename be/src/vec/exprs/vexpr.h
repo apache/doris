@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/column_reader.h"
@@ -50,6 +51,7 @@
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -129,9 +131,32 @@ public:
         return Status::InternalError(expr_name() + " is not ready when execute");
     }
 
-    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
+    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const {
+        ColumnPtr result_column;
+        RETURN_IF_ERROR(execute_column(context, block, block->rows(), result_column));
+        *result_column_id = block->columns();
+        block->insert({result_column, execute_type(block), expr_name()});
+        return Status::OK();
+    }
+
+    // Execute the current expression and return the result column.
+    // Note: the block will not be modified during execution.
+    // We allow columns in the block to have different numbers of rows.
+    // 'count' indicates the number of rows in the result column returned by this expression.
+    // In the future this interface will add an additional parameter, Selector, which specifies
+    // which rows in the block should be evaluated.
+    virtual Status execute_column(VExprContext* context, const Block* block, size_t count,
+                                  ColumnPtr& result_column) const = 0;
+
+    // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
+    // Therefore we need a function like this to return the actual type produced by execution.
+    virtual DataTypePtr execute_type(const Block* block) const { return _data_type; }
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
-    [[nodiscard]] virtual bool is_blockable() const { return false; }
+    [[nodiscard]] virtual bool is_blockable() const {
+        return std::any_of(_children.begin(), _children.end(),
+                           [](VExprSPtr child) { return child->is_blockable(); });
+    }
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
     virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
@@ -145,9 +170,9 @@ public:
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
-    virtual Status execute_runtime_filter(VExprContext* context, Block* block,
-                                          int* result_column_id, ColumnNumbers& args) {
-        return execute(context, block, result_column_id);
+    virtual Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
+                                          ColumnPtr& result_column, ColumnPtr* arg_column) const {
+        return execute_column(context, block, count, result_column);
     };
 
     /// Subclasses overriding this function should call VExpr::Close().
@@ -162,6 +187,8 @@ public:
     const DataTypePtr& data_type() const { return _data_type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+
+    bool is_virtual_slot_ref() const { return _node_type == TExprNodeType::VIRTUAL_SLOT_REF; }
 
     bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
 
@@ -200,6 +227,11 @@ public:
     static Status clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* state,
                                       VExprContextSPtrs& new_ctxs);
 
+    static bool contains_blockable_function(const VExprContextSPtrs& ctxs) {
+        return std::any_of(ctxs.begin(), ctxs.end(),
+                           [](const VExprContextSPtr& ctx) { return ctx->root()->is_blockable(); });
+    }
+
     bool is_nullable() const { return _data_type->is_nullable(); }
 
     PrimitiveType result_type() const { return _data_type->get_primitive_type(); }
@@ -221,8 +253,6 @@ public:
     void set_getting_const_col(bool val = true) { _getting_const_col = val; }
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
-
-    virtual bool is_compound_predicate() const { return false; }
 
     const TFunction& fn() const { return _fn; }
 
@@ -267,8 +297,7 @@ public:
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-    bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                      int* result_column_id);
+    bool fast_execute(VExprContext* context, ColumnPtr& result_column) const;
 
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool equals(const VExpr& other);
@@ -299,7 +328,11 @@ public:
                                           segment_v2::AnnRangeSearchRuntime& range_search_runtime,
                                           bool& suitable_for_ann_index);
 
-    bool has_been_executed();
+    bool ann_range_search_executedd();
+
+    bool ann_dist_is_fulfilled() const;
+
+    virtual uint64_t get_digest(uint64_t seed) const;
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information
@@ -333,10 +366,11 @@ protected:
         return res;
     }
 
-    bool is_const_and_have_executed() { return (is_constant() && (_constant_col != nullptr)); }
+    bool is_const_and_have_executed() const {
+        return (is_constant() && (_constant_col != nullptr));
+    }
 
-    Status get_result_from_const(vectorized::Block* block, const std::string& expr_name,
-                                 int* result_column_id);
+    ColumnPtr get_result_from_const(size_t count) const;
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 
@@ -383,7 +417,12 @@ protected:
     uint32_t _index_unique_id = 0;
     bool _enable_inverted_index_query = true;
 
+    // Indicates whether the expr row_bitmap has been updated.
     bool _has_been_executed = false;
+    // Indicates whether the virtual column is fulfilled.
+    // NOTE, if there is no virtual column in the expr tree, and expr
+    // is evaluated by ann index, this flag is still true.
+    bool _virtual_column_is_fulfilled = false;
 };
 
 } // namespace vectorized
@@ -539,7 +578,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         const auto* origin_value = reinterpret_cast<const IPv6*>(data);
         (*node).__set_node_type(TExprNodeType::IPV6_LITERAL);
         TIPv6Literal literal;
-        literal.__set_value(vectorized::DataTypeIPv6::to_string(*origin_value));
+        literal.__set_value(vectorized::CastToString::from_ip(*origin_value));
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else if constexpr (T == TYPE_TIMEV2) {

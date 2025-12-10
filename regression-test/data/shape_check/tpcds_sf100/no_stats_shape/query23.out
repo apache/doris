@@ -21,7 +21,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteAnchor ( cteId=CTEId#2 )
 ----PhysicalCteProducer ( cteId=CTEId#2 )
 ------PhysicalProject
---------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast((0.9500 * tpcds_cmax) as DOUBLE))
+--------NestedLoopJoin[INNER_JOIN](cast(ssales as DECIMALV3(38, 6)) > (0.9500 * tpcds_cmax))
 ----------PhysicalProject
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]

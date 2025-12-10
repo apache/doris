@@ -148,9 +148,10 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setHadoopConfig(props);
 
         // location
-        LocationPath locationPath = LocationPath.of(IcebergUtils.dataLocation(icebergTable), storagePropertiesMap);
+        String originalLocation = IcebergUtils.dataLocation(icebergTable);
+        LocationPath locationPath = LocationPath.of(originalLocation, storagePropertiesMap);
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
-        tSink.setOriginalOutputPath(locationPath.getPath().toString());
+        tSink.setOriginalOutputPath(originalLocation);
         TFileType fileType = locationPath.getTFileTypeForBE();
         tSink.setFileType(fileType);
         if (fileType.equals(TFileType.FILE_BROKER)) {
@@ -160,6 +161,14 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         if (insertCtx.isPresent()) {
             IcebergInsertCommandContext context = (IcebergInsertCommandContext) insertCtx.get();
             tSink.setOverwrite(context.isOverwrite());
+
+            // Pass static partition values to BE for static partition overwrite
+            if (context.isStaticPartitionOverwrite()) {
+                Map<String, String> staticPartitionValues = context.getStaticPartitionValues();
+                if (staticPartitionValues != null && !staticPartitionValues.isEmpty()) {
+                    tSink.setStaticPartitionValues(staticPartitionValues);
+                }
+            }
         }
         tDataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
         tDataSink.setIcebergTableSink(tSink);

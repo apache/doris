@@ -40,7 +40,7 @@ import java.util.function.Supplier;
  * If a case expr is given, convert it to equalTo(caseExpr, whenExpr) and set it to whenExpr.
  * If an else expr is given then it is the last child.
  */
-public class CaseWhen extends Expression {
+public class CaseWhen extends Expression implements NeedSessionVarGuard {
 
     private final List<WhenClause> whenClauses;
     private final Optional<Expression> defaultValue;
@@ -108,6 +108,20 @@ public class CaseWhen extends Expression {
         }
         output.append(" END");
         return output.toString();
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder("CASE");
+        for (Expression child : children()) {
+            if (child instanceof WhenClause) {
+                sb.append(child.toDigest());
+            } else {
+                sb.append(" ELSE ").append(child.toDigest());
+            }
+        }
+        sb.append(" END");
+        return sb.toString();
     }
 
     @Override

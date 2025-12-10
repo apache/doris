@@ -31,14 +31,17 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.io.BaseEncoding;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -124,6 +127,19 @@ public class SimplifyCastRule implements ExpressionPatternRuleFactory {
                             return cast;
                         }
                     }
+                } else if (castType instanceof VarBinaryType) {
+                    String str;
+                    if (child instanceof VarcharLiteral) {
+                        str = ((VarcharLiteral) child).getValue();
+                    } else if (child instanceof CharLiteral) {
+                        str = ((CharLiteral) child).getValue();
+                    } else if (child instanceof StringLiteral) {
+                        str = ((StringLiteral) child).getValue();
+                    } else {
+                        return cast;
+                    }
+                    String hex = BaseEncoding.base16().encode(str.getBytes());
+                    return new VarBinaryLiteral(hex);
                 }
             } catch (Throwable t) {
                 return cast;

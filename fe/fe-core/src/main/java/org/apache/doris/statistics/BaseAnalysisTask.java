@@ -29,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -510,9 +511,13 @@ public abstract class BaseAnalysisTask {
         long startTime = System.currentTimeMillis();
         String queryId = "";
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
+            a.connectContext.getState().setPlanWithUnKnownColumnStats(true);
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             if (!colStatsData.isValid()) {
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);
+                }
                 String message = String.format("ColStatsData is invalid, skip analyzing. %s", colStatsData.toSQL(true));
                 LOG.warn(message);
                 throw new RuntimeException(message);

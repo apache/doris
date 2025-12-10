@@ -7,7 +7,15 @@
     "properties": {
       "name": { "type": "keyword" },
       "sports": { "type": "keyword", "doc_values": false},
-      "scores": { "type": "integer", "doc_values": false}
+      "scores": { "type": "integer", "doc_values": false},
+      "z_details": {
+        "type": "object",
+        "properties": {
+          "position": { "type": "keyword" },
+          "club": { "type": "keyword" },
+          "salary": { "type": "integer" }
+        }
+      }
     }
   }
 }

@@ -26,12 +26,16 @@ public class AnnIndexPropertiesChecker {
         String type = null;
         String metric = null;
         String dim = null;
+        String quantizer = null;
+        int dimension = 0;
+        int numSubQuantizers = 0;
+        int nlist = 0;
         for (String key : properties.keySet()) {
             switch (key) {
                 case "index_type":
                     type = properties.get(key);
-                    if (!type.equals("hnsw")) {
-                        throw new AnalysisException("only support ann index with type hnsw, got: " + type);
+                    if (!type.equals("hnsw") && !type.equals("ivf")) {
+                        throw new AnalysisException("only support ann index with type hnsw or ivf, got: " + type);
                     }
                     break;
                 case "metric_type":
@@ -44,7 +48,7 @@ public class AnnIndexPropertiesChecker {
                 case "dim":
                     dim = properties.get(key);
                     try {
-                        int dimension = Integer.parseInt(dim);
+                        dimension = Integer.parseInt(dim);
                         if (dimension <= 0) {
                             throw new AnalysisException("dim of ann index must be a positive integer, got: " + dim);
                         }
@@ -78,8 +82,65 @@ public class AnnIndexPropertiesChecker {
                                 "ef_construction of ann index must be a positive integer, got: " + efConstruction);
                     }
                     break;
+                case "quantizer":
+                    quantizer = properties.get(key);
+                    if (!quantizer.equals("flat")
+                            && !quantizer.equals("sq4")
+                            && !quantizer.equals("sq8")
+                            && !quantizer.equals("pq")) {
+                        throw new AnalysisException(
+                                "only support ann index with quantizer flat, sq4, sq8 or pq, got: " + quantizer);
+                    }
+                    break;
+                case "pq_m":
+                    String pqM = properties.get(key);
+                    try {
+                        numSubQuantizers = Integer.parseInt(pqM);
+                        if (numSubQuantizers <= 0) {
+                            throw new AnalysisException(
+                                    "pq_m of ann index must be a positive integer, got: " + numSubQuantizers);
+                        }
+                    } catch (NumberFormatException e) {
+                        throw new AnalysisException(
+                                "pq_m of ann index must be a positive integer, got: " + pqM);
+                    }
+                    break;
+                case "pq_nbits":
+                    String pqNbits = properties.get(key);
+                    try {
+                        int numBits = Integer.parseInt(pqNbits);
+                        if (numBits <= 0) {
+                            throw new AnalysisException(
+                                    "pq_nbits of ann index must be a positive integer, got: " + numBits);
+                        }
+                        if (numBits > 24) {
+                            throw new AnalysisException("pq_nbits larger than 24 is not practical");
+                        }
+                    } catch (NumberFormatException e) {
+                        throw new AnalysisException(
+                                "pq_nbits of ann index must be a positive integer, got: " + pqNbits);
+                    }
+                    break;
+                case "nlist":
+                    String nlistStr = properties.get(key);
+                    try {
+                        nlist = Integer.parseInt(nlistStr);
+                        if (nlist <= 0) {
+                            throw new AnalysisException(
+                                "nlist of ann index must be a positive integer, got: " + nlistStr);
+                        }
+                    } catch (NumberFormatException e) {
+                        throw new AnalysisException("nlist of ann index must be a positive integer, got: " + nlistStr);
+                    }
+                    break;
                 default:
                     throw new AnalysisException("unknown ann index property: " + key);
+            }
+        }
+
+        if (type != null && type.equals("ivf")) {
+            if (nlist == 0) {
+                throw new AnalysisException("nlist of ann index must be specified for ivf type");
             }
         }
 
@@ -91,6 +152,17 @@ public class AnnIndexPropertiesChecker {
         }
         if (dim == null) {
             throw new AnalysisException("dim of ann index must be specified");
+        }
+
+        if (quantizer != null && quantizer.equals("pq")) {
+            if (dimension == 0 || numSubQuantizers == 0) {
+                throw new AnalysisException(
+                    "The dimension of the vector (dim) or the number of subquantizers (pq_m) cannot be zero");
+            }
+            if (dimension % numSubQuantizers != 0) {
+                throw new AnalysisException("The dimension of the vector (dim) should be a multiple of the number of "
+                        + "subquantizers (pq_m)");
+            }
         }
     }
 }

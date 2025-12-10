@@ -25,7 +25,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
@@ -41,6 +40,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -60,8 +60,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.plsql.Exec;
-import org.apache.doris.plsql.executor.PlSqlOperation;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
@@ -110,7 +109,6 @@ import javax.annotation.Nullable;
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
-    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
 
     private static final String SSL_PROTOCOL = "TLS";
 
@@ -217,8 +215,6 @@ public class ConnectContext {
     // Only when the connection is created again, the new resource tags will be retrieved from the UserProperty
     private ComputeGroup computeGroup = null;
 
-    private PlSqlOperation plSqlOperation = null;
-
     private String sqlHash;
 
     private JSONObject minidump = null;
@@ -241,7 +237,7 @@ public class ConnectContext {
     private String workloadGroupName = "";
     private boolean isGroupCommit;
 
-    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
     private Map<String, Set<String>> dbToTempTableNamesMap = new HashMap<>();
 
@@ -253,8 +249,6 @@ public class ConnectContext {
     // but the internal implementation will call the logic of `AlterTable`.
     // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
     private boolean skipAuth = false;
-    private Exec exec;
-    private boolean runProcedure = false;
 
     // isProxy used for forward request from other FE and used in one thread
     // it's default thread-safe
@@ -330,11 +324,11 @@ public class ConnectContext {
     }
 
     public static ConnectContext get() {
-        return threadLocalInfo.get();
+        return MoreFieldsThread.getConnectContext();
     }
 
     public static void remove() {
-        threadLocalInfo.remove();
+        MoreFieldsThread.removeConnectContext();
     }
 
     public void setIsSend(boolean isSend) {
@@ -426,7 +420,6 @@ public class ConnectContext {
         context.setEnv(env);
         context.setDatabase(currentDb);
         context.setCurrentUserIdentity(currentUserIdentity);
-        context.setProcedureExec(exec);
         return context;
     }
 
@@ -540,7 +533,7 @@ public class ConnectContext {
     }
 
     public void setThreadLocalInfo() {
-        threadLocalInfo.set(this);
+        MoreFieldsThread.setConnectContext(this);
     }
 
     public long getCurrentDbId() {
@@ -560,10 +553,6 @@ public class ConnectContext {
         defaultCatalog = env.getInternalCatalog().getName();
     }
 
-    public void setUserVar(SetVar setVar) {
-        userVars.put(setVar.getVariable().toLowerCase(), setVar.getResult());
-    }
-
     public void setUserVar(String name, LiteralExpr value) {
         userVars.put(name.toLowerCase(), value);
     }
@@ -575,7 +564,9 @@ public class ConnectContext {
             if (literalExpr instanceof BoolLiteral) {
                 return Literal.of(((BoolLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof IntLiteral) {
-                return Literal.of(((IntLiteral) literalExpr).getValue());
+                // the value in the IntLiteral should be int, but now is long in old planner literalExpr
+                // so type coercion to generate right new planner int Literal
+                return Literal.of((int) ((IntLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof FloatLiteral) {
                 return Literal.of(((FloatLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof DecimalLiteral) {
@@ -854,13 +845,6 @@ public class ConnectContext {
         statementContext = null;
     }
 
-    public PlSqlOperation getPlSqlOperation() {
-        if (plSqlOperation == null) {
-            plSqlOperation = new PlSqlOperation();
-        }
-        return plSqlOperation;
-    }
-
     /**
      * This method is idempotent.
      */
@@ -887,7 +871,7 @@ public class ConnectContext {
      */
     public void cleanup() {
         closeChannel();
-        threadLocalInfo.remove();
+        MoreFieldsThread.removeConnectContext();
         returnRows = 0;
         deleteTempTable();
         Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);
@@ -988,8 +972,11 @@ public class ConnectContext {
     public TUniqueId nextInstanceId() {
         if (loadId != null) {
             return new TUniqueId(loadId.hi, loadId.lo + instanceIdGenerator.incrementAndGet());
-        } else {
+        } else if (queryId != null) {
             return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
+        } else {
+            // for test
+            return new TUniqueId(0, instanceIdGenerator.incrementAndGet());
         }
     }
 
@@ -1351,6 +1338,10 @@ public class ConnectContext {
         for (String cloudClusterName : cloudClusterNames) {
             if (Env.getCurrentEnv().getAccessManager().checkCloudPriv(getCurrentUserIdentity(),
                     cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                if (((CloudSystemInfoService) Env.getCurrentSystemInfo()).isStandByComputeGroup(cloudClusterName)) {
+                    continue;
+                }
+
                 hasAuthCluster.add(cloudClusterName);
                 // find a cluster has more than one alive be
                 List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
@@ -1431,7 +1422,7 @@ public class ConnectContext {
         }
 
         // 2 get cluster from user
-        String userPropCluster = getDefaultCloudClusterFromUser();
+        String userPropCluster = getDefaultCloudClusterFromUser(true);
         if (!StringUtils.isEmpty(userPropCluster)) {
             choseWay = "user property";
             if (LOG.isDebugEnabled()) {
@@ -1484,15 +1475,47 @@ public class ConnectContext {
         return this.cloudCluster;
     }
 
-    // TODO implement this function
-    private String getDefaultCloudClusterFromUser() {
-        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+    private String getDefaultCloudClusterFromUser(boolean checkExist) {
         String defaultCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
-        if (!Strings.isNullOrEmpty(defaultCluster) && cloudClusterNames.contains(defaultCluster)) {
+        if (Strings.isNullOrEmpty(defaultCluster)) {
+            return null;
+        }
+        if (!checkExist) {
+            // default cluster may be dropped.
             return defaultCluster;
         }
 
+        // Validate cluster existence
+        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        if (cloudClusterNames.contains(defaultCluster)) {
+            return defaultCluster;
+        }
+        LOG.warn("default compute group {} of user {} is invalid, all cluster: {}", defaultCluster,
+                getQualifiedUser(), cloudClusterNames);
         return null;
+    }
+
+    // for log use, compute group name and the way to get it
+    // the way may be context policy, session, default compute group from user
+    public static Pair<String, String> computeGroupFromHintMsg() {
+        String clusterName = "";
+        try {
+            if (ConnectContext.get() != null) {
+                clusterName = ConnectContext.get().getCloudCluster();
+            }
+        } catch (Exception e) {
+            clusterName = "ctx empty cant get clusterName";
+
+        }
+        String fromSession = ConnectContext.get().getSessionVariable().getCloudCluster();
+        String fromDefaultComputeGroup = ConnectContext.get().getDefaultCloudClusterFromUser(false);
+        String clusterFrom = "context policy";
+        if (clusterName.equalsIgnoreCase(fromSession)) {
+            clusterFrom = "session variable";
+        } else if (clusterName.equalsIgnoreCase(fromDefaultComputeGroup)) {
+            clusterFrom = "default compute group from user";
+        }
+        return Pair.of(clusterName, clusterFrom);
     }
 
     public StatsErrorEstimator getStatsErrorEstimator() {
@@ -1517,22 +1540,6 @@ public class ConnectContext {
 
     public void setSkipAuth(boolean skipAuth) {
         this.skipAuth = skipAuth;
-    }
-
-    public boolean isRunProcedure() {
-        return runProcedure;
-    }
-
-    public void setRunProcedure(boolean runProcedure) {
-        this.runProcedure = runProcedure;
-    }
-
-    public void setProcedureExec(Exec exec) {
-        this.exec = exec;
-    }
-
-    public Exec getProcedureExec() {
-        return exec;
     }
 
     public int getNetReadTimeout() {

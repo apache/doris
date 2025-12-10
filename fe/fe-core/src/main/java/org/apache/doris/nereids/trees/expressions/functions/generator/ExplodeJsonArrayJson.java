@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -73,7 +74,7 @@ public class ExplodeJsonArrayJson extends TableGeneratingFunction
     }
 
     @Override
-    public TableGeneratingFunction rewrite() {
+    public Expression rewriteWhenAnalyze() {
         Expression[] args = {new Cast(children.get(0), ArrayType.of(JsonType.INSTANCE))};
         return new Explode(args);
     }

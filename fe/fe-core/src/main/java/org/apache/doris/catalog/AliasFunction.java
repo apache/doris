@@ -17,20 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.FunctionParams;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.TypeDef;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -39,10 +30,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -58,6 +48,8 @@ public class AliasFunction extends Function {
     @SerializedName("pm")
     private List<String> parameters = new ArrayList<>();
     private List<String> typeDefParams = new ArrayList<>();
+    @SerializedName("sv")
+    private Map<String, String> sessionVariables;
 
     // Only used for serialization
     protected AliasFunction() {
@@ -69,45 +61,17 @@ public class AliasFunction extends Function {
 
     public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
             boolean hasVarArgs, List<String> parameters, Expr originFunction) {
+        return createFunction(functionName, argTypes, retType, hasVarArgs, parameters, originFunction, null);
+    }
+
+    public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
+            boolean hasVarArgs, List<String> parameters, Expr originFunction, Map<String, String> sessionVariables) {
         AliasFunction aliasFunction = new AliasFunction(functionName, Arrays.asList(argTypes), retType, hasVarArgs);
         aliasFunction.setBinaryType(TFunctionBinaryType.JAVA_UDF);
         aliasFunction.setUserVisible(true);
         aliasFunction.originFunction = originFunction;
         aliasFunction.parameters = parameters;
-        return aliasFunction;
-    }
-
-    public static void initBuiltins(FunctionSet functionSet) {
-
-        /**
-         * Please ensure that the condition checks in {@link #analyze} are satisfied
-         */
-        functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
-                false, Lists.newArrayList("id"), getConcatFunctionExpr(), true, false));
-
-        functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
-                false, Lists.newArrayList("id"), getConcatFunctionExpr(), true, true));
-
-    }
-
-    public static Expr getConcatFunctionExpr() {
-        // "concat(left(id,3),'****',right(id,4));";
-        FunctionCallExpr left = new FunctionCallExpr("left",
-                new FunctionParams(Lists.newArrayList(new SlotRef(null, "id"), new IntLiteral(3))));
-        FunctionCallExpr right = new FunctionCallExpr("right",
-                new FunctionParams(Lists.newArrayList(new SlotRef(null, "id"), new IntLiteral(4))));
-        return new FunctionCallExpr("concat",
-                new FunctionParams(Lists.newArrayList(left, new StringLiteral("****"), right)));
-    }
-
-    private static AliasFunction createBuiltin(String name, ArrayList<Type> argTypes, Type retType,
-            boolean hasVarArgs, List<String> parameters, Expr originFunction,
-            boolean userVisible, boolean isVectorized) {
-        AliasFunction aliasFunction = new AliasFunction(new FunctionName(name), argTypes, retType, hasVarArgs);
-        aliasFunction.setBinaryType(TFunctionBinaryType.BUILTIN);
-        aliasFunction.setUserVisible(userVisible);
-        aliasFunction.originFunction = originFunction;
-        aliasFunction.parameters = parameters;
+        aliasFunction.sessionVariables = sessionVariables;
         return aliasFunction;
     }
 
@@ -115,93 +79,16 @@ public class AliasFunction extends Function {
         return originFunction;
     }
 
-    public void setOriginFunction(Expr originFunction) {
-        this.originFunction = originFunction;
-    }
-
     public List<String> getParameters() {
         return parameters;
     }
 
-    public void setParameters(List<String> parameters) {
-        this.parameters = parameters;
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 
-    public void analyze() throws AnalysisException {
-        if (parameters.size() != getArgs().length) {
-            throw new AnalysisException(
-                    "Alias function [" + functionName() + "] args number is not equal to parameters number");
-        }
-        List<Expr> exprs;
-        if (originFunction instanceof FunctionCallExpr) {
-            exprs = ((FunctionCallExpr) originFunction).getFnParams().exprs();
-        } else if (originFunction instanceof CastExpr) {
-            exprs = originFunction.getChildren();
-            TypeDef targetTypeDef = ((CastExpr) originFunction).getTargetTypeDef();
-            if (targetTypeDef.getType().isScalarType()) {
-                ScalarType scalarType = (ScalarType) targetTypeDef.getType();
-                PrimitiveType primitiveType = scalarType.getPrimitiveType();
-                switch (primitiveType) {
-                    case DECIMAL32:
-                    case DECIMAL64:
-                    case DECIMAL128:
-                    case DECIMAL256:
-                    case DECIMALV2:
-                        if (!Strings.isNullOrEmpty(scalarType.getScalarPrecisionStr())) {
-                            typeDefParams.add(scalarType.getScalarPrecisionStr());
-                        }
-                        if (!Strings.isNullOrEmpty(scalarType.getScalarScaleStr())) {
-                            typeDefParams.add(scalarType.getScalarScaleStr());
-                        }
-                        break;
-                    case CHAR:
-                    case VARCHAR:
-                        if (!Strings.isNullOrEmpty(scalarType.getLenStr())) {
-                            typeDefParams.add(scalarType.getLenStr());
-                        }
-                        break;
-                    default:
-                        throw new AnalysisException("Alias type is invalid: " + primitiveType);
-                }
-            }
-        } else {
-            throw new AnalysisException("Not supported expr type: " + originFunction);
-        }
-        Set<String> set = new HashSet<>();
-        for (String str : parameters) {
-            if (!set.add(str)) {
-                throw new AnalysisException(
-                        "Alias function [" + functionName() + "] has duplicate parameter [" + str + "].");
-            }
-            boolean existFlag = false;
-            // check exprs
-            for (Expr expr : exprs) {
-                existFlag |= checkParams(expr, str);
-            }
-            // check targetTypeDef
-            for (String typeDefParam : typeDefParams) {
-                existFlag |= typeDefParam.equals(str);
-            }
-            if (!existFlag) {
-                throw new AnalysisException("Alias function [" + functionName() + "]  do not contain parameter [" + str
-                        + "]. typeDefParams="
-                        + typeDefParams.stream().map(String::toString).collect(Collectors.joining(", ")));
-            }
-        }
-    }
-
-    private boolean checkParams(Expr expr, String param) {
-        for (Expr e : expr.getChildren()) {
-            if (checkParams(e, param)) {
-                return true;
-            }
-        }
-        if (expr instanceof SlotRef) {
-            if (param.equals(((SlotRef) expr).getColumnName())) {
-                return true;
-            }
-        }
-        return false;
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
     }
 
     @Override
@@ -255,5 +142,15 @@ public class AliasFunction extends Function {
         return parameters.stream()
                 .map(String::toString)
                 .collect(Collectors.joining(", "));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        boolean equalBasic = super.equals(o);
+        if (!equalBasic) {
+            return false;
+        }
+        AliasFunction other = (AliasFunction) o;
+        return Objects.equals(sessionVariables, other.sessionVariables);
     }
 }

@@ -42,6 +42,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "udf/udf.h"
 #include "util/debug_points.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
@@ -102,7 +103,6 @@ public:
     bool is_on_update_current_timestamp() const { return _is_on_update_current_timestamp; }
     bool is_variant_type() const { return _type == FieldType::OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
-    bool has_bitmap_index() const { return _has_bitmap_index; }
     bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
     bool is_agg_state_type() const { return _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE; }
     bool is_jsonb_type() const { return _type == FieldType::OLAP_FIELD_TYPE_JSONB; }
@@ -191,7 +191,6 @@ public:
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
-    void set_has_bitmap_index(bool has_bitmap_index) { _has_bitmap_index = has_bitmap_index; }
     std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
     Status check_valid() const {
@@ -202,10 +201,6 @@ public:
         }
         if (is_bf_column()) {
             return Status::NotSupported("Do not support bloom filter index, type={}",
-                                        get_string_by_field_type(type()));
-        }
-        if (has_bitmap_index()) {
-            return Status::NotSupported("Do not support bitmap index, type={}",
                                         get_string_by_field_type(type()));
         }
         return Status::OK();
@@ -231,6 +226,10 @@ public:
         _variant_max_sparse_column_statistics_size = variant_max_sparse_column_statistics_size;
     }
 
+    void set_variant_sparse_hash_shard_count(int32_t variant_sparse_hash_shard_count) {
+        _variant_sparse_hash_shard_count = variant_sparse_hash_shard_count;
+    }
+
     int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
 
     PatternTypePB pattern_type() const { return _pattern_type; }
@@ -242,6 +241,8 @@ public:
     int32_t variant_max_sparse_column_statistics_size() const {
         return _variant_max_sparse_column_statistics_size;
     }
+
+    int32_t variant_sparse_hash_shard_count() const { return _variant_sparse_hash_shard_count; }
 
     bool is_decimal() const { return _is_decimal; }
 
@@ -273,7 +274,6 @@ private:
 
     bool _is_bf_column = false;
 
-    bool _has_bitmap_index = false;
     bool _visible = true;
 
     std::vector<TabletColumnPtr> _sub_columns;
@@ -292,6 +292,8 @@ private:
     // set variant_max_sparse_column_statistics_size
     int32_t _variant_max_sparse_column_statistics_size =
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
+    // default to 0, no shard
+    int32_t _variant_sparse_hash_shard_count = 0;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -333,8 +335,11 @@ public:
 
     bool is_inverted_index() const { return _index_type == IndexType::INVERTED; }
 
+    bool is_ann_index() const { return _index_type == IndexType::ANN; }
+
     void remove_parser_and_analyzer() {
         _properties.erase(INVERTED_INDEX_PARSER_KEY);
+        _properties.erase(INVERTED_INDEX_PARSER_KEY_ALIAS);
         _properties.erase(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
     }
 
@@ -454,7 +459,6 @@ public:
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
-    void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
     void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
@@ -535,6 +539,8 @@ public:
 
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
+    const TabletIndex* get_index(int32_t col_unique_id, IndexType index_type,
+                                 const std::string& suffix_path) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
     // If schema version is not set, it should be -1
     int32_t schema_version() const { return _schema_version; }
@@ -672,6 +678,23 @@ public:
         return 0;
     }
 
+    void add_pruned_columns_data_type(int32_t col_unique_id, vectorized::DataTypePtr data_type) {
+        _pruned_columns_data_type[col_unique_id] = std::move(data_type);
+    }
+
+    void clear_pruned_columns_data_type() { _pruned_columns_data_type.clear(); }
+
+    bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
+
+    // Whether new segments use externalized ColumnMetaPB layout (CMO) by default
+    bool is_external_segment_column_meta_used() const {
+        return _is_external_segment_column_meta_used;
+    }
+
+    void set_external_segment_meta_used_default(bool v) {
+        _is_external_segment_column_meta_used = v;
+    }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -742,6 +765,7 @@ private:
     bool _enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
+    std::map<int32_t, vectorized::DataTypePtr> _pruned_columns_data_type;
 
     // value: extracted path set and sparse path set
     std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;
@@ -750,6 +774,9 @@ private:
     // value: indexes
     using PatternToIndex = std::unordered_map<std::string, std::vector<TabletIndexPtr>>;
     std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
+
+    // Default behavior for new segments: use external ColumnMeta region + CMO table if true
+    bool _is_external_segment_column_meta_used = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

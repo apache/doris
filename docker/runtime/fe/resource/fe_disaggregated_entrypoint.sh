@@ -364,6 +364,7 @@ function check_and_modify_fqdn_config()
 
 function add_cluster_info_to_conf()
 {
+    echo "" >> ${DORIS_HOME}/conf/fe.conf
     echo "meta_service_endpoint=$MS_ENDPOINT" >> ${DORIS_HOME}/conf/fe.conf
     echo "cluster_id=$CLUSTER_ID" >> ${DORIS_HOME}/conf/fe.conf
     echo "deploy_mode=cloud" >> ${DORIS_HOME}/conf/fe.conf

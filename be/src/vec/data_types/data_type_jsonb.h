@@ -56,10 +56,10 @@ public:
     }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
-                                              int data_version) const override;
-    char* serialize(const IColumn& column, char* buf, int data_version) const override;
+                                              int be_exec_version) const override;
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
     const char* deserialize(const char* buf, MutableColumnPtr* column,
-                            int data_version) const override;
+                            int be_exec_version) const override;
 
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
@@ -72,9 +72,6 @@ public:
                                                size_t row_num) const override;
 
     bool equals(const IDataType& rhs) const override;
-
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     using SerDeType = DataTypeJsonbSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(nesting_level);

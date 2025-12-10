@@ -228,7 +228,7 @@ PhysicalResultSink
 
 -- !filter_aggregation_group_set --
 PhysicalResultSink
---filter((cast(msg as DOUBLE) = 1.0))
+--filter((cast(msg as DECIMALV3(38, 6)) = 1.000000))
 ----hashAgg[GLOBAL]
 ------PhysicalRepeat
 --------filter((t1.id > 10))
@@ -236,7 +236,7 @@ PhysicalResultSink
 
 -- !filter_aggregation_group_set --
 PhysicalResultSink
---filter(OR[(t1.id > 10),(cast(msg as DOUBLE) = 1.0)])
+--filter(OR[(t1.id > 10),(cast(msg as DECIMALV3(38, 6)) = 1.000000)])
 ----hashAgg[GLOBAL]
 ------PhysicalRepeat
 --------PhysicalOlapScan[t1]

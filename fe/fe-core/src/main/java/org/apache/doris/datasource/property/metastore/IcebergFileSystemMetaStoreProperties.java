@@ -24,7 +24,6 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 
@@ -47,7 +46,7 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
                                List<StorageProperties> storagePropertiesList) {
         Configuration configuration = buildConfiguration(storagePropertiesList);
         HadoopCatalog catalog = new HadoopCatalog();
-        buildCatalogProps(catalogProps, storagePropertiesList);
+        buildCatalogProps(storagePropertiesList);
         catalog.setConf(configuration);
         try {
             this.executionAuthenticator.execute(() -> {
@@ -72,12 +71,14 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
         return configuration;
     }
 
-    private void buildCatalogProps(Map<String, String> props, List<StorageProperties> storagePropertiesList) {
+    private void buildCatalogProps(List<StorageProperties> storagePropertiesList) {
         if (storagePropertiesList.size() == 1 && storagePropertiesList.get(0) instanceof HdfsProperties) {
             HdfsProperties hdfsProps = (HdfsProperties) storagePropertiesList.get(0);
             if (hdfsProps.isKerberos()) {
-                props.put(CatalogProperties.FILE_IO_IMPL,
-                        "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
+                // NOTE: Custom FileIO implementation (KerberizedHadoopFileIO) is commented out by default.
+                // Using FileIO for Kerberos authentication may cause serialization issues when accessing
+                // Iceberg system tables (e.g., history, snapshots, manifests).
+                //props.put(CatalogProperties.FILE_IO_IMPL,"org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
                 this.executionAuthenticator = new HadoopExecutionAuthenticator(hdfsProps.getHadoopAuthenticator());
             }
         }

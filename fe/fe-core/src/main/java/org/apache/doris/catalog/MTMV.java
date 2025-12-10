@@ -18,15 +18,15 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
@@ -40,17 +40,22 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshSnapshot;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -83,7 +88,13 @@ public class MTMV extends OlapTable {
     @SerializedName("rs")
     private MTMVRefreshSnapshot refreshSnapshot;
     // Should update after every fresh, not persist
-    private MTMVCache cache;
+    // Cache with SessionVarGuardExpr: used when query session variables differ from MV creation variables
+    private MTMVCache cacheWithGuard;
+    // Cache without SessionVarGuardExpr: used when query session variables match MV creation variables
+    private MTMVCache cacheWithoutGuard;
+    private long schemaChangeVersion;
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
 
     // For deserialization
     public MTMV() {
@@ -110,6 +121,7 @@ public class MTMV extends OlapTable {
         this.relation = params.relation;
         this.refreshSnapshot = new MTMVRefreshSnapshot();
         this.envInfo = new EnvInfo(-1L, -1L);
+        this.sessionVariables = params.sessionVariables;
         mvRwLock = new ReentrantReadWriteLock(true);
     }
 
@@ -162,10 +174,6 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public void setCache(MTMVCache cache) {
-        this.cache = cache;
-    }
-
     public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
         writeMvLock();
         try {
@@ -179,15 +187,30 @@ public class MTMV extends OlapTable {
         writeMvLock();
         try {
             // only can update state, refresh state will be change by add task
+            this.schemaChangeVersion++;
+            this.refreshSnapshot = new MTMVRefreshSnapshot();
             return this.status.updateStateAndDetail(newStatus);
         } finally {
             writeMvUnlock();
         }
     }
 
-    public void addTaskResult(MTMVTask task, MTMVRelation relation,
+    public void processBaseViewChange(String schemaChangeDetail) {
+        writeMvLock();
+        try {
+            this.schemaChangeVersion++;
+            this.status.setState(MTMVState.SCHEMA_CHANGE);
+            this.status.setSchemaChangeDetail(schemaChangeDetail);
+            this.refreshSnapshot = new MTMVRefreshSnapshot();
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    public boolean addTaskResult(MTMVTask task, MTMVRelation relation,
             Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots, boolean isReplay) {
-        MTMVCache mtmvCache = null;
+        MTMVCache mtmvCacheWithGuard = null;
+        MTMVCache mtmvCacheWithoutGuard = null;
         boolean needUpdateCache = false;
         if (task.getStatus() == TaskStatus.SUCCESS && !Env.isCheckpointThread()
                 && !Config.enable_check_compatibility_mode) {
@@ -198,31 +221,50 @@ public class MTMV extends OlapTable {
                 if (!isReplay) {
                     ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
-                    mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
-                            true, currentContext);
+                    // TODO: these two cache compute share something same, can be simplified in future
+                    mtmvCacheWithGuard = MTMVCache.from(this.getQuerySql(),
+                            MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
+                            true, true, currentContext, true);
+                    mtmvCacheWithoutGuard = MTMVCache.from(this.getQuerySql(),
+                            MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
+                            true, true, currentContext, false);
                 }
             } catch (Throwable e) {
-                mtmvCache = null;
+                mtmvCacheWithGuard = null;
+                mtmvCacheWithoutGuard = null;
                 LOG.warn("generate cache failed", e);
             }
         }
         writeMvLock();
         try {
+            if (!isReplay && task.getMtmvSchemaChangeVersion() != this.schemaChangeVersion) {
+                LOG.warn(
+                        "addTaskResult failed, schemaChangeVersion has changed. "
+                                + "mvName: {}, taskId: {}, taskSchemaChangeVersion: {}, "
+                                + "mvSchemaChangeVersion: {}",
+                        name, task.getTaskId(), task.getMtmvSchemaChangeVersion(), this.schemaChangeVersion);
+                return false;
+            }
             if (task.getStatus() == TaskStatus.SUCCESS) {
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
                 if (needUpdateCache) {
-                    this.cache = mtmvCache;
+                    // Initialize cacheWithGuard, cacheWithoutGuard will be lazily generated when needed
+                    this.cacheWithGuard = mtmvCacheWithGuard;
+                    // Clear the other cache to ensure consistency
+                    this.cacheWithoutGuard = mtmvCacheWithoutGuard;
                 }
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
+            compatiblePctSnapshot(partitionSnapshots);
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
+            return true;
         } finally {
             writeMvUnlock();
         }
@@ -291,8 +333,8 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public Set<TableName> getExcludedTriggerTables() {
-        Set<TableName> res = Sets.newHashSet();
+    public Set<TableNameInfo> getExcludedTriggerTables() {
+        Set<TableNameInfo> res = Sets.newHashSet();
         readMvLock();
         try {
             if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
@@ -300,7 +342,26 @@ public class MTMV extends OlapTable {
             }
             String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
             for (String alias : split) {
-                res.add(new TableName(alias));
+                res.add(new TableNameInfo(alias));
+            }
+            return res;
+        } finally {
+            readMvUnlock();
+        }
+    }
+
+    public Set<TableNameInfo> getQueryRewriteConsistencyRelaxedTables() {
+        Set<TableNameInfo> res = Sets.newHashSet();
+        readMvLock();
+        try {
+            String stillRewrittenTables
+                    = mvProperties.get(PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES);
+            if (StringUtils.isEmpty(stillRewrittenTables)) {
+                return res;
+            }
+            String[] split = stillRewrittenTables.split(",");
+            for (String alias : split) {
+                res.add(new TableNameInfo(alias));
             }
             return res;
         } finally {
@@ -313,22 +374,47 @@ public class MTMV extends OlapTable {
      */
     public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws
             org.apache.doris.nereids.exceptions.AnalysisException {
+        // store two MTMVCaches: one is a cache where SessionVariables differ from those at creation time,
+        // and the MTMV plan includes a guardexpr;
+        // the other is a cache where SessionVariables are the same as at creation time, and the MTMV plan
+        // does not include a guardexpr;
+        // This way, when sessionVariables are the same, rewriting is possible;
+        // When sessionVariables are different, there are two cases:
+        // 1. If a guardexpr is present, rewriting is not possible;
+        // 2. If no guardexpr is present, rewriting is possible.
+        // Determine if current session variables match MV creation session variables
+        Map<String, String> currentSessionVars =
+                connectionContext.getSessionVariable().getAffectQueryResultInPlanVariables();
+        boolean sessionVarsMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
+                currentSessionVars, this.sessionVariables);
+
+        // Select appropriate cache based on session variable match
         readMvLock();
         try {
-            if (cache != null) {
-                return cache;
+            if (sessionVarsMatch && cacheWithoutGuard != null) {
+                return cacheWithoutGuard;
+            }
+            if (!sessionVarsMatch && cacheWithGuard != null) {
+                return cacheWithGuard;
             }
         } finally {
             readMvUnlock();
         }
+
+        // Generate cache if not exists
         // Concurrent situations may result in duplicate cache generation,
         // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
-        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
-                false, connectionContext);
+        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(),
+                MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
+                true, false, connectionContext, !sessionVarsMatch);
         writeMvLock();
         try {
-            this.cache = mtmvCache;
-            return cache;
+            if (sessionVarsMatch) {
+                this.cacheWithoutGuard = mtmvCache;
+            } else {
+                this.cacheWithGuard = mtmvCache;
+            }
+            return mtmvCache;
         } finally {
             writeMvUnlock();
         }
@@ -351,6 +437,15 @@ public class MTMV extends OlapTable {
         return refreshSnapshot;
     }
 
+    public long getSchemaChangeVersion() {
+        readMvLock();
+        try {
+            return schemaChangeVersion;
+        } finally {
+            readMvUnlock();
+        }
+    }
+
     /**
      * generateMvPartitionDescs
      *
@@ -368,61 +463,23 @@ public class MTMV extends OlapTable {
     /**
      * Calculate the partition and associated partition mapping relationship of the MTMV
      * It is the result of real-time comparison calculation, so there may be some costs,
-     * so it should be called with caution.
-     * The reason for not directly calling `calculatePartitionMappings` and
-     * generating a reverse index is to directly generate two maps here,
-     * without the need to traverse them again
-     *
-     * @return mvPartitionName ==> relationPartitionNames and relationPartitionName ==> mvPartitionName
-     * @throws AnalysisException
-     */
-    public Pair<Map<String, Set<String>>, Map<String, String>> calculateDoublyPartitionMappings()
-            throws AnalysisException {
-        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return Pair.of(Maps.newHashMap(), Maps.newHashMap());
-        }
-        long start = System.currentTimeMillis();
-        Map<String, Set<String>> mvToBase = Maps.newHashMap();
-        Map<String, String> baseToMv = Maps.newHashMap();
-        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
-        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
-        for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
-            Set<String> basePartitionNames = relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(),
-                    Sets.newHashSet());
-            String mvPartitionName = entry.getKey();
-            mvToBase.put(mvPartitionName, basePartitionNames);
-            for (String basePartitionName : basePartitionNames) {
-                baseToMv.put(basePartitionName, mvPartitionName);
-            }
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("calculateDoublyPartitionMappings use [{}] mills, mvName is [{}]",
-                    System.currentTimeMillis() - start, name);
-        }
-        return Pair.of(mvToBase, baseToMv);
-    }
-
-    /**
-     * Calculate the partition and associated partition mapping relationship of the MTMV
-     * It is the result of real-time comparison calculation, so there may be some costs,
      * so it should be called with caution
      *
-     * @return mvPartitionName ==> relationPartitionNames
+     * @return mvPartitionName ==> pctTable ==> pctPartitionName
      * @throws AnalysisException
      */
-    public Map<String, Set<String>> calculatePartitionMappings() throws AnalysisException {
+    public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings() throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
         long start = System.currentTimeMillis();
-        Map<String, Set<String>> res = Maps.newHashMap();
-        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns());
         Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
-                    relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
+                    pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("calculatePartitionMappings use [{}] mills, mvName is [{}]",
@@ -547,5 +604,33 @@ public class MTMV extends OlapTable {
         if (refreshSnapshot != null) {
             refreshSnapshot.compatible(this);
         }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
+        compatiblePctSnapshot(partitionSnapshots);
+    }
+
+    private void compatiblePctSnapshot(Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
+        BaseTableInfo relatedTableInfo = mvPartitionInfo.getRelatedTableInfo();
+        if (relatedTableInfo == null) {
+            return;
+        }
+        if (MapUtils.isEmpty(partitionSnapshots)) {
+            return;
+        }
+        for (MTMVRefreshPartitionSnapshot partitionSnapshot : partitionSnapshots.values()) {
+            Map<String, MTMVSnapshotIf> partitions = partitionSnapshot.getPartitions();
+            Map<BaseTableInfo, Map<String, MTMVSnapshotIf>> pcts = partitionSnapshot.getPcts();
+            if (!MapUtils.isEmpty(partitions) && MapUtils.isEmpty(pcts)) {
+                pcts.put(relatedTableInfo, partitions);
+            }
+        }
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 }

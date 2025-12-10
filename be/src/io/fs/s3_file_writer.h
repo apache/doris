@@ -19,8 +19,10 @@
 
 #include <bthread/countdown_event.h>
 
+#include <chrono>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "common/status.h"
@@ -111,6 +113,8 @@ private:
     std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
     State _state {State::OPENED};
     std::shared_ptr<ObjClientHolder> _obj_client;
+    std::optional<std::chrono::steady_clock::time_point> _first_append_timestamp;
+    bool _close_latency_recorded = false;
 };
 
 } // namespace io

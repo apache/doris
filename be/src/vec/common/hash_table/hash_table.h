@@ -921,6 +921,7 @@ public:
     }
 
     ConstLookupResult ALWAYS_INLINE find(Key x) const {
+        // to call a non-const function without making any modifications, using const_cast is acceptable.
         return const_cast<std::decay_t<decltype(*this)>*>(this)->find(x);
     }
 

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <brpc/controller.h>
+#include <bthread/countdown_event.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
@@ -38,9 +39,16 @@ class RuntimeState;
 class TupleDescriptor;
 
 struct FileMapping;
+struct SegKey;
+struct SegItem;
+struct HashOfSegKey;
 struct IteratorKey;
 struct IteratorItem;
 struct HashOfIteratorKey;
+
+inline void fetch_callback(bthread::CountdownEvent* counter) {
+    Defer __defer([&] { counter->signal(); });
+}
 
 namespace vectorized {
 template <typename T>
@@ -98,11 +106,11 @@ public:
 private:
     static Status read_doris_format_row(
             const std::shared_ptr<IdFileMap>& id_file_map,
-            const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
+            const std::shared_ptr<FileMapping>& file_mapping, const std::vector<uint32_t>& row_id,
             std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
             RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
-            int64_t* lookup_row_data_ms,
+            int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
             vectorized::Block& result_block);
 

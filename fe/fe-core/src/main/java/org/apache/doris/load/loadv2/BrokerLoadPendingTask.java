@@ -131,6 +131,8 @@ public class BrokerLoadPendingTask extends LoadTask {
                                 groupNum, entry.getKey(), callback.getCallbackId(),
                                 brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
                                         ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
+                        throw new UserException("No source files found in the specified paths: "
+                                + fileGroup.getFilePaths());
                     }
                     groupNum++;
                 }

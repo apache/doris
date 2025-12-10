@@ -57,6 +57,9 @@ suite('test_warm_up_cluster_event_schema_change', 'docker') {
 
     def getBrpcMetrics = {ip, port, name ->
         def url = "http://${ip}:${port}/brpc_metrics"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            url = url.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         def metrics = new URL(url).text
         def matcher = metrics =~ ~"${name}\\s+(\\d+)"
         if (matcher.find()) {
@@ -167,7 +170,7 @@ suite('test_warm_up_cluster_event_schema_change', 'docker') {
 
         // sql "set experimental_enable_nereids_planner = true"
         // add, drop index
-        sql "alter table ${table_name} add index btm_idxk (k) using bitmap ;"
+        sql "alter table ${table_name} add index btm_idxk (k) using inverted ;"
         sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name}"""
         wait_for_latest_op_on_table_finish(table_name, timeout)
 
@@ -179,12 +182,12 @@ suite('test_warm_up_cluster_event_schema_change', 'docker') {
         sql """select v['k1'], cast(v['k2'] as string) from ${table_name} order by k desc limit 10"""
 
         // add, drop materialized view
-        createMV("""create materialized view var_order as select vs, k, v from ${table_name} order by vs""")    
+        createMV("""create materialized view var_order as select vs as vs_view, k as k_view, v as v_view from ${table_name} order by vs""")
         sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name} limit 4096"""
-        createMV("""create materialized view var_cnt as select k, count(k) from ${table_name} group by k""")    
+        createMV("""create materialized view var_cnt as select k as v_view_1, count(k) from ${table_name} group by k""")
         sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name} limit 8101"""
         sql """DROP MATERIALIZED VIEW var_cnt ON ${table_name}"""
-        sql """INSERT INTO ${table_name} SELECT k, v,v  from ${table_name} limit 1111"""
+        sql """INSERT INTO ${table_name} SELECT k, v, v  from ${table_name} limit 1111"""
         // select from mv
         sql """select v['k1'], cast(v['k2'] as string) from ${table_name} order by k desc limit 10"""
     }

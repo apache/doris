@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
@@ -27,6 +28,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Strings;
 import com.google.gson.reflect.TypeToken;
+import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
@@ -36,19 +38,24 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import javax.servlet.http.HttpServletRequest;
 
 /*
  * used to forward http requests from manager to be.
  */
 public class HttpUtils {
+    private static final Logger LOG = LogManager.getLogger(HttpUtils.class);
+
     static final int REQUEST_SUCCESS_CODE = 0;
     static final int DEFAULT_TIME_OUT_MS = 2000;
 
@@ -118,6 +125,10 @@ public class HttpUtils {
         request.setConfig(config);
     }
 
+    public static CloseableHttpClient getHttpClient() {
+        return HttpClientBuilder.create().build();
+    }
+
     private static String executeRequest(HttpRequestBase request) throws IOException {
         CloseableHttpClient client = HttpClientBuilder.create().build();
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
@@ -133,5 +144,67 @@ public class HttpUtils {
 
     public static String getBody(HttpServletRequest request) throws IOException {
         return IOUtils.toString(request.getInputStream(), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Get the file size of the HTTP resource by sending a HEAD request.
+     * This method uses HTTP HEAD request to get the Content-Length header
+     * without downloading the entire file content.
+     * @param uri the HTTP URI to get file size for
+     * @return the file size in bytes, or -1 if the size cannot be determined
+     * @throws IOException if there's an error connecting to the HTTP resource
+     * @throws IllegalArgumentException if the URI is null or invalid
+     */
+    public static long getHttpFileSize(String uri, Map<String, String> headers) throws IOException {
+        if (uri == null || uri.trim().isEmpty()) {
+            throw new IllegalArgumentException("HTTP URI is null or empty");
+        }
+
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL(uri);
+            connection = (HttpURLConnection) url.openConnection();
+
+            // Use HEAD request to get headers without downloading content
+            connection.setRequestMethod("HEAD");
+            connection.setConnectTimeout(10000); // 10 seconds connection timeout
+            connection.setReadTimeout(30000);    // 30 seconds read timeout
+
+            // Set common headers
+            connection.setRequestProperty("User-Agent", "Doris-HttpUtils/1.0");
+            connection.setRequestProperty("Accept", "*/*");
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                connection.setRequestProperty(entry.getKey(), entry.getValue());
+            }
+
+            // Connect and get response
+            connection.connect();
+            int responseCode = connection.getResponseCode();
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                // Try to get Content-Length header
+                String contentLengthStr = connection.getHeaderField("Content-Length");
+                if (contentLengthStr != null && !contentLengthStr.trim().isEmpty()) {
+                    try {
+                        return Long.parseLong(contentLengthStr.trim());
+                    } catch (NumberFormatException e) {
+                        throw new IOException("Invalid Content-Length header: " + contentLengthStr, e);
+                    }
+                } else {
+                    // Content-Length header not available
+                    return -1;
+                }
+            } else {
+                throw new IOException("HTTP request failed with response code: " + responseCode
+                        + ", message: " + connection.getResponseMessage());
+            }
+        } catch (IOException e) {
+            LOG.warn("Failed to get file size for URI: {}", uri, e);
+            throw new IOException("Failed to get file size for URI: " + uri + ". " + Util.getRootCauseMessage(e), e);
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
     }
 }

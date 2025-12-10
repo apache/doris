@@ -47,7 +47,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Optional;
 
 public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
@@ -99,7 +98,6 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private void createDbAndTableForHmsCatalog(HMSExternalCatalog hmsCatalog) {
         Deencapsulation.setField(hmsCatalog, "initialized", true);
         Deencapsulation.setField(hmsCatalog, "objectCreated", true);
-        Deencapsulation.setField(hmsCatalog, "useMetaCache", Optional.of(false));
 
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));
@@ -115,6 +113,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl, "name", "hms_tbl");
         Deencapsulation.setField(tbl, "dlaTable", new HiveDlaTable(tbl));
         Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
+        long now = System.currentTimeMillis();
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -156,6 +155,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 tbl.getDlaType();
                 minTimes = 0;
                 result = DLAType.HIVE;
+
+                tbl.getNewestUpdateVersionOrTime();
+                minTimes = 0;
+                result = now;
             }
         };
 
@@ -377,7 +380,6 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         db.addTableForTest(view4);
         hmsCatalog.addDatabaseForTest(db);
     }
-
 
     @Test
     public void testQueryView() {

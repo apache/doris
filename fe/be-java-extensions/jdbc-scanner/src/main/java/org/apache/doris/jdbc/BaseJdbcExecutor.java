@@ -127,7 +127,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     public void close() throws Exception {
         if (outputTable != null) {
-            outputTable.close();
+            try {
+                outputTable.close();
+            } finally {
+                outputTable = null;
+            }
         }
         try {
             if (stmt != null && !stmt.isClosed()) {
@@ -143,10 +147,17 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
         } finally {
             closeResources(resultSet, stmt, conn);
+            // Always clear references to help GC, even if close() failed
+            resultSet = null;
+            stmt = null;
+            conn = null;
             if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
-                hikariDataSource = null;
+                try {
+                    hikariDataSource.close();
+                    JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+                } finally {
+                    hikariDataSource = null;
+                }
             }
         }
     }
@@ -614,8 +625,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             case CHAR:
             case VARCHAR:
             case STRING:
-            case BINARY:
                 preparedStatement.setString(parameterIndex, column.getStringWithOffset(rowIdx));
+                break;
+            case BINARY:
+            case VARBINARY:
+                preparedStatement.setBytes(parameterIndex, column.getBytesVarbinary(rowIdx));
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + dorisType);
@@ -664,8 +678,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             case CHAR:
             case VARCHAR:
             case STRING:
-            case BINARY:
                 preparedStatement.setNull(parameterIndex, Types.VARCHAR);
+                break;
+            case BINARY:
+            case VARBINARY:
+                preparedStatement.setNull(parameterIndex, Types.VARBINARY);
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + dorisType);

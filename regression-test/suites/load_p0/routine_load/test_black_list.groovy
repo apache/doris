@@ -21,6 +21,10 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_black_list","nonConcurrent,p0") {
+    if (isCloudMode()) {
+        return;
+    }
+
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         // 1. send data

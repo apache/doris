@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -39,27 +40,18 @@ import java.util.List;
 
 /** MultiDistinctSum0 */
 public class MultiDistinctSum0 extends NotNullableAggregateFunction implements UnaryExpression,
-        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction {
-
-    private final boolean mustUseMultiDistinctAgg;
-
+        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction, NeedSessionVarGuard {
     public MultiDistinctSum0(Expression arg0) {
         this(false, arg0);
     }
 
     public MultiDistinctSum0(boolean distinct, Expression arg0) {
-        this(false, false, arg0);
-    }
-
-    private MultiDistinctSum0(boolean mustUseMultiDistinctAgg, boolean distinct, Expression arg0) {
         super("multi_distinct_sum0", false, arg0);
-        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     /** constructor for withChildren and reuse signature */
-    private MultiDistinctSum0(boolean mustUseMultiDistinctAgg, AggregateFunctionParams functionParams) {
+    public MultiDistinctSum0(AggregateFunctionParams functionParams) {
         super(functionParams);
-        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     @Override
@@ -84,22 +76,12 @@ public class MultiDistinctSum0 extends NotNullableAggregateFunction implements U
     @Override
     public MultiDistinctSum0 withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum0(mustUseMultiDistinctAgg, getFunctionParams(false, children));
+        return new MultiDistinctSum0(getFunctionParams(false, children));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMultiDistinctSum0(this, context);
-    }
-
-    @Override
-    public boolean mustUseMultiDistinctAgg() {
-        return mustUseMultiDistinctAgg;
-    }
-
-    @Override
-    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
-        return new MultiDistinctSum0(mustUseMultiDistinctAgg, getFunctionParams(children));
     }
 
     @Override

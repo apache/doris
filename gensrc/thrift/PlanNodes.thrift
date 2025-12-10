@@ -389,6 +389,15 @@ struct TTransactionalHiveDesc {
     2: optional list<TTransactionalHiveDeleteDeltaDesc> delete_deltas
 }
 
+struct TRemoteDorisFileDesc {
+    1: optional string ip
+    2: optional string arrow_port
+    3: optional binary ticket
+    4: optional string location_uri
+    5: optional string user
+    6: optional string password
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -398,7 +407,8 @@ struct TTableFormatFileDesc {
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
     8: optional TLakeSoulFileDesc lakesoul_params
-    9: optional i64 table_level_row_count
+    9: optional i64 table_level_row_count = -1
+    10: optional TRemoteDorisFileDesc remote_doris_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -465,6 +475,12 @@ struct TFileScanRangeParams {
     25: optional i64 current_schema_id;
     // All schema information used in the current query process
     26: optional list<ExternalTableSchema.TSchema> history_schema_info
+
+    // Paimon predicate from FE, used for jni scanner
+    // Set at ScanNode level to avoid redundant serialization in each split
+    27: optional string paimon_predicate
+    // enable mapping varbinary type for Doris external table and TVF
+    28: optional bool enable_mapping_varbinary = false;
 }
 
 struct TFileRangeDesc {
@@ -540,8 +556,10 @@ struct TDataGenScanRange {
 
 // deprecated
 struct TIcebergMetadataParams {
-  1: optional string serialized_task
-  2: optional map<string, string> hadoop_props
+  1: optional Types.TIcebergQueryType iceberg_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
 }
 
 // deprecated

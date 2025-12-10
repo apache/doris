@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.text.DecimalFormat;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -295,8 +296,13 @@ public class Statistics {
         builder.append(prefix).append("tupleSize=")
                 .append(computeTupleSize(getAllSlotsFromColumnStatsMap())).append("\n");
         builder.append(prefix).append("width=").append(widthInJoinCluster).append("\n");
-        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
-            builder.append(prefix).append(entry.getKey()).append(" -> ").append(entry.getValue()).append("\n");
+        List<SlotReference> slotList = expressionToColumnStats.keySet().stream()
+                .filter(expr -> expr instanceof SlotReference)
+                .map(expr -> (SlotReference) expr)
+                .sorted(Comparator.comparing(e -> e.getExprId()))
+                .collect(Collectors.toList());
+        for (SlotReference slot : slotList) {
+            builder.append(prefix).append(slot).append(" -> ").append(expressionToColumnStats.get(slot)).append("\n");
         }
         return builder.toString();
     }

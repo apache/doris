@@ -84,6 +84,7 @@ public abstract class DataType {
                     .put(Type.DECIMAL256.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
                     .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
                     .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
+                    .put(Type.VARBINARY.getPrimitiveType(), VarBinaryType.INSTANCE)
                     .build();
         }
     }
@@ -139,6 +140,20 @@ public abstract class DataType {
             return new StringLiteral((String) value);
         }
         return null;
+    }
+
+    /**
+     * Get the active types for the deprecated types. see also {@link ScalarType#getDefaultDateType()}
+     */
+    public static DataType getCurrentType(DataType dataType) {
+        if (dataType instanceof DateType) {
+            return DateV2Type.INSTANCE;
+        } else if (dataType instanceof DateTimeType) {
+            return DateTimeV2Type.SYSTEM_DEFAULT;
+        } else if (dataType instanceof DecimalV2Type) {
+            return DecimalV3Type.SYSTEM_DEFAULT;
+        }
+        return dataType;
     }
 
     /**
@@ -289,7 +304,7 @@ public abstract class DataType {
             case "timev2":
                 switch (types.size()) {
                     case 1:
-                        dataType = TimeV2Type.INSTANCE;
+                        dataType = TimeV2Type.SYSTEM_DEFAULT;
                         break;
                     case 2:
                         dataType = TimeV2Type.of(Integer.parseInt(types.get(1)));
@@ -355,6 +370,10 @@ public abstract class DataType {
             case "variant":
                 dataType = VariantType.INSTANCE;
                 break;
+            case "varbinary":
+                // NOTICE, Maybe. not supported create table, and varbinary do not have len now
+                dataType = VarBinaryType.INSTANCE;
+                break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
@@ -403,6 +422,7 @@ public abstract class DataType {
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
+            case VARBINARY: return VarBinaryType.createVarBinaryType(type.getLength());
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
@@ -452,7 +472,8 @@ public abstract class DataType {
                 return new VariantType(variantFields,
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
                         ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
-                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize());
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantSparseHashShardCount());
             }
             return VariantType.INSTANCE;
         } else {
@@ -579,10 +600,6 @@ public abstract class DataType {
         return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type();
     }
 
-    public boolean isDateV2LikeType() {
-        return isDateV2Type() || isDateTimeV2Type();
-    }
-
     public boolean isTimeType() {
         return this instanceof TimeV2Type;
     }
@@ -609,6 +626,10 @@ public abstract class DataType {
 
     public boolean isStringType() {
         return this instanceof StringType;
+    }
+
+    public boolean isVarBinaryType() {
+        return this instanceof VarBinaryType;
     }
 
     public boolean isJsonType() {

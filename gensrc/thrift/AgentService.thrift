@@ -59,7 +59,9 @@ struct TTabletSchema {
 enum TStorageFormat {
     DEFAULT = 0,
     V1 = 1,
-    V2 = 2
+    V2 = 2,
+    // V3 stands externalized column meta (CMO)
+    V3 = 3
 }
 
 enum TEncryptionAlgorithm {
@@ -138,7 +140,8 @@ struct TPushStoragePolicyReq {
 enum TIndexPolicyType {
     ANALYZER,
     TOKENIZER,
-    TOKEN_FILTER
+    TOKEN_FILTER,
+    CHAR_FILTER
 }
 
 struct TIndexPolicy {
@@ -269,6 +272,8 @@ struct TAlterTabletReqV2 {
     9: optional Descriptors.TDescriptorTable desc_tbl
     10: optional list<Descriptors.TColumn> columns
     11: optional i32 be_exec_version = 0
+    12: optional PaloInternalService.TQueryGlobals query_globals
+    13: optional PaloInternalService.TQueryOptions query_options
 
     // For cloud
     1000: optional i64 job_id
@@ -474,7 +479,7 @@ struct TPublishVersionRequest {
 }
 
 struct TVisibleVersionReq {
-    1: required map<Types.TPartitionId, Types.TVersion> partition_version
+    1: optional map<Types.TPartitionId, Types.TVersion> partition_version
 }
 
 struct TCalcDeleteBitmapPartitionInfo {

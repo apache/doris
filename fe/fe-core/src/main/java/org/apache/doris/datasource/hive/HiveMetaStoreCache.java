@@ -60,6 +60,7 @@ import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterables;
@@ -85,6 +86,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -100,6 +102,7 @@ import java.util.stream.Collectors;
 public class HiveMetaStoreCache {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreCache.class);
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
+    public static final String ERR_CACHE_INCONSISTENCY = "ERR_CACHE_INCONSISTENCY: ";
 
     private final HMSExternalCatalog catalog;
     private JobConf jobConf;
@@ -141,7 +144,7 @@ public class HiveMetaStoreCache {
                 Config.max_hive_partition_table_cache_num,
                 true,
                 null);
-        partitionValuesCache = partitionValuesCacheFactory.buildCache(this::loadPartitionValues, null,
+        partitionValuesCache = partitionValuesCacheFactory.buildCache(this::loadPartitionValues,
                 refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
@@ -160,7 +163,7 @@ public class HiveMetaStoreCache {
             public Map<PartitionCacheKey, HivePartition> loadAll(Iterable<? extends PartitionCacheKey> keys) {
                 return loadPartitions(keys);
             }
-        }, null, refreshExecutor);
+        }, refreshExecutor);
 
         setNewFileCache();
     }
@@ -196,7 +199,7 @@ public class HiveMetaStoreCache {
 
         LoadingCache<FileCacheKey, FileCacheValue> oldFileCache = fileCacheRef.get();
 
-        fileCacheRef.set(fileCacheFactory.buildCache(loader, null, this.refreshExecutor));
+        fileCacheRef.set(fileCacheFactory.buildCache(loader, this.refreshExecutor));
         if (Objects.nonNull(oldFileCache)) {
             oldFileCache.invalidateAll();
         }
@@ -276,11 +279,12 @@ public class HiveMetaStoreCache {
                 partitionNameToIdMap, idToUniqueIdsMap, singleUidToColumnRangeMap, partitionValuesMap);
     }
 
-    public ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
+    private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
         // Partition name will be in format: nation=cn/city=beijing
         // parse it to get values "cn" and "beijing"
         List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
-        Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
+        Preconditions.checkState(partitionValues.size() == types.size(),
+                ERR_CACHE_INCONSISTENCY + partitionName + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String partitionValue : partitionValues) {
             values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
@@ -377,8 +381,7 @@ public class HiveMetaStoreCache {
             while (iterator.hasNext()) {
                 RemoteFile remoteFile = iterator.next();
                 String srcPath = remoteFile.getPath().toString();
-                LocationPath locationPath = LocationPath.of(srcPath, catalog.getCatalogProperty()
-                        .getStoragePropertiesMap());
+                LocationPath locationPath = LocationPath.of(srcPath, path.getStorageProperties());
                 result.addFile(remoteFile, locationPath);
             }
         } catch (FileSystemIOException e) {
@@ -434,6 +437,7 @@ public class HiveMetaStoreCache {
         return getPartitionValues(key);
     }
 
+    @VisibleForTesting
     public HivePartitionValues getPartitionValues(PartitionValueCacheKey key) {
         return partitionValuesCache.get(key);
     }
@@ -560,6 +564,67 @@ public class HiveMetaStoreCache {
                 partitionCache.invalidate(partKey);
             }
         }
+    }
+
+    /**
+     * Selectively refreshes cache for affected partitions based on update information from BE.
+     * For APPEND/OVERWRITE: invalidate both partition cache and file cache using existing method.
+     * For NEW: add to partition values cache.
+     *
+     * @param table The Hive table whose partitions were modified
+     * @param partitionUpdates List of partition updates from BE
+     * @param modifiedPartNames Output list to collect names of modified partitions
+     * @param newPartNames Output list to collect names of new partitions
+     */
+    public void refreshAffectedPartitions(HMSExternalTable table,
+            List<org.apache.doris.thrift.THivePartitionUpdate> partitionUpdates,
+            List<String> modifiedPartNames, List<String> newPartNames) {
+        if (partitionUpdates == null || partitionUpdates.isEmpty()) {
+            return;
+        }
+
+        for (org.apache.doris.thrift.THivePartitionUpdate update : partitionUpdates) {
+            String partitionName = update.getName();
+            // Skip if partition name is null/empty (non-partitioned table case)
+            if (Strings.isNullOrEmpty(partitionName)) {
+                continue;
+            }
+
+            switch (update.getUpdateMode()) {
+                case APPEND:
+                case OVERWRITE:
+                    modifiedPartNames.add(partitionName);
+                    break;
+                case NEW:
+                    newPartNames.add(partitionName);
+                    break;
+                default:
+                    LOG.warn("Unknown update mode {} for partition {}",
+                            update.getUpdateMode(), partitionName);
+                    break;
+            }
+        }
+
+        refreshAffectedPartitionsCache(table, modifiedPartNames, newPartNames);
+    }
+
+    public void refreshAffectedPartitionsCache(HMSExternalTable table,
+            List<String> modifiedPartNames, List<String> newPartNames) {
+
+        // Invalidate cache for modified partitions (both partition cache and file cache)
+        for (String partitionName : modifiedPartNames) {
+            invalidatePartitionCache(table, partitionName);
+        }
+
+        // Add new partitions to partition values cache
+        if (!newPartNames.isEmpty()) {
+            addPartitionsCache(table.getOrBuildNameMapping(), newPartNames,
+                    table.getPartitionColumnTypes(Optional.empty()));
+        }
+
+        // Log summary
+        LOG.info("Refreshed cache for table {}: {} modified partitions, {} new partitions",
+                table.getName(), modifiedPartNames.size(), newPartNames.size());
     }
 
     public void invalidateDbCache(String dbName) {

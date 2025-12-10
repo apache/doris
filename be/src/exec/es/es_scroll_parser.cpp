@@ -527,6 +527,24 @@ Status process_date_column(const rapidjson::Value& col, PrimitiveType sub_type, 
     return Status::OK();
 }
 
+Status process_jsonb_column(const rapidjson::Value& col, PrimitiveType sub_type,
+                            bool pure_doc_value, vectorized::Array& array) {
+    if (!col.IsArray()) {
+        JsonBinaryValue jsonb_value;
+        RETURN_IF_ERROR(jsonb_value.from_json_string(json_value_to_string(col)));
+        vectorized::JsonbField json(jsonb_value.value(), jsonb_value.size());
+        array.push_back(vectorized::Field::create_field<TYPE_JSONB>(json));
+    } else {
+        for (const auto& sub_col : col.GetArray()) {
+            JsonBinaryValue jsonb_value;
+            RETURN_IF_ERROR(jsonb_value.from_json_string(json_value_to_string(sub_col)));
+            vectorized::JsonbField json(jsonb_value.value(), jsonb_value.size());
+            array.push_back(vectorized::Field::create_field<TYPE_JSONB>(json));
+        }
+    }
+    return Status::OK();
+}
+
 Status ScrollParser::parse_column(const rapidjson::Value& col, PrimitiveType sub_type,
                                   bool pure_doc_value, vectorized::Array& array,
                                   const cctz::time_zone& time_zone) {
@@ -560,6 +578,9 @@ Status ScrollParser::parse_column(const rapidjson::Value& col, PrimitiveType sub
     case TYPE_DATETIMEV2: {
         return process_date_column<TYPE_DATETIMEV2>(col, sub_type, pure_doc_value, array,
                                                     time_zone);
+    }
+    case TYPE_JSONB: {
+        return process_jsonb_column(col, sub_type, pure_doc_value, array);
     }
     default:
         LOG(ERROR) << "Do not support Array type: " << sub_type;
@@ -639,11 +660,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
     for (int i = 0; i < tuple_desc->slots().size(); ++i) {
         const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
-        auto col_ptr = columns[i].get();
+        auto* col_ptr = columns[i].get();
 
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         if (slot_desc->col_name() == FIELD_ID) {
             // actually this branch will not be reached, this is guaranteed by Doris FE.
             if (pure_doc_value) {

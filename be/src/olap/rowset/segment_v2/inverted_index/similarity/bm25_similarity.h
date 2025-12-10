@@ -33,10 +33,13 @@ namespace doris::segment_v2 {
 class BM25Similarity : public Similarity {
 public:
     BM25Similarity();
+    BM25Similarity(float idf, float avgdl);
     ~BM25Similarity() override = default;
 
     void for_one_term(const IndexQueryContextPtr& context, const std::wstring& field_name,
                       const std::wstring& term) override;
+    void for_terms(const IndexQueryContextPtr& context, const std::wstring& field_name,
+                   const std::vector<std::wstring>& terms) override;
 
     float score(float freq, int64_t encoded_norm) override;
 
@@ -47,6 +50,8 @@ private:
     static int32_t number_of_leading_zeros(uint64_t value);
     static uint32_t long_to_int4(uint64_t i);
     static uint64_t int4_to_long(uint32_t i);
+
+    void compute_tf_cache();
 
     static const int32_t MAX_INT32;
     static const uint32_t MAX_INT4;

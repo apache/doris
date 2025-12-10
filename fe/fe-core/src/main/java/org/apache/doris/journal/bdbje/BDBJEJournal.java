@@ -383,6 +383,11 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     }
 
     @Override
+    public JournalCursor read(long fromKey, long toKey, boolean exitIfError) {
+        return BDBJournalCursor.getJournalCursor(bdbEnvironment, fromKey, toKey, exitIfError);
+    }
+
+    @Override
     public long getMaxJournalId() {
         if (Config.enable_check_compatibility_mode) {
             return getMaxJournalIdWithoutCheck();

@@ -48,7 +48,12 @@ public:
     TExprNodeType::type node_type() const override { return _mock_node_type; }
 
     Status execute(vectorized::VExprContext* context, vectorized::Block* block,
-                   int32_t* result_column_id) override {
+                   int32_t* result_column_id) const override {
+        return Status::OK();
+    }
+
+    Status execute_column(vectorized::VExprContext* context, const vectorized::Block* block,
+                          size_t count, vectorized::ColumnPtr& result_column) const override {
         return Status::OK();
     }
 
@@ -196,12 +201,16 @@ public:
 
     void reset_read_options() override {}
 
-    Status next_block(vectorized::Block* block) override {
-        return Status::NotSupported("MockRowsetReader::next_block not implemented");
+    Status next_batch(vectorized::Block* block) override {
+        return Status::NotSupported("MockRowsetReader::next_batch not implemented");
     }
 
-    Status next_block_view(vectorized::BlockView* block_view) override {
-        return Status::NotSupported("MockRowsetReader::next_block_view not implemented");
+    Status next_batch(vectorized::BlockView* block_view) override {
+        return Status::NotSupported("MockRowsetReader::next_batch not implemented");
+    }
+
+    Status next_batch(BlockWithSameBit* block_view) override {
+        return Status::NotSupported("MockRowsetReader::next_batch not implemented");
     }
 
     bool delete_flag() override { return false; }
@@ -628,6 +637,43 @@ TEST_F(CollectionStatisticsTest, FindSlotRefHandlesNullDirectCastAndNested) {
     bin->_children.push_back(inner_cast);
     bin->_children.push_back(lit);
     EXPECT_EQ(find_slot_ref(bin), static_cast<vectorized::VSlotRef*>(slot_ref_nested.get()));
+}
+
+TEST(TermInfoComparerTest, OrdersByTermAndDedups) {
+    using doris::TermInfoComparer;
+    using doris::segment_v2::TermInfo;
+
+    std::set<TermInfo, TermInfoComparer> terms;
+
+    TermInfo t1;
+    t1.term = std::string("banana");
+    t1.position = 2;
+
+    TermInfo t2;
+    t2.term = std::string("apple");
+    t2.position = 10;
+
+    TermInfo t3;
+    t3.term = std::string("cherry");
+    t3.position = 1;
+
+    TermInfo dup;
+    dup.term = std::string("banana");
+    dup.position = 100;
+
+    terms.insert(t1);
+    terms.insert(t2);
+    terms.insert(t3);
+    terms.insert(dup);
+
+    std::vector<std::string> ordered;
+    ordered.reserve(terms.size());
+    for (const auto& t : terms) {
+        ordered.push_back(t.get_single_term());
+    }
+
+    EXPECT_EQ(terms.size(), 3u);
+    EXPECT_THAT(ordered, ::testing::ElementsAre("apple", "banana", "cherry"));
 }
 
 } // namespace doris

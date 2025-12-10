@@ -167,7 +167,7 @@ suite("fold_constant_nullable") {
     testFoldConst("SELECT DateV2(NULL)")
     testFoldConst("SELECT Date_Format(NULL, 'format')")
     testFoldConst("SELECT Date(NULL)")
-    testFoldConst("SELECT Convert_Tz(NULL, 'from_tz', 'to_tz')")
+    // testFoldConst("SELECT Convert_Tz(NULL, 'from_tz', 'to_tz')")
     testFoldConst("SELECT st_geomfromtext(NULL)")
     testFoldConst("SELECT St_Geometryfromtext(NULL)")
     testFoldConst("SELECT St_Polyfromtext(NULL)")

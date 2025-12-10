@@ -18,8 +18,6 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.ImportSequenceStmt;
-import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -35,6 +33,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -78,14 +77,13 @@ public class KafkaRoutineLoadJobTest {
 
     private String jobName = "job1";
     private String dbName = "db1";
-    private LabelName labelName = new LabelName(dbName, jobName);
     private LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
     private String tableNameString = "table1";
     private String topicName = "topic1";
     private String serverAddress = "http://127.0.0.1:8080";
     private String kafkaPartitionString = "1,2,3";
 
-    private PartitionNames partitionNames;
+    private PartitionNamesInfo partitionNames;
 
     private Separator columnSeparator = new Separator(",");
 
@@ -102,7 +100,7 @@ public class KafkaRoutineLoadJobTest {
 
         List<String> partitionNameList = Lists.newArrayList();
         partitionNameList.add("p1");
-        partitionNames = new PartitionNames(false, partitionNameList);
+        partitionNames = new PartitionNamesInfo(false, partitionNameList);
     }
 
     @Test

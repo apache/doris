@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPingBrokerRequest;
 import org.apache.doris.thrift.TBrokerVersion;
+import org.apache.doris.thrift.TCloudClusterInfo;
 import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
@@ -77,6 +78,7 @@ public class HeartbeatMgr extends MasterDaemon {
     private final ExecutorService executor;
     private SystemInfoService nodeMgr;
     private HeartbeatFlags heartbeatFlags;
+    private final ExecutorService abortTxnExecutor;
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
@@ -85,6 +87,8 @@ public class HeartbeatMgr extends MasterDaemon {
         this.nodeMgr = nodeMgr;
         this.executor = ThreadPoolManager.newDaemonFixedThreadPool(Config.heartbeat_mgr_threads_num,
                 Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool", needRegisterMetric);
+        this.abortTxnExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1,
+                Config.heartbeat_mgr_blocking_queue_size, "abort-txn-executor", needRegisterMetric);
         this.heartbeatFlags = new HeartbeatFlags();
     }
 
@@ -191,18 +195,21 @@ public class HeartbeatMgr extends MasterDaemon {
                     boolean isChanged = be.handleHbResponse(hbResponse, isReplay);
                     if (hbResponse.getStatus() == HbStatus.OK) {
                         long newStartTime = be.getLastStartTime();
+                        // oldStartTime > 0 means it is not the first heartbeat
                         if (!isReplay && Config.enable_abort_txn_by_checking_coordinator_be
-                                && oldStartTime != newStartTime) {
-                            Env.getCurrentGlobalTransactionMgr().abortTxnWhenCoordinateBeRestart(
-                                    be.getId(), be.getHost(), newStartTime);
+                                && oldStartTime != newStartTime && oldStartTime > 0) {
+                            submitAbortTxnTaskByExecutor(() -> Env.getCurrentGlobalTransactionMgr()
+                                    .abortTxnWhenCoordinateBeRestart(be.getId(), be.getHost(), newStartTime),
+                                    "restart");
                         }
                     } else {
                         // invalid all connections cached in ClientPool
                         ClientPool.backendPool.clearPool(new TNetworkAddress(be.getHost(), be.getBePort()));
                         if (!isReplay && System.currentTimeMillis() - be.getLastUpdateMs()
-                                >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L) {
-                            Env.getCurrentGlobalTransactionMgr().abortTxnWhenCoordinateBeDown(
-                                    be.getId(), be.getHost(), 100);
+                                >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L
+                                && be.getLastUpdateMs() > 0) {
+                            submitAbortTxnTaskByExecutor(() -> Env.getCurrentGlobalTransactionMgr()
+                                    .abortTxnWhenCoordinateBeDown(be.getId(), be.getHost(), 100), "down");
                         }
                     }
                     return isChanged;
@@ -227,6 +234,26 @@ public class HeartbeatMgr extends MasterDaemon {
                 break;
         }
         return false;
+    }
+
+    private void submitAbortTxnTaskByExecutor(Runnable task, String reason) {
+        long start = System.currentTimeMillis();
+        try {
+            abortTxnExecutor.submit(() -> {
+                LOG.info("start abort txn task, reason={}, start_ts={}", reason, start);
+                try {
+                    task.run();
+                    long duration = System.currentTimeMillis() - start;
+                    LOG.info("finish abort txn task, reason={}, start_ts={}, cost_ms={}", reason, start, duration);
+                } catch (Exception e) {
+                    long duration = System.currentTimeMillis() - start;
+                    LOG.warn("abort txn task({}) failed, start_ts={}, cost_ms={}", reason, start, duration, e);
+                }
+            });
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - start;
+            LOG.warn("failed to submit abort txn task({}), start_ts={}, cost_ms={}", reason, start, duration, e);
+        }
     }
 
     // backend heartbeat
@@ -266,7 +293,11 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (Config.isCloudMode()) {
                     String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
                     copiedMasterInfo.setCloudUniqueId(cloudUniqueId);
-                    copiedMasterInfo.setTabletReportInactiveDurationMs(Config.rehash_tablet_after_be_dead_seconds);
+                    long reportInterval = Config.rehash_tablet_after_be_dead_seconds * 1000L;
+                    copiedMasterInfo.setTabletReportInactiveDurationMs(reportInterval);
+                    TCloudClusterInfo clusterInfo = new TCloudClusterInfo();
+                    clusterInfo.setIsStandby(backend.isInStandbyCluster());
+                    copiedMasterInfo.setCloudClusterInfo(clusterInfo);
                 }
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {

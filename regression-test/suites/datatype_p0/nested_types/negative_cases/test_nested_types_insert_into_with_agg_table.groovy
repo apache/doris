@@ -88,6 +88,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
         exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<DATETIMEV2(0)>")
     }
 
+    sql "set enable_insert_strict = false"
     test {
         sql "insert into tbl_array_nested_types_agg (c_char) select c_char from tbl_scalar_types_dup"
         exception null
@@ -102,6 +103,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
         sql "insert into tbl_array_nested_types_agg (c_string) select c_string from tbl_scalar_types_dup"
         exception null
     }
+    sql "set enable_insert_strict = true"
 
     qt_sql_nested_table_agg_c """select count() from tbl_array_nested_types_agg;"""
     qt_sql_nested_table_agg """select * from tbl_array_nested_types_agg;"""
@@ -172,6 +174,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
         exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<ARRAY<DATETIMEV2(0)>>")
     }
 
+    sql "set enable_insert_strict = false"
     test {
         sql "insert into tbl_array_nested_types_agg2 (c_char) select c_char from tbl_scalar_types_dup"
         exception null
@@ -186,6 +189,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
         sql "insert into tbl_array_nested_types_agg2 (c_string) select c_string from tbl_scalar_types_dup"
         exception null
     }
+    sql "set enable_insert_strict = true"
 
     qt_sql_nested_table_agg2_c """select count() from tbl_array_nested_types_agg2;"""
     qt_sql_nested_table_agg2 """select * from tbl_array_nested_types_agg2;"""
@@ -257,6 +261,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
         exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),DATETIMEV2(0)>")
     }
 
+    sql "set enable_insert_strict = false"
     test {
         sql "insert into tbl_map_types_agg (c_char) select c_char from tbl_scalar_types_dup"
         exception null
@@ -271,6 +276,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
         sql "insert into tbl_map_types_agg (c_string) select c_string from tbl_scalar_types_dup"
         exception null
     }
+    sql "set enable_insert_strict = true"
 
     qt_sql_nested_table_map_agg_c """select count() from tbl_map_types_agg;"""
     qt_sql_nested_table_map_agg """select * from tbl_map_types_agg;"""
@@ -341,6 +347,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
         exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<MAP<DATETIMEV2(0),DATETIMEV2(0)>>")
     }
 
+    sql "set enable_insert_strict = false"
     test {
         sql "insert into tbl_array_map_types_agg (c_char) select c_char from tbl_scalar_types_dup"
         exception null
@@ -355,6 +362,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
         sql "insert into tbl_array_map_types_agg (c_string) select c_string from tbl_scalar_types_dup"
         exception null
     }
+    sql "set enable_insert_strict = true"
 
     qt_sql_nested_table_array_map_agg_c """select count() from tbl_array_map_types_agg;"""
     qt_sql_nested_table_array_map_agg """select * from tbl_array_map_types_agg;"""
@@ -426,6 +434,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
         exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),ARRAY<DATETIMEV2(0)>>")
     }
 
+    sql "set enable_insert_strict = false"
     test {
         sql "insert into tbl_map_array_types_agg (c_char) select c_char from tbl_scalar_types_dup"
         exception null
@@ -440,6 +449,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
         sql "insert into tbl_map_array_types_agg (c_string) select c_string from tbl_scalar_types_dup"
         exception null
     }
+    sql "set enable_insert_strict = true"
 
     qt_sql_nested_table_map_array_agg_c """select count() from tbl_map_array_types_agg;"""
     qt_sql_nested_table_map_array_agg """select * from tbl_map_array_types_agg;"""

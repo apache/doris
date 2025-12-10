@@ -386,7 +386,8 @@ public class CloudRestoreJob extends RestoreJob {
                                     indexMeta.getSchemaHash(), indexMeta.getKeysType(),
                                     indexMeta.getShortKeyColumnCount(), localTbl.getCopiedBfColumns(),
                                     localTbl.getBfFpp(), indexes, indexMeta.getSchema(), localTbl.getDataSortInfo(),
-                                    localTbl.getCompressionType(), localTbl.getStoragePolicy(),
+                                    localTbl.getCompressionType(), localTbl.getStorageFormat(),
+                                    localTbl.getStoragePolicy(),
                                     localTbl.isInMemory(), false, localTbl.getName(), localTbl.getTTLSeconds(),
                                     localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.storeRowColumn(),
                                     localTbl.getBaseSchemaVersion(), localTbl.getCompactionPolicy(),
@@ -544,6 +545,7 @@ public class CloudRestoreJob extends RestoreJob {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
         storageVaultName = properties.get(PROP_STORAGE_VAULT_NAME);
     }
 

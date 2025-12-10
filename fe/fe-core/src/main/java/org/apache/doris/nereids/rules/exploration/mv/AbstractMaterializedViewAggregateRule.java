@@ -18,9 +18,10 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -42,13 +43,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -67,7 +65,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -176,7 +173,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             MaterializationContext materializationContext,
             ExpressionRewriteMode groupByMode,
             ExpressionRewriteMode aggregateFunctionMode) {
-
         // try to roll up.
         // split the query top plan expressions to group expressions and functions, if can not, bail out.
         Pair<Set<? extends Expression>, Set<? extends Expression>> queryGroupAndFunctionPair
@@ -320,7 +316,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 queryStructInfo.getTableBitSet());
         AggregateExpressionRewriteContext expressionRewriteContext = new AggregateExpressionRewriteContext(
                 rewriteMode, mvShuttledExprToMvScanExprQueryBased, queryStructInfo.getTopPlan(),
-                queryStructInfo.getTableBitSet());
+                queryStructInfo.getTableBitSet(), queryStructInfo.getGroupingId());
         Expression rewrittenExpression = queryFunctionShuttled.accept(AGGREGATE_EXPRESSION_REWRITER,
                 expressionRewriteContext);
         if (!expressionRewriteContext.isValid()) {
@@ -341,10 +337,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * compensate union all.
      */
     @Override
-    protected boolean canUnionRewrite(Plan queryPlan, MTMV mtmv, CascadesContext cascadesContext) {
+    protected boolean canUnionRewrite(Plan queryPlan, AsyncMaterializationContext context,
+            CascadesContext cascadesContext) {
         // Check query plan is contain the partition column
         // Query plan in the current rule must contain aggregate node, because the rule pattern is
-        //
         Optional<LogicalAggregate<Plan>> logicalAggregateOptional =
                 queryPlan.collectFirst(planTreeNode -> planTreeNode instanceof LogicalAggregate);
         if (!logicalAggregateOptional.isPresent()) {
@@ -355,19 +351,24 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             // Scalar aggregate can not compensate union all
             return false;
         }
-        final String relatedCol = mtmv.getMvPartitionInfo().getRelatedCol();
-        final BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
+        MTMVPartitionInfo mvPartitionInfo = context.getMtmv().getMvPartitionInfo();
+        List<BaseColInfo> pctInfos = mvPartitionInfo.getPctInfos();
         boolean canUnionRewrite = false;
         // Check the query plan group by expression contains partition col or not
         List<? extends Expression> groupByShuttledExpressions =
                 ExpressionUtils.shuttleExpressionWithLineage(groupByExpressions, queryPlan, new BitSet());
         for (Expression expression : groupByShuttledExpressions) {
-            canUnionRewrite = !expression.collectToSet(expr -> expr instanceof SlotReference
-                    && ((SlotReference) expr).isColumnFromTable()
-                    && Objects.equals(((SlotReference) expr).getOriginalColumn().map(Column::getName).orElse(null),
-                    relatedCol)
-                    && Objects.equals(((SlotReference) expr).getOriginalTable().map(BaseTableInfo::new).orElse(null),
-                    relatedTableInfo)).isEmpty();
+            canUnionRewrite = !expression.collectToSet(expr -> {
+                if (!(expr instanceof SlotReference) || !((SlotReference) expr).isColumnFromTable()) {
+                    return false;
+                }
+                String columnName = ((SlotReference) expr).getOriginalColumn().map(Column::getName).orElse(null);
+                BaseTableInfo baseTableInfo = ((SlotReference) expr).getOriginalTable().map(BaseTableInfo::new)
+                        .orElse(null);
+                return pctInfos.stream().anyMatch(colInfo -> colInfo.getTableInfo().equals(baseTableInfo)
+                        && colInfo.getColName().equals(columnName));
+            }
+            ).isEmpty();
             if (canUnionRewrite) {
                 break;
             }
@@ -681,9 +682,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     @Override
     protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
-        // if query or mv contains more then one top aggregate, should fail
+        // if query or mv contains more than one top aggregate, should fail
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
-                && checkContext.isContainsTopAggregate() && checkContext.getTopAggregateNum() <= 1;
+                && checkContext.isContainsTopAggregate() && checkContext.getTopAggregateNum() <= 1
+                && !checkContext.isContainsTopLimit() && !checkContext.isContainsTopTopN()
+                && !checkContext.isContainsTopWindow();
     }
 
     /**
@@ -734,38 +737,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
 
         @Override
-        public Expression visitGroupingScalarFunction(GroupingScalarFunction groupingScalarFunction,
-                AggregateExpressionRewriteContext context) {
-            List<Expression> children = groupingScalarFunction.children();
-            List<Expression> rewrittenChildren = new ArrayList<>();
-            for (Expression child : children) {
-                Expression rewrittenChild = child.accept(this, context);
-                if (!context.isValid()) {
-                    return groupingScalarFunction;
-                }
-                rewrittenChildren.add(rewrittenChild);
-            }
-            return groupingScalarFunction.withChildren(rewrittenChildren);
-        }
-
-        @Override
         public Expression visitSlot(Slot slot, AggregateExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
                 return slot;
             }
-            if (slot instanceof VirtualSlotReference) {
-                Optional<GroupingScalarFunction> originExpression = ((VirtualSlotReference) slot).getOriginExpression();
-                if (!originExpression.isPresent()) {
-                    return Repeat.generateVirtualGroupingIdSlot();
-                } else {
-                    GroupingScalarFunction groupingScalarFunction = originExpression.get();
-                    groupingScalarFunction =
-                            (GroupingScalarFunction) groupingScalarFunction.accept(this, rewriteContext);
-                    if (!rewriteContext.isValid()) {
-                        return slot;
-                    }
-                    return Repeat.generateVirtualSlotByFunction(groupingScalarFunction);
-                }
+            if (rewriteContext.getGroupingId().isPresent() && slot.equals(rewriteContext.getGroupingId().get())) {
+                return slot;
             }
             if (rewriteContext.getMvExprToMvScanExprQueryBasedMapping().containsKey(slot)) {
                 return rewriteContext.getMvExprToMvScanExprQueryBasedMapping().get(slot);
@@ -810,14 +787,16 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         private final Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping;
         private final Plan queryTopPlan;
         private final BitSet queryTableBitSet;
+        private final Optional<SlotReference> groupingId;
 
         public AggregateExpressionRewriteContext(ExpressionRewriteMode expressionRewriteMode,
                 Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping, Plan queryTopPlan,
-                BitSet queryTableBitSet) {
+                BitSet queryTableBitSet, Optional<SlotReference> groupingId) {
             this.expressionRewriteMode = expressionRewriteMode;
             this.mvExprToMvScanExprQueryBasedMapping = mvExprToMvScanExprQueryBasedMapping;
             this.queryTopPlan = queryTopPlan;
             this.queryTableBitSet = queryTableBitSet;
+            this.groupingId = groupingId;
         }
 
         public boolean isValid() {
@@ -842,6 +821,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
         public BitSet getQueryTableBitSet() {
             return queryTableBitSet;
+        }
+
+        public Optional<SlotReference> getGroupingId() {
+            return groupingId;
         }
 
         /**

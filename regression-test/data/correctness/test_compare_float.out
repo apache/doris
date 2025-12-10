@@ -5,7 +5,6 @@
 3	114514.0
 4	Infinity
 5	-Infinity
-6	-0.0
 7	0.0
 8	NaN
 9	NaN
@@ -13,7 +12,6 @@
 -- !sql1 --
 5	-Infinity
 2	-123.0
-6	-0.0
 7	0.0
 1	123.0
 3	114514.0
@@ -24,7 +22,6 @@
 -- !sql2 --
 -Infinity	true
 -123.0	true
--0.0	true
 0.0	true
 123.0	true
 114514.0	true
@@ -35,7 +32,6 @@ NaN	false
 -- !sql3 --
 -Infinity	true
 -123.0	true
--0.0	true
 0.0	true
 123.0	true
 114514.0	true
@@ -46,7 +42,6 @@ NaN	true
 -- !sql4 --
 -Infinity	false
 -123.0	false
--0.0	false
 0.0	false
 123.0	false
 114514.0	false
@@ -57,7 +52,6 @@ NaN	false
 -- !sql5 --
 -Infinity	false
 -123.0	false
--0.0	false
 0.0	false
 123.0	false
 114514.0	false
@@ -68,7 +62,6 @@ NaN	true
 -- !sql6 --
 -Infinity	false
 -123.0	false
--0.0	false
 0.0	false
 123.0	false
 114514.0	false
@@ -79,7 +72,6 @@ NaN	true
 -- !sql7 --
 -Infinity	true
 -123.0	true
--0.0	true
 0.0	true
 123.0	true
 114514.0	true

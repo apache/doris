@@ -52,7 +52,7 @@ suite("test_hot_value") {
     sql """create database test_hot_value"""
     sql """use test_hot_value"""
     sql """set global enable_auto_analyze=false"""
-    sql " set hot_value_threshold = 1"
+    sql " set hot_value_threshold = 0.1"
 
     sql """CREATE TABLE test1 (
             key1 int NULL,
@@ -152,20 +152,21 @@ suite("test_hot_value") {
     assertTrue(hotValues[0] == "'1':0.5" || hotValues[0] == "'0':0.5")
     assertTrue(hotValues[1] == "'1':0.5" || hotValues[1] == "'0':0.5")
 
-    sql """alter table test1 modify column value1 set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='34.0', 'min_value'='AFRICA', 'max_value'='MIDDLE EAST', 'hot_values'='aaa :0.22');"""
+    sql """alter table test1 modify column value1 set stats ('row_count'='100.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='34.0', 'min_value'='AFRICA', 'max_value'='MIDDLE EAST', 'hot_values'='aaa :0.8');"""
     result = sql """show column stats test1(value1)"""
     logger.info("3. result " + result)
     assertEquals(1, result.size())
-    assertEquals("5.0", result[0][2])
-    assertEquals("'aaa':0.22", result[0][17])
+    assertEquals("100.0", result[0][2])
+    assertEquals("'aaa':0.8", result[0][17])
     result = sql """show column cached stats test1(value1)"""
+    logger.info("3. cached result " + result)
     assertEquals(1, result.size())
-    assertEquals("5.0", result[0][2])
-    assertEquals("'aaa':0.22", result[0][17])
+    assertEquals("100.0", result[0][2])
+    assertEquals("'aaa':0.8", result[0][17])
     logger.info("2. memo plan ")
     explain {
         sql("memo plan select * from test1")
-        contains "hotValues=('aaa':0.22)"
+        contains "hotValues=('aaa':0.8)"
     }
 
     sql """alter table test1 modify column value1 set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='34.0', 'min_value'='AFRICA', 'max_value'='MIDDLE EAST', 'hot_values'='a \\\\;a \\\\:a :0.33');"""

@@ -70,6 +70,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -247,6 +248,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         this.loadStatistic.totalFileSizeB = fileSize;
     }
 
+    public void addLoadFileInfo(int fileNum, long fileSize) {
+        this.loadStatistic.fileNum += fileNum;
+        this.loadStatistic.totalFileSizeB += fileSize;
+    }
+
     /**
      * Show table names for frontend
      * If table name could not be found by id, the table id will be used instead.
@@ -324,9 +330,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
                 timeout = Optional.ofNullable(ConnectContext.get())
                                     .map(ConnectContext::getExecTimeoutS)
                                     .orElse(Config.insert_load_default_timeout_second);
-                break;
-            case INGESTION:
-                timeout = Config.ingestion_load_default_timeout_second;
                 break;
             default:
                 break;
@@ -800,6 +803,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         }
         // comment
         jobInfo.add(comment);
+        // first error message
+        jobInfo.add(StringUtils.abbreviate(loadingStatus.getFirstErrorMsg(), Config.first_error_msg_max_length));
         return jobInfo;
     }
 

@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.systable;
 
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.common.Pair;
+import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 
 public abstract class SysTable {
@@ -50,8 +50,8 @@ public abstract class SysTable {
 
     public abstract TableValuedFunction createFunction(String ctlName, String dbName, String sourceNameWithMetaName);
 
-    public abstract TableValuedFunctionRef createFunctionRef(String ctlName, String dbName,
-            String sourceNameWithMetaName);
+    public abstract TableValuedFunctionRefInfo createFunctionRef(String ctlName, String dbName,
+                                                                 String sourceNameWithMetaName);
 
     // table$partition => <table, partition>
     // table$xx$partition => <table$xx, partition>

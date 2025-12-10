@@ -39,7 +39,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
@@ -50,6 +49,8 @@ import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -71,17 +72,18 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PreparePlaceholder;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -94,6 +96,10 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NestedColumnPrunable;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -122,13 +128,19 @@ import javax.annotation.Nullable;
 
 /** ExpressionAnalyzer */
 public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext> {
+    // This rule only used in unit test
     @VisibleForTesting
     public static final AbstractExpressionRewriteRule FUNCTION_ANALYZER_RULE = new AbstractExpressionRewriteRule() {
         @Override
         public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-            return new ExpressionAnalyzer(
-                    null, new Scope(ImmutableList.of()), null, false, false
-            ).analyze(expr, ctx);
+            return new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, false, false) {
+                @Override
+                protected Expression processCompoundNewChildren(CompoundPredicate cp, List<Expression> newChildren) {
+                    // ExpressionUtils.and/ExpressionUtils.or will remove duplicate children, and simplify FALSE / TRUE.
+                    // But we don't want to simplify them in unit test.
+                    return cp.withChildren(newChildren);
+                }
+            }.analyze(expr, ctx);
         }
     };
 
@@ -146,7 +158,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
-    private boolean hasNondeterministic;
 
     /** ExpressionAnalyzer */
     public ExpressionAnalyzer(Plan currentPlan, Scope scope,
@@ -166,43 +177,27 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 cascadesContext, false, false);
         return analyzer.analyze(
                 expression,
-                cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext)
+                cascadesContext == null ? null : new ExpressionRewriteContext(plan, cascadesContext)
         );
     }
 
+    /** analyze */
     public Expression analyze(Expression expression) {
         CascadesContext cascadesContext = getCascadesContext();
-        return analyze(expression, cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext));
+        ExpressionRewriteContext rewriteContext;
+        if (cascadesContext == null) {
+            rewriteContext = null;
+        } else if (currentPlan == null) {
+            rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        } else {
+            rewriteContext = new ExpressionRewriteContext(currentPlan, cascadesContext);
+        }
+        return analyze(expression, rewriteContext);
     }
 
     /** analyze */
     public Expression analyze(Expression expression, ExpressionRewriteContext context) {
-        hasNondeterministic = false;
-        Expression analyzeResult = expression.accept(this, context);
-        if (wantToParseSqlFromSqlCache && hasNondeterministic
-                && context.cascadesContext.getStatementContext().getSqlCacheContext().isPresent()) {
-            hasNondeterministic = false;
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext().get();
-            Expression foldNondeterministic = new FoldConstantRuleOnFE(true) {
-                @Override
-                public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
-                    Expression fold = super.visitBoundFunction(boundFunction, context);
-                    boolean unfold = !fold.isDeterministic();
-                    if (unfold) {
-                        sqlCacheContext.setCannotProcessExpression(true);
-                    }
-                    if (!boundFunction.isDeterministic() && !unfold) {
-                        sqlCacheContext.addFoldNondeterministicPair(boundFunction, fold);
-                    }
-                    return fold;
-                }
-            }.rewrite(analyzeResult, context);
-
-            sqlCacheContext.addFoldFullNondeterministicPair(analyzeResult, foldNondeterministic);
-            return foldNondeterministic;
-        }
-        return analyzeResult;
+        return expression.accept(this, context);
     }
 
     @Override
@@ -268,6 +263,25 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     @Override
+    public Expression visitDereferenceExpression(DereferenceExpression dereferenceExpression,
+            ExpressionRewriteContext context) {
+        Expression expression = dereferenceExpression.child(0).accept(this, context);
+        DataType dataType = expression.getDataType();
+        if (dataType.isStructType()) {
+            StructType structType = (StructType) dataType;
+            StructField field = structType.getField(dereferenceExpression.fieldName);
+            if (field != null) {
+                return new StructElement(expression, dereferenceExpression.child(1));
+            }
+        } else if (dataType.isMapType()) {
+            return new ElementAt(expression, dereferenceExpression.child(1));
+        } else if (dataType.isVariantType()) {
+            return new ElementAt(expression, dereferenceExpression.child(1));
+        }
+        throw new AnalysisException("Can not dereference field: " + dereferenceExpression.fieldName);
+    }
+
+    @Override
     public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
         Optional<Scope> outerScope = getScope().getOuterScope();
         Optional<List<? extends Expression>> boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
@@ -296,6 +310,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     }
                     outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
                 }
+                if (firstBound.getDataType() instanceof NestedColumnPrunable) {
+                    context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+                } else if (firstBound.containsType(ElementAt.class, StructElement.class)) {
+                    context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+                }
                 return firstBound;
             default:
                 if (enableExactMatch) {
@@ -315,6 +334,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                             .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
                             .collect(Collectors.toList());
                     if (exactMatch.size() == 1) {
+                        if (exactMatch.get(0).getDataType() instanceof NestedColumnPrunable) {
+                            context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+                        }
                         return exactMatch.get(0);
                     }
                 }
@@ -351,6 +373,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
                 showSlots.add(slot);
             }
+            if (slot.getDataType() instanceof NestedColumnPrunable) {
+                context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+            }
         }
         ImmutableList<Slot> slots = showSlots.build();
         switch (qualifier.size()) {
@@ -380,7 +405,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // bindLambdaFunction
         Lambda lambda = (Lambda) unboundFunction.children().get(0);
         Expression lambdaFunction = lambda.getLambdaFunction();
-        List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(subChildren);
+        List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(unboundFunction.getName(), subChildren);
 
         List<Slot> boundedSlots = arrayItemReferences.stream()
                 .map(ArrayItemReference::toSlot)
@@ -425,10 +450,43 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     newChildrenBuilder.add(unboundFunction.child(i));
                 }
                 unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+            } else if (StringUtils.isEmpty(unboundFunction.getDbName())
+                    && "get_format".equalsIgnoreCase(unboundFunction.getName())
+                    && unboundFunction.arity() == 2
+                    && unboundFunction.child(0) instanceof UnboundSlot) {
+                SlotReference slotReference = new SlotReference(new ExprId(-1),
+                        ((UnboundSlot) unboundFunction.child(0)).getName(),
+                        StringType.INSTANCE, false, ImmutableList.of());
+                ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
+                newChildrenBuilder.add(slotReference);
+                for (int i = 1; i < unboundFunction.arity(); i++) {
+                    newChildrenBuilder.add(unboundFunction.child(i));
+                }
+                unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
             }
             unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
         }
         return unboundFunction;
+    }
+
+    List<Object> constructUnboundFunctionArguments(UnboundFunction unboundFunction) {
+        ImmutableList.Builder<Object> argumentsBuilder
+                = ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1);
+        if (unboundFunction.isDistinct()) {
+            argumentsBuilder.add(unboundFunction.isDistinct());
+        }
+        for (Expression argument : unboundFunction.getArguments()) {
+            if (argument instanceof BoundStar) {
+                BoundStar boundStar = (BoundStar) argument;
+                for (Slot slot : boundStar.getSlots()) {
+                    argumentsBuilder.add(new StringLiteral(slot.getName()));
+                    argumentsBuilder.add(slot);
+                }
+            } else {
+                argumentsBuilder.add(argument);
+            }
+        }
+        return argumentsBuilder.build();
     }
 
     @Override
@@ -437,13 +495,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
-        List<Object> arguments = unboundFunction.isDistinct()
-                ? ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1)
-                .add(unboundFunction.isDistinct())
-                .addAll(unboundFunction.getArguments())
-                .build()
-                : (List) unboundFunction.getArguments();
-
+        List<Object> arguments = constructUnboundFunctionArguments(unboundFunction);
         String dbName = unboundFunction.getDbName();
         if (StringUtils.isEmpty(dbName)) {
             // we will change arithmetic function like add(), subtract(), bitnot()
@@ -459,6 +511,14 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     return TypeCoercionUtils.processBinaryArithmetic((BinaryArithmetic) ret);
                 } else if (ret instanceof BitNot) {
                     return TypeCoercionUtils.processBitNot((BitNot) ret);
+                } else {
+                    return ret;
+                }
+            }
+            if (GetFormatFunctionBinder.isGetFormatFunction(unboundFunction.getName())) {
+                Expression ret = GetFormatFunctionBinder.INSTANCE.bind(unboundFunction);
+                if (ret instanceof BoundFunction) {
+                    return TypeCoercionUtils.processBoundFunction((BoundFunction) ret);
                 } else {
                     return ret;
                 }
@@ -494,11 +554,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             statementContext.setHasNondeterministic(true);
         }
         if (wantToParseSqlFromSqlCache) {
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            if (!buildResult.second.isDeterministic()) {
-                hasNondeterministic = true;
-            }
-            sqlCacheContext = statementContext.getSqlCacheContext();
+            sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
             if (builder instanceof AliasUdfBuilder
                     || buildResult.second instanceof JavaUdf || buildResult.second instanceof JavaUdaf) {
                 if (sqlCacheContext.isPresent()) {
@@ -520,6 +576,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             return buildResult.first;
         } else {
             Expression castFunction = TypeCoercionUtils.processBoundFunction((BoundFunction) buildResult.first);
+            if (castFunction instanceof RewriteWhenAnalyze) {
+                castFunction = ((RewriteWhenAnalyze) castFunction).rewriteWhenAnalyze();
+            }
             return castFunction;
         }
     }
@@ -612,7 +671,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 newChild = child;
             }
             if (newChild.getDataType().isNullType()) {
-                newChild = new NullLiteral(BooleanType.INSTANCE);
+                newChild = NullLiteral.BOOLEAN_INSTANCE;
             } else {
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
@@ -623,7 +682,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             newChildren.add(newChild);
         }
         if (hasNewChild) {
-            return ExpressionUtils.or(newChildren);
+            return processCompoundNewChildren(or, newChildren);
         } else {
             return or;
         }
@@ -640,20 +699,28 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 newChild = child;
             }
             if (newChild.getDataType().isNullType()) {
-                newChild = new NullLiteral(BooleanType.INSTANCE);
+                newChild = NullLiteral.BOOLEAN_INSTANCE;
             } else {
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
 
-            if (! child.equals(newChild)) {
+            if (!child.equals(newChild)) {
                 hasNewChild = true;
             }
             newChildren.add(newChild);
         }
         if (hasNewChild) {
-            return ExpressionUtils.and(newChildren);
+            return processCompoundNewChildren(and, newChildren);
         } else {
             return and;
+        }
+    }
+
+    protected Expression processCompoundNewChildren(CompoundPredicate cp, List<Expression> newChildren) {
+        if (cp instanceof And) {
+            return ExpressionUtils.and(newChildren);
+        } else {
+            return ExpressionUtils.or(newChildren);
         }
     }
 
@@ -683,7 +750,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // In prepare stage, the realExpr has not been set, set it to StringLiteral so that we can plan the statement
         // and get the output slots in prepare stage, which is required by Mysql api definition.
         if (realExpr == null && context.cascadesContext.getStatementContext().isPrepareStage()) {
-            realExpr = new PreparePlaceholder(new IntegerLiteral(1));
+            realExpr = new StringLiteral(String.valueOf(placeholder.getPlaceholderId().asInt()));
         }
         return visit(realExpr, context);
     }
@@ -906,13 +973,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return bindSlotByScope(unboundSlot, getScope());
     }
 
-    protected List<Slot> bindExactSlotsByThisScope(UnboundSlot unboundSlot, Scope scope) {
-        List<Slot> candidates = bindSlotByScope(unboundSlot, scope);
+    protected List<Expression> bindExactSlotsByThisScope(UnboundSlot unboundSlot, Scope scope) {
+        List<Expression> candidates = bindSlotByScope(unboundSlot, scope);
         if (candidates.size() == 1) {
             return candidates;
         }
-        List<Slot> extractSlots = Utils.filterImmutableList(candidates, bound ->
-                unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1
+        List<Expression> extractSlots = Utils.filterImmutableList(candidates, bound ->
+                bound instanceof Slot && unboundSlot.getNameParts().size() == ((Slot) bound).getQualifier().size() + 1
         );
         // we should return origin candidates slots if extract slots is empty,
         // and then throw an ambiguous exception
@@ -931,33 +998,137 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     /** bindSlotByScope */
-    public List<Slot> bindSlotByScope(UnboundSlot unboundSlot, Scope scope) {
+    public List<Expression> bindSlotByScope(UnboundSlot unboundSlot, Scope scope) {
         List<String> nameParts = unboundSlot.getNameParts();
         Optional<Pair<Integer, Integer>> idxInSql = unboundSlot.getIndexInSqlString();
         int namePartSize = nameParts.size();
         switch (namePartSize) {
             // column
             case 1: {
-                return addSqlIndexInfo(bindSingleSlotByName(nameParts.get(0), scope), idxInSql);
+                return (List<Expression>) bindExpressionByColumn(unboundSlot, nameParts, idxInSql, scope);
             }
             // table.column
             case 2: {
-                return addSqlIndexInfo(bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope), idxInSql);
+                return (List<Expression>) bindExpressionByTableColumn(unboundSlot, nameParts, idxInSql, scope);
             }
             // db.table.column
             case 3: {
-                return addSqlIndexInfo(bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope),
-                        idxInSql);
+                return (List<Expression>) bindExpressionByDbTableColumn(unboundSlot, nameParts, idxInSql, scope);
             }
             // catalog.db.table.column
-            case 4: {
-                return addSqlIndexInfo(bindSingleSlotByCatalog(
-                        nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope), idxInSql);
-            }
             default: {
-                throw new AnalysisException("Not supported name: " + StringUtils.join(nameParts, "."));
+                return (List<Expression>) bindExpressionByCatalogDbTableColumn(unboundSlot, nameParts, idxInSql, scope);
             }
         }
+    }
+
+    private List<? extends Expression> bindExpressionByCatalogDbTableColumn(
+            UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
+        List<Slot> slots = addSqlIndexInfo(bindSingleSlotByCatalog(
+                        nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope), idxInSql);
+        if (slots.isEmpty()) {
+            return bindExpressionByDbTableColumn(unboundSlot, nameParts, idxInSql, scope);
+        } else if (slots.size() > 1) {
+            return slots;
+        }
+        if (nameParts.size() == 4) {
+            return slots;
+        }
+
+        Optional<Expression> expression = bindNestedFields(
+                unboundSlot, slots.get(0), nameParts.subList(4, nameParts.size())
+        );
+        if (!expression.isPresent()) {
+            return slots;
+        }
+        return ImmutableList.of(expression.get());
+    }
+
+    private List<? extends Expression> bindExpressionByDbTableColumn(
+            UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
+        List<Slot> slots = addSqlIndexInfo(
+                bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope), idxInSql);
+        if (slots.isEmpty()) {
+            return bindExpressionByTableColumn(unboundSlot, nameParts, idxInSql, scope);
+        } else if (slots.size() > 1) {
+            return slots;
+        }
+        if (nameParts.size() == 3) {
+            return slots;
+        }
+
+        Optional<Expression> expression = bindNestedFields(
+                unboundSlot, slots.get(0), nameParts.subList(3, nameParts.size())
+        );
+        if (!expression.isPresent()) {
+            return slots;
+        }
+        return ImmutableList.of(expression.get());
+    }
+
+    private List<? extends Expression> bindExpressionByTableColumn(
+            UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
+        List<Slot> slots = addSqlIndexInfo(bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope), idxInSql);
+        if (slots.isEmpty()) {
+            return bindExpressionByColumn(unboundSlot, nameParts, idxInSql, scope);
+        } else if (slots.size() > 1) {
+            return slots;
+        }
+        if (nameParts.size() == 2) {
+            return slots;
+        }
+
+        Optional<Expression> expression = bindNestedFields(
+                unboundSlot, slots.get(0), nameParts.subList(2, nameParts.size())
+        );
+        if (!expression.isPresent()) {
+            return slots;
+        }
+        return ImmutableList.of(expression.get());
+    }
+
+    private List<? extends Expression> bindExpressionByColumn(
+            UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
+        List<Slot> slots = addSqlIndexInfo(bindSingleSlotByName(nameParts.get(0), scope), idxInSql);
+        if (slots.size() != 1) {
+            return slots;
+        }
+        if (nameParts.size() == 1) {
+            return slots;
+        }
+        Optional<Expression> expression = bindNestedFields(
+                unboundSlot, slots.get(0), nameParts.subList(1, nameParts.size())
+        );
+        if (!expression.isPresent()) {
+            return slots;
+        }
+        return ImmutableList.of(expression.get());
+    }
+
+    private Optional<Expression> bindNestedFields(UnboundSlot unboundSlot, Slot slot, List<String> fieldNames) {
+        Expression expression = slot;
+        String lastFieldName = slot.getName();
+        for (String fieldName : fieldNames) {
+            DataType dataType = expression.getDataType();
+            if (dataType.isStructType()) {
+                StructType structType = (StructType) dataType;
+                StructField field = structType.getField(fieldName);
+                if (field == null) {
+                    throw new AnalysisException("No such struct field '" + fieldName + "' in '" + lastFieldName + "'");
+                }
+                lastFieldName = fieldName;
+                expression = new StructElement(expression, new StringLiteral(fieldName));
+                continue;
+            } else if (dataType.isMapType()) {
+                expression = new ElementAt(expression, new StringLiteral(fieldName));
+                continue;
+            } else if (dataType.isVariantType()) {
+                expression = new ElementAt(expression, new StringLiteral(fieldName));
+                continue;
+            }
+            throw new AnalysisException("No such field '" + fieldName + "' in '" + lastFieldName + "'");
+        }
+        return Optional.of(new Alias(expression, unboundSlot.getName(), slot.getQualifier()));
     }
 
     public static boolean sameTableName(String boundSlot, String unboundSlot) {

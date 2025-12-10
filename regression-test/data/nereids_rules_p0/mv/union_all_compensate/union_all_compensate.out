@@ -2,28 +2,42 @@
 -- !query1_0_before --
 28
 
--- !query1_0_after --
+-- !query1_0_after_no_sql_cache --
+28
+
+-- !query1_0_after_use_sql_cache --
 28
 
 -- !query1_1_before --
 32
 
--- !query1_1_after --
+-- !query1_1_after_no_sql_cache --
+32
+
+-- !query1_1_after_use_sql_cache --
 32
 
 -- !query2_0_before --
 a	4
 b	28
 
--- !query2_0_after --
+-- !query2_0_after_no_sql_cache --
 a	2
 b	26
+
+-- !query2_0_after_use_sql_cache --
+a	4
+b	28
 
 -- !query3_0_before --
 a	4
 b	28
 
--- !query3_0_after --
+-- !query3_0_after_no_sql_cache --
+a	4
+b	28
+
+-- !query3_0_after_use_sql_cache --
 a	4
 b	28
 
@@ -33,8 +47,14 @@ b	28
 2024-09-14	8
 2024-09-15	8
 
--- !query4_0_after --
+-- !query4_0_after_no_sql_cache --
 2024-09-12	4
+2024-09-13	8
+2024-09-14	8
+2024-09-15	8
+
+-- !query4_0_after_use_sql_cache --
+2024-09-12	8
 2024-09-13	8
 2024-09-14	8
 2024-09-15	8
@@ -45,7 +65,13 @@ b	28
 2024-09-14	8
 2024-09-15	8
 
--- !query5_0_after --
+-- !query5_0_after_no_sql_cache --
+2024-09-12	8
+2024-09-13	8
+2024-09-14	8
+2024-09-15	8
+
+-- !query5_0_after_use_sql_cache --
 2024-09-12	8
 2024-09-13	8
 2024-09-14	8
@@ -89,7 +115,45 @@ b	1
 b	1
 b	1
 
--- !query6_0_after --
+-- !query6_0_after_no_sql_cache --
+a	1
+a	1
+a	1
+a	1
+a	1
+a	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+
+-- !query6_0_after_use_sql_cache --
 a	1
 a	1
 a	1
@@ -165,11 +229,49 @@ b	1
 b	1
 b	1
 
--- !query7_0_after --
+-- !query7_0_after_no_sql_cache --
 a	1
 a	1
 a	1
 a	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+b	1
+
+-- !query7_0_after_use_sql_cache --
+a	1
+a	1
+a	1
+a	1
+a	1
+a	1
+b	1
+b	1
 b	1
 b	1
 b	1

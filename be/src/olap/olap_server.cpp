@@ -1411,7 +1411,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         UniqueId cooldown_meta_id;
         {
             std::shared_lock rlock(t->get_header_lock());
-            for (auto&& rs_meta : t->tablet_meta()->all_rs_metas()) {
+            for (const auto& [_, rs_meta] : t->tablet_meta()->all_rs_metas()) {
                 if (!rs_meta->is_local()) {
                     cooldowned_rowsets.insert(rs_meta->rowset_id());
                 }
@@ -1545,7 +1545,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& t : tablets) {
             if (t->replica_id() == t->cooldown_conf_unlocked().cooldown_replica_id) {
                 auto score = t->calc_cold_data_compaction_score();
-                if (score < 4) {
+                if (score < config::cold_data_compaction_score_threshold) {
                     continue;
                 }
                 tablet_to_compact.emplace_back(t, score);

@@ -34,6 +34,9 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -795,7 +798,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         function.checkWritable();
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
-            FunctionUtil.translateToNereids(this.getFullName(), function);
+            try {
+                FunctionUtil.translateToNereidsThrows(this.getFullName(), function);
+            } catch (Exception e) {
+                name2Function.remove(function.getFunctionName().getFunction());
+                throw e;
+            }
         }
     }
 
@@ -856,10 +864,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    public synchronized Function getFunction(Function desc, Function.CompareMode mode) {
-        return FunctionUtil.getFunction(desc, mode, name2Function);
     }
 
     public synchronized Function getFunction(FunctionSearchDesc function) throws AnalysisException {
@@ -1033,5 +1037,31 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public int getTableNum() {
         return idToTable.size();
+    }
+
+    /**
+     * get mtmv num
+     *
+     * @param trigger
+     * @param method
+     * @param partitionType
+     * @return
+     */
+    public int getMTMVNum(RefreshTrigger trigger, RefreshMethod method, MTMVPartitionType partitionType) {
+        if (trigger == null || method == null || partitionType == null) {
+            return 0;
+        }
+        int res = 0;
+        for (Table table : idToTable.values()) {
+            if (table instanceof MTMV) {
+                MTMV mtmv = (MTMV) table;
+                if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(trigger)
+                        && mtmv.getRefreshInfo().getRefreshMethod().equals(method) && mtmv.getMvPartitionInfo()
+                        .getPartitionType().equals(partitionType)) {
+                    res++;
+                }
+            }
+        }
+        return res;
     }
 }

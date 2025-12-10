@@ -18,8 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeProperties;
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -44,6 +42,9 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -53,8 +54,6 @@ import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -122,10 +121,10 @@ public class AnalysisManager implements Writable {
     public final Queue<QueryColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     public final Queue<QueryColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     // Map<TableName, Set<Pair<IndexName, ColumnName>>>
-    public final Map<TableName, Set<Pair<String, String>>> highPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableName, Set<Pair<String, String>>> midPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableName, Set<Pair<String, String>>> lowPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableName, Set<Pair<String, String>>> veryLowPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableNameInfo, Set<Pair<String, String>>> highPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableNameInfo, Set<Pair<String, String>>> midPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableNameInfo, Set<Pair<String, String>>> lowPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableNameInfo, Set<Pair<String, String>>> veryLowPriorityJobs = new LinkedHashMap<>();
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -517,8 +516,14 @@ public class AnalysisManager implements Writable {
             if (allFinished) {
                 if (hasFailure) {
                     job.markFailed();
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_STATISTICS_FAILED_ANALYZE_JOB.increase(1L);
+                    }
                 } else {
                     job.markFinished();
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_STATISTICS_SUCCEED_ANALYZE_JOB.increase(1L);
+                    }
                     try {
                         updateTableStats(job);
                     } catch (Throwable e) {
@@ -563,7 +568,7 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    public List<AutoAnalysisPendingJob> showAutoPendingJobs(TableName tblName, String priority) {
+    public List<AutoAnalysisPendingJob> showAutoPendingJobs(TableNameInfo tblName, String priority) {
         List<AutoAnalysisPendingJob> result = Lists.newArrayList();
         if (priority == null || priority.isEmpty()) {
             result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
@@ -582,15 +587,16 @@ public class AnalysisManager implements Writable {
         return result;
     }
 
-    protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableName, Set<Pair<String, String>>> jobMap,
-            JobPriority priority, TableName tblName) {
+    protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableNameInfo, Set<Pair<String, String>>> jobMap,
+            JobPriority priority, TableNameInfo tableNameInfo) {
         List<AutoAnalysisPendingJob> result = Lists.newArrayList();
         synchronized (jobMap) {
-            for (Entry<TableName, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
-                TableName table = entry.getKey();
-                if (tblName == null
-                        || tblName.getCtl() == null && tblName.getDb() == null && tblName.getTbl() == null
-                        || tblName.equals(table)) {
+            for (Entry<TableNameInfo, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
+                TableNameInfo table = entry.getKey();
+                if (tableNameInfo == null
+                        || tableNameInfo.getCtl() == null && tableNameInfo.getDb() == null
+                        && tableNameInfo.getTbl() == null
+                        || tableNameInfo.equals(table)) {
                     result.add(new AutoAnalysisPendingJob(table.getCtl(),
                             table.getDb(), table.getTbl(), entry.getValue(), priority));
                 }
@@ -674,25 +680,22 @@ public class AnalysisManager implements Writable {
         TableStatsMeta tableStats = findTableStatsStatus(dropStatsCommand.getTblId());
         Set<String> cols = dropStatsCommand.getColumnNames();
         PartitionNamesInfo partitionNamesInfo = dropStatsCommand.getOpPartitionNamesInfo();
-        PartitionNames partitionNames = null;
-        if (partitionNamesInfo != null) {
-            partitionNames = new PartitionNames(partitionNamesInfo.isTemp(), partitionNamesInfo.getPartitionNames());
-        }
         long catalogId = dropStatsCommand.getCatalogId();
         long dbId = dropStatsCommand.getDbId();
         long tblId = dropStatsCommand.getTblId();
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tblId);
         // Remove tableMetaStats if drop whole table stats.
-        if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNames == null
-                || partitionNames.isStar() || partitionNames.getPartitionNames() == null)) {
+        if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNamesInfo == null
+                || partitionNamesInfo.isStar() || partitionNamesInfo.getPartitionNames() == null)) {
             removeTableStats(tblId);
             Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
         }
-        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNames);
+        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNamesInfo);
         // Drop stats ddl is master only operation.
         Set<String> partitions = null;
-        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
-            partitions = new HashSet<>(partitionNames.getPartitionNames());
+        if (partitionNamesInfo != null && !partitionNamesInfo.isStar()
+                && partitionNamesInfo.getPartitionNames() != null) {
+            partitions = new HashSet<>(partitionNamesInfo.getPartitionNames());
         }
         invalidateRemoteStats(catalogId, dbId, tblId, cols, partitions, false);
         StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
@@ -702,7 +705,7 @@ public class AnalysisManager implements Writable {
         Env.getCurrentEnv().getStatisticsCleaner().clear();
     }
 
-    public void dropStats(TableIf table, PartitionNames partitionNames) {
+    public void dropStats(TableIf table, PartitionNamesInfo partitionNames) {
         try {
             long catalogId = table.getDatabase().getCatalog().getId();
             long dbId = table.getDatabase().getId();
@@ -719,11 +722,11 @@ public class AnalysisManager implements Writable {
         private final long tableId;
         private final Set<String> columns;
         private final TableStatsMeta tableStats;
-        private final PartitionNames partitionNames;
+        private final PartitionNamesInfo partitionNames;
         private final boolean isMaster;
 
         public DropStatsTask(long catalogId, long dbId, long tableId, Set<String> columns,
-                             TableStatsMeta tableStats, PartitionNames partitionNames, boolean isMaster) {
+                             TableStatsMeta tableStats, PartitionNamesInfo partitionNames, boolean isMaster) {
             this.catalogId = catalogId;
             this.dbId = dbId;
             this.tableId = tableId;
@@ -756,7 +759,7 @@ public class AnalysisManager implements Writable {
     }
 
     public void submitAsyncDropStatsTask(long catalogId, long dbId, long tableId,
-            PartitionNames partitionNames, boolean isMaster) {
+            PartitionNamesInfo partitionNames, boolean isMaster) {
         try {
             dropStatsExecutors.submit(new DropStatsTask(catalogId, dbId, tableId, null,
                     findTableStatsStatus(tableId), partitionNames, isMaster));
@@ -787,7 +790,7 @@ public class AnalysisManager implements Writable {
     }
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
-                                     TableStatsMeta tableStats, PartitionNames partitionNames) {
+                                     TableStatsMeta tableStats, PartitionNamesInfo partitionNames) {
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
         if (columns == null || columns.isEmpty()) {
@@ -1135,8 +1138,8 @@ public class AnalysisManager implements Writable {
             return true;
         }
         return (AnalysisState.PENDING.equals(analysisInfo.state) || AnalysisState.RUNNING.equals(analysisInfo.state))
-            && ScheduleType.ONCE.equals(analysisInfo.scheduleType)
-            && JobType.MANUAL.equals(analysisInfo.jobType);
+                && ScheduleType.ONCE.equals(analysisInfo.scheduleType)
+                && JobType.MANUAL.equals(analysisInfo.jobType);
     }
 
     private static void readIdToTblStats(DataInput in, Map<Long, TableStatsMeta> map) throws IOException {
@@ -1429,7 +1432,7 @@ public class AnalysisManager implements Writable {
             return true;
         }
         return table instanceof HMSExternalTable
-            && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
+                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
     }
 
 

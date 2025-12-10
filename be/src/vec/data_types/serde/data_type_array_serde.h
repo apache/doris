@@ -90,12 +90,13 @@ public:
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
 
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
+    Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
+                                        int64_t row_idx, bool col_const) const override;
+    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                     int64_t row_idx) const override;
+
+    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                   int64_t row_idx) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -117,11 +118,14 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
 
+    static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column);
+
+    static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                      FieldInfo& info);
+
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+
 private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int64_t row_idx, bool col_const,
-                                  const FormatOptions& options) const;
     template <bool is_strict_mode>
     Status _from_string(StringRef& str, IColumn& column, const FormatOptions& options) const;
 

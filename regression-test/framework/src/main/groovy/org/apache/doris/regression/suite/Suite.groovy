@@ -22,7 +22,6 @@ import com.amazonaws.auth.BasicAWSCredentials
 import com.amazonaws.client.builder.AwsClientBuilder
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
-
 import com.google.common.base.Strings
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.Maps
@@ -34,8 +33,6 @@ import com.google.gson.Gson
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
-
-import org.awaitility.Awaitility
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.RegressionTest
@@ -43,6 +40,7 @@ import org.apache.doris.regression.action.FlightRecordAction
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
+import org.apache.doris.regression.util.GlobalLock
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
 import org.apache.doris.regression.action.ExplainAction
@@ -59,6 +57,7 @@ import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
 import org.apache.hadoop.fs.FileSystem
+import org.awaitility.Awaitility
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
@@ -279,6 +278,16 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
+    public <T> T connectWithDockerCluster(
+            SuiteCluster cluster,
+            Boolean connectToFollower = false,
+            String user = context.config.jdbcUser,
+            String password = context.config.jdbcPassword,
+            Closure<T> actionSupplier) {
+        def jdbcUrl = cluster.getJdbcUrl(connectToFollower)
+        return context.connect(user, password, jdbcUrl, actionSupplier)
+    }
+
     public <T> T connectInDocker(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
                         Closure<T> actionSupplier) {
         def connInfo = context.threadLocalConn.get()
@@ -337,7 +346,6 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-
     private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
         logger.info("=== start run suite {} in {} mode. ===", name, (isCloud ? "cloud" : "not_cloud"))
         def originConnection = context.threadLocalConn.get()
@@ -381,6 +389,156 @@ class Suite implements GroovyInterceptable {
             }
             if (!context.config.dockerEndNoKill) {
                 cluster.destroy(context.config.dockerEndDeleteFiles)
+            }
+        }
+    }
+
+    /**
+     * Create and manage multiple Docker clusters for multi-cluster test scenarios.
+     *
+     * Usage example:
+     *   dockers([
+     *       "cluster_1": new ClusterOptions(cloudMode: true, feNum: 1, beNum: 1, msNum: 1),
+     *       "cluster_2": new ClusterOptions(cloudMode: true, feNum: 1, beNum: 1, msNum: 0, externalMsCluster: "cluster_1")
+     *   ]) { clusters ->
+     *       connectWithDockerCluster(clusters.cluster_1) { sql "..." }
+     *       connectWithDockerCluster(clusters.cluster_2) { sql "..." }
+     *   }
+     *
+     * Important:
+     *   - Must use LinkedHashMap to preserve insertion order
+     *   - Clusters are created in map insertion order
+     *   - Clusters are destroyed in reverse order (dependent clusters first)
+     *   - If using externalMsCluster, the referenced cluster must appear earlier in the map
+     *
+     * @param clusterConfigs LinkedHashMap of cluster name to ClusterOptions
+     * @param manual_init_clusters Set of cluster names to skip automatic initialization
+     * @param actionSupplier Closure receiving Map<String, SuiteCluster> for test execution
+     */
+    void dockers(LinkedHashMap<String, ClusterOptions> clusterConfigs,
+        Set<String> manual_init_clusters = new HashSet<>(), Closure actionSupplier) throws Exception {
+        if (context.config.excludeDockerTest) {
+            logger.info("do not run the docker suite {}, because regression config excludeDockerTest=true", name)
+            return
+        }
+
+        if (RegressionTest.getGroupExecType(group) != RegressionTest.GroupExecType.DOCKER) {
+            throw new Exception("Need to add 'docker' to docker suite's belong groups, "
+                    + "see example demo_p0/docker_action.groovy")
+        }
+
+        if (context.isMultiDockerClusterRunning) {
+            throw new Exception("Nested dockers() calls are not supported")
+        }
+
+        // Validate cluster configs
+        Set<String> clusterNames = new HashSet<>()
+        for (def entry : clusterConfigs.entrySet()) {
+            String clusterName = entry.key
+            ClusterOptions options = entry.value
+
+            if (clusterNames.contains(clusterName)) {
+                throw new Exception("Duplicate cluster name: ${clusterName}")
+            }
+            clusterNames.add(clusterName)
+
+            // Validate externalMsCluster reference
+            if (options.externalMsCluster != null && !options.externalMsCluster.isEmpty()) {
+                if (!clusterNames.contains(options.externalMsCluster)) {
+                    throw new Exception("Cluster ${clusterName} references non-existent external MS cluster: ${options.externalMsCluster}")
+                }
+                if (options.msNum > 0) {
+                    throw new Exception("Cluster ${clusterName} cannot have its own MS when using external MS cluster")
+                }
+            }
+        }
+
+        List<String> clusterNamesReversed = new ArrayList<>(clusterConfigs.keySet())
+        Collections.reverse(clusterNamesReversed)
+
+         // Use LinkedHashMap to preserve order
+        Map<String, SuiteCluster> clusters = new LinkedHashMap<>()
+
+        try {
+            // Create and initialize clusters in order
+            for (def entry : clusterConfigs.entrySet()) {
+                String clusterName = entry.key
+                ClusterOptions options = entry.value
+
+                logger.info("Creating cluster: ${clusterName}")
+                SuiteCluster cluster = new SuiteCluster(clusterName, context.config)
+
+                clusters.put(clusterName, cluster)
+            }
+
+            for (String clusterName : clusterNamesReversed) {
+                clusters.get(clusterName).destroy(true)
+            }
+
+            for (def entry : clusterConfigs.entrySet()) {
+                String clusterName = entry.key
+                ClusterOptions options = entry.value
+                SuiteCluster cluster = clusters.get(clusterName)
+
+                if (manual_init_clusters.contains(clusterName)) {
+                    logger.info("Skipping initialization of cluster: ${clusterName}")
+                    continue
+                }
+
+                // Determine cloud mode
+                boolean isCloud = false
+                if (options.cloudMode == null) {
+                    // If not specified, use config default or run both modes
+                    if (context.config.runMode == RunMode.CLOUD) {
+                        isCloud = true
+                    } else if (context.config.runMode == RunMode.NOT_CLOUD) {
+                        isCloud = false
+                    } else {
+                        throw new Exception("cloudMode must be specified when runMode is UNKNOWN for multi-cluster setup")
+                    }
+                } else {
+                    if (options.cloudMode == true && context.config.runMode == RunMode.NOT_CLOUD) {
+                        logger.info("Skip cluster ${clusterName} because cloudMode=true but regression test is in local mode")
+                        continue
+                    }
+                    if (options.cloudMode == false && context.config.runMode == RunMode.CLOUD) {
+                        logger.info("Skip cluster ${clusterName} because cloudMode=false but regression test is in cloud mode")
+                        continue
+                    }
+                    isCloud = options.cloudMode
+                }
+                logger.info("Initializing cluster ${cluster.name} in ${isCloud ? 'cloud' : 'not_cloud'} mode")
+                cluster.init(options, isCloud)
+                logger.info("Cluster ${clusterName} initialized successfully")
+            }
+
+            // Wait for BE to report
+            Thread.sleep(5000)
+
+            Connection originConnection = context.threadLocalConn.get()
+            context.threadLocalConn.remove()
+            context.isMultiDockerClusterRunning = true
+            try {
+                actionSupplier.call(clusters)
+            } finally {
+                context.isMultiDockerClusterRunning = false
+                if (originConnection == null) {
+                    context.threadLocalConn.remove()
+                } else {
+                    context.threadLocalConn.set(originConnection)
+                }
+            }
+        } finally {
+            // Destroy clusters in reverse order
+            if (!context.config.dockerEndNoKill) {
+                for (String clusterName : clusterNamesReversed) {
+                    try {
+                        logger.info("Destroying cluster: ${clusterName}")
+                        clusters.get(clusterName).destroy(context.config.dockerEndDeleteFiles)
+                    } catch (Throwable t) {
+                        logger.warn("Failed to destroy cluster ${clusterName}", t)
+                    }
+                }
             }
         }
     }
@@ -943,11 +1101,14 @@ class Suite implements GroovyInterceptable {
         return randomBoolean ? "true" : "false"
     }
 
-    void expectExceptionLike(Closure userFunction, String errMsg = null) {
+    void expectExceptionLike(Closure userFunction, String errMsg = null, String errMsg2 = null) {
         try {
             userFunction()
         } catch (Exception e) {
             if (!Strings.isNullOrEmpty(errMsg) && !e.getMessage().contains(errMsg)) {
+                throw e
+            }
+            if (!Strings.isNullOrEmpty(errMsg2) && !e.getMessage().contains(errMsg2)) {
                 throw e
             }
         }
@@ -1712,8 +1873,17 @@ class Suite implements GroovyInterceptable {
             // e.g: jdbc:mysql://locahost:8080
             sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
         }
+        String tlsUrl = ""
         // set server side prepared statement url
-        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
+            String clientCAKey = "clientCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("keyStorePath")
+            String clientCAPwd = "clientCertificateKeyStorePassword=" + context.config.otherConfigs.get("keyStorePassword")
+            String trustCAKey = "trustCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("trustStorePath")
+            String trustCAPwd = "trustCertificateKeyStorePassword=" + context.config.otherConfigs.get("trustStorePassword")
+            tlsUrl = "&" + useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
+        }
+        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true" + tlsUrl
     }
 
     DebugPoint GetDebugPoint() {
@@ -1850,6 +2020,11 @@ class Suite implements GroovyInterceptable {
             logger.info("partition status is not expected")
         }
         Assert.assertEquals(expectedStatus, status)
+
+        // in cloud mode, the partition maybe update visible time after a few hundred milliseconds,
+        // so we should sleep 1 seconds to let sql cache use the new partition's data
+        JdbcUtils.executeToList(context.getConn(), "sync")
+        sleep(1000)
     }
 
     void waitingMTMVTaskFinished(String jobName) {
@@ -1970,33 +2145,17 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableStoragevault() {
-        if (Strings.isNullOrEmpty(context.config.metaServiceHttpAddress)
-                || Strings.isNullOrEmpty(context.config.instanceId)
-                || Strings.isNullOrEmpty(context.config.metaServiceToken)) {
+        if (!isCloudMode()) {
             return false;
         }
-
-        boolean ret = false;
-        def getInstanceInfo = { check_func ->
-            httpTest {
-                endpoint context.config.metaServiceHttpAddress
-                uri "/MetaService/http/get_instance?token=${context.config.metaServiceToken}&instance_id=${context.config.instanceId}"
-                op "get"
-                check check_func
-            }
+        try {
+            sql "show storage vault"
+        } catch (Exception e) {
+            logger.info("show storage vault failed: {}", e.getMessage())
+            Assert.assertTrue(e.getMessage().contains("Your cloud instance doesn't support storage vault"))
+            return false;
         }
-        getInstanceInfo.call() {
-            respCode, body ->
-                String respCodeValue = "${respCode}".toString();
-                if (!respCodeValue.equals("200")) {
-                    return;
-                }
-                def json = parseJson(body)
-                if (json.result.containsKey("enable_storage_vault") && json.result.enable_storage_vault) {
-                    ret = true;
-                }
-        }
-        return ret;
+        return true;
     }
 
     boolean isGroupCommitMode() {
@@ -2051,7 +2210,7 @@ class Suite implements GroovyInterceptable {
             logger.info("frontends ${frontends}")
             boolean matched = false
             String expcetedFE = "${host}:${port}"
-            for (frontend: frontends) {
+            for (def frontend : frontends) {
                 logger.info("checking fe ${frontend}, expectedFe ${expcetedFE}")
                 if (frontend.equals(expcetedFE)) {
                     matched = true;
@@ -2066,7 +2225,7 @@ class Suite implements GroovyInterceptable {
         awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             boolean matched = false
-            for (frontend: frontends) {
+            for (def frontend : frontends) {
                 if (frontend == "$host:$port") {
                     matched = true
                 }
@@ -2620,7 +2779,7 @@ class Suite implements GroovyInterceptable {
 
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
-    def get_be_metric = { ip, port, field ->
+    def get_be_metric = { ip, port, field, type="" ->
         def metric_api = { request_body, check_func ->
             httpTest {
                 endpoint ip + ":" + port
@@ -2641,8 +2800,9 @@ class Suite implements GroovyInterceptable {
             respCode, body ->
                 log.info("get be metric resp: ${respCode}".toString())
                 def json = parseJson(body)
-                for (item : json) {
-                    if (item.tags.metric == field) {
+                for (def item : json) {
+                    if (item.tags.metric == field && (type.isEmpty() || type == item.tags.type)) {
+                        log.info("get be metric resp: ${item}".toString())
                         ret = item.value
                     }
                 }
@@ -2949,14 +3109,14 @@ class Suite implements GroovyInterceptable {
 
     def checkProfile = { addrSet, fragNum ->
         List<List<Object>> profileRes = sql " show query profile '/' "
-        for (row : profileRes) {
+        for (def row : profileRes) {
             //println row
         }
 
         for (int i = 0; i < fragNum; ++i) {
             String exec_sql = "show query profile '/" + profileRes[0][0] + "/" + i.toString() + "'"
             List<List<Object>> result = sql exec_sql
-            for (row : result) {
+            for (def row : result) {
                 println row
             }
 
@@ -2966,11 +3126,13 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def checkProfileNew = { addrSet  ->
+    def checkProfileNew = { fe, addrSet, shouldContain = true ->
+        //def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
         def query_profile_api = { check_func ->
             httpTest {
                 op "get"
-                endpoint context.config.feHttpAddress
+                endpoint feEndPoint
                 uri "/rest/v1/query_profile"
                 check check_func
                 basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
@@ -2979,65 +3141,66 @@ class Suite implements GroovyInterceptable {
 
         query_profile_api.call() {
             respCode, body ->
-                log.info("query profile resp: ${body} ${respCode}".toString())
                 def json = parseJson(body)
                 assertTrue(json.msg.equalsIgnoreCase("success"))
-                log.info("lw query profile resp: ${json.data.rows[0]}".toString())
+                log.info("lw query profile resp json : ${json}".toString())
                 log.info("lw query profile resp: ${json.data.rows[0]['Profile ID']}".toString())
-                checkProfileNew1.call(addrSet, json.data.rows[0]['Profile ID'])
+                checkProfileByQueryId.call(fe, addrSet, json.data.rows[0]['Profile ID'], shouldContain)
         }
     }
 
-    def checkProfileNew1 = {addrSet, query_id  ->
+    def checkProfileByQueryId = { fe, addrSet, query_id, shouldContain = true ->
+        //def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
         def query_profile_api = { check_func ->
             httpTest {
                 op "get"
-                endpoint context.config.feHttpAddress
+                endpoint feEndPoint
                 uri "/api/profile?query_id=${query_id}"
                 check check_func
                 basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
             }
         }
 
-        query_profile_api.call() {
-            respCode, body ->
-                //log.info("query profile resp: ${body} ${respCode}".toString())
-                def json = parseJson(body)
-                assertTrue(json.msg.equalsIgnoreCase("success"))
-                //log.info("lw query profile resp: ${json.data.rows[0]}".toString())
+        query_profile_api.call() { respCode, body ->
+            def json = parseJson(body)
+            assertTrue(json.msg.equalsIgnoreCase("success"))
 
-                def instanceLineMatcher = json =~ /Instances\s+Num\s+Per\s+BE:\s*(.*)/
-                if (instanceLineMatcher.find()) {
-                    // 提取出IP等信息的部分
-                    def instancesStr = instanceLineMatcher.group(1).trim()
+            def instanceLineMatcher = json =~ /Instances\s+Num\s+Per\s+BE:\s*(.*)/
+            if (instanceLineMatcher.find()) {
+                // Extract the instance string section
+                def instancesStr = instanceLineMatcher.group(1).trim()
+                def instanceEntries = instancesStr.split(/\s*,\s*/)
+                def result = []
 
-                    // 拆分各个实例，实例格式类似 "10.16.10.11:9713:4"
-                    def instanceEntries = instancesStr.split(/\s*,\s*/)
-
-                    // 定义存储解析结果的列表
-                    def result = []
-
-                    // 每个实例使用正则表达式解析IP和端口（忽略最后一个数字）
-                    instanceEntries.each { entry ->
-                        def matcher = entry =~ /(\d{1,3}(?:\.\d{1,3}){3}):(\d+):\d+/
-                        if(matcher.matches()){
-                            def ip = matcher.group(1)
-                            def port = matcher.group(2)
-                            //result << [ip: ip, port: port]
-                            //result << [ip:port]
-                            result.add(ip+":"+port)
-                        }
+                // Parse each instance entry (format like "10.1.1.1:9000:4") and extract IP:port
+                instanceEntries.each { entry ->
+                    def matcher = entry =~ /(\d{1,3}(?:\.\d{1,3}){3}):(\d+):\d+/
+                    if (matcher.matches()) {
+                        def ip = matcher.group(1)
+                        def port = matcher.group(2)
+                        result.add(ip + ":" + port)
                     }
- 
-                    // 输出解析结果
-                    println "提取的IP和端口："
-                    result.each { println it }
-                    addrSet.each { println it }
-                    //result.each { assertTrue(addrSet.contains(it)) }
-                    assertTrue(addrSet.containsAll(result))
-                } else {
-                    println "未找到实例信息。"
                 }
+
+                if (shouldContain) {
+                    // All items in result should exist in addrSet
+                    assertTrue(addrSet.containsAll(result),
+                        "Check failed: Some result addresses are missing in addrSet.\n" +
+                        "addrSet: ${addrSet}\n" +
+                        "result: ${result}\n" +
+                        "Missing: ${result.findAll { !addrSet.contains(it) }}")
+                } else {
+                    // No item in result should exist in addrSet
+                    assertTrue(addrSet.intersect(result).isEmpty(),
+                        "Check failed: Some result addresses unexpectedly exist in addrSet.\n" +
+                        "addrSet: ${addrSet}\n" +
+                        "result: ${result}\n" +
+                        "Overlap: ${addrSet.intersect(result)}")
+                }
+            } else {
+                log.info("Instance info not found in profile")
+            }
         }
     }
 
@@ -3153,6 +3316,9 @@ class Suite implements GroovyInterceptable {
             logger.info("tablet: $tablet_info")
             def compact_url = tablet_info.get("CompactionStatus")
             String command = "curl ${compact_url}"
+            if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+                command = url.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+            }
             Process process = command.execute()
             def code = process.waitFor()
             def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
@@ -3343,6 +3509,32 @@ class Suite implements GroovyInterceptable {
         if (sleepSeconds > 0) {
             logger.info("test sleeps ${sleepSeconds} to satisfy ${caseSpanConstraint}")
             Thread.sleep(sleepSeconds * 1000)
+        }
+    }
+
+    void retryUntilHasSqlCache(String sql) {
+        for (int i = 0; i < 120; ++i) {
+            try {
+                this.sql(sql)
+                def (r, _) = JdbcUtils.executeToList(context.getConn(), "explain physical plan " + sql)
+                def explainString = r.stream().map({row -> row.get(0).toString()}).collect(Collectors.joining("\n"))
+                if (explainString.contains("PhysicalSqlCache")) {
+                    return
+                }
+                sleep(1000)
+            } catch (Throwable t) {
+                logger.warn(t.toString(), t)
+            }
+        }
+        throw new IllegalStateException("no sql cache: " + sql)
+    }
+
+    static <T> T withGlobalLock(String lockName, Closure<T> action) {
+        GlobalLock.lock(lockName)
+        try {
+            return action()
+        } finally {
+            GlobalLock.unlock(lockName)
         }
     }
 }

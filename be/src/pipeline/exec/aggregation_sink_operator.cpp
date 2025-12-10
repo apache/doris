@@ -26,6 +26,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
@@ -223,6 +224,13 @@ size_t AggSinkLocalState::_memory_usage() const {
                _agg_data->method_variant);
 
     return usage;
+}
+
+bool AggSinkLocalState::is_blockable() const {
+    return std::any_of(
+            Base::_shared_state->aggregate_evaluators.begin(),
+            Base::_shared_state->aggregate_evaluators.end(),
+            [](const vectorized::AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
 }
 
 void AggSinkLocalState::_update_memusage_with_serialized_key() {
@@ -714,6 +722,7 @@ size_t AggSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) co
     return size_to_reserve;
 }
 
+// TODO: Tricky processing if `multi_distinct_` exists which will be re-planed by optimizer.
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
                                    const TPlanNode& tnode, const DescriptorTbl& descs,
                                    bool require_bucket_distribution)
@@ -727,9 +736,20 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_i
           _limit(tnode.limit),
           _have_conjuncts((tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) ||
                           (tnode.__isset.conjuncts && !tnode.conjuncts.empty())),
-          _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
-                                   ? tnode.distribute_expr_lists[0]
-                                   : tnode.agg_node.grouping_exprs),
+          _partition_exprs(
+                  tnode.__isset.distribute_expr_lists &&
+                                  (require_bucket_distribution ||
+                                   std::any_of(
+                                           tnode.agg_node.aggregate_functions.begin(),
+                                           tnode.agg_node.aggregate_functions.end(),
+                                           [](const TExpr& texpr) -> bool {
+                                               return texpr.nodes[0]
+                                                       .fn.name.function_name.starts_with(
+                                                               vectorized::
+                                                                       DISTINCT_FUNCTION_PREFIX);
+                                           }))
+                          ? tnode.distribute_expr_lists[0]
+                          : tnode.agg_node.grouping_exprs),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
           _require_bucket_distribution(require_bucket_distribution),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
@@ -889,6 +909,7 @@ Status AggSinkOperatorX::reset_hash_table(RuntimeState* state) {
     auto& ss = *local_state.Base::_shared_state;
     RETURN_IF_ERROR(ss.reset_hash_table());
     local_state._serialize_key_arena_memory_usage->set((int64_t)0);
+    local_state._agg_arena_pool.clear(true);
     return Status::OK();
 }
 

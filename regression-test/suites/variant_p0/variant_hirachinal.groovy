@@ -40,8 +40,8 @@ suite("regression_test_variant_hirachinal", "variant_type"){
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
     sql """insert into ${table_name} values (-3, '{"a" : 1, "b" : 1.5, "c" : [1, 2, 3]}')"""
-    sql """insert into  ${table_name} select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str
-            union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+    sql """insert into  ${table_name} select * from (select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str
+            union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
     qt_sql "select * from ${table_name} order by k limit 10"
     qt_sql "select cast(v['c'] as string) from ${table_name} where k = -3 or k = -2 order by k"
     qt_sql "select v['b'] from ${table_name} where k = -3 or k = -2"
@@ -50,6 +50,7 @@ suite("regression_test_variant_hirachinal", "variant_type"){
     order_qt_sql2 "select cast(v['c'] as string) from var_rs where k = -3 or k = -2 or k = 1 order by k, cast(v['c'] as text) limit 3"
 
 
+    table_name = "var_rs2" 
     sql "DROP TABLE IF EXISTS ${table_name}"
 
     sql """
@@ -81,7 +82,33 @@ suite("regression_test_variant_hirachinal", "variant_type"){
 
     sql """insert into ${table_name} values (1, '{"a": 1, "b": 2, "c" : {"d" : 2}}'), (2, '{"a": 3, "b": 4}');"""
     sql """insert into ${table_name} values (3, '{"c": {"d": 6}}');"""
+    sql """insert into ${table_name} values (4, NULL);"""
+    sql """insert into ${table_name} values (5, '{}');"""
 
     qt_sql """select v['c'] from ${table_name} order by k;"""
+    qt_sql """select v from ${table_name} order by k;"""
 
+    sql "DROP TABLE IF EXISTS t"
+    sql """create table t(a int, v variant, vn variant not null) PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
+    sql """insert into t values(1, '{}', '{}');"""
+    sql """insert into t values(2, '{}', '{}');"""
+    sql """insert into t values(3, NULL, '{"a" : 1, "b" : 2, "c" : 3, "d" : 4}');"""
+    qt_sql """select * from t order by a;"""
+    qt_sql """select * from t where v is null;"""
+
+    sql "DROP TABLE IF EXISTS ${table_name}"
+    sql """
+        CREATE TABLE ${table_name} (
+            `k` bigint NULL,
+            `v` variant<PROPERTIES ("variant_max_subcolumns_count" = "1")> NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """insert into ${table_name} values (1, '{"a": 1}'), (2, '{"a" : 1, "profile" : {"name" : "John", "age" : 30}, "profile_id" : 123}');"""
+    sql """insert into ${table_name} values (3, '{"a": 1}'), (4, '{"a" : 1, "profile" : {"name" : "John", "age" : 30}, "profile2" : 123}'); """
+    qt_sql """select v['profile'] from ${table_name} order by k;"""
 }

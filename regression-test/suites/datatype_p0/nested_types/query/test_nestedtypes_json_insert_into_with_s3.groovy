@@ -201,6 +201,7 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
     // step2. insert into doris table
     // step2. query and check
 
+    sql "set enable_insert_strict=false;"
     for (int i = 0; i < 3; ++i) {
         qt_sql_arr_json_without_quote_s3 """
         select * from s3("uri" = "${json_files[i]}",

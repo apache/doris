@@ -113,6 +113,9 @@ public:
     [[nodiscard]] virtual Status terminate(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
     [[nodiscard]] virtual int node_id() const = 0;
+    [[nodiscard]] virtual int parallelism(RuntimeState* state) const {
+        return _is_serial_operator ? 1 : state->query_parallel_instance_num();
+    }
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
         if (_child && child != nullptr) {
@@ -151,8 +154,9 @@ public:
         _followed_by_shuffled_operator = followed_by_shuffled_operator;
     }
     [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
-    [[nodiscard]] virtual DataDistribution required_data_distribution() const;
-    [[nodiscard]] virtual bool require_shuffled_data_distribution() const;
+    [[nodiscard]] virtual DataDistribution required_data_distribution(
+            RuntimeState* /*state*/) const;
+    [[nodiscard]] virtual bool require_shuffled_data_distribution(RuntimeState* /*state*/) const;
 
 protected:
     OperatorPtr _child = nullptr;
@@ -879,7 +883,7 @@ public:
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     bool is_blockable(RuntimeState* state) const override {
-        return state->get_sink_local_state()->is_blockable();
+        return state->get_sink_local_state()->is_blockable() || _blockable;
     }
 
     Status prepare(RuntimeState* state) override;
@@ -1015,6 +1019,9 @@ protected:
     //_keep_origin is used to avoid copying during projection,
     // currently set to false only in the nestloop join.
     bool _keep_origin = true;
+
+    // _blockable is true if the operator contains expressions that may block execution
+    bool _blockable = false;
 };
 
 template <typename LocalStateType>

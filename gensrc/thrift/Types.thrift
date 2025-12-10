@@ -101,6 +101,7 @@ enum TPrimitiveType {
   UINT32 = 40, // only used in BE to represent offsets
   UINT64 = 41,  // only used in BE to represent offsets
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
+  VARBINARY = 43 // represent varbinary type
 }
 
 enum TTypeNodeType {
@@ -645,7 +646,8 @@ enum TTableType {
     MAX_COMPUTE_TABLE = 12,
     LAKESOUL_TABLE = 13,
     TRINO_CONNECTOR_TABLE = 14,
-    DICTIONARY_TABLE = 15
+    DICTIONARY_TABLE = 15,
+    REMOTE_DORIS_TABLE = 16
 }
 
 enum TKeysType {
@@ -684,13 +686,6 @@ struct TResourceInfo {
     2: required string group
 }
 
-enum TExportState {
-    RUNNING = 0,
-    FINISHED = 1,
-    CANCELLED = 2,
-    UNKNOWN = 3
-}
-
 enum TFileType {
     FILE_LOCAL = 0,
     FILE_BROKER = 1,
@@ -698,6 +693,7 @@ enum TFileType {
     FILE_S3 = 3,
     FILE_HDFS = 4,
     FILE_NET = 5,       // read file by network, such as http
+    FILE_HTTP = 6,
 }
 
 struct TTabletCommitInfo {
@@ -756,6 +752,11 @@ enum TMetadataType {
   PARTITION_VALUES = 10,
   HUDI = 11,
   PAIMON = 12,
+}
+
+// deprecated
+enum TIcebergQueryType {
+  SNAPSHOTS
 }
 
 enum THudiQueryType {

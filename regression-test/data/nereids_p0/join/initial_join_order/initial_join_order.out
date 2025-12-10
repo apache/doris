@@ -5,3 +5,7 @@ PhysicalResultSink
 ----PhysicalOlapScan[t2]
 ----PhysicalOlapScan[t1]
 
+
+
+ group expression count exceeds memo_max_group_expression_size(1)
+

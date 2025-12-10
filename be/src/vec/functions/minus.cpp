@@ -29,6 +29,7 @@ struct MinusDecimalImpl {
     static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
                   (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
 
+    constexpr static bool need_replace_null_data_to_default = true;
     static constexpr auto name = "subtract";
     static constexpr PrimitiveType PTypeA = TypeA;
     static constexpr PrimitiveType PTypeB = TypeA;
@@ -63,7 +64,7 @@ struct MinusImpl {
     static constexpr auto name = "subtract";
     static constexpr PrimitiveType PType = Type;
     using Arg = typename PrimitiveTypeTraits<Type>::ColumnItemType;
-    static inline Arg apply(Arg a, Arg b) { return a - b; }
+    NO_SANITIZE_UNDEFINED static inline Arg apply(Arg a, Arg b) { return a - b; }
 };
 
 void register_function_minus(SimpleFunctionFactory& factory) {

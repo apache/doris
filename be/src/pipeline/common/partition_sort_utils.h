@@ -140,9 +140,12 @@ using PartitionedMethodVariants = std::variant<
         PartitionDataSingleNullable<vectorized::UInt128>,
         PartitionDataSingleNullable<vectorized::UInt256>,
         vectorized::MethodKeysFixed<PartitionData<vectorized::UInt64>>,
+        vectorized::MethodKeysFixed<PartitionData<vectorized::UInt72>>,
+        vectorized::MethodKeysFixed<PartitionData<vectorized::UInt96>>,
+        vectorized::MethodKeysFixed<PartitionData<vectorized::UInt104>>,
         vectorized::MethodKeysFixed<PartitionData<vectorized::UInt128>>,
-        vectorized::MethodKeysFixed<PartitionData<vectorized::UInt256>>,
         vectorized::MethodKeysFixed<PartitionData<vectorized::UInt136>>,
+        vectorized::MethodKeysFixed<PartitionData<vectorized::UInt256>>,
         vectorized::MethodStringNoCache<PartitionDataWithShortStringKey>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
                 vectorized::DataWithNullKey<PartitionDataWithShortStringKey>>>>;
@@ -197,6 +200,18 @@ struct PartitionedHashMapVariants
         }
         case HashKeyType::fixed64:
             method_variant.emplace<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt64>>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed72:
+            method_variant.emplace<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt72>>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed96:
+            method_variant.emplace<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt96>>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed104:
+            method_variant.emplace<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt104>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:

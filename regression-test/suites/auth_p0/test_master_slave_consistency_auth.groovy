@@ -60,8 +60,8 @@ suite ("test_follower_consistent_auth","p0,auth") {
         String catalog_name = 'test_follower_consistent_catalog'
         try_sql("DROP role ${role}")
         sql """CREATE ROLE ${role}"""
-        sql """drop WORKLOAD GROUP if exists '${wg}' $forComputeGroupStr """
-        sql """CREATE WORKLOAD GROUP '${wg}' $forComputeGroupStr "
+        sql """drop WORKLOAD GROUP if exists ${wg} $forComputeGroupStr """
+        sql """CREATE WORKLOAD GROUP '${wg}' $forComputeGroupStr
         PROPERTIES (
             "min_cpu_percent"="10"
         );"""
@@ -98,7 +98,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         sql """create view ${dbName}.${view_name} as select * from ${dbName}.${tableName};"""
         sql """alter table ${dbName}.${tableName} add rollup ${rollup_name}(username)"""
         sleep(5 * 1000)
-        sql """create materialized view ${mv_name} as select username from ${dbName}.${tableName}"""
+        sql """create materialized view ${mv_name} as select username as username_new from ${dbName}.${tableName}"""
         sleep(5 * 1000)
         sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmv_name} 
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL 

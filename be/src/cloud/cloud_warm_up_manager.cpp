@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_warm_up_manager.h"
 
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <bvar/bvar.h>
 #include <bvar/reducer.h>
 
@@ -25,6 +27,7 @@
 #include <tuple>
 
 #include "bvar/bvar.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/cast_set.h"
@@ -36,12 +39,15 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/stack_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_skipped_rowset_num(
+        "file_cache_event_driven_warm_up_skipped_rowset_num");
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_segment_size(
         "file_cache_event_driven_warm_up_requested_segment_size");
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_segment_num(
@@ -77,12 +83,18 @@ bvar::Adder<uint64_t> g_file_cache_recycle_cache_requested_index_num(
 bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_call_unix_ts(
         "file_cache_warm_up_rowset_last_call_unix_ts", 0);
 bvar::Adder<uint64_t> file_cache_warm_up_failed_task_num("file_cache_warm_up", "failed_task_num");
+bvar::Adder<uint64_t> g_balance_tablet_be_mapping_size("balance_tablet_be_mapping_size");
 
 bvar::LatencyRecorder g_file_cache_warm_up_rowset_wait_for_compaction_latency(
         "file_cache_warm_up_rowset_wait_for_compaction_latency");
 
 CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(engine) {
     _download_thread = std::thread(&CloudWarmUpManager::handle_jobs, this);
+    static_cast<void>(ThreadPoolBuilder("CloudWarmUpManagerThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(config::warm_up_manager_thread_pool_size)
+                              .build(&_thread_pool));
+    _thread_pool_token = _thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
 }
 
 CloudWarmUpManager::~CloudWarmUpManager() {
@@ -93,6 +105,11 @@ CloudWarmUpManager::~CloudWarmUpManager() {
     _cond.notify_all();
     if (_download_thread.joinable()) {
         _download_thread.join();
+    }
+
+    for (auto& shard : _balanced_tablets_shards) {
+        std::lock_guard<std::mutex> lock(shard.mtx);
+        shard.tablets.clear();
     }
 }
 
@@ -141,13 +158,11 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                 .offset = offset,
                 .download_size = current_chunk_size,
                 .file_system = file_system,
-                .ctx =
-                        {
-                                .expiration_time = expiration_time,
-                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                        },
+                .ctx = {.expiration_time = expiration_time,
+                        .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                        .is_warmup = true},
                 .download_done =
-                        [&](Status st) {
+                        [=, done_cb = std::move(done_cb)](Status st) {
                             if (done_cb) done_cb(st);
                             if (!st) {
                                 LOG_WARNING("Warm up error ").error(st);
@@ -196,6 +211,7 @@ void CloudWarmUpManager::handle_jobs() {
                 std::make_shared<bthread::CountdownEvent>(0);
 
         for (int64_t tablet_id : cur_job->tablet_ids) {
+            VLOG_DEBUG << "Warm up tablet " << tablet_id << " stack: " << get_stack_trace();
             if (_cur_job_id == 0) { // The job is canceled
                 break;
             }
@@ -214,26 +230,25 @@ void CloudWarmUpManager::handle_jobs() {
             auto tablet_meta = tablet->tablet_meta();
             auto rs_metas = snapshot_rs_metas(tablet.get());
             for (auto& [_, rs] : rs_metas) {
+                auto storage_resource = rs->remote_storage_resource();
+                if (!storage_resource) {
+                    LOG(WARNING) << storage_resource.error();
+                    continue;
+                }
+
+                int64_t expiration_time =
+                        tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
+                                ? 0
+                                : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
+                if (expiration_time <= UnixSeconds()) {
+                    expiration_time = 0;
+                }
+                if (!tablet->add_rowset_warmup_state(*rs, WarmUpTriggerSource::JOB)) {
+                    LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
+                              << ", skip it";
+                    continue;
+                }
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
-                    auto storage_resource = rs->remote_storage_resource();
-                    if (!storage_resource) {
-                        LOG(WARNING) << storage_resource.error();
-                        continue;
-                    }
-
-                    int64_t expiration_time =
-                            tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
-                                    ? 0
-                                    : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
-                    if (expiration_time <= UnixSeconds()) {
-                        expiration_time = 0;
-                    }
-                    if (!tablet->add_rowset_warmup_state(*rs, WarmUpState::TRIGGERED_BY_JOB)) {
-                        LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
-                                  << ", skip it";
-                        continue;
-                    }
-
                     // 1st. download segment files
                     submit_download_tasks(
                             storage_resource.value()->remote_segment_path(*rs, seg_id),
@@ -242,8 +257,10 @@ void CloudWarmUpManager::handle_jobs() {
                             [tablet, rs, seg_id](Status st) {
                                 VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                            << seg_id << " completed";
-                                if (tablet->complete_rowset_segment_warmup(rs->rowset_id(), st) ==
-                                    WarmUpState::DONE) {
+                                if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::JOB,
+                                                                           rs->rowset_id(), st, 1,
+                                                                           0)
+                                            .trigger_source == WarmUpTriggerSource::JOB) {
                                     VLOG_DEBUG << "warmup rowset " << rs->version() << " completed";
                                 }
                             });
@@ -277,8 +294,22 @@ void CloudWarmUpManager::handle_jobs() {
                                     }
                                 }
                             }
-                            submit_download_tasks(idx_path, file_size, storage_resource.value()->fs,
-                                                  expiration_time, wait, true);
+                            tablet->update_rowset_warmup_state_inverted_idx_num(
+                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
+                            submit_download_tasks(
+                                    idx_path, file_size, storage_resource.value()->fs,
+                                    expiration_time, wait, true, [=](Status st) {
+                                        VLOG_DEBUG << "warmup rowset " << rs->version()
+                                                   << " segment " << seg_id
+                                                   << "inverted idx:" << idx_path << " completed";
+                                        if (tablet->complete_rowset_segment_warmup(
+                                                          WarmUpTriggerSource::JOB, rs->rowset_id(),
+                                                          st, 0, 1)
+                                                    .trigger_source == WarmUpTriggerSource::JOB) {
+                                            VLOG_DEBUG << "warmup rowset " << rs->version()
+                                                       << " completed";
+                                        }
+                                    });
                         }
                     } else {
                         if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
@@ -286,8 +317,22 @@ void CloudWarmUpManager::handle_jobs() {
                                     storage_resource.value()->remote_idx_v2_path(*rs, seg_id);
                             file_size = idx_file_info.has_index_size() ? idx_file_info.index_size()
                                                                        : -1;
-                            submit_download_tasks(idx_path, file_size, storage_resource.value()->fs,
-                                                  expiration_time, wait, true);
+                            tablet->update_rowset_warmup_state_inverted_idx_num(
+                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
+                            submit_download_tasks(
+                                    idx_path, file_size, storage_resource.value()->fs,
+                                    expiration_time, wait, true, [=](Status st) {
+                                        VLOG_DEBUG << "warmup rowset " << rs->version()
+                                                   << " segment " << seg_id
+                                                   << "inverted idx:" << idx_path << " completed";
+                                        if (tablet->complete_rowset_segment_warmup(
+                                                          WarmUpTriggerSource::JOB, rs->rowset_id(),
+                                                          st, 0, 1)
+                                                    .trigger_source == WarmUpTriggerSource::JOB) {
+                                            VLOG_DEBUG << "warmup rowset " << rs->version()
+                                                       << " completed";
+                                        }
+                                    });
                         }
                     }
                 }
@@ -527,11 +572,29 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
 }
 
 void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+    bthread::Mutex mu;
+    bthread::ConditionVariable cv;
+    std::unique_lock<bthread::Mutex> lock(mu);
+    auto st = _thread_pool_token->submit_func([&, this]() {
+        std::unique_lock<bthread::Mutex> l(mu);
+        _warm_up_rowset(rs_meta, sync_wait_timeout_ms);
+        cv.notify_one();
+    });
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to submit warm up rowset task: " << st;
+        file_cache_warm_up_failed_task_num << 1;
+    } else {
+        cv.wait(lock);
+    }
+}
+
+void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
     bool cache_hit = false;
     auto replicas = get_replica_info(rs_meta.tablet_id(), false, cache_hit);
     if (replicas.empty()) {
         VLOG_DEBUG << "There is no need to warmup tablet=" << rs_meta.tablet_id()
                    << ", skipping rowset=" << rs_meta.rowset_id().to_string();
+        g_file_cache_event_driven_warm_up_skipped_rowset_num << 1;
         return;
     }
     Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, !cache_hit);
@@ -662,6 +725,24 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
 
 void CloudWarmUpManager::recycle_cache(int64_t tablet_id,
                                        const std::vector<RecycledRowsets>& rowsets) {
+    bthread::Mutex mu;
+    bthread::ConditionVariable cv;
+    std::unique_lock<bthread::Mutex> lock(mu);
+    auto st = _thread_pool_token->submit_func([&, this]() {
+        std::unique_lock<bthread::Mutex> l(mu);
+        _recycle_cache(tablet_id, rowsets);
+        cv.notify_one();
+    });
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to submit recycle cache task, tablet_id=" << tablet_id
+                     << ", error=" << st;
+    } else {
+        cv.wait(lock);
+    }
+}
+
+void CloudWarmUpManager::_recycle_cache(int64_t tablet_id,
+                                        const std::vector<RecycledRowsets>& rowsets) {
     LOG(INFO) << "recycle_cache: tablet_id=" << tablet_id << ", num_rowsets=" << rowsets.size();
     bool cache_hit = false;
     auto replicas = get_replica_info(tablet_id, false, cache_hit);
@@ -708,6 +789,84 @@ void CloudWarmUpManager::recycle_cache(int64_t tablet_id,
         PRecycleCacheResponse response;
         brpc_stub->recycle_cache(&cntl, &request, &response, nullptr);
     }
+}
+
+// Balance warm up cache management methods implementation
+void CloudWarmUpManager::record_balanced_tablet(int64_t tablet_id, const std::string& host,
+                                                int32_t brpc_port) {
+    auto& shard = get_shard(tablet_id);
+    std::lock_guard<std::mutex> lock(shard.mtx);
+    JobMeta meta;
+    meta.be_ip = host;
+    meta.brpc_port = brpc_port;
+    shard.tablets.emplace(tablet_id, std::move(meta));
+    g_balance_tablet_be_mapping_size << 1;
+    VLOG_DEBUG << "Recorded balanced warm up cache tablet: tablet_id=" << tablet_id
+               << ", host=" << host << ":" << brpc_port;
+}
+
+std::optional<std::pair<std::string, int32_t>> CloudWarmUpManager::get_balanced_tablet_info(
+        int64_t tablet_id) {
+    auto& shard = get_shard(tablet_id);
+    std::lock_guard<std::mutex> lock(shard.mtx);
+    auto it = shard.tablets.find(tablet_id);
+    if (it == shard.tablets.end()) {
+        return std::nullopt;
+    }
+    return std::make_pair(it->second.be_ip, it->second.brpc_port);
+}
+
+void CloudWarmUpManager::remove_balanced_tablet(int64_t tablet_id) {
+    auto& shard = get_shard(tablet_id);
+    std::lock_guard<std::mutex> lock(shard.mtx);
+    auto it = shard.tablets.find(tablet_id);
+    if (it != shard.tablets.end()) {
+        shard.tablets.erase(it);
+        g_balance_tablet_be_mapping_size << -1;
+        VLOG_DEBUG << "Removed balanced warm up cache tablet by timer, tablet_id=" << tablet_id;
+    }
+}
+
+void CloudWarmUpManager::remove_balanced_tablets(const std::vector<int64_t>& tablet_ids) {
+    // Group tablet_ids by shard to minimize lock contention
+    std::array<std::vector<int64_t>, SHARD_COUNT> shard_groups;
+    for (int64_t tablet_id : tablet_ids) {
+        shard_groups[get_shard_index(tablet_id)].push_back(tablet_id);
+    }
+
+    // Process each shard
+    for (size_t i = 0; i < SHARD_COUNT; ++i) {
+        if (shard_groups[i].empty()) continue;
+
+        auto& shard = _balanced_tablets_shards[i];
+        std::lock_guard<std::mutex> lock(shard.mtx);
+        for (int64_t tablet_id : shard_groups[i]) {
+            auto it = shard.tablets.find(tablet_id);
+            if (it != shard.tablets.end()) {
+                shard.tablets.erase(it);
+                g_balance_tablet_be_mapping_size << -1;
+                VLOG_DEBUG << "Removed balanced warm up cache tablet: tablet_id=" << tablet_id;
+            }
+        }
+    }
+}
+
+std::unordered_map<int64_t, std::pair<std::string, int32_t>>
+CloudWarmUpManager::get_all_balanced_tablets() const {
+    std::unordered_map<int64_t, std::pair<std::string, int32_t>> result;
+
+    // Lock all shards to get consistent snapshot
+    std::array<std::unique_lock<std::mutex>, SHARD_COUNT> locks;
+    for (size_t i = 0; i < SHARD_COUNT; ++i) {
+        locks[i] = std::unique_lock<std::mutex>(_balanced_tablets_shards[i].mtx);
+    }
+
+    for (const auto& shard : _balanced_tablets_shards) {
+        for (const auto& [tablet_id, entry] : shard.tablets) {
+            result.emplace(tablet_id, std::make_pair(entry.be_ip, entry.brpc_port));
+        }
+    }
+    return result;
 }
 
 #include "common/compile_check_end.h"

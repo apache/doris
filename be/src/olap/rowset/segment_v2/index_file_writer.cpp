@@ -23,6 +23,7 @@
 #include <filesystem>
 
 #include "common/status.h"
+#include "io/fs/packed_file_writer.h"
 #include "io/fs/s3_file_writer.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_files.h"
@@ -128,6 +129,11 @@ Status IndexFileWriter::add_into_searcher_cache() {
             // StreamSinkFileWriter not found file is normal.
             return Status::OK();
         }
+        if (dynamic_cast<io::PackedFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+            // PackedFileWriter: file may be merged, skip cache for now.
+            // The cache will be populated on first read.
+            return Status::OK();
+        }
         LOG(WARNING) << "IndexFileWriter::add_into_searcher_cache for " << _index_path_prefix
                      << ", error " << st.msg();
         return st;
@@ -146,8 +152,7 @@ Status IndexFileWriter::add_into_searcher_cache() {
         InvertedIndexCacheHandle inverted_index_cache_handle;
         if (InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
                                                            &inverted_index_cache_handle)) {
-            auto st = InvertedIndexSearcherCache::instance()->erase(
-                    searcher_cache_key.index_file_path);
+            st = InvertedIndexSearcherCache::instance()->erase(searcher_cache_key.index_file_path);
             if (!st.ok()) {
                 LOG(WARNING) << "IndexFileWriter::add_into_searcher_cache for "
                              << _index_path_prefix << ", error " << st.msg();
@@ -185,7 +190,8 @@ Status IndexFileWriter::close() {
     if (_indices_dirs.empty()) {
         // An empty file must still be created even if there are no indexes to write
         if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr) {
+            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr ||
+            dynamic_cast<io::PackedFileWriter*>(_idx_v2_writer.get()) != nullptr) {
             return _idx_v2_writer->close();
         }
         return Status::OK();
@@ -224,6 +230,20 @@ Status IndexFileWriter::close() {
         return add_into_searcher_cache();
     }
     return Status::OK();
+}
+
+std::vector<std::string> IndexFileWriter::get_index_file_names() const {
+    std::vector<std::string> file_names;
+    if (_storage_format == InvertedIndexStorageFormatPB::V2) {
+        file_names.emplace_back(
+                InvertedIndexDescriptor::get_index_file_name_v2(_rowset_id, _seg_id));
+    } else {
+        for (const auto& [index_info, _] : _indices_dirs) {
+            file_names.emplace_back(InvertedIndexDescriptor::get_index_file_name_v1(
+                    _rowset_id, _seg_id, index_info.first, index_info.second));
+        }
+    }
+    return file_names;
 }
 
 std::string IndexFileWriter::debug_string() const {

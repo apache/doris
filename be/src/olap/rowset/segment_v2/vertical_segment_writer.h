@@ -137,7 +137,6 @@ private:
     uint64_t _estimated_remaining_size();
     Status _write_ordinal_index();
     Status _write_zone_map();
-    Status _write_bitmap_index();
     Status _write_inverted_index();
     Status _write_ann_index();
     Status _write_bloom_filter_index();
@@ -162,7 +161,7 @@ private:
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(vectorized::Block& block);
+    void _serialize_block_to_row_column(const vectorized::Block& block);
     Status _probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                               bool have_delete_sign,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -199,6 +198,8 @@ private:
             vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
+    Status _finalize_column_writer_and_update_meta(size_t cid);
+
     bool _is_mow();
     bool _is_mow_with_cluster_key();
 

@@ -81,7 +81,7 @@ public class Config extends ConfigBase {
             options = {"NORMAL", "ASYNC", "BRIEF"})
     public static String sys_log_mode = "ASYNC";
 
-    @ConfField(description = {"FE 在 sys_log_roll_interval （日志滚动间隔）内允许保留的最大日志文件数。"
+    @ConfField(description = {"FE 在 sys_log_roll_interval（日志滚动间隔）内允许保留的最大日志文件数。"
             + "默认值为 10，意味着在每个日志滚动周期内，系统最多会保留 10 个日志文件。",
             "This parameter defines the maximum number of FE log files that can be retained within the "
             + "sys_log_roll_interval (log roll interval). The default value is 10, which means the system"
@@ -140,7 +140,7 @@ public class Config extends ConfigBase {
     public static boolean enable_file_logger = true;
 
     @ConfField(mutable = false, masterOnly = false,
-            description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
+            description = {"是否检查 table 锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
 
     @ConfField(mutable = true, masterOnly = false,
@@ -302,18 +302,18 @@ public class Config extends ConfigBase {
                     + "If there are many ReplicaWriteException in FE WARN log, you can try to increase this value"})
     public static int bdbje_replica_ack_timeout_second = 10;
 
-    @ConfField(description = {"在HA模式下，BDBJE 中保留的预留空间字节数的期望上限。非 HA 模式下无效",
+    @ConfField(description = {"在 HA 模式下，BDBJE 中保留的预留空间字节数的期望上限。非 HA 模式下无效",
             "The desired upper limit on the number of bytes of reserved space to retain "
                     + "in a replicated JE Environment. "
                     + "This parameter is ignored in a non-replicated JE Environment."})
     public static long bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
-    @ConfField(description = {"BDBJE 所需的空闲磁盘空间大小。如果空闲磁盘空间小于这个值，则BDBJE将无法写入。",
+    @ConfField(description = {"BDBJE 所需的空闲磁盘空间大小。如果空闲磁盘空间小于这个值，则 BDBJE 将无法写入。",
             "Amount of free disk space required by BDBJE. "
                     + "If the free disk space is less than this value, BDBJE will not be able to write."})
     public static long bdbje_free_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
-    @ConfField(description = {"BDBJE Cache 内存大小， 最小值为 96KB。", "Amount of memory used by by BDBJE as cache. "})
+    @ConfField(description = {"BDBJE Cache 内存大小，最小值为 96KB。", "Amount of memory used by by BDBJE as cache. "})
     public static long bdbje_cache_size_bytes = 10 * 1024 * 1024; // 10 MB
 
     @ConfField(description = {"BDBJE Message 大小限制。", "Max message size of BDBJE. "})
@@ -327,11 +327,11 @@ public class Config extends ConfigBase {
             "Queue size to store heartbeat task in heartbeat_mgr"})
     public static int heartbeat_mgr_blocking_queue_size = 1024;
 
-    @ConfField(masterOnly = true, description = {"TabletStatMgr线程数",
+    @ConfField(masterOnly = true, description = {"TabletStatMgr 线程数",
             "Num of thread to update tablet stat"})
     public static int tablet_stat_mgr_threads_num = -1;
 
-    @ConfField(masterOnly = true, description = {"Agent任务线程池的线程数",
+    @ConfField(masterOnly = true, description = {"Agent 任务线程池的线程数",
             "Num of thread to handle agent task in agent task thread-pool"})
     public static int max_agent_task_threads_num = 4096;
 
@@ -403,11 +403,11 @@ public class Config extends ConfigBase {
             varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_https = false;
 
-    @ConfField(description = {"Jetty 的 acceptor 线程数。Jetty的线程架构模型很简单，分为三个线程池：acceptor、selector 和 worker。"
-            + "acceptor 负责接受新的连接，然后交给 selector 处理HTTP报文协议的解包，最后由 worker 处理请求。"
-            + "前两个线程池采用非阻塞模型，并且一个线程可以处理很多socket的读写，所以线程池的数量少。"
-            + "对于大多数项目，只需要 1-2 个 acceptor 线程，2 到 4 个就足够了。Worker 的数量取决于应用的QPS和IO事件的比例。"
-            + "越高QPS，或者IO占比越高，等待的线程越多，需要的线程总数越多。",
+    @ConfField(description = {"Jetty 的 acceptor 线程数。Jetty 的线程架构模型很简单，分为三个线程池：acceptor、selector 和 worker。"
+            + "acceptor 负责接受新的连接，然后交给 selector 处理 HTTP 报文协议的解包，最后由 worker 处理请求。"
+            + "前两个线程池采用非阻塞模型，并且一个线程可以处理很多 socket 的读写，所以线程池的数量少。"
+            + "对于大多数项目，只需要 1-2 个 acceptor 线程，2 到 4 个就足够了。Worker 的数量取决于应用的 QPS 和 IO 事件的比例。"
+            + "越高 QPS，或者 IO 占比越高，等待的线程越多，需要的线程总数越多。",
             "The number of acceptor threads for Jetty. Jetty's thread architecture model is very simple, "
                     + "divided into three thread pools: acceptor, selector and worker. "
                     + "The acceptor is responsible for accepting new connections, "
@@ -493,7 +493,7 @@ public class Config extends ConfigBase {
     @ConfField(description = {"MySQL 服务的最大任务线程数", "The max number of task threads in MySQL service"})
     public static int max_mysql_service_task_threads_num = 4096;
 
-    @ConfField(description = {"BackendServiceProxy数量, 用于池化GRPC channel",
+    @ConfField(description = {"BackendServiceProxy 数量，用于池化 GRPC channel",
             "BackendServiceProxy pool size for pooling GRPC channels."})
     public static int backend_proxy_num = 48;
 
@@ -529,7 +529,7 @@ public class Config extends ConfigBase {
     public static int publish_version_timeout_second = 30; // 30 seconds
 
     @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段的等待时间，单位是秒。超过此时间，"
-            + "则只需每个tablet包含一个成功副本，则导入成功。值为 -1 时，表示无限等待。",
+            + "则只需每个 tablet 包含一个成功副本，则导入成功。值为 -1 时，表示无限等待。",
             "Waiting time for one transaction changing to \"at least one replica success\", in seconds."
             + "If time exceeds this, and for each tablet it has at least one replica publish successful, "
             + "then the load task will be successful." })
@@ -562,6 +562,15 @@ public class Config extends ConfigBase {
             "Whether to enable parallel publish version"})
     public static boolean enable_parallel_publish_version = true;
 
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的数目",
+        "Num of thread to handle tablet report task"})
+    public static int tablet_report_thread_pool_num = 10;
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的队列大小",
+        "Queue size to store tablet report task in publish thread pool"})
+    public static int tablet_report_queue_size = 1024;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -571,6 +580,12 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true, description = {"Publish 任务触发线程的执行间隔，单位是毫秒。",
             "The interval of publish task trigger thread, in milliseconds"})
     public static int publish_version_interval_ms = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "If the number of publishing transactions of a table exceeds this value, new transactions will "
+            + "be rejected. Set to -1 to disable this limit.",
+            "当一个表的发布事务数量超过该值时，新的事务将被拒绝。设置为 -1 表示不限制。"})
+    public static long max_publishing_txn_num_per_table = 500;
 
     @ConfField(description = {"thrift server 的最大 worker 线程数", "The max worker threads of thrift server"})
     public static int thrift_server_max_worker_threads = 4096;
@@ -607,12 +622,17 @@ public class Config extends ConfigBase {
             "Default timeout for insert load job, in seconds."})
     public static int insert_load_default_timeout_second = 14400; // 4 hour
 
-    @ConfField(mutable = true, masterOnly = true, description = {"对mow表随机设置cluster keys，用于测试",
+    @ConfField(mutable = true, masterOnly = true, description = {"对 mow 表随机设置 cluster keys，用于测试",
             "random set cluster keys for mow table for test"})
     public static boolean random_add_cluster_keys_for_mow = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "等内部攒批真正写入完成才返回；insert into和stream load默认开启攒批",
+            "在 fuzzy 测试中随机选择部分表使用 V3 storage_format（ext_meta），用于增强覆盖",
+            "Randomly use V3 storage_format (ext_meta) for some tables in fuzzy tests to increase coverage"})
+    public static boolean random_use_v3_storage_format = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "等内部攒批真正写入完成才返回；insert into 和 stream load 默认开启攒批",
             "Wait for the internal batch to be written before returning; "
                     + "insert into and stream load use group commit by default."})
     public static boolean wait_internal_group_commit_finish = false;
@@ -621,12 +641,12 @@ public class Config extends ConfigBase {
             "Default commit interval in ms for group commit"})
     public static int group_commit_interval_ms_default_value = 10000;
 
-    @ConfField(mutable = false, masterOnly = true, description = {"攒批的默认提交数据量，单位是字节，默认128M",
+    @ConfField(mutable = false, masterOnly = true, description = {"攒批的默认提交数据量，单位是字节，默认 128M",
             "Default commit data bytes for group commit"})
     public static int group_commit_data_bytes_default_value = 134217728;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "内部攒批的超时时间为table的group_commit_interval_ms的倍数",
+            "内部攒批的超时时间为 table 的 group_commit_interval_ms 的倍数",
             "The internal group commit timeout is the multiple of table's group_commit_interval_ms"})
     public static int group_commit_timeout_multipler = 10;
 
@@ -678,6 +698,12 @@ public class Config extends ConfigBase {
             "Whether to disable show stream load and clear stream load records in memory."})
     public static boolean disable_show_stream_load = false;
 
+    @ConfField(mutable = true, description = {
+            "是否开启 stream load profile",
+            "Whether to enable stream load profile"
+    })
+    public static boolean enable_stream_load_profile = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否启用 stream load 和 broker load 的单副本写入。",
             "Whether to enable to write single replica for stream load and broker load."},
@@ -727,7 +753,7 @@ public class Config extends ConfigBase {
     public static double used_capacity_percent_max_diff = 0.30;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "设置固定的 BE 负载分数中磁盘使用率系数。BE 负载分数会综合磁盘使用率和副本数而得。有效值范围为[0, 1]，"
+            "设置固定的 BE 负载分数中磁盘使用率系数。BE 负载分数会综合磁盘使用率和副本数而得。有效值范围为 [0, 1]，"
                     + "当超出此范围时，则使用其他方法自动计算此系数。",
             "Sets a fixed disk usage factor in the BE load fraction. The BE load score is a combination of disk usage "
                     + "and replica count. The valid value range is [0, 1]. When it is out of this range, other "
@@ -746,13 +772,13 @@ public class Config extends ConfigBase {
                     + "and disable storage cool down function."})
     public static boolean disable_storage_medium_check = false;
 
-    @ConfField(description = {"创建表或分区时，可以指定存储介质(HDD 或 SSD)。如果未指定，"
+    @ConfField(description = {"创建表或分区时，可以指定存储介质 (HDD 或 SSD)。如果未指定，"
             + "则使用此配置指定的默认介质。",
             "When create a table(or partition), you can specify its storage medium(HDD or SSD)."})
     public static String default_storage_medium = "HDD";
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "删除数据库(表/分区)后，可以使用 RECOVER 语句恢复。此配置指定了数据的最大保留时间。"
+            "删除数据库 (表/分区) 后，可以使用 RECOVER 语句恢复。此配置指定了数据的最大保留时间。"
                     + "超过此时间，数据将被永久删除。",
             "After dropping database(table/partition), you can recover it by using RECOVER stmt.",
             "And this specifies the maximal data retention time. After time, the data will be deleted permanently."})
@@ -815,7 +841,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"是否启用group间的均衡",
+    @ConfField(mutable = true, masterOnly = true, description = {"是否启用 group 间的均衡",
             "is allow colocate balance between all groups"})
     public static boolean disable_colocate_balance_between_groups = false;
 
@@ -856,14 +882,11 @@ public class Config extends ConfigBase {
      * Set to true if you deploy Palo using thirdparty deploy manager
      * Valid options are:
      *      disable:    no deploy manager
-     *      k8s:        Kubernetes
-     *      ambari:     Ambari
+     *      k8s:        Kubernetes NB:Support removed starting from version 3.1.X
+     *      ambari:     Ambari NB: Support removed starting from version 3.1.X
      *      local:      Local File (for test or Boxer2 BCC version)
      */
     @ConfField public static String enable_deploy_manager = "disable";
-
-    // If use k8s deploy manager locally, set this to true and prepare the certs files
-    @ConfField public static boolean with_k8s_certs = false;
 
     // Set runtime locale when exec some cmds
     @ConfField public static String locale = "zh_CN.UTF-8";
@@ -1180,7 +1203,7 @@ public class Config extends ConfigBase {
 
     // if the number of report task in FE exceed max_report_task_num_per_rpc, then split it to multiple rpc
     @ConfField(mutable = true, masterOnly = true, description = {
-            "重新发送 agent task 时，单次 RPC 分配给每个be的任务最大个数，默认值为10000个。",
+            "重新发送 agent task 时，单次 RPC 分配给每个 be 的任务最大个数，默认值为 10000 个。",
             "The maximum number of batched tasks per RPC assigned to each BE when resending agent tasks, "
             + "the default value is 10000."
     })
@@ -1236,6 +1259,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int routine_load_blacklist_expire_time_second = 300;
+
+    /**
+     * Minimum batch interval for adaptive routine load tasks when not at EOF.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_adaptive_min_batch_interval_sec = 360;
 
     /**
      * The max number of files store in SmallFileMgr
@@ -1421,7 +1450,7 @@ public class Config extends ConfigBase {
             masterOnly = false,
             callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
             description = {
-                    "当前默认设置为 300，用来控制控制NereidsSqlCacheManager中sql cache过期时间，超过一段时间不访问cache会被回收",
+                    "当前默认设置为 300，用来控制控制 NereidsSqlCacheManager 中 sql cache 过期时间，超过一段时间不访问 cache 会被回收",
                     "The current default setting is 300, which is used to control the expiration time of SQL cache"
                             + "in NereidsSqlCacheManager. If the cache is not accessed for a period of time, "
                             + "it will be reclaimed"
@@ -1437,7 +1466,7 @@ public class Config extends ConfigBase {
             masterOnly = false,
             callbackClassString = "org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider$UpdateConfig",
             description = {
-                    "当前默认设置为 86400，用来控制控制MemoryHboPlanStatisticsProvider中stats. cache过期时间，超过不访问会被回收",
+                    "当前默认设置为 86400，用来控制控制 MemoryHboPlanStatisticsProvider 中 stats. cache 过期时间，超过不访问会被回收",
                     "The default setting is 86400, which is used to control the expiration time of plan stats. cache"
                             + "in MemoryHboPlanStatisticsProvider. If the cache is not accessed for a period of time, "
                             + "it will be reclaimed."
@@ -1453,7 +1482,7 @@ public class Config extends ConfigBase {
             masterOnly = false,
             callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
             description = {
-                    "当前默认设置为1000，用来控制控制HboPlanInfoProvider中plan info cache过期时间，超过一段时间不访问cache会被回收",
+                    "当前默认设置为 1000，用来控制控制 HboPlanInfoProvider 中 plan info cache 过期时间，超过一段时间不访问 cache 会被回收",
                     "The default setting is 100, which is used to control the expiration time of hbo plan info cache"
                             + "in HboPlanInfoProvider. If the cache is not accessed for a period of time, "
                             + "it will be reclaimed."
@@ -1469,8 +1498,8 @@ public class Config extends ConfigBase {
             masterOnly = false,
             callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
             description = {
-                "当前默认设置为 300，用来控制控制NereidsSortedPartitionsCacheManager中分区元数据缓存过期时间，"
-                    + "超过一段时间不访问cache会被回收",
+                "当前默认设置为 300，用来控制控制 NereidsSortedPartitionsCacheManager 中分区元数据缓存过期时间，"
+                    + "超过一段时间不访问 cache 会被回收",
                 "The current default setting is 300, which is used to control the expiration time of "
                     + "the partition metadata cache in NereidsSortedPartitionsCheManager. "
                     + "If the cache is not accessed for a period of time, it will be reclaimed"
@@ -1481,14 +1510,14 @@ public class Config extends ConfigBase {
     /**
      * Set the maximum number of rows that can be cached
      */
-    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大行数。",
+    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache 可以缓存的最大行数。",
         "Maximum number of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
     public static int cache_result_max_row_count = 3000;
 
     /**
      * Set the maximum data size that can be cached
      */
-    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大数据大小。",
+    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache 可以缓存的最大数据大小。",
         "Maximum data size of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
     public static int cache_result_max_data_size = 31457280; // 30M
 
@@ -1563,7 +1592,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_bdbje_debug_mode = false;
 
-    @ConfField(mutable = false, masterOnly = true, description = {"是否开启debug point模式，测试使用",
+    @ConfField(mutable = false, masterOnly = true, description = {"是否开启 debug point 模式，测试使用",
             "is enable debug points, use in test."})
     public static boolean enable_debug_points = false;
 
@@ -1597,7 +1626,7 @@ public class Config extends ConfigBase {
      * sets the time without read activity before sending a keepalive ping
      * the smaller the value, the sooner the channel is unavailable, but it will increase network io
      */
-    @ConfField(description = { "设置grpc连接发送 keepalive ping 之前没有数据传输的时间。",
+    @ConfField(description = { "设置 grpc 连接发送 keepalive ping 之前没有数据传输的时间。",
             "The time without grpc read activity before sending a keepalive ping" })
     public static int grpc_keep_alive_second = 10;
 
@@ -1716,7 +1745,7 @@ public class Config extends ConfigBase {
     public static boolean enable_cloud_restore_job = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-        "存算分离恢复过程中，一次 create tablets rpc 创建的 tablet 数量上限，默认值为256个",
+        "存算分离恢复过程中，一次 create tablets rpc 创建的 tablet 数量上限，默认值为 256 个",
         "During the cloud restore job, the maximum number of tablets created by one "
             + "create tablets RPC, 256 by default."})
     public static int cloud_restore_create_tablet_batch_size = 256;
@@ -1749,6 +1778,9 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true)
     public static int lower_case_table_names = 0;
 
+    /**
+     * Used to limit the length of table name.
+     */
     @ConfField(mutable = true, masterOnly = true)
     public static int table_name_length_limit = 64;
 
@@ -1757,6 +1789,12 @@ public class Config extends ConfigBase {
             "Used to limit the length of column comment; "
                     + "If the existing column comment is too long, it will be truncated when displayed."})
     public static int column_comment_length_limit = -1;
+
+    @ConfField(mutable = true, description = {
+            "内部表的默认压缩类型。支持的值有：LZ4, LZ4F, LZ4HC, ZLIB, ZSTD, SNAPPY, NONE。",
+            "Default compression type for internal tables. Supported values: LZ4, LZ4F, LZ4HC, ZLIB, ZSTD,"
+            + " SNAPPY, NONE."})
+    public static String default_compression_type = "LZ4F";
 
     /*
      * The job scheduling interval of the schema change handler.
@@ -1913,8 +1951,8 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true, description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
     public static int job_dispatch_timer_job_queue_size = 1024;
-    @ConfField(masterOnly = true, description = {"一个 Job 的 task 最大的持久化数量，超过这个限制将会丢弃旧的 task 记录, 如果值 < 1, 将不会持久化。",
-            "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
+    @ConfField(masterOnly = true, description = {"一个 Job 的 task 最大的持久化数量，超过这个限制将会丢弃旧的 task 记录，如果值 < 1, 将不会持久化。",
+            "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded,"
                    + "If the value is less than 1, it will not be persisted." })
     public static int max_persistence_task_count = 100;
 
@@ -1936,24 +1974,39 @@ public class Config extends ConfigBase {
             + "be automatically selected." })
     public static int dictionary_task_queue_size = 1024;
 
-    @ConfField(masterOnly = true, description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
+    @ConfField(masterOnly = true, description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除，单位：小时",
             "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
     public static int finished_job_cleanup_threshold_time_hour = 24;
 
-    @ConfField(masterOnly = true, description = {"用于执行 Insert 任务的线程数,值应该大于0，否则默认为10",
+    @ConfField(masterOnly = true, description = {"用于执行 Insert 任务的线程数，值应该大于 0，否则默认为 10",
             "The number of threads used to consume Insert tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_insert_task_consumer_thread_num = 10;
 
-    @ConfField(masterOnly = true, description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为10",
+    @ConfField(masterOnly = true, description = {"用于执行 MTMV 任务的线程数，值应该大于 0，否则默认为 10",
             "The number of threads used to consume MTMV tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_mtmv_task_consumer_thread_num = 10;
 
-    @ConfField(masterOnly = true, description = { "用于执行字典导入和删除任务的线程数,值应该大于0，否则默认为3",
+    @ConfField(masterOnly = true, description = { "用于执行字典导入和删除任务的线程数，值应该大于 0，否则默认为 3",
             "The number of threads used to perform the dictionary import and delete tasks, which should be"
                     + " greater than 0, otherwise it defaults to 3." })
     public static int job_dictionary_task_consumer_thread_num = 3;
+
+    @ConfField(masterOnly = true, description = {"用于执行 Streaming 任务的线程数，值应该大于 0，否则默认为 100",
+            "The number of threads used to execute Streaming Tasks, "
+                    + "the value should be greater than 0, if it is <=0, default is 100."})
+    public static int job_streaming_task_exec_thread_num = 100;
+
+    @ConfField(masterOnly = true, description = {"最大的 Streaming 作业数量，值应该大于 0，否则默认为 1024",
+            "The maximum number of Streaming jobs, "
+                    + "the value should be greater than 0, if it is <=0, default is 1024."})
+    public static int max_streaming_job_num = 1024;
+
+    @ConfField(masterOnly = true, description = {"一个 Streaming Job 在内存中最多保留的 task 的数量，超过将丢弃旧的记录",
+            "The maximum number of tasks a Streaming Job can keep in memory. If the number exceeds the limit, "
+                    + "old records will be discarded."})
+    public static int max_streaming_task_show_count = 100;
 
     /* job test config */
     /**
@@ -1997,12 +2050,12 @@ public class Config extends ConfigBase {
     public static long query_queue_update_interval_ms = 5000;
 
     @ConfField(mutable = true, description = {
-            "当BE内存用量大于该值时，查询会进入排队逻辑，默认值为-1，代表该值不生效。取值范围0~1的小数",
+            "当 BE 内存用量大于该值时，查询会进入排队逻辑，默认值为 -1，代表该值不生效。取值范围 0~1 的小数",
             "When be memory usage bigger than this value, query could queue, "
                     + "default value is -1, means this value not work. Decimal value range from 0 to 1"})
     public static double query_queue_by_be_used_memory = -1;
 
-    @ConfField(mutable = true, description = {"基于内存反压场景FE定时拉取BE内存用量的时间间隔",
+    @ConfField(mutable = true, description = {"基于内存反压场景 FE 定时拉取 BE 内存用量的时间间隔",
             "In the scenario of memory backpressure, "
                     + "the time interval for obtaining BE memory usage at regular intervals"})
     public static long get_be_resource_usage_interval_ms = 10000;
@@ -2074,9 +2127,9 @@ public class Config extends ConfigBase {
      * And the max number of compute node is controlled by min_backend_num_for_external_table.
      * If set to false, query on external table will assign to any node.
      */
-    @ConfField(mutable = true, description = {"如果设置为true，外部表的查询将优先分配给计算节点。",
-            "并且计算节点的最大数量由min_backend_num_for_external_table控制。",
-            "如果设置为false，外部表的查询将分配给任何节点。"
+    @ConfField(mutable = true, description = {"如果设置为 true，外部表的查询将优先分配给计算节点。",
+            "并且计算节点的最大数量由 min_backend_num_for_external_table 控制。",
+            "如果设置为 false，外部表的查询将分配给任何节点。"
                     + "如果集群内没有计算节点，则该参数不生效。",
             "If set to true, query on external table will prefer to assign to compute node. "
                     + "And the max number of compute node is controlled by min_backend_num_for_external_table. "
@@ -2084,9 +2137,9 @@ public class Config extends ConfigBase {
                     + "If there is no compute node in cluster, this config takes no effect."})
     public static boolean prefer_compute_node_for_external_table = false;
 
-    @ConfField(mutable = true, description = {"只有当prefer_compute_node_for_external_table为true时生效，"
+    @ConfField(mutable = true, description = {"只有当 prefer_compute_node_for_external_table 为 true 时生效，"
             + "如果计算节点数小于这个值，外部表的查询会尝试获取一些混合节点来分配，以使节点总数达到这个值。"
-            + "如果计算节点数大于这个值，外部表的查询将只分配给计算节点。-1表示只是用当前数量的计算节点",
+            + "如果计算节点数大于这个值，外部表的查询将只分配给计算节点。-1 表示只是用当前数量的计算节点",
             "Only take effect when prefer_compute_node_for_external_table is true. "
                     + "If the compute node number is less than this value, "
                     + "query on external table will try to get some mix de to assign, "
@@ -2197,11 +2250,11 @@ public class Config extends ConfigBase {
             "Max cache number of database and table instance in external catalog."})
     public static long max_meta_object_cache_num = 1000;
 
-    @ConfField(description = {"Hive分区表缓存的最大数量",
+    @ConfField(description = {"Hive 分区表缓存的最大数量",
             "Max cache number of hive partition table"})
     public static long max_hive_partition_table_cache_num = 1000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
+    @ConfField(mutable = false, masterOnly = false, description = {"获取 Hive 分区值时候的最大返回数量，-1 代表没有限制。",
             "Max number of hive partition values to return while list partitions, -1 means no limitation."})
     public static short max_hive_list_partition_num = -1;
 
@@ -2314,7 +2367,7 @@ public class Config extends ConfigBase {
      * otherwise it will throw an AnalysisException.
      */
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "当前默认设置为 false，开启后支持使用新优化器的load语句导入数据，失败后会降级旧的load语句。",
+            "当前默认设置为 false，开启后支持使用新优化器的 load 语句导入数据，失败后会降级旧的 load 语句。",
             "Now default set to true, After this function is enabled, the load statement of "
                     + "the new optimizer can be used to import data. If this function fails, "
                     + "the old load statement will be degraded."})
@@ -2327,7 +2380,7 @@ public class Config extends ConfigBase {
             mutable = true,
             callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
             description = {
-                "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
+                "当前默认设置为 100，用来控制控制 NereidsSqlCacheManager 管理的 sql cache 数量。",
                 "Now default set to 100, this config is used to control the number of "
                         + "sql cache managed by NereidsSqlCacheManager"
             }
@@ -2338,7 +2391,7 @@ public class Config extends ConfigBase {
             mutable = true,
             callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
             description = {
-                    "当前默认设置为 100，用来控制控制NereidsSortedPartitionsCacheManager中有序分区元数据的缓存个数，"
+                    "当前默认设置为 100，用来控制控制 NereidsSortedPartitionsCacheManager 中有序分区元数据的缓存个数，"
                             + "用于加速分区裁剪",
                     "The current default setting is 100, which is used to control the number of ordered "
                             + "partition metadata caches in NereidsSortedPartitionsCacheManager, "
@@ -2354,7 +2407,7 @@ public class Config extends ConfigBase {
             mutable = true,
             callbackClassString = "org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider$UpdateConfig",
             description = {
-                    "当前默认设置为 100000，用来控制控制MemoryHboPlanStatisticsProvider管理的plan stats. cache数量。",
+                    "当前默认设置为 100000，用来控制控制 MemoryHboPlanStatisticsProvider 管理的 plan stats. cache 数量。",
                     "Now default set to 100000, this config is used to control the number of "
                             + "hbo plan stats. cache"
             }
@@ -2367,7 +2420,7 @@ public class Config extends ConfigBase {
     @ConfField(
             mutable = true,
             description = {
-                    "当前默认设置为 10，用来控制控制MemoryHboPlanStatisticsProvider管理的plan stats. cache recent runs数量。",
+                    "当前默认设置为 10，用来控制控制 MemoryHboPlanStatisticsProvider 管理的 plan stats. cache recent runs 数量。",
                     "Now default set to 10, this config is used to control the number of "
                             + "hbo plan stats. cache recent runs' entry number."
             }
@@ -2381,7 +2434,7 @@ public class Config extends ConfigBase {
             mutable = true,
             callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
             description = {
-                    "当前默认设置为 1000，用来控制控制HboPlanInfoProvider管理的plan info cache数量。",
+                    "当前默认设置为 1000，用来控制控制 HboPlanInfoProvider 管理的 plan info cache 数量。",
                     "Now default set to 1000, this config is used to control the number of "
                             + "hbo plan info cache"
             }
@@ -2514,7 +2567,7 @@ public class Config extends ConfigBase {
     public static boolean enable_round_robin_create_tablet = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "创建分区时，总是从第一个 BE 开始创建。注意：这种方式可能造成BE不均衡",
+            "创建分区时，总是从第一个 BE 开始创建。注意：这种方式可能造成 BE 不均衡",
             "When creating tablet of a partition, always start from the first BE. "
                     + "Note: This method may cause BE imbalance"})
     public static boolean create_tablet_round_robin_from_start = false;
@@ -2577,19 +2630,19 @@ public class Config extends ConfigBase {
     public static boolean enable_query_hit_stats = false;
 
     @ConfField(mutable = true, description = {
-            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，" + "以及不可查询的具体原因。",
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该 tablet 所有副本的详细信息，" + "以及不可查询的具体原因。",
             "When set to true, if a query is unable to select a healthy replica, "
                     + "the detailed information of all the replicas of the tablet,"
                     + " including the specific reason why they are unqueryable, will be printed out."})
     public static boolean show_details_for_unaccessible_tablet = true;
 
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "是否启用binlog特性",
+            "是否启用 binlog 特性",
             "Whether to enable binlog feature"})
     public static boolean enable_feature_binlog = false;
 
     @ConfField(mutable = false, description = {
-            "是否默认为 Database/Table 启用binlog特性",
+            "是否默认为 Database/Table 启用 binlog 特性",
             "Whether to enable binlog feature for Database/Table by default"})
     public static boolean force_enable_feature_binlog = false;
 
@@ -2604,17 +2657,17 @@ public class Config extends ConfigBase {
     public static boolean disallow_create_catalog_with_resource = true;
 
     @ConfField(mutable = true, masterOnly = false, description = {
-        "Hive行数估算分区采样数",
+        "Hive 行数估算分区采样数",
         "Sample size for hive row count estimation."})
     public static int hive_stats_partition_sample_size = 30;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "启用Hive分桶表",
+            "启用 Hive 分桶表",
             "Enable external hive bucket table"})
     public static boolean enable_create_hive_bucket_table = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "Hive创建外部表默认指定的文件格式",
+            "Hive 创建外部表默认指定的文件格式",
             "Default hive file format for creating table."})
     public static String hive_default_file_format = "orc";
 
@@ -2663,13 +2716,13 @@ public class Config extends ConfigBase {
     public static boolean force_sample_analyze = false; // avoid full analyze for performance reason
 
     @ConfField(mutable = true, description = {
-            "Export任务允许的最大分区数量",
+            "Export 任务允许的最大分区数量",
             "The maximum number of partitions allowed by Export job"})
     public static int maximum_number_of_export_partitions = 2000;
 
     @Deprecated
     @ConfField(mutable = true, description = {
-            "Export任务允许的最大并行数",
+            "Export 任务允许的最大并行数",
             "The maximum parallelism allowed by Export job"})
     public static int maximum_parallelism_of_export_job = 50;
 
@@ -2682,20 +2735,20 @@ public class Config extends ConfigBase {
     public static boolean forbid_running_alter_job = false;
 
     @ConfField(description = {
-            "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
+            "暂时性配置项，开启后会自动将所有的 olap 表修改为可 light schema change",
             "temporary config filed, will make all olap tables enable light schema change"
     })
     public static boolean enable_convert_light_weight_schema_change = false;
 
     @ConfField(mutable = true, masterOnly = false, description = {
-            "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",
+            "查询 information_schema.metadata_name_ids 表时，获取一个数据库中所有表用的时间",
             "When querying the information_schema.metadata_name_ids table,"
                     + " the time used to obtain all tables in one database"
     })
     public static long query_metadata_name_ids_timeout = 3;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "是否禁止LocalDeployManager删除节点",
+            "是否禁止 LocalDeployManager 删除节点",
             "Whether to disable LocalDeployManager drop node"})
     public static boolean disable_local_deploy_manager_drop_node = true;
 
@@ -2735,13 +2788,13 @@ public class Config extends ConfigBase {
     public static long analyze_record_limit = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "Auto Buckets中最小的buckets数目",
+            "Auto Buckets 中最小的 buckets 数目",
             "min buckets of auto bucket"
     })
     public static int autobucket_min_buckets = 1;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-        "Auto Buckets中最大的buckets数目",
+        "Auto Buckets 中最大的 buckets 数目",
         "max buckets of auto bucket"
     })
     public static int autobucket_max_buckets = 128;
@@ -2751,8 +2804,8 @@ public class Config extends ConfigBase {
     public static int arrow_flight_max_connections = 4096;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-        "Auto Buckets中按照partition size去估算bucket数，存算一体partition size 5G估算一个bucket，"
-            + "但存算分离下partition size 10G估算一个bucket。 若配置小于0，会在在代码中会自适应存算一体模式默认5G，在存算分离默认10G",
+        "Auto Buckets 中按照 partition size 去估算 bucket 数，存算一体 partition size 5G 估算一个 bucket，"
+            + "但存算分离下 partition size 10G 估算一个 bucket。若配置小于 0，会在在代码中会自适应存算一体模式默认 5G，在存算分离默认 10G",
         "In Auto Buckets, the number of buckets is estimated based on the partition size. "
             + "For storage and computing integration, a partition size of 5G is estimated as one bucket."
             + " but for cloud, a partition size of 10G is estimated as one bucket. "
@@ -2761,14 +2814,14 @@ public class Config extends ConfigBase {
     })
     public static int autobucket_partition_size_per_bucket_gb = -1;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Auto bucket中计算出的新的分区bucket num超过前一个分区的"
-            + "bucket num的百分比，被认为是异常case报警",
+    @ConfField(mutable = true, masterOnly = true, description = {"Auto bucket 中计算出的新的分区 bucket num 超过前一个分区的"
+            + "bucket num 的百分比，被认为是异常 case 报警",
             "The new partition bucket number calculated in the auto bucket exceeds the percentage "
             + "of the previous partition's bucket number, which is considered an abnormal case alert."})
     public static double autobucket_out_of_bounds_percent_threshold = 0.5;
 
-    @ConfField(description = {"(已弃用，被 arrow_flight_max_connection 替代) Arrow Flight Server中所有用户token的缓存上限，"
-            + "超过后LRU淘汰, arrow flight sql是无状态的协议，连接通常不会主动断开，"
+    @ConfField(description = {"(已弃用，被 arrow_flight_max_connection 替代) Arrow Flight Server 中所有用户 token 的缓存上限，"
+            + "超过后 LRU 淘汰，arrow flight sql 是无状态的协议，连接通常不会主动断开，"
             + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
             "(Deprecated, replaced by arrow_flight_max_connection) The cache limit of all user tokens in "
             + "Arrow Flight Server. which will be eliminated by LRU rules after exceeding the limit, "
@@ -2776,7 +2829,7 @@ public class Config extends ConfigBase {
             + "bearer token is evict from the cache will unregister ConnectContext."})
     public static int arrow_flight_token_cache_size = 4096;
 
-    @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位秒，默认值为86400，即1天",
+    @ConfField(description = {"Arrow Flight Server 中用户 token 的存活时间，自上次写入后过期时间，单位秒，默认值为 86400，即 1 天",
             "The alive time of the user token in Arrow Flight Server, expire after write, unit second,"
             + "the default value is 86400, which is 1 days"})
     public static int arrow_flight_token_alive_time_second = 86400;
@@ -2790,14 +2843,14 @@ public class Config extends ConfigBase {
     public static String mysqldb_replace_name = "mysql";
 
     @ConfField(description = {
-        "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
+        "设置允许跨域访问的特定域名，默认允许任何域名跨域访问",
         "Set the specific domain name that allows cross-domain access. "
             + "By default, any domain name is allowed cross-domain access"
     })
     public static String access_control_allowed_origin_domain = "*";
 
     @ConfField(description = {
-            "开启java_udf, 默认为true。如果该配置为false，则禁止创建和使用java_udf。在一些场景下关闭该配置可防止命令注入攻击。",
+            "开启 java_udf, 默认为 true。如果该配置为 false，则禁止创建和使用 java_udf。在一些场景下关闭该配置可防止命令注入攻击。",
             "Used to enable java_udf, default is true. if this configuration is false, creation and use of java_udf is "
                     + "disabled. in some scenarios it may be necessary to disable this configuration to prevent "
                     + "command injection attacks."
@@ -2805,7 +2858,7 @@ public class Config extends ConfigBase {
     public static boolean enable_java_udf = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-        "开启后，可以在导入时，利用创建的全局java_udf函数处理数据, 默认为false。",
+        "开启后，可以在导入时，利用创建的全局 java_udf 函数处理数据，默认为 false。",
         "When enabled, data can be processed using the globally created java_udf function during import."
                 + " The default setting is false."
     })
@@ -2825,8 +2878,8 @@ public class Config extends ConfigBase {
     public static boolean ignore_unknown_metadata_module = false;
 
     @ConfField(mutable = true, description = {
-            "从主节点同步image文件的超时时间，用户可根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，"
-                    + "单位为秒，默认值300",
+            "从主节点同步 image 文件的超时时间，用户可根据${meta_dir}/image 文件夹下面的 image 文件大小和节点间的网络环境调整，"
+                    + "单位为秒，默认值 300",
             "The timeout for FE Follower/Observer synchronizing an image file from the FE Master, can be adjusted by "
                     + "the user on the size of image file in the ${meta_dir}/image and the network environment between "
                     + "nodes. The default values is 300."
@@ -2834,9 +2887,9 @@ public class Config extends ConfigBase {
     public static int sync_image_timeout_second = 300;
 
     @ConfField(mutable = true, description = {
-        "FE启动时加载image文件某个模块的二进制内容到字节数组，并将字节数组反序列化为utf8编码字符串时单批次（单位：byte, 至少500MB）"
-            + "的大小。等于-1的值表示一次性读取完整的字节数组后反序列化反序列化为utf8编码字符串；"
-            + "不等于-1的值（至少16MB）表示分批每次读取多大的字节数组后反序列化为utf8编码字符串，最后合并成完成的字符串。默认值为-1",
+        "FE 启动时加载 image 文件某个模块的二进制内容到字节数组，并将字节数组反序列化为 utf8 编码字符串时单批次（单位：byte, 至少 500MB）"
+            + "的大小。等于 -1 的值表示一次性读取完整的字节数组后反序列化反序列化为 utf8 编码字符串；"
+            + "不等于 -1 的值（至少 16MB）表示分批每次读取多大的字节数组后反序列化为 utf8 编码字符串，最后合并成完成的字符串。默认值为 -1",
         "The size of a single batch (in bytes) when loading the binary content of a module of the "
             + "image file into a byte array and deserializing the byte array into a utf8 encoded string when FE starts."
             + " A value equal to -1 means reading the entire byte array at once and "
@@ -2884,12 +2937,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_group_max_num = 15;
 
-    @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
+    @ConfField(description = {"查询 be wal_queue 的超时阈值 (ms)",
             "the timeout threshold of checking wal_queue on be(ms)"})
     public static int check_wal_queue_timeout_threshold = 180000;   // 3 min
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "对于自动分区表，防止用户意外创建大量分区，每个OLAP表允许的分区数量为`max_auto_partition_num`。默认2000。",
+            "对于自动分区表，防止用户意外创建大量分区，每个 OLAP 表允许的分区数量为`max_auto_partition_num`。默认 2000。",
             "For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, "
                     + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."
     })
@@ -2910,9 +2963,9 @@ public class Config extends ConfigBase {
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 
     @ConfField(masterOnly = true, description = {
-            "设置 root 用户初始化2阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。"
+            "设置 root 用户初始化 2 阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。"
                     + "后续 root 用户的 `set password` 操作会将 root 初始化密码覆盖。"
-                    + "示例：如要配置密码的明文是 `root@123`，可在Doris执行SQL `select password('root@123')` "
+                    + "示例：如要配置密码的明文是 `root@123`，可在 Doris 执行 SQL `select password('root@123')` "
                     + "获取加密密码 `*A00C34073A26B40AB4307650BFB9309D6BFA6999`",
             "Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. "
                     + "Subsequent `set password` operations for root user will overwrite the initial root password. "
@@ -2921,25 +2974,25 @@ public class Config extends ConfigBase {
                     + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`"})
     public static String initial_root_password = "";
 
-    @ConfField(description = {"nereids trace文件的存放路径。",
+    @ConfField(description = {"nereids trace 文件的存放路径。",
             "The path of the nereids trace file."})
     public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "备份过程中，一个 upload 任务上传的快照数量上限，默认值为10个",
+            "备份过程中，一个 upload 任务上传的快照数量上限，默认值为 10 个",
             "The max number of snapshots assigned to a upload task during the backup process, the default value is 10."
     })
     public static int backup_upload_snapshot_batch_size = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "恢复过程中，一个 download 任务下载的快照数量上限，默认值为10个",
+            "恢复过程中，一个 download 任务下载的快照数量上限，默认值为 10 个",
             "The max number of snapshots assigned to a download task during the restore process, "
             + "the default value is 10."
     })
     public static int restore_download_snapshot_batch_size = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "备份恢复过程中，单次 RPC 分配给每个be的任务最大个数，默认值为10000个。",
+            "备份恢复过程中，单次 RPC 分配给每个 be 的任务最大个数，默认值为 10000 个。",
             "The max number of batched tasks per RPC assigned to each be during the backup/restore process, "
             + "the default value is 10000."
     })
@@ -2950,11 +3003,11 @@ public class Config extends ConfigBase {
             "The number of concurrent restore tasks per be"})
     public static int restore_task_concurrency_per_be = 5000;
 
-    @ConfField(mutable = true, description = {"执行 agent task 时，BE心跳超过多长时间，认为BE不可用",
+    @ConfField(mutable = true, description = {"执行 agent task 时，BE 心跳超过多长时间，认为 BE 不可用",
             "The time after which BE is considered unavailable if the heartbeat is not received"})
     public static int agent_task_be_unavailable_heartbeat_timeout_second = 300;
 
-    @ConfField(description = {"是否开启通过http接口获取log文件的功能",
+    @ConfField(description = {"是否开启通过 http 接口获取 log 文件的功能",
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
 
@@ -2964,20 +3017,20 @@ public class Config extends ConfigBase {
     public static boolean enable_collect_internal_query_profile = false;
 
     @ConfField(mutable = false, masterOnly = false, description = {
-        "http请求处理/api/query中sql任务的最大线程池。",
+        "http 请求处理/api/query 中 sql 任务的最大线程池。",
         "The max number work threads of http sql submitter."
     })
     public static int http_sql_submitter_max_worker_threads = 2;
 
     @ConfField(mutable = false, masterOnly = false, description = {
-        "http请求处理/api/upload任务的最大线程池。",
+        "http 请求处理/api/upload 任务的最大线程池。",
         "The max number work threads of http upload submitter."
     })
     public static int http_load_submitter_max_worker_threads = 2;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，"
-            + "其label会被删除，被删除的 label 可以被重用。 值为 -1 时，表示此阈值不生效。",
+            "load label 个数阈值，超过该个数后，对于已经完成导入作业或者任务，"
+            + "其 label 会被删除，被删除的 label 可以被重用。值为 -1 时，表示此阈值不生效。",
             "The threshold of load labels' number. After this number is exceeded, "
                     + "the labels of the completed import jobs or tasks will be deleted, "
                     + "and the deleted labels can be reused. "
@@ -2999,7 +3052,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
-    @ConfField(description = {"指定 mysql登录身份认证类型",
+    @ConfField(description = {"指定 mysql 登录身份认证类型",
             "Specifies the authentication type"},
             options = {"default", "ldap"})
     public static String authentication_type = "default";
@@ -3013,20 +3066,13 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "倒排索引默认存储格式",
-            "Default storage format of inverted index, the default value is V1."
+            "Default storage format of inverted index, the default value is V3."
     })
-    public static String inverted_index_storage_format = "V2";
+    public static String inverted_index_storage_format = "V3";
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "是否为新分区启用倒排索引 V2 存储格式。启用后，新创建的分区将使用 V2 格式，而不管表的原始格式如何。",
-            "Enable V2 storage format for inverted indexes in new partitions. When enabled, newly created partitions "
-                    + "will use V2 format regardless of the table's original format."
-    })
-    public static boolean enable_new_partition_inverted_index_v2_format = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
-                    + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
+            "是否在 unique 表 mow 上开启 delete 语句写 delete predicate。若开启，会提升 delete 语句的性能，"
+                    + "但 delete 后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低 delete 语句的性能来保证正确性。",
             "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
                     + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
                     + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
@@ -3076,7 +3122,7 @@ public class Config extends ConfigBase {
     public static int checkpoint_manual_gc_threshold = 0;
 
     @ConfField(mutable = true, description = {
-            "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
+            "是否在每个请求开始之前打印一遍请求内容，主要是 query 语句",
             "Should the request content be logged before each request starts, specifically the query statements"})
     public static boolean enable_print_request_before_execution = false;
 
@@ -3100,18 +3146,53 @@ public class Config extends ConfigBase {
             "Profile will be spilled to storage after query has finished for this time"})
     public static int profile_waiting_time_for_spill_seconds = 10;
 
+    // Enable profile archive feature. When enabled, profiles exceeding storage limits
+    // will be archived to compressed ZIP files instead of being directly deleted.
+    @ConfField(mutable = true, description = {"是否启用 profile 归档功能。启用后，超过存储限制的 profile 将被归档到压缩文件而不是直接删除",
+            "Enable profile archive feature. When enabled, profiles exceeding storage limits "
+                    + "will be archived to compressed ZIP files instead of being directly deleted"})
+    public static boolean enable_profile_archive = true;
+
+    // Number of profiles to include in each archive ZIP file.
+    // Recommended value: 1000
+    @ConfField(mutable = true, description = {"每个归档 ZIP 文件包含的 profile 数量。推荐值 1000",
+            "Number of profiles per archive ZIP file. Recommended: 1000"})
+    public static int profile_archive_batch_size = 1000;
+
+    // Storage path for archived profiles.
+    // If empty, defaults to ${spilled_profile_storage_path}/archive
+    @ConfField(description = {"profile 归档文件的存储路径。为空时使用 ${spilled_profile_storage_path}/archive",
+            "Storage path for archived profiles. Use ${spilled_profile_storage_path}/archive if empty"})
+    public static String profile_archive_path = "";
+
+    // Retention period for archive files in seconds.
+    // -1: keep forever
+    // 0: disable archiving (equivalent to enable_profile_archive = false)
+    // >0: delete archives older than specified seconds (e.g., 604800 = 30 days)
+    @ConfField(mutable = true, description = {"归档文件的保留时长（秒）。-1 表示永久保留，0 表示不保留",
+            "Retention period for archive files in seconds. -1 for unlimited, 0 to disable archiving"})
+    public static int profile_archive_retention_seconds = 28800; // 8 hours
+
+    // Maximum waiting time for pending archive files in seconds.
+    // If the oldest file in pending directory exceeds this time, archive will be forced
+    // even if the batch size is not reached.
+    @ConfField(mutable = true, description = {"待归档缓冲区的最大等待时间（秒）。超过此时间即使未满批次也会强制归档",
+            "Maximum waiting time for pending archive files in seconds. "
+                    + "Force archive even if batch is not full"})
+    public static int profile_archive_pending_timeout_seconds = 3600; // 1 hours
+
     @ConfField(mutable = true, description = {
-            "是否通过检测协调者BE心跳来 abort 事务",
+            "是否通过检测协调者 BE 心跳来 abort 事务",
             "SHould abort txn by checking coorinator be heartbeat"})
     public static boolean enable_abort_txn_by_checking_coordinator_be = true;
 
     @ConfField(mutable = true, description = {
-            "是否在 schema change 过程中, 检测冲突事物并 abort 它",
+            "是否在 schema change 过程中，检测冲突事物并 abort 它",
             "SHould abort txn by checking conflick txn in schema change"})
     public static boolean enable_abort_txn_by_checking_conflict_txn = true;
 
     @ConfField(mutable = true, description = {
-            "内表自动收集时间间隔，当某一列上次收集时间距离当前时间大于该值，则会触发一次新的收集，0表示不会触发。",
+            "内表自动收集时间间隔，当某一列上次收集时间距离当前时间大于该值，则会触发一次新的收集，0 表示不会触发。",
             "Columns that have not been collected within the specified interval will trigger automatic analyze. "
                 + "0 means not trigger."
     })
@@ -3139,7 +3220,7 @@ public class Config extends ConfigBase {
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
-    @ConfField(description = {"是否启用FE 日志文件按照大小删除策略，当日志大小超过指定大小，删除相关的log。默认为按照时间策略删除",
+    @ConfField(description = {"是否启用 FE 日志文件按照大小删除策略，当日志大小超过指定大小，删除相关的 log。默认为按照时间策略删除",
         "Whether to enable the FE log file deletion policy based on size, "
             + "where logs exceeding the specified size are deleted. "
             + "It is disabled by default and follows a time-based deletion policy."},
@@ -3223,9 +3304,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_light_index_change = true;
 
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_create_bitmap_index_as_inverted_index = true;
-
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
     // to help to acquire a snapshot of partition versions.
@@ -3284,7 +3362,7 @@ public class Config extends ConfigBase {
     public static int drop_user_notify_ms_max_times = 86400;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static long cloud_tablet_rebalancer_interval_second = 20;
+    public static long cloud_tablet_rebalancer_interval_second = 1;
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_cloud_partition_balance = true;
@@ -3310,8 +3388,26 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_cloud_warm_up_for_rebalance = true;
+    @ConfField(mutable = true, masterOnly = true, description = {"指定存算分离模式下所有 Compute group 的扩缩容预热方式。"
+            + "without_warmup: 直接修改 tablet 分片映射，首次读从 S3 拉取，均衡最快但性能波动最大；"
+            + "async_warmup: 异步预热，尽力而为拉取 cache，均衡较快但可能 cache miss；"
+            + "sync_warmup: 同步预热，确保 cache 迁移完成，均衡较慢但无 cache miss；"
+            + "peer_read_async_warmup: 直接修改 tablet 分片映射，首次读从 Peer BE 拉取，均衡最快可能会影响同计算组中其他 BE 性能。"
+            + "注意：此为全局 FE 配置，也可通过 SQL（ALTER COMPUTE GROUP cg PROPERTIES）"
+            + "设置 compute group 维度的 balance 类型，compute group 维度配置优先级更高",
+        "Specify the scaling and warming methods for all Compute groups in a cloud mode. "
+            + "without_warmup: Directly modify shard mapping, first read from S3,"
+            + "fastest re-balance but largest fluctuation; "
+            + "async_warmup: Asynchronous warmup, best-effort cache pulling, "
+            + "faster re-balance but possible cache miss; "
+            + "sync_warmup: Synchronous warmup, ensure cache migration completion, "
+            + "slower re-balance but no cache miss; "
+            + "peer_read_async_warmup: Directly modify shard mapping, first read from Peer BE, "
+            + "fastest re-balance but may affect other BEs in the same compute group performance. "
+            + "Note: This is a global FE configuration, you can also use SQL (ALTER COMPUTE GROUP cg PROPERTIES) "
+            + "to set balance type at compute group level, compute group level configuration has higher priority"},
+            options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
+    public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -3319,7 +3415,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int mow_calculate_delete_bitmap_retry_times = 10;
 
-    @ConfField(mutable = true, description = {"指定S3 Load endpoint白名单, 举例: s3_load_endpoint_white_list=a,b,c",
+    @ConfField(mutable = true, description = {"指定 S3 Load endpoint 白名单，举例：s3_load_endpoint_white_list=a,b,c",
             "the white list for the s3 load endpoint, if it is empty, no white list will be set,"
             + "for example: s3_load_endpoint_white_list=a,b,c"})
     public static String[] s3_load_endpoint_white_list = {};
@@ -3333,7 +3429,7 @@ public class Config extends ConfigBase {
     })
     public static boolean force_azure_blob_global_endpoint = false;
 
-    @ConfField(mutable = true, description = {"指定Jdbc driver url白名单, 举例: jdbc_driver_url_white_list=a,b,c",
+    @ConfField(mutable = true, description = {"指定 Jdbc driver url 白名单，举例：jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"
             + "for example: jdbc_driver_url_white_list=a,b,c"
     })
@@ -3385,33 +3481,33 @@ public class Config extends ConfigBase {
     public static int audit_event_log_queue_size = 250000;
 
     @ConfField(mutable = true, description = {
-            "streamload导入使用的转发策略, 可选值为public-private/public/private/direct/random-be/空",
+            "streamload 导入使用的转发策略，可选值为 public-private/public/private/direct/random-be/空",
             "streamload route policy, available options are "
             + "public-private/public/private/direct/random-be and empty string" })
     public static String streamload_redirect_policy = "";
 
     @ConfField(mutable = true, description = {
-            "存算分离模式下是否启用group commit的streamload BE转发功能。"
-                    + "解决LB随机转发导致group commit攒批失效的问题，通过BE二次转发确保同表请求到达同一BE节点。",
+            "存算分离模式下是否启用 group commit 的 streamload BE 转发功能。"
+                    + "解决 LB 随机转发导致 group commit 攒批失效的问题，通过 BE 二次转发确保同表请求到达同一 BE 节点。",
             "Whether to enable group commit streamload BE forward feature in cloud mode. "
                     + "Solves the issue where LB random forwarding breaks group commit batching "
                     + "by implementing BE-level forwarding to ensure same-table requests reach the same BE node." })
     public static boolean enable_group_commit_streamload_be_forward = false;
 
-    @ConfField(description = {"存算分离模式下建表是否检查残留recycler key, 默认true",
+    @ConfField(description = {"存算分离模式下建表是否检查残留 recycler key, 默认 true",
         "create table in cloud mode, check recycler key remained, default true"})
     public static boolean check_create_table_recycle_key_remained = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下fe向ms请求锁的过期时间，默认60s"})
+    @ConfField(mutable = true, description = {"存算分离模式下 fe 向 ms 请求锁的过期时间，默认 60s"})
     public static int delete_bitmap_lock_expiration_seconds = 60;
 
-    @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认60s"})
+    @ConfField(mutable = true, description = {"存算分离模式下 calculate delete bitmap task 超时时间，默认 60s"})
     public static int calculate_delete_bitmap_task_timeout_seconds = 60;
 
-    @ConfField(mutable = true, description = {"存算分离模式下事务导入calculate delete bitmap task 超时时间，默认300s"})
+    @ConfField(mutable = true, description = {"存算分离模式下事务导入 calculate delete bitmap task 超时时间，默认 300s"})
     public static int calculate_delete_bitmap_task_timeout_seconds_for_transaction_load = 300;
 
-    @ConfField(mutable = true, description = {"存算分离模式下commit阶段等锁超时时间，默认5s"})
+    @ConfField(mutable = true, description = {"存算分离模式下 commit 阶段等锁超时时间，默认 5s"})
     public static int try_commit_lock_timeout_seconds = 5;
 
     @ConfField(mutable = true, description = {"是否在事务提交时对所有表启用提交锁。设置为 true 时，所有表都会使用提交锁。"
@@ -3422,28 +3518,28 @@ public class Config extends ConfigBase {
             + "Default value is true." })
     public static boolean enable_commit_lock_for_all_tables = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认false"})
+    @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认 false"})
     public static boolean enable_cloud_txn_lazy_commit = false;
 
     @ConfField(mutable = true, masterOnly = true,
-            description = {"存算分离模式下，当tablet分布的be异常，是否立即映射tablet到新的be上，默认false"})
+            description = {"存算分离模式下，当 tablet 分布的 be 异常，是否立即映射 tablet 到新的 be 上，默认 false"})
     public static boolean enable_immediate_be_assign = false;
 
     @ConfField(mutable = true, masterOnly = false,
-            description = { "存算分离模式下，一个BE挂掉多长时间后，它的tablet彻底转移到其他BE上" })
+            description = { "存算分离模式下，一个 BE 挂掉多长时间后，它的 tablet 彻底转移到其他 BE 上" })
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
 
-    @ConfField(mutable = true, description = {"存算分离模式下是否启用自动启停功能，默认true",
+    @ConfField(mutable = true, description = {"存算分离模式下是否启用自动启停功能，默认 true",
         "Whether to enable the automatic start-stop feature in cloud model, default is true."})
     public static boolean enable_auto_start_for_cloud_cluster = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下自动启停等待cluster唤醒退避重试次数，默认300次大约5分钟",
+    @ConfField(mutable = true, description = {"存算分离模式下自动启停等待 cluster 唤醒退避重试次数，默认 300 次大约 5 分钟",
         "The automatic start-stop wait time for cluster wake-up backoff retry count in the cloud "
             + "model is set to 300 times, which is approximately 5 minutes by default."})
     public static int auto_start_wait_to_resume_times = 300;
 
-    @ConfField(description = {"Get tablet stat task的最大并发数。",
+    @ConfField(description = {"Get tablet stat task 的最大并发数。",
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
 
@@ -3455,25 +3551,25 @@ public class Config extends ConfigBase {
             "Max retry times when a schema change job fails, default is 3."})
     public static int schema_change_max_retry_time = 3;
 
-    @ConfField(mutable = true, description = {"是否允许使用ShowCacheHotSpotStmt语句",
+    @ConfField(mutable = true, description = {"是否允许使用 ShowCacheHotSpotStmt 语句",
             "Whether to enable the use of ShowCacheHotSpotStmt, default is false."})
     public static boolean enable_show_file_cache_hotspot_stmt = false;
 
-    @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的请求超时, 默认30000ms",
+    @ConfField(mutable = true, description = {"存算分离模式下 FE 连接 meta service 的请求超时，默认 30000ms",
             "Request timeout for FE connecting to meta service in cloud mode, default is 30000ms."})
     public static int meta_service_brpc_timeout_ms = 30000;
 
-    @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的连接超时，默认500ms",
+    @ConfField(mutable = true, description = {"存算分离模式下 FE 连接 meta service 的连接超时，默认 500ms",
             "Connection timeout for FE connecting to meta service in cloud mode., default is 500ms."})
     public static int meta_service_brpc_connect_timeout_ms = 500;
 
-    @ConfField(mutable = true, description = {"存算分离模式下FE请求meta service超时的重试次数，默认1次",
+    @ConfField(mutable = true, description = {"存算分离模式下 FE 请求 meta service 超时的重试次数，默认 1 次",
             "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
     public static int meta_service_rpc_timeout_retry_times = 1;
 
     @ConfField(mutable = true, description = {"存算分离模式下自动启停功能，对于该配置中的数据库名不进行唤醒操作，"
             + "用于内部作业的数据库，例如统计信息用到的数据库，"
-            + "举例: auto_start_ignore_db_names=__internal_schema, information_schema",
+            + "举例：auto_start_ignore_db_names=__internal_schema, information_schema",
             "In the cloud mode, the automatic start and stop ignores the DB name of the internal job,"
             + "used for databases involved in internal jobs, such as those used for statistics, "
             + "For example: auto_start_ignore_db_names=__internal_schema, information_schema"
@@ -3521,7 +3617,7 @@ public class Config extends ConfigBase {
     public static long resource_not_ready_sleep_seconds = 5;
 
     @ConfField(mutable = true, description = {
-            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，"})
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该 tablet 所有副本的详细信息，"})
     public static boolean sql_block_rule_ignore_admin = false;
 
     @ConfField(description = {"认证插件目录",
@@ -3544,12 +3640,12 @@ public class Config extends ConfigBase {
                     + "default is conf/authentication.conf"})
     public static String authentication_config_file_path = "/conf/authentication.conf";
 
-    @ConfField(description = {"用于测试，强制将所有的查询forward到master以验证forward query的行为",
+    @ConfField(description = {"用于测试，强制将所有的查询 forward 到 master 以验证 forward query 的行为",
             "For testing purposes, all queries are forcibly forwarded to the master to verify"
                     + "the behavior of forwarding queries."})
     public static boolean force_forward_all_queries = false;
 
-    @ConfField(description = {"用于禁用某些SQL，配置项为AST的class simple name列表(例如CreateRepositoryStmt,"
+    @ConfField(description = {"用于禁用某些 SQL，配置项为 AST 的 class simple name 列表 (例如 CreateRepositoryStmt,"
             + "CreatePolicyCommand)，用逗号间隔开",
             "For disabling certain SQL queries, the configuration item is a list of simple class names of AST"
                     + "(for example CreateRepositoryStmt, CreatePolicyCommand), separated by commas."})
@@ -3600,4 +3696,51 @@ public class Config extends ConfigBase {
         "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
     })
     public static String doris_tde_algorithm = "PLAINTEXT";
+
+    @ConfField(mutable = true, description = {
+            "数据加密自动 rotate master key 的时间间隔，单位为毫秒，默认间隔是一个月",
+            "The time interval for automatic rotation of the master key in data encryption, in milliseconds."
+                    + "The default interval is one month."
+    })
+    public static long doris_tde_rotate_master_key_interval_ms = 30 * 24 * 3600 * 1000L;
+
+    @ConfField(mutable = true, description = {
+            "数据加密检查是否要 rotate 的时间间隔，单位为毫秒，默认间隔是五分钟",
+            "Data encryption checks whether to rotate the time interval in milliseconds, "
+                    + "and the default interval is five minutes."
+    })
+    public static long doris_tde_check_rotate_master_key_interval_ms = 5 * 60 * 1000L;
+
+    @ConfField(mutable = true, description = {
+        "数据质量错误时，第一行错误信息的最大长度，默认 256 字节",
+        "The maximum length of the first row error message when data quality error occurs, default is 256 bytes"
+    })
+    public static int first_error_msg_max_length = 256;
+
+    @ConfField
+    public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
+    @ConfField
+    public static int cloud_snapshot_handler_interval_second = 3600;
+    @ConfField(mutable = true)
+    public static long cloud_snapshot_timeout_seconds = 600;
+    @ConfField(mutable = true)
+    public static long cloud_auto_snapshot_max_reversed_num = 35;
+    @ConfField(mutable = true)
+    public static long cloud_auto_snapshot_min_interval_seconds = 3600;
+
+    @ConfField(mutable = true)
+    public static long multi_part_upload_part_size_in_bytes = 256 * 1024 * 1024L; // 256MB
+    @ConfField(mutable = true)
+    public static int multi_part_upload_max_seconds = 3600; // 1 hour
+    @ConfField(mutable = true)
+    public static int multi_part_upload_pool_size = 10;
+
+    @ConfField(mutable = true)
+    public static String aws_credentials_provider_version = "v2";
+
+    @ConfField(description = {
+            "agent tasks 健康检查的时间间隔，默认五分钟，小于等于 0 时不做健康检查",
+            "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
+    })
+    public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
 }

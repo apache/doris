@@ -110,6 +110,7 @@ public:
     }
 
 private:
+    StringRef _get_string_ref(const Field& field, const PrimitiveType type);
     void check_target_node_id(int32_t target_node_id) const {
         if (!_contexts.contains(target_node_id)) {
             std::string msg = "context target node ids: [";
@@ -153,13 +154,14 @@ private:
 
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};
     Arena _predicate_arena;
-    std::function<std::string(const Field&)> _get_value_fn;
-    std::function<ColumnPredicate*(const TabletColumn&, int, const std::string&, bool,
-                                   vectorized::Arena&)>
+    std::function<std::shared_ptr<ColumnPredicate>(
+            const int cid, const vectorized::DataTypePtr& data_type, StringRef& value,
+            bool opposite, vectorized::Arena& arena)>
             _pred_constructor;
     bool _detected_source = false;
     bool _detected_target = false;
     bool _has_value = false;
+    PrimitiveType _type;
 };
 
 } // namespace vectorized

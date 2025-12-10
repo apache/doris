@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -38,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -55,7 +55,6 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -66,6 +65,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
+import java.util.stream.Collectors;
 
 /**
  * SetPreAggStatus
@@ -83,6 +83,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         private List<Expression> filterConjuncts = new ArrayList<>();
         private List<Expression> joinConjuncts = new ArrayList<>();
         private List<Expression> groupByExpresssions = new ArrayList<>();
+        private List<Expression> groupingScalarFunctionExpresssions = new ArrayList<>();
         private Set<AggregateFunction> aggregateFunctions = new HashSet<>();
         private Set<RelationId> olapScanIds = new HashSet<>();
 
@@ -108,7 +109,16 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
         private void addGroupByExpresssions(List<Expression> expressions) {
             groupByExpresssions.addAll(expressions);
+            groupByExpresssions.removeAll(groupingScalarFunctionExpresssions);
             groupByExpresssions = Lists.newArrayList(ExpressionUtils.replace(groupByExpresssions, replaceMap));
+        }
+
+        private void addGroupingScalarFunctionExpresssions(List<Expression> expressions) {
+            groupingScalarFunctionExpresssions.addAll(expressions);
+        }
+
+        private void addGroupingScalarFunctionExpresssion(Expression expression) {
+            groupingScalarFunctionExpresssions.add(expression);
         }
 
         private void addAggregateFunctions(Set<AggregateFunction> functions) {
@@ -191,7 +201,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         if (!context.isEmpty()) {
             PreAggInfoContext preAggInfoContext = context.pop();
             preAggInfoContext.addAggregateFunctions(logicalAggregate.getAggregateFunctions());
-            preAggInfoContext.addGroupByExpresssions(nonVirtualGroupByExprs(logicalAggregate));
+            preAggInfoContext.addGroupByExpresssions(logicalAggregate.getGroupByExpressions());
             for (RelationId id : preAggInfoContext.olapScanIds) {
                 olapScanPreAggContexts.put(id, preAggInfoContext);
             }
@@ -200,14 +210,17 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     }
 
     @Override
-    public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> logicalRepeat, Stack<PreAggInfoContext> context) {
-        return super.visit(logicalRepeat, context);
-    }
-
-    private List<Expression> nonVirtualGroupByExprs(LogicalAggregate<? extends Plan> agg) {
-        return agg.getGroupByExpressions().stream()
-                .filter(expr -> !(expr instanceof VirtualSlotReference))
-                .collect(ImmutableList.toImmutableList());
+    public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Stack<PreAggInfoContext> context) {
+        repeat = (LogicalRepeat<? extends Plan>) super.visit(repeat, context);
+        if (!context.isEmpty()) {
+            context.peek().addGroupingScalarFunctionExpresssion(repeat.getGroupingId().get());
+            context.peek().addGroupingScalarFunctionExpresssions(
+                    repeat.getOutputExpressions().stream()
+                            .filter(e -> e.containsType(GroupingScalarFunction.class))
+                            .map(e -> e.toSlot())
+                            .collect(Collectors.toList()));
+        }
+        return repeat;
     }
 
     private static class SetOlapScanPreAgg extends DefaultPlanRewriter<Map<RelationId, PreAggInfoContext>> {

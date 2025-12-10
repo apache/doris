@@ -20,12 +20,11 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -45,6 +44,30 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "date_add")
     public static Expression dateAdd(DateTimeV2Literal date, IntegerLiteral day) {
         return daysAdd(date, day);
+    }
+
+    /**
+     * datetime arithmetic function day_hour-add.
+     */
+    @ExecFunction(name = "day_hour_add")
+    public static Expression dayHourAdd(DateTimeV2Literal date, VarcharLiteral dayHour) {
+        return date.plusDayHour(dayHour);
+    }
+
+    /**
+     * datetime arithmetic function minute_second-add.
+     */
+    @ExecFunction(name = "minute_second_add")
+    public static Expression minuteSecondAdd(DateTimeV2Literal date, VarcharLiteral minuteSecond) {
+        return date.plusMinuteSecond(minuteSecond);
+    }
+
+    /**
+     * datetime arithmetic function second_microsecond-add.
+     */
+    @ExecFunction(name = "second_microsecond_add")
+    public static Expression secondMicrosecondAdd(DateTimeV2Literal date, VarcharLiteral secondMicrosecond) {
+        return date.plusSecondMicrosecond(secondMicrosecond);
     }
 
     /**
@@ -123,6 +146,14 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "days_add")
     public static Expression daysAdd(DateTimeV2Literal date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
+    }
+
+    /**
+     * datetime arithmetic function day_second-add.
+     */
+    @ExecFunction(name = "day_second_add")
+    public static Expression daysAdd(DateTimeV2Literal date, VarcharLiteral daySecond) {
+        return date.plusDaySecond(daySecond);
     }
 
     /**
@@ -274,11 +305,6 @@ public class DateTimeArithmetic {
      * datetime arithmetic function datediff
      */
     @ExecFunction(name = "datediff")
-    public static Expression dateDiff(DateTimeLiteral date1, DateTimeLiteral date2) {
-        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
-    }
-
-    @ExecFunction(name = "datediff")
     public static Expression dateDiff(DateV2Literal date1, DateV2Literal date2) {
         return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
     }
@@ -303,13 +329,13 @@ public class DateTimeArithmetic {
     }
 
     @ExecFunction(name = "to_days")
-    public static Expression toDays(DateLiteral date) {
+    public static Expression toDays(DateV2Literal date) {
         return new IntegerLiteral((int) date.getDay());
     }
 
     @ExecFunction(name = "to_days")
-    public static Expression toDays(DateV2Literal date) {
-        return new IntegerLiteral((int) date.getDay());
+    public static Expression toDays(DateTimeV2Literal date) {
+        return new IntegerLiteral(((int) date.getDay()));
     }
 
     /**

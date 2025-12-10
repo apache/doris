@@ -19,12 +19,16 @@
 
 #include <faiss/index_io.h>
 #include <omp.h>
+#include <pthread.h>
 
+#include <algorithm>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "CLucene/store/IndexInput.h"
@@ -33,29 +37,122 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "faiss/Index.h"
+#include "faiss/IndexFlat.h"
 #include "faiss/IndexHNSW.h"
+#include "faiss/IndexIVF.h"
+#include "faiss/IndexIVFFlat.h"
+#include "faiss/IndexIVFPQ.h"
+#include "faiss/IndexScalarQuantizer.h"
 #include "faiss/MetricType.h"
+#include "faiss/impl/FaissException.h"
 #include "faiss/impl/IDSelector.h"
 #include "faiss/impl/io.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_files.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "util/doris_metrics.h"
+#include "util/thread.h"
 #include "util/time.h"
 #include "vec/core/types.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
+
+namespace {
+
+std::mutex g_omp_thread_mutex;
+int g_index_threads_in_use = 0;
+
+// Guard that ensures the total OpenMP threads used by concurrent index builds
+// never exceed the configured omp_threads_limit.
+class ScopedOmpThreadBudget {
+public:
+    // For each index build, reserve at most half of the remaining threads, at least 1 thread.
+    ScopedOmpThreadBudget() {
+        std::unique_lock<std::mutex> lock(g_omp_thread_mutex);
+        auto thread_cap = config::omp_threads_limit - g_index_threads_in_use;
+        _reserved_threads = std::max(1, thread_cap / 2);
+        g_index_threads_in_use += _reserved_threads;
+        DorisMetrics::instance()->ann_index_build_index_threads->increment(_reserved_threads);
+        omp_set_num_threads(_reserved_threads);
+        VLOG_DEBUG << fmt::format(
+                "ScopedOmpThreadBudget reserve threads reserved={}, in_use={}, limit={}",
+                _reserved_threads, g_index_threads_in_use, get_omp_threads_limit());
+    }
+
+    ~ScopedOmpThreadBudget() {
+        std::lock_guard<std::mutex> lock(g_omp_thread_mutex);
+        g_index_threads_in_use -= _reserved_threads;
+        DorisMetrics::instance()->ann_index_build_index_threads->increment(-_reserved_threads);
+        if (g_index_threads_in_use < 0) {
+            g_index_threads_in_use = 0;
+        }
+        VLOG_DEBUG << fmt::format(
+                "ScopedOmpThreadBudget release threads reserved={}, remaining_in_use={}, limit={}",
+                _reserved_threads, g_index_threads_in_use, get_omp_threads_limit());
+    }
+
+    static int get_omp_threads_limit() {
+        if (config::omp_threads_limit > 0) {
+            return config::omp_threads_limit;
+        }
+        int core_cap = std::max(1, CpuInfo::num_cores());
+        // Use at most 80% of the available CPU cores.
+        return std::max(1, core_cap * 4 / 5);
+    }
+
+private:
+    int _reserved_threads = 1;
+};
+
+// Temporarily rename the current thread so FAISS build phases are easier to spot in debuggers.
+class ScopedThreadName {
+public:
+    explicit ScopedThreadName(const std::string& new_name) {
+        // POSIX limits thread names to 15 visible chars plus the null terminator.
+        char current_name[16] = {0};
+        int ret = pthread_getname_np(pthread_self(), current_name, sizeof(current_name));
+        if (ret == 0) {
+            _has_previous_name = true;
+            _previous_name = current_name;
+        }
+        Thread::set_self_name(new_name);
+    }
+
+    ~ScopedThreadName() {
+        if (_has_previous_name) {
+            Thread::set_self_name(_previous_name);
+        }
+    }
+
+private:
+    bool _has_previous_name = false;
+    std::string _previous_name;
+};
+
+class IDSelectorRoaring : public faiss::IDSelector {
+public:
+    explicit IDSelectorRoaring(const roaring::Roaring* roaring) : _roaring(roaring) {
+        DCHECK(_roaring != nullptr);
+    }
+
+    bool is_member(faiss::idx_t id) const final {
+        if (id < 0) {
+            return false;
+        }
+        return _roaring->contains(cast_set<vectorized::UInt32>(id));
+    }
+
+private:
+    const roaring::Roaring* _roaring;
+};
+
+} // namespace
 std::unique_ptr<faiss::IDSelector> FaissVectorIndex::roaring_to_faiss_selector(
         const roaring::Roaring& roaring) {
-    std::vector<faiss::idx_t> ids;
-    ids.resize(roaring.cardinality());
-
-    size_t i = 0;
-    for (roaring::Roaring::const_iterator it = roaring.begin(); it != roaring.end(); ++it, ++i) {
-        ids[i] = cast_set<faiss::idx_t>(*it);
-    }
-    // construct derived and wrap into base unique_ptr explicitly
-    return std::unique_ptr<faiss::IDSelector>(new faiss::IDSelectorBatch(ids.size(), ids.data()));
+    // Wrap the roaring bitmap directly to avoid copying ids into an intermediate buffer.
+    return std::unique_ptr<faiss::IDSelector>(new IDSelectorRoaring(&roaring));
 }
 
 void FaissVectorIndex::update_roaring(const faiss::idx_t* labels, const size_t n,
@@ -69,7 +166,13 @@ void FaissVectorIndex::update_roaring(const faiss::idx_t* labels, const size_t n
     }
 }
 
-FaissVectorIndex::FaissVectorIndex() : _index(nullptr) {}
+FaissVectorIndex::FaissVectorIndex() : VectorIndex(), _index(nullptr) {}
+
+FaissVectorIndex::~FaissVectorIndex() {
+    if (_index != nullptr) {
+        DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(-_index->ntotal);
+    }
+}
 
 struct FaissIndexWriter : faiss::IOWriter {
 public:
@@ -143,6 +246,23 @@ public:
     lucene::store::IndexInput* _input = nullptr;
 };
 
+doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* vec) {
+    DCHECK(vec != nullptr);
+    DCHECK(_index != nullptr);
+
+    ScopedThreadName scoped_name("faiss_train_idx");
+    // Reserve OpenMP threads globally so concurrent builds stay under omp_threads_limit.
+    ScopedOmpThreadBudget thread_budget;
+
+    try {
+        _index->train(n, vec);
+    } catch (faiss::FaissException& e) {
+        return doris::Status::RuntimeError("exception occurred during training: {}", e.what());
+    }
+
+    return doris::Status::OK();
+}
+
 /** Add n vectors of dimension d to the index.
 *
 * Vectors are implicitly assigned labels ntotal .. ntotal + n - 1
@@ -151,15 +271,28 @@ public:
 * @param n      number of vectors
 * @param x      input matrix, size n * d
 */
-doris::Status FaissVectorIndex::add(int n, const float* vec) {
+doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
-    omp_set_num_threads(config::omp_threads_limit);
-    _index->add(n, vec);
+
+    ScopedThreadName scoped_name("faiss_build_idx");
+    // Apply the same thread budget when adding vectors to limit concurrency.
+    ScopedOmpThreadBudget thread_budget;
+
+    try {
+        DorisMetrics::instance()->ann_index_construction->increment(1);
+        _index->add(n, vec);
+        DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(n);
+        DorisMetrics::instance()->ann_index_construction->increment(-1);
+    } catch (faiss::FaissException& e) {
+        return doris::Status::RuntimeError("exception occurred during adding: {}", e.what());
+    }
+
     return doris::Status::OK();
 }
 
 void FaissVectorIndex::build(const FaissBuildParameter& params) {
+    _params = params;
     _dimension = params.dim;
     switch (params.metric_type) {
     case FaissBuildParameter::MetricType::L2:
@@ -175,20 +308,109 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
     }
 
     if (params.index_type == FaissBuildParameter::IndexType::HNSW) {
-        std::unique_ptr<faiss::IndexHNSWFlat> hnsw_index;
-        if (params.metric_type == FaissBuildParameter::MetricType::L2) {
-            hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
-                                                                faiss::METRIC_L2);
-        } else if (params.metric_type == FaissBuildParameter::MetricType::IP) {
-            hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
-                                                                faiss::METRIC_INNER_PRODUCT);
-        } else {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Unsupported metric type: {}",
-                                   static_cast<int>(params.metric_type));
+        set_type(AnnIndexType::HNSW);
+        std::unique_ptr<faiss::IndexHNSW> hnsw_index;
+        if (params.quantizer == FaissBuildParameter::Quantizer::SQ4) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                hnsw_index = std::make_unique<faiss::IndexHNSWSQ>(
+                        params.dim, faiss::ScalarQuantizer::QT_4bit, params.max_degree,
+                        faiss::METRIC_L2);
+            } else {
+                hnsw_index = std::make_unique<faiss::IndexHNSWSQ>(
+                        params.dim, faiss::ScalarQuantizer::QT_4bit, params.max_degree,
+                        faiss::METRIC_INNER_PRODUCT);
+            }
+        }
+        if (params.quantizer == FaissBuildParameter::Quantizer::SQ8) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                hnsw_index = std::make_unique<faiss::IndexHNSWSQ>(
+                        params.dim, faiss::ScalarQuantizer::QT_8bit, params.max_degree,
+                        faiss::METRIC_L2);
+            } else {
+                hnsw_index = std::make_unique<faiss::IndexHNSWSQ>(
+                        params.dim, faiss::ScalarQuantizer::QT_8bit, params.max_degree,
+                        faiss::METRIC_INNER_PRODUCT);
+            }
+        }
+        if (params.quantizer == FaissBuildParameter::Quantizer::PQ) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                hnsw_index = std::make_unique<faiss::IndexHNSWPQ>(
+                        params.dim, params.pq_m, params.max_degree, params.pq_nbits,
+                        faiss::METRIC_L2);
+            } else {
+                hnsw_index = std::make_unique<faiss::IndexHNSWPQ>(
+                        params.dim, params.pq_m, params.max_degree, params.pq_nbits,
+                        faiss::METRIC_INNER_PRODUCT);
+            }
+        }
+        if (params.quantizer == FaissBuildParameter::Quantizer::FLAT) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
+                                                                    faiss::METRIC_L2);
+            } else {
+                hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
+                                                                    faiss::METRIC_INNER_PRODUCT);
+            }
         }
         hnsw_index->hnsw.efConstruction = params.ef_construction;
+
         _index = std::move(hnsw_index);
+    } else if (params.index_type == FaissBuildParameter::IndexType::IVF) {
+        set_type(AnnIndexType::IVF);
+        std::unique_ptr<faiss::Index> ivf_index;
+        if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+            _quantizer = std::make_unique<faiss::IndexFlat>(params.dim, faiss::METRIC_L2);
+        } else {
+            _quantizer =
+                    std::make_unique<faiss::IndexFlat>(params.dim, faiss::METRIC_INNER_PRODUCT);
+        }
+
+        if (params.quantizer == FaissBuildParameter::Quantizer::FLAT) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                ivf_index = std::make_unique<faiss::IndexIVFFlat>(
+                        _quantizer.get(), params.dim, params.ivf_nlist, faiss::METRIC_L2);
+            } else {
+                ivf_index = std::make_unique<faiss::IndexIVFFlat>(_quantizer.get(), params.dim,
+                                                                  params.ivf_nlist,
+                                                                  faiss::METRIC_INNER_PRODUCT);
+            }
+        } else if (params.quantizer == FaissBuildParameter::Quantizer::SQ4) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                ivf_index = std::make_unique<faiss::IndexIVFScalarQuantizer>(
+                        _quantizer.get(), params.dim, params.ivf_nlist,
+                        faiss::ScalarQuantizer::QT_4bit, faiss::METRIC_L2);
+            } else {
+                ivf_index = std::make_unique<faiss::IndexIVFScalarQuantizer>(
+                        _quantizer.get(), params.dim, params.ivf_nlist,
+                        faiss::ScalarQuantizer::QT_4bit, faiss::METRIC_INNER_PRODUCT);
+            }
+        } else if (params.quantizer == FaissBuildParameter::Quantizer::SQ8) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                ivf_index = std::make_unique<faiss::IndexIVFScalarQuantizer>(
+                        _quantizer.get(), params.dim, params.ivf_nlist,
+                        faiss::ScalarQuantizer::QT_8bit, faiss::METRIC_L2);
+            } else {
+                ivf_index = std::make_unique<faiss::IndexIVFScalarQuantizer>(
+                        _quantizer.get(), params.dim, params.ivf_nlist,
+                        faiss::ScalarQuantizer::QT_8bit, faiss::METRIC_INNER_PRODUCT);
+            }
+        } else if (params.quantizer == FaissBuildParameter::Quantizer::PQ) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                ivf_index = std::make_unique<faiss::IndexIVFPQ>(_quantizer.get(), params.dim,
+                                                                params.ivf_nlist, params.pq_m,
+                                                                params.pq_nbits, faiss::METRIC_L2);
+            } else {
+                ivf_index = std::make_unique<faiss::IndexIVFPQ>(
+                        _quantizer.get(), params.dim, params.ivf_nlist, params.pq_m,
+                        params.pq_nbits, faiss::METRIC_INNER_PRODUCT);
+            }
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Unsupported quantizer for IVF: {}",
+                                   static_cast<int>(params.quantizer));
+        }
+
+        _index = std::move(ivf_index);
     } else {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported index type: {}",
                                static_cast<int>(params.index_type));
@@ -214,29 +436,44 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
     DCHECK(params.roaring != nullptr)
             << "Roaring should not be null for topN search, please set roaring in params";
 
-    faiss::SearchParametersHNSW param;
-    const HNSWSearchParameters* hnsw_params = dynamic_cast<const HNSWSearchParameters*>(&params);
-    if (hnsw_params == nullptr) {
-        return doris::Status::InvalidArgument(
-                "HNSW search parameters should not be null for HNSW index");
-    }
-    param.efSearch = hnsw_params->ef_search;
-    param.check_relative_distance = hnsw_params->check_relative_distance;
-    param.bounded_queue = hnsw_params->bounded_queue;
-    param.sel = nullptr;
+    std::unique_ptr<faiss::SearchParameters> search_param;
     std::unique_ptr<faiss::IDSelector> id_sel = nullptr;
     // Costs of roaring to faiss selector is very high especially when the cardinality is very high.
     if (params.roaring->cardinality() != params.rows_of_segment) {
         SCOPED_RAW_TIMER(&result.engine_prepare_ns);
         id_sel = roaring_to_faiss_selector(*params.roaring);
-        param.sel = id_sel.get();
+    }
+
+    if (_index_type == AnnIndexType::HNSW) {
+        const HNSWSearchParameters* hnsw_params =
+                dynamic_cast<const HNSWSearchParameters*>(&params);
+        if (hnsw_params == nullptr) {
+            return doris::Status::InvalidArgument(
+                    "HNSW search parameters should not be null for HNSW index");
+        }
+        faiss::SearchParametersHNSW* param = new faiss::SearchParametersHNSW();
+        param->efSearch = hnsw_params->ef_search;
+        param->check_relative_distance = hnsw_params->check_relative_distance;
+        param->bounded_queue = hnsw_params->bounded_queue;
+        param->sel = id_sel.get();
+        search_param.reset(param);
+    } else if (_index_type == AnnIndexType::IVF) {
+        const IVFSearchParameters* ivf_params = dynamic_cast<const IVFSearchParameters*>(&params);
+        if (ivf_params == nullptr) {
+            return doris::Status::InvalidArgument(
+                    "IVF search parameters should not be null for IVF index");
+        }
+        faiss::SearchParametersIVF* param = new faiss::SearchParametersIVF();
+        param->nprobe = ivf_params->nprobe;
+        param->sel = id_sel.get();
+        search_param.reset(param);
     } else {
-        param.sel = nullptr;
+        return doris::Status::InvalidArgument("Unsupported index type for search");
     }
 
     {
         SCOPED_RAW_TIMER(&result.engine_search_ns);
-        _index->search(1, query_vec, k, distances, labels, &param);
+        _index->search(1, query_vec, k, distances, labels, search_param.get());
     }
     {
         SCOPED_RAW_TIMER(&result.engine_convert_ns);
@@ -285,14 +522,29 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
     DCHECK(query_vec != nullptr);
     DCHECK(params.roaring != nullptr)
             << "Roaring should not be null for range search, please set roaring in params";
-    faiss::SearchParametersHNSW param;
+    std::unique_ptr<faiss::SearchParameters> search_param;
     const HNSWSearchParameters* hnsw_params = dynamic_cast<const HNSWSearchParameters*>(&params);
-    {
-        // Engine prepare: set search parameters and bind selector
-        SCOPED_RAW_TIMER(&result.engine_prepare_ns);
-        param.efSearch = hnsw_params->ef_search;
-        param.check_relative_distance = hnsw_params->check_relative_distance;
-        param.bounded_queue = hnsw_params->bounded_queue;
+    const IVFSearchParameters* ivf_params = dynamic_cast<const IVFSearchParameters*>(&params);
+    if (hnsw_params != nullptr) {
+        faiss::SearchParametersHNSW* param = new faiss::SearchParametersHNSW();
+        {
+            // Engine prepare: set search parameters and bind selector
+            SCOPED_RAW_TIMER(&result.engine_prepare_ns);
+            param->efSearch = hnsw_params->ef_search;
+            param->check_relative_distance = hnsw_params->check_relative_distance;
+            param->bounded_queue = hnsw_params->bounded_queue;
+        }
+        search_param.reset(param);
+    } else if (ivf_params != nullptr) {
+        faiss::SearchParametersIVF* param = new faiss::SearchParametersIVF();
+        {
+            // Engine prepare: set search parameters and bind selector
+            SCOPED_RAW_TIMER(&result.engine_prepare_ns);
+            param->nprobe = ivf_params->nprobe;
+        }
+        search_param.reset(param);
+    } else {
+        return doris::Status::InvalidArgument("Unsupported index type for range search");
     }
     std::unique_ptr<faiss::IDSelector> sel;
     {
@@ -300,26 +552,25 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         SCOPED_RAW_TIMER(&result.engine_prepare_ns);
         if (params.roaring->cardinality() != params.rows_of_segment) {
             sel = roaring_to_faiss_selector(*params.roaring);
-            param.sel = sel.get();
+            search_param->sel = sel.get();
         } else {
-            param.sel = nullptr;
+            search_param->sel = nullptr;
         }
     }
 
     faiss::RangeSearchResult native_search_result(1, true);
-    // Currently only support HNSW index for range search.
-    DCHECK(hnsw_params != nullptr) << "HNSW search parameters should not be null for HNSW index";
     {
         // Engine search: FAISS range_search
         SCOPED_RAW_TIMER(&result.engine_search_ns);
         if (_metric == AnnIndexMetric::L2) {
             if (radius <= 0) {
-                _index->range_search(1, query_vec, 0.0f, &native_search_result, &param);
+                _index->range_search(1, query_vec, 0.0f, &native_search_result, search_param.get());
             } else {
-                _index->range_search(1, query_vec, radius * radius, &native_search_result, &param);
+                _index->range_search(1, query_vec, radius * radius, &native_search_result,
+                                     search_param.get());
             }
         } else if (_metric == AnnIndexMetric::IP) {
-            _index->range_search(1, query_vec, radius, &native_search_result, &param);
+            _index->range_search(1, query_vec, radius, &native_search_result, search_param.get());
         }
     }
 
@@ -454,6 +705,7 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
     VLOG_DEBUG << fmt::format("Load index from {} costs {} ms, rows {}", dir->getObjectName(),
                               duration.count(), idx->ntotal);
     _index.reset(idx);
+    DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(_index->ntotal);
     return doris::Status::OK();
 }
 

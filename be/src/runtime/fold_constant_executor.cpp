@@ -60,6 +60,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -94,21 +95,17 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             // prepare and open context
             RETURN_IF_ERROR(_prepare_and_open(ctx.get()));
 
-            vectorized::Block tmp_block;
-            tmp_block.insert({vectorized::ColumnUInt8::create(1),
-                              std::make_shared<vectorized::DataTypeUInt8>(), ""});
-            int result_column = -1;
+            vectorized::ColumnWithTypeAndName tmp_data;
             // calc vexpr
-            RETURN_IF_ERROR(ctx->execute(&tmp_block, &result_column));
-            DCHECK(result_column != -1);
+            RETURN_IF_ERROR(ctx->execute_const_expr(tmp_data));
             // covert to thrift type
             const auto& res_type = ctx->root()->data_type();
             TPrimitiveType::type t_type = doris::to_thrift(res_type->get_primitive_type());
             // collect result
             PExprResult expr_result;
             std::string result;
-            const auto& column_ptr = tmp_block.get_by_position(result_column).column;
-            const auto& column_type = tmp_block.get_by_position(result_column).type;
+            const auto& column_ptr = tmp_data.column;
+            const auto& column_type = tmp_data.type;
             // 4 from fe: Config.be_exec_version maybe need remove after next version, now in 2.1
             if (_runtime_state->be_exec_version() >= 4 && params.__isset.is_nereids &&
                 params.is_nereids) {
@@ -162,15 +159,11 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
     TPlanFragmentExecParams params;
     params.fragment_instance_id = _query_id;
     params.query_id = _query_id;
-    TExecPlanFragmentParams fragment_params;
-    fragment_params.params = params;
-    fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER,
             fmt::format("FoldConstant:query_id={}", print_id(_query_id)));
-    _runtime_state =
-            RuntimeState::create_unique(fragment_params.params, query_options, query_globals,
-                                        ExecEnv::GetInstance(), nullptr, _mem_tracker);
+    _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
+                                                 ExecEnv::GetInstance(), nullptr, _mem_tracker);
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);
@@ -254,27 +247,19 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
     case TYPE_DATE:
     case TYPE_DATETIME: {
         auto* date_value = reinterpret_cast<VecDateTimeValue*>(src);
-        char str[MAX_DTVALUE_STR_LEN];
-        date_value->to_string(str);
-        result = std::string(str);
+        result = vectorized::CastToString::from_date_or_datetime(*date_value);
         break;
     }
     case TYPE_DATEV2: {
         DateV2Value<DateV2ValueType> value =
                 binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(int32_t*)src);
-
-        char buf[64];
-        char* pos = value.to_string(buf);
-        result = std::string(buf, pos - buf - 1);
+        result = vectorized::CastToString::from_datev2(value);
         break;
     }
     case TYPE_DATETIMEV2: {
         DateV2Value<DateTimeV2ValueType> value =
                 binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)src);
-
-        char buf[64];
-        char* pos = value.to_string(buf, type->get_scale());
-        result = std::string(buf, pos - buf - 1);
+        result = vectorized::CastToString::from_datetimev2(value, type->get_scale());
         break;
     }
     case TYPE_DECIMALV2: {
@@ -284,22 +269,13 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256: {
-        result = column_type->to_string(*column_ptr, 0);
-        break;
-    }
+    case TYPE_DECIMAL256:
     case TYPE_ARRAY:
     case TYPE_JSONB:
     case TYPE_MAP:
-    case TYPE_STRUCT: {
-        result = column_type->to_string(*column_ptr, 0);
-        break;
-    }
+    case TYPE_STRUCT:
     case TYPE_VARIANT:
-    case TYPE_QUANTILE_STATE: {
-        result = column_type->to_string(*column_ptr, 0);
-        break;
-    }
+    case TYPE_QUANTILE_STATE:
     case TYPE_IPV4:
     case TYPE_IPV6: {
         result = column_type->to_string(*column_ptr, 0);

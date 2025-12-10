@@ -35,9 +35,9 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[customer] apply RFs: RF4
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[nation] apply RFs: RF6
+------------------------------PhysicalOlapScan[nation(n1)] apply RFs: RF6
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[nation]
+--------------------------PhysicalOlapScan[nation(n2)]
 --------------------PhysicalProject
 ----------------------filter((region.r_name = 'AMERICA'))
 ------------------------PhysicalOlapScan[region]

@@ -519,3 +519,12 @@ CREATE TABLE doris_test.`test_table_comment` (
   `datetime_c` varchar(100)
 ) COMMENT = 'test table comment';
 
+CREATE TABLE test_varbinary_db.`test_varbinary` (
+  `id` int(11) DEFAULT NULL,
+  `varbinary_c` varbinary(100)
+);
+CREATE TABLE test_varbinary_db.`test_varbinary_udf` (
+  `id` int(11) DEFAULT NULL,
+  `varbinary_c` varbinary(100)
+);
+

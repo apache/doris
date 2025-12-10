@@ -183,7 +183,7 @@ public class ColStatsData {
             columnStatisticBuilder.setUpdatedTime(updateTime);
             if (ndv > 0) {
                 columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(hotValues, col.getType(),
-                        (1 / ndv)));
+                        (1.0 / ndv)));
             }
             return columnStatisticBuilder.build();
         } catch (Exception e) {

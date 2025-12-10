@@ -29,6 +29,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/schema.h"
 #include "olap/wrapper_field.h"
+#include "vec/exec/format/parquet/parquet_predicate.h"
 
 namespace roaring {
 class Roaring;
@@ -36,21 +37,31 @@ class Roaring;
 
 namespace doris {
 namespace segment_v2 {
-class BitmapIndexIterator;
 class InvertedIndexIterator;
 } // namespace segment_v2
 namespace vectorized {
 class IColumn;
 } // namespace vectorized
 
-class NullPredicate : public ColumnPredicate {
+class NullPredicate final : public ColumnPredicate {
 public:
-    NullPredicate(uint32_t column_id, bool is_null, bool opposite = false);
+    ENABLE_FACTORY_CREATOR(NullPredicate);
+    NullPredicate(uint32_t column_id, bool is_null, PrimitiveType type, bool opposite = false);
+    NullPredicate(const NullPredicate& other) = delete;
+    NullPredicate(const NullPredicate& other, uint32_t column_id)
+            : ColumnPredicate(other, column_id), _is_null(other._is_null) {}
+    ~NullPredicate() override = default;
+    std::shared_ptr<ColumnPredicate> clone(uint32_t column_id) const override {
+        return NullPredicate::create_shared(*this, column_id);
+    }
+    std::string debug_string() const override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "NullPredicate({}, is_null={})",
+                       ColumnPredicate::debug_string(), _is_null);
+        return fmt::to_string(debug_string_buffer);
+    }
 
     PredicateType type() const override;
-
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* roaring) const override;
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
@@ -68,6 +79,31 @@ public:
         } else {
             return !statistic.second->is_null();
         }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        if (!(*statistic->get_stat_func)(statistic, column_id())) {
+            return true;
+        }
+        if (_is_null) {
+            return true;
+        } else {
+            return !statistic->is_all_null;
+        }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (_is_null || !stat->is_all_null[page_id]) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        };
+        return row_ranges->count() > 0;
     }
 
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
@@ -99,11 +135,6 @@ public:
 private:
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override;
-
-    std::string _debug_string() const override {
-        std::string info = "NullPredicate(" + std::string(_is_null ? "is_null" : "not_null") + ")";
-        return info;
-    }
 
     bool _is_null; //true for null, false for not null
 };

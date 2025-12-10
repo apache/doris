@@ -29,7 +29,7 @@ suite("test_filecache_with_base_compaction", "docker") {
     options.beConfigs.add('enable_flush_file_cache_async=false')
     options.beConfigs.add('file_cache_enter_disk_resource_limit_mode_percent=99')
     options.beConfigs.add('enable_evict_file_cache_in_advance=false')
-    options.beConfigs.add('')
+    options.beConfigs.add('file_cache_path=[{"path":"/opt/apache-doris/be/storage/file_cache","total_size":83886080,"query_limit":83886080}]')
 
     def testTable = "test_filecache_with_base_compaction"
     def backendId_to_backendIP = [:]
@@ -64,9 +64,16 @@ suite("test_filecache_with_base_compaction", "docker") {
         def be_host = backendId_to_backendIP[trigger_backend_id]
         def be_http_port = backendId_to_backendHttpPort[trigger_backend_id]
         StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http"
+        sb.append("curl -X GET ${protocol}://${be_host}:${be_http_port}")
         sb.append("/api/compaction/show?tablet_id=")
         sb.append(tablet_id)
+        if (enableTls) {
+            sb.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+            sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+            sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+        }
 
         String command = sb.toString()
         logger.info(command)
@@ -88,9 +95,16 @@ suite("test_filecache_with_base_compaction", "docker") {
         do {
             Thread.sleep(1000)
             StringBuilder sb = new StringBuilder();
-            sb.append("curl -X GET http://${be_host}:${be_http_port}")
-            sb.append("/api/compaction/run_status?tablet_id=")
-            sb.append(tablet_id)
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http"
+        sb.append("curl -X GET ${protocol}://${be_host}:${be_http_port}")
+        sb.append("/api/compaction/run_status?tablet_id=")
+        sb.append(tablet_id)
+        if (enableTls) {
+            sb.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+            sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+            sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+        }
 
             String command = sb.toString()
             logger.info(command)
@@ -190,6 +204,12 @@ suite("test_filecache_with_base_compaction", "docker") {
             def data = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=list_cache&value=${rowset_id}_0.dat", true)
             logger.info("file cache data: ${data}")
             assertTrue(data.size() > 0)
+            def segments = data.stream()
+                .filter(item -> !item.endsWith("_idx"))
+                .count();
+            logger.info("segments: ${segments}")
+            assertTrue(segments > 0)
         }
+        // test_filecache_with_base_compaction_thresthold case4 can cover the space not enough case
     }
 }

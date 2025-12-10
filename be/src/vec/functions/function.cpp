@@ -25,6 +25,8 @@
 #include <numeric>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -41,7 +43,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
-                           uint32_t result, size_t input_rows_count) {
+                           size_t input_rows_count) {
     ColumnPtr result_null_map_column;
     /// If result is already nullable.
     ColumnPtr src_not_nullable = src;
@@ -103,26 +105,23 @@ bool have_null_column(const ColumnsWithTypeAndName& args) {
     return std::ranges::any_of(args, [](const auto& elem) { return elem.type->is_nullable(); });
 }
 
-inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(
-        FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
-        size_t input_rows_count, bool dry_run) const {
+inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(FunctionContext* context,
+                                                                   Block& block,
+                                                                   const ColumnNumbers& args,
+                                                                   uint32_t result,
+                                                                   size_t input_rows_count) const {
     bool executed = false;
     RETURN_IF_ERROR(default_implementation_for_nulls(context, block, args, result, input_rows_count,
-                                                     dry_run, &executed));
+                                                     &executed));
     if (executed) {
         return Status::OK();
     }
-
-    if (dry_run) {
-        return execute_impl_dry_run(context, block, args, result, input_rows_count);
-    } else {
-        return execute_impl(context, block, args, result, input_rows_count);
-    }
+    return execute_impl(context, block, args, result, input_rows_count);
 }
 
 Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
-        size_t input_rows_count, bool dry_run, bool* executed) const {
+        size_t input_rows_count, bool* executed) const {
     *executed = false;
     ColumnNumbers args_expect_const = get_arguments_that_are_always_constant();
 
@@ -168,7 +167,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
 
     RETURN_IF_ERROR(_execute_skipped_constant_deal(context, temporary_block,
                                                    temporary_argument_numbers, arguments_size,
-                                                   temporary_block.rows(), dry_run));
+                                                   temporary_block.rows()));
 
     ColumnPtr result_column;
     /// extremely rare case, when we have function with completely const arguments
@@ -186,7 +185,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
 
 Status PreparedFunctionImpl::default_implementation_for_nulls(
         FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
-        size_t input_rows_count, bool dry_run, bool* executed) const {
+        size_t input_rows_count, bool* executed) const {
     *executed = false;
     if (args.empty() || !use_default_implementation_for_nulls()) {
         return Status::OK();
@@ -203,52 +202,49 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
 
     if (have_null_column(block, args)) {
         bool need_to_default = need_replace_null_data_to_default();
-        if (context) {
-            need_to_default &= context->check_overflow_for_decimal();
-        }
         // extract nested column from nulls
         ColumnNumbers new_args;
-        for (auto arg : args) {
-            new_args.push_back(block.columns());
-            block.insert(block.get_by_position(arg).get_nested(need_to_default));
-            DCHECK(!block.get_by_position(new_args.back()).column->is_nullable());
+        Block new_block;
+
+        for (int i = 0; i < args.size(); ++i) {
+            uint32_t arg = args[i];
+            new_args.push_back(i);
+            new_block.insert(block.get_by_position(arg).unnest_nullable(need_to_default));
         }
-        RETURN_IF_ERROR(execute_without_low_cardinality_columns(context, block, new_args, result,
-                                                                block.rows(), dry_run));
+        new_block.insert(block.get_by_position(result));
+        int new_result = new_block.columns() - 1;
+
+        RETURN_IF_ERROR(default_execute(context, new_block, new_args, new_result, block.rows()));
         // After run with nested, wrap them in null. Before this, block.get_by_position(result).type
         // is not compatible with get_by_position(result).column
-        block.get_by_position(result).column = wrap_in_nullable(
-                block.get_by_position(result).column, block, args, result, input_rows_count);
 
-        while (!new_args.empty()) {
-            block.erase(new_args.back());
-            new_args.pop_back();
-        }
+        block.get_by_position(result).column = wrap_in_nullable(
+                new_block.get_by_position(new_result).column, block, args, input_rows_count);
+
         *executed = true;
         return Status::OK();
     }
     return Status::OK();
 }
 
-Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
-        FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
-        size_t input_rows_count, bool dry_run) const {
+Status PreparedFunctionImpl::default_execute(FunctionContext* context, Block& block,
+                                             const ColumnNumbers& args, uint32_t result,
+                                             size_t input_rows_count) const {
     bool executed = false;
 
-    RETURN_IF_ERROR(default_implementation_for_constant_arguments(
-            context, block, args, result, input_rows_count, dry_run, &executed));
+    RETURN_IF_ERROR(default_implementation_for_constant_arguments(context, block, args, result,
+                                                                  input_rows_count, &executed));
     if (executed) {
         return Status::OK();
     }
 
-    return _execute_skipped_constant_deal(context, block, args, result, input_rows_count, dry_run);
+    return _execute_skipped_constant_deal(context, block, args, result, input_rows_count);
 }
 
 Status PreparedFunctionImpl::execute(FunctionContext* context, Block& block,
                                      const ColumnNumbers& args, uint32_t result,
-                                     size_t input_rows_count, bool dry_run) const {
-    return execute_without_low_cardinality_columns(context, block, args, result, input_rows_count,
-                                                   dry_run);
+                                     size_t input_rows_count) const {
+    return default_execute(context, block, args, result, input_rows_count);
 }
 
 void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) const {
@@ -280,6 +276,9 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
                     create_block_with_nested_columns(Block(arguments), numbers, false);
             auto return_type = get_return_type_impl(
                     ColumnsWithTypeAndName(nested_block.begin(), nested_block.end()));
+            if (!return_type) {
+                return nullptr;
+            }
             return make_nullable(return_type);
         }
     }
@@ -301,10 +300,42 @@ bool FunctionBuilderImpl::is_date_or_datetime_or_decimal(
            (is_date_or_datetime(return_type->get_primitive_type()) &&
             is_date_v2_or_datetime_v2(func_return_type->get_primitive_type())) ||
            (is_decimal(return_type->get_primitive_type()) &&
-            is_decimal(func_return_type->get_primitive_type()));
+            is_decimal(func_return_type->get_primitive_type())) ||
+           (is_time_type(return_type->get_primitive_type()) &&
+            is_time_type(func_return_type->get_primitive_type()));
 }
 
-bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(
+bool contains_date_or_datetime_or_decimal(const DataTypePtr& type) {
+    auto type_ptr = type->is_nullable() ? ((DataTypeNullable*)type.get())->get_nested_type() : type;
+
+    switch (type_ptr->get_primitive_type()) {
+    case TYPE_ARRAY: {
+        const auto* array_type = assert_cast<const DataTypeArray*>(type_ptr.get());
+        return contains_date_or_datetime_or_decimal(array_type->get_nested_type());
+    }
+    case TYPE_MAP: {
+        const auto* map_type = assert_cast<const DataTypeMap*>(type_ptr.get());
+        return contains_date_or_datetime_or_decimal(map_type->get_key_type()) ||
+               contains_date_or_datetime_or_decimal(map_type->get_value_type());
+    }
+    case TYPE_STRUCT: {
+        const auto* struct_type = assert_cast<const DataTypeStruct*>(type_ptr.get());
+        const auto& elements = struct_type->get_elements();
+        return std::ranges::any_of(elements, [](const DataTypePtr& element) {
+            return contains_date_or_datetime_or_decimal(element);
+        });
+    }
+    default:
+        // For scalar types, check if it's date/datetime/decimal
+        return is_date_or_datetime(type_ptr->get_primitive_type()) ||
+               is_date_v2_or_datetime_v2(type_ptr->get_primitive_type()) ||
+               is_decimal(type_ptr->get_primitive_type()) ||
+               is_time_type(type_ptr->get_primitive_type());
+    }
+}
+
+// make sure array/map/struct and nested  array/map/struct can be check
+bool FunctionBuilderImpl::is_nested_type_date_or_datetime_or_decimal(
         const DataTypePtr& return_type, const DataTypePtr& func_return_type) const {
     auto return_type_ptr = return_type->is_nullable()
                                    ? ((DataTypeNullable*)return_type.get())->get_nested_type()
@@ -313,24 +344,63 @@ bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(
             func_return_type->is_nullable()
                     ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
                     : func_return_type;
-    if (!(return_type_ptr->get_primitive_type() == TYPE_ARRAY &&
-          func_return_type_ptr->get_primitive_type() == TYPE_ARRAY)) {
+    // make sure that map/struct/array also need to check
+    if (return_type_ptr->get_primitive_type() != func_return_type_ptr->get_primitive_type()) {
         return false;
     }
-    auto nested_nullable_return_type_ptr =
-            (assert_cast<const DataTypeArray*>(return_type_ptr.get()))->get_nested_type();
-    auto nested_nullable_func_return_type =
-            (assert_cast<const DataTypeArray*>(func_return_type_ptr.get()))->get_nested_type();
-    // There must be nullable inside array type.
-    if (nested_nullable_return_type_ptr->is_nullable() &&
-        nested_nullable_func_return_type->is_nullable()) {
-        auto nested_return_type_ptr =
-                ((DataTypeNullable*)(nested_nullable_return_type_ptr.get()))->get_nested_type();
-        auto nested_func_return_type_ptr =
-                ((DataTypeNullable*)(nested_nullable_func_return_type.get()))->get_nested_type();
-        return is_date_or_datetime_or_decimal(nested_return_type_ptr, nested_func_return_type_ptr);
+
+    // Check if this type contains date/datetime/decimal types
+    if (!contains_date_or_datetime_or_decimal(return_type_ptr)) {
+        // If no date/datetime/decimal types, just pass through
+        return true;
     }
-    return false;
+
+    // If contains date/datetime/decimal types, recursively check each element
+    switch (return_type_ptr->get_primitive_type()) {
+    case TYPE_ARRAY: {
+        auto nested_return_type = remove_nullable(
+                (assert_cast<const DataTypeArray*>(return_type_ptr.get()))->get_nested_type());
+        auto nested_func_type = remove_nullable(
+                (assert_cast<const DataTypeArray*>(func_return_type_ptr.get()))->get_nested_type());
+        return is_nested_type_date_or_datetime_or_decimal(nested_return_type, nested_func_type);
+    }
+    case TYPE_MAP: {
+        const auto* return_map = assert_cast<const DataTypeMap*>(return_type_ptr.get());
+        const auto* func_map = assert_cast<const DataTypeMap*>(func_return_type_ptr.get());
+
+        auto key_return = remove_nullable(return_map->get_key_type());
+        auto key_func = remove_nullable(func_map->get_key_type());
+        auto value_return = remove_nullable(return_map->get_value_type());
+        auto value_func = remove_nullable(func_map->get_value_type());
+
+        return is_nested_type_date_or_datetime_or_decimal(key_return, key_func) &&
+               is_nested_type_date_or_datetime_or_decimal(value_return, value_func);
+    }
+    case TYPE_STRUCT: {
+        const auto* return_struct = assert_cast<const DataTypeStruct*>(return_type_ptr.get());
+        const auto* func_struct = assert_cast<const DataTypeStruct*>(func_return_type_ptr.get());
+
+        auto return_elements = return_struct->get_elements();
+        auto func_elements = func_struct->get_elements();
+
+        if (return_elements.size() != func_elements.size()) {
+            return false;
+        }
+
+        for (size_t i = 0; i < return_elements.size(); i++) {
+            auto elem_return = remove_nullable(return_elements[i]);
+            auto elem_func = remove_nullable(func_elements[i]);
+
+            if (!is_nested_type_date_or_datetime_or_decimal(elem_return, elem_func)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    default:
+        return is_date_or_datetime_or_decimal(return_type_ptr, func_return_type_ptr);
+    }
 }
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

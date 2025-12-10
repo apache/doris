@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TableScanParams;
-import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -39,7 +38,6 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -147,7 +145,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                           TupleDescriptor desc,
                           boolean needCheckColumnPriv,
                           SessionVariable sv) {
-        super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv, sv);
+        super(id, desc, "PAIMON_SCAN_NODE", needCheckColumnPriv, sv);
     }
 
     @Override
@@ -190,12 +188,21 @@ public class PaimonScanNode extends FileQueryScanNode {
         return Optional.of(serializedTable);
     }
 
+    @Override
+    public void createScanRangeLocations() throws UserException {
+        super.createScanRangeLocations();
+        // Set paimon_predicate at ScanNode level to avoid redundant serialization in each split
+        String serializedPredicate = PaimonUtil.encodeObjectToString(predicates);
+        params.setPaimonPredicate(serializedPredicate);
+    }
+
     private void putHistorySchemaInfo(Long schemaId) {
         if (currentQuerySchema.putIfAbsent(schemaId, Boolean.TRUE) == null) {
             PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
             TableSchema tableSchema = Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
                     .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
-            params.addToHistorySchemaInfo(PaimonUtil.getSchemaInfo(tableSchema));
+            params.addToHistorySchemaInfo(
+                    PaimonUtil.getSchemaInfo(tableSchema, source.getCatalog().getEnableMappingVarbinary()));
         }
     }
 
@@ -225,10 +232,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             fileDesc.setSchemaId(paimonSplit.getSchemaId());
         }
         fileDesc.setFileFormat(fileFormat);
-        fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));
-        // The hadoop conf should be same with
-        // PaimonExternalCatalog.createCatalog()#getConfiguration()
-        fileDesc.setHadoopConf(backendStorageProperties);
+        // Hadoop conf is set at ScanNode level via params.properties in createScanRangeLocations(),
+        // no need to set it for each split to avoid redundant configuration
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
@@ -243,6 +248,9 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         if (paimonSplit.getRowCount().isPresent()) {
             tableFormatFileDesc.setTableLevelRowCount(paimonSplit.getRowCount().get());
+        } else {
+            // MUST explicitly set to -1, to be distinct from valid row count >= 0
+            tableFormatFileDesc.setTableLevelRowCount(-1);
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
         Map<String, String> partitionValues = paimonSplit.getPaimonPartitionValues();
@@ -546,8 +554,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (hasStartSnapshotId) {
                 try {
                     long startSId = Long.parseLong(params.get(DORIS_START_SNAPSHOT_ID));
-                    if (startSId <= 0) {
-                        throw new UserException("startSnapshotId must be greater than 0");
+                    if (startSId < 0) {
+                        throw new UserException("startSnapshotId must be greater than or equal to 0");
                     }
                 } catch (NumberFormatException e) {
                     throw new UserException("Invalid startSnapshotId format: " + e.getMessage());
@@ -557,8 +565,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (hasEndSnapshotId) {
                 try {
                     long endSId = Long.parseLong(params.get(DORIS_END_SNAPSHOT_ID));
-                    if (endSId <= 0) {
-                        throw new UserException("endSnapshotId must be greater than 0");
+                    if (endSId < 0) {
+                        throw new UserException("endSnapshotId must be greater than or equal to 0");
                     }
                 } catch (NumberFormatException e) {
                     throw new UserException("Invalid endSnapshotId format: " + e.getMessage());
@@ -570,8 +578,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                 try {
                     long startSId = Long.parseLong(params.get(DORIS_START_SNAPSHOT_ID));
                     long endSId = Long.parseLong(params.get(DORIS_END_SNAPSHOT_ID));
-                    if (startSId >= endSId) {
-                        throw new UserException("startSnapshotId must be less than endSnapshotId");
+                    if (startSId > endSId) {
+                        throw new UserException("startSnapshotId must be less than or equal to endSnapshotId");
                     }
                 } catch (NumberFormatException e) {
                     throw new UserException("Invalid snapshot ID format: " + e.getMessage());
@@ -678,39 +686,17 @@ public class PaimonScanNode extends FileQueryScanNode {
         return paimonScanParams;
     }
 
-    /**
-     * Processes and returns the appropriate Paimon table object based on scan parameters or table snapshot.
-     * <p>
-     * This method handles different scan modes including incremental reads and system tables,
-     * applying the necessary transformations to the base Paimon table.
-     *
-     * @return processed Paimon table object configured according to scan parameters
-     * @throws UserException when system table configuration is incorrect
-     */
     private Table getProcessedTable() throws UserException {
         Table baseTable = source.getPaimonTable();
-        if (getScanParams() != null && getQueryTableSnapshot() != null) {
+        TableScanParams theScanParams = getScanParams();
+        if (theScanParams != null && getQueryTableSnapshot() != null) {
             throw new UserException("Can not specify scan params and table snapshot at same time.");
         }
-        TableScanParams theScanParams = getScanParams();
-        if (theScanParams != null) {
-            if (theScanParams.incrementalRead()) {
-                return baseTable.copy(getIncrReadParams());
-            }
 
-            if (theScanParams.isBranch()) {
-                return PaimonUtil.getTableByBranch(source, baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
-            }
-            if (theScanParams.isTag()) {
-                return PaimonUtil.getTableByTag(baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
-            }
+        if (theScanParams != null && theScanParams.incrementalRead()) {
+            return baseTable.copy(getIncrReadParams());
         }
-
-        TableSnapshot theTableSnapshot = getQueryTableSnapshot();
-        if (theTableSnapshot != null) {
-            return PaimonUtil.getTableBySnapshot(baseTable, theTableSnapshot);
-        }
-
         return baseTable;
     }
 }
+

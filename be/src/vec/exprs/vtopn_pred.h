@@ -73,53 +73,69 @@ public:
         argument_template.emplace_back(nullptr, _children[0]->data_type(), "topn value");
 
         _function = SimpleFunctionFactory::instance().get_function(
-                _predicate->is_asc() ? "le" : "ge", argument_template, _data_type,
-                {.enable_decimal256 = state->enable_decimal256()}, state->be_exec_version());
+                _predicate->is_asc() ? "le" : "ge", argument_template, _data_type, {},
+                state->be_exec_version());
         if (!_function) {
             return Status::InternalError("get function failed");
         }
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
+                          ColumnPtr& result_column) const override {
         if (!_predicate->has_value()) {
-            block->insert({create_always_true_column(block->rows(), _data_type->is_nullable()),
-                           _data_type, _expr_name});
-            *result_column_id = block->columns() - 1;
+            result_column = create_always_true_column(count, _data_type->is_nullable());
             return Status::OK();
         }
 
+        Block temp_block;
+
+        // slot
+        ColumnPtr slot_column;
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, slot_column));
+        auto slot_type = _children[0]->execute_type(block);
+        temp_block.insert({slot_column, slot_type, _children[0]->expr_name()});
+        int slot_id = 0;
+
+        // topn value
         Field field = _predicate->get_value();
         auto column_ptr = _children[0]->data_type()->create_column_const(1, field);
-        size_t row_size = std::max(block->rows(), column_ptr->size());
-        int topn_value_id = VExpr::insert_param(
-                block, {column_ptr, _children[0]->data_type(), _expr_name}, row_size);
+        int topn_value_id = VExpr::insert_param(&temp_block,
+                                                {column_ptr, _children[0]->data_type(), _expr_name},
+                                                std::max(count, column_ptr->size()));
 
-        int slot_id = -1;
-        RETURN_IF_ERROR(_children[0]->execute(context, block, &slot_id));
         // if error(slot_id == -1), will return.
         ColumnNumbers arguments = {static_cast<uint32_t>(slot_id),
                                    static_cast<uint32_t>(topn_value_id)};
 
-        uint32_t num_columns_without_result = block->columns();
-        block->insert({nullptr, _data_type, _expr_name});
-        RETURN_IF_ERROR(_function->execute(nullptr, *block, arguments, num_columns_without_result,
-                                           block->rows(), false));
-        *result_column_id = num_columns_without_result;
+        uint32_t num_columns_without_result = temp_block.columns();
+        // prepare a column to save result
+        temp_block.insert({nullptr, _data_type, _expr_name});
 
+        RETURN_IF_ERROR(_function->execute(nullptr, temp_block, arguments,
+                                           num_columns_without_result, temp_block.rows()));
+        result_column = std::move(temp_block.get_by_position(num_columns_without_result).column);
         if (is_nullable() && _predicate->nulls_first()) {
             // null values ​​are always not filtered
-            change_null_to_true(block->get_by_position(num_columns_without_result).column);
+            change_null_to_true(result_column->assume_mutable());
         }
+        DCHECK_EQ(result_column->size(), count);
         return Status::OK();
     }
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    bool has_value() const { return _predicate->has_value(); }
+    // only used in external table (for min-max filter). get `slot > xxx`, not `function(slot) > xxx`.
+    bool get_binary_expr(VExprSPtr& new_root) const {
+        if (!get_child(0)->is_slot_ref()) {
+            // top rf maybe is `xxx order by abs(column) limit xxx`.
+            return false;
+        }
 
-    VExprSPtr get_binary_expr() const {
-        VExprSPtr root;
+        if (!_predicate->has_value()) {
+            return false;
+        }
+
         auto* slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
         auto slot_data_type = remove_nullable(slot_ref->data_type());
         {
@@ -148,12 +164,12 @@ public:
             texpr_node.__set_fn(fn);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable());
-            root = VectorizedFnCall::create_shared(texpr_node);
+            new_root = VectorizedFnCall::create_shared(texpr_node);
         }
 
         {
             // add slot
-            root->add_child(children().at(0));
+            new_root->add_child(children().at(0));
         }
         // add Literal
         {
@@ -161,9 +177,54 @@ public:
             TExprNode node = create_texpr_node_from(field, slot_data_type->get_primitive_type(),
                                                     slot_data_type->get_precision(),
                                                     slot_data_type->get_scale());
-            root->add_child(VLiteral::create_shared(node));
+            new_root->add_child(VLiteral::create_shared(node));
         }
-        return root;
+
+        // Since the normal greater than or less than relationship does not consider the relationship of null values, the generated `col >=/<= xxx OR col is null.`
+        if (_predicate->nulls_first()) {
+            VExprSPtr col_is_null_node;
+            {
+                TFunction fn;
+                TFunctionName fn_name;
+                fn_name.__set_db_name("");
+                fn_name.__set_function_name("is_null_pred");
+                fn.__set_name(fn_name);
+                fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+                std::vector<TTypeDesc> arg_types;
+                arg_types.push_back(create_type_desc(slot_data_type->get_primitive_type(),
+                                                     slot_data_type->get_precision(),
+                                                     slot_data_type->get_scale()));
+                fn.__set_arg_types(arg_types);
+                fn.__set_ret_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+                fn.__set_has_var_args(false);
+
+                TExprNode texpr_node;
+                texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+                texpr_node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+                texpr_node.__set_fn(fn);
+                texpr_node.__set_num_children(1);
+                col_is_null_node = VectorizedFnCall::create_shared(texpr_node);
+
+                // add slot.
+                col_is_null_node->add_child(children().at(0));
+            }
+
+            VExprSPtr or_node;
+            {
+                TExprNode texpr_node;
+                texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+                texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+                texpr_node.__set_opcode(TExprOpcode::COMPOUND_OR);
+                texpr_node.__set_num_children(2);
+                or_node = VectorizedFnCall::create_shared(texpr_node);
+            }
+
+            or_node->add_child(col_is_null_node);
+            or_node->add_child(new_root);
+            new_root = or_node;
+        }
+
+        return true;
     }
 
 private:

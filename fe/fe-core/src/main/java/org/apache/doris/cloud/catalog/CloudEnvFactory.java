@@ -159,6 +159,15 @@ public class CloudEnvFactory extends EnvFactory {
     }
 
     @Override
+    public Coordinator createCoordinator(ConnectContext context, Planner planner,
+                                         StatsErrorEstimator statsErrorEstimator, long jobId) {
+        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner()) {
+            return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator, jobId);
+        }
+        return new CloudCoordinator(context, planner, statsErrorEstimator);
+    }
+
+    @Override
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
                                          String timezone, boolean loadZeroTolerance, boolean enableProfile) {

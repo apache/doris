@@ -46,7 +46,6 @@ import org.apache.doris.regression.suite.ClusterOptions
 
 suite('test_lru_persist', 'docker') {
     def options = new ClusterOptions()
-    
     options.feNum = 1
     options.beNum = 1
     options.msNum = 1
@@ -54,7 +53,7 @@ suite('test_lru_persist', 'docker') {
     options.feConfigs += ['example_conf_k1=v1', 'example_conf_k2=v2']
     options.beConfigs += ['enable_file_cache=true', 'enable_java_support=false', 'file_cache_enter_disk_resource_limit_mode_percent=99',
                           'file_cache_background_lru_dump_interval_ms=2000', 'file_cache_background_lru_log_replay_interval_ms=500',
-                          'disable_auto_compation=true', 'file_cache_enter_need_evict_cache_in_advance_percent=99',
+                          'disable_auto_compaction=true', 'file_cache_enter_need_evict_cache_in_advance_percent=99',
                           'file_cache_background_lru_dump_update_cnt_threshold=0'
                         ]
 
@@ -63,6 +62,9 @@ suite('test_lru_persist', 'docker') {
         cluster.checkFeIsAlive(1, true)
         cluster.checkBeIsAlive(1, true)
         sql '''set global enable_auto_analyze=false'''
+        sql '''set global enable_audit_plugin=false''' // not working currently, so use below two to work around
+        sql '''set global audit_plugin_max_batch_bytes=5000000000'''
+        sql '''set global audit_plugin_max_batch_interval_sec=10000000'''
 
         sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10 properties ("replication_num"="1")'''
         sql '''insert into tb1 values (1),(2),(3)'''
@@ -89,6 +91,41 @@ suite('test_lru_persist', 'docker') {
         def normalAfter = "md5sum ${cachePath}/lru_dump_normal.tail".execute().text.trim().split()[0]
         logger.info("normalAfter: ${normalAfter}")
 
+        sql '''show data'''
         assert normalBefore == normalAfter
+
+        // remove dump file
+        def rm_dump_ret = "rm -rf ${cachePath}/lru_dump_normal.tail".execute().text.trim()
+        cluster.startBackends(1)
+        sleep(5000)
+        def show_backend_ret = sql '''show backends'''
+        try {
+            logger.info("Backend details: ${show_backend_ret.toString()}")
+            if(show_backend_ret.size() > 0 && show_backend_ret[0].size() > 0) {
+                logger.info("alive: ${show_backend_ret[0][9].toString()}")
+            }
+            assert show_backend_ret[0][9].toString() == "true"
+        } catch(Exception e) {
+            logger.error("Failed to log backend info: ${e.message}")
+        }
+
+        sql '''select count(*) from tb1'''
+
+        sleep(10000)
+        cluster.stopBackends(1)
+
+        def rm_data_ret = new File(cachePath).eachFile { file ->
+            if (!file.name.startsWith("lru_") && file.name != "version" && file.name != "." && file.name != "..") {
+                if (file.isDirectory()) {
+                    file.deleteDir()
+                } else {
+                    file.delete()
+                }
+            }
+        }
+        cluster.startBackends(1)
+        sleep(5000)
+
+        sql '''select count(*) from tb1'''
     }
 }

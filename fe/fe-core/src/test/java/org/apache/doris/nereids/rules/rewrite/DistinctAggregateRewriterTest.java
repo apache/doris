@@ -19,13 +19,18 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Test;
 
 public class DistinctAggregateRewriterTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -39,8 +44,18 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
+    private void applyMock() {
+        new MockUp<DistinctAggregateRewriter>() {
+            @Mock
+            boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
+                return false;
+            }
+        };
+    }
+
     @Test
     void testSplitSingleDistinctAgg() {
+        applyMock();
         PlanChecker.from(connectContext)
                 .analyze("select b, count(distinct a) from test.distinct_agg_split_t group by b")
                 .rewrite()
@@ -59,6 +74,7 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
 
     @Test
     void testSplitSingleDistinctAggOtherFunctionCount() {
+        applyMock();
         PlanChecker.from(connectContext)
                 .analyze("select b, count(distinct a), count(a) from test.distinct_agg_split_t group by b")
                 .rewrite()
@@ -77,6 +93,7 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
 
     @Test
     void testSplitSingleDistinctWithOtherAgg() {
+        applyMock();
         PlanChecker.from(connectContext)
                 .analyze("select b, count(distinct a), sum(c) from test.distinct_agg_split_t group by b")
                 .rewrite()
@@ -93,6 +110,7 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
 
     @Test
     void testNotSplitWhenNoGroupBy() {
+        applyMock();
         PlanChecker.from(connectContext)
                 .analyze("select count(distinct a) from test.distinct_agg_split_t")
                 .rewrite()
@@ -102,6 +120,7 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
 
     @Test
     void testSplitWhenNoGroupByHasGroupConcatDistinctOrderBy() {
+        applyMock();
         PlanChecker.from(connectContext)
                 .analyze("select group_concat(distinct a, '' order by b) from test.distinct_agg_split_t")
                 .rewrite()
@@ -113,6 +132,7 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
 
     @Test
     void testSplitWhenNoGroupByHasGroupConcatDistinct() {
+        applyMock();
         PlanChecker.from(connectContext)
                 .analyze("select group_concat(distinct a, '') from test.distinct_agg_split_t")
                 .rewrite()
@@ -124,6 +144,7 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
 
     @Test
     void testMultiExprDistinct() {
+        applyMock();
         PlanChecker.from(connectContext)
                 .analyze("select b, sum(a), count(distinct a,c) from test.distinct_agg_split_t group by b")
                 .rewrite()
@@ -142,6 +163,7 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
 
     @Test
     void testNotSplitWhenNoDistinct() {
+        applyMock();
         PlanChecker.from(connectContext)
                 .analyze("select b, sum(a), count(c) from test.distinct_agg_split_t group by b")
                 .rewrite()
@@ -151,6 +173,7 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
 
     @Test
     void testSplitWithComplexExpression() {
+        applyMock();
         PlanChecker.from(connectContext)
                 .analyze("select b, count(distinct a + 1) from test.distinct_agg_split_t group by b")
                 .rewrite()
@@ -160,5 +183,20 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
                                 logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2)
                         ).when(agg -> agg.getGroupByExpressions().size() == 1
                                 && agg.getGroupByExpressions().get(0).toSql().equals("b")));
+    }
+
+    @Test
+    void testMultiDistinct() {
+        connectContext.getSessionVariable().setAggPhase(2);
+        PlanChecker.from(connectContext)
+                .analyze("select b, count(distinct a), sum(c) from test.distinct_agg_split_t group by b")
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1
+                                && agg.getGroupByExpressions().get(0).toSql().equals("b")
+                                && agg.getAggregateFunctions().stream().noneMatch(AggregateFunction::isDistinct)
+                                && agg.getAggregateFunctions().stream().anyMatch(f -> f instanceof MultiDistinctCount)
+                        ));
     }
 }

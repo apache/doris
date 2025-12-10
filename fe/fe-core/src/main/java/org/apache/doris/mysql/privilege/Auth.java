@@ -21,8 +21,6 @@ import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.SetLdapPassVar;
-import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
@@ -74,7 +72,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -962,12 +960,6 @@ public class Auth implements Writable {
         }
     }
 
-    // set password
-    public void setPassword(SetPassVar stmt) throws DdlException {
-        setPasswordInternal(stmt.getUserIdent(), stmt.getPassword(), null, true /* err on non exist */,
-                false /* set by resolver */, false);
-    }
-
     public void setPassword(UserIdentity userIdentity, byte[] password) throws DdlException {
         setPasswordInternal(userIdentity, password, null, true /* err on non exist */,
                 false /* set by resolver */, false);
@@ -1007,13 +999,6 @@ public class Auth implements Writable {
             writeUnlock();
         }
         LOG.info("finished to set password for {}. is replay: {}", userIdent, isReplay);
-    }
-
-    // set ldap admin password.
-    public void setLdapPassword(SetLdapPassVar stmt) {
-        ldapInfo = new LdapInfo(stmt.getLdapPassword());
-        Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
-        LOG.info("finished to set ldap password.");
     }
 
     public void setLdapPassword(String ldapPassword) {
@@ -1264,6 +1249,24 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.isWorkloadGroupInUse(groupName);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean getEnablePreferCachedRowset(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getEnablePreferCachedRowset(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public long getQueryFreshnessToleranceMs(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getQueryFreshnessToleranceMs(qualifiedUser);
         } finally {
             readUnlock();
         }

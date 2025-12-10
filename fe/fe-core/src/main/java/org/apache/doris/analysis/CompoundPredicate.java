@@ -20,21 +20,14 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 
@@ -42,18 +35,8 @@ import java.util.Objects;
  * &&, ||, ! predicates.
  */
 public class CompoundPredicate extends Predicate {
-    private static final Logger LOG = LogManager.getLogger(CompoundPredicate.class);
     @SerializedName("op")
     private Operator op;
-
-    public static void initBuiltins(FunctionSet functionSet) {
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.AND.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.OR.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.NOT.toString(), Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN));
-    }
 
     private CompoundPredicate() {
         // use for serde only
@@ -62,19 +45,15 @@ public class CompoundPredicate extends Predicate {
     public CompoundPredicate(Operator op, Expr e1, Expr e2) {
         super();
         this.op = op;
-        Preconditions.checkNotNull(e1);
         children.add(e1);
-        Preconditions.checkArgument(op == Operator.NOT && e2 == null || op != Operator.NOT && e2 != null);
         if (e2 != null) {
             children.add(e2);
         }
-        printSqlInParens = true;
     }
 
     protected CompoundPredicate(CompoundPredicate other) {
         super(other);
         op = other.op;
-        printSqlInParens = true;
     }
 
     @Override
@@ -97,7 +76,7 @@ public class CompoundPredicate extends Predicate {
             Preconditions.checkState(op == Operator.NOT);
             return "NOT " + getChild(0).toSql();
         } else {
-            return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+            return "(" + getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql() + ")";
         }
     }
 
@@ -106,19 +85,11 @@ public class CompoundPredicate extends Predicate {
             TableIf table) {
         if (children.size() == 1) {
             Preconditions.checkState(op == Operator.NOT);
-            return "NOT " + getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
+            return "(NOT " + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + ")";
         } else {
-            return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString() + " "
-                    + getChild(1).toSql(disableTableName, needExternalSql, tableType, table);
-        }
-    }
-
-    @Override
-    public String toDigestImpl() {
-        if (children.size() == 1) {
-            return "NOT " + getChild(0).toDigest();
-        } else {
-            return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
+            return "(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table)
+                    + " " + op.toString() + " "
+                    + getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + ")";
         }
     }
 
@@ -151,54 +122,6 @@ public class CompoundPredicate extends Predicate {
         }
     }
 
-    /**
-     * Negates a CompoundPredicate.
-     */
-    @Override
-    public Expr negate() {
-        if (op == Operator.NOT) {
-            return getChild(0);
-        }
-        Expr negatedLeft = getChild(0).negate();
-        Expr negatedRight = getChild(1).negate();
-        Operator newOp = (op == Operator.OR) ? Operator.AND : Operator.OR;
-        return new CompoundPredicate(newOp, negatedLeft, negatedRight);
-    }
-
-    @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        recursiveResetChildrenResult(forPushDownPredicatesToView);
-        boolean compoundResult = false;
-        if (op == Operator.NOT) {
-            final Expr childValue = getChild(0);
-            if (!(childValue instanceof BoolLiteral)) {
-                return this;
-            }
-            final BoolLiteral boolChild = (BoolLiteral) childValue;
-            compoundResult = !boolChild.getValue();
-        } else {
-            final Expr leftChildValue = getChild(0);
-            final Expr rightChildValue = getChild(1);
-            if (!(leftChildValue instanceof BoolLiteral)
-                    || !(rightChildValue instanceof BoolLiteral)) {
-                return this;
-            }
-            final BoolLiteral leftBoolValue = (BoolLiteral) leftChildValue;
-            final BoolLiteral rightBoolValue = (BoolLiteral) rightChildValue;
-            switch (op) {
-                case AND:
-                    compoundResult = leftBoolValue.getValue() && rightBoolValue.getValue();
-                    break;
-                case OR:
-                    compoundResult = leftBoolValue.getValue() || rightBoolValue.getValue();
-                    break;
-                default:
-                    Preconditions.checkState(false, "No defined binary operator.");
-            }
-        }
-        return new BoolLiteral(compoundResult);
-    }
-
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
@@ -212,23 +135,5 @@ public class CompoundPredicate extends Predicate {
     @Override
     public String toString() {
         return toSqlImpl();
-    }
-
-    @Override
-    public Expr replaceSubPredicate(Expr subExpr) {
-        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
-            return null;
-        }
-        if (op.equals(Operator.AND)) {
-            Expr lhs = children.get(0);
-            Expr rhs = children.get(1);
-            if (lhs.replaceSubPredicate(subExpr) == null) {
-                return rhs;
-            }
-            if (rhs.replaceSubPredicate(subExpr) == null) {
-                return lhs;
-            }
-        }
-        return this;
     }
 }

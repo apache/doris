@@ -24,7 +24,7 @@ suite('test_complextype_to_json', "query_p0") {
     qt_select """SELECT CAST([] AS JSON)"""
     qt_select """SELECT CAST([123, 456] AS JSON)"""
     qt_select """SELECT CAST(["abc", "def"] AS JSON)"""
-    qt_select """SELECT CAST([null, true, false, 100, 6.18, "abc"] AS JSON)"""
+    qt_select """SELECT CAST([null, true, false, 100, 6.18, "1.68"] AS JSON)"""
     qt_select """SELECT CAST(struct('a', 1, 'doris', 'aaaaa', 1.32) AS JSON)"""
     // invalid map key cast
     test {
@@ -32,7 +32,7 @@ suite('test_complextype_to_json', "query_p0") {
         exception "errCode = 2,"
     }
     test {
-        sql """SELECT CAST([{1:"v41", 2: 400}] AS JSON)"""
+        sql """SELECT CAST([{1:"v41", 2: "400"}] AS JSON)"""
         exception "errCode = 2,"
     }
 
@@ -139,4 +139,31 @@ suite('test_complextype_to_json', "query_p0") {
     """
     
     qt_sql_json_from_string """ SELECT id, CAST(j AS JSON) FROM test_json_from_string ORDER BY id; """
+
+
+    sql """ DROP TABLE IF EXISTS cast_from_variant_to_json; """
+
+    sql """ 
+    CREATE TABLE `cast_from_variant_to_json` (
+    `col0` bigint NOT NULL,
+    `coljson` variant NOT NULL,
+    INDEX colvariant_idx (`coljson`) USING INVERTED
+    ) ENGINE=OLAP
+    UNIQUE KEY(`col0`)
+    DISTRIBUTED BY HASH(`col0`)
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2");
+    """
+
+
+    sql """
+        insert into cast_from_variant_to_json values(1, "[-9223372036854775808]");
+    """
+
+    sql """
+        set enable_strict_cast = false;
+    """
+
+    qt_sql_variant_to_json """select col0, cast(coljson as json) from cast_from_variant_to_json; """
 }

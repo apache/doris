@@ -139,7 +139,7 @@ suite('test_vcg_metrics', 'multi_cluster,docker') {
             cluster.stopBackends(4, 5)
 
             // test warm up job destory and generate new jobs
-            dockerAwaitUntil(50, 3) { 
+            awaitUntil(50, 3) { 
                 sql """USE @${normalVclusterName}"""
                 sql """select count(*) from ${tbl}"""
                 showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """

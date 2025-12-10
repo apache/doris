@@ -103,6 +103,10 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.remaining_conjunct_roots = _read_context->remaining_conjunct_roots;
     _read_options.common_expr_ctxs_push_down = _read_context->common_expr_ctxs_push_down;
     _read_options.virtual_column_exprs = _read_context->virtual_column_exprs;
+
+    _read_options.all_access_paths = _read_context->all_access_paths;
+    _read_options.predicate_access_paths = _read_context->predicate_access_paths;
+
     _read_options.ann_topn_runtime = _read_context->ann_topn_runtime;
     _read_options.vir_cid_to_idx_in_block = _read_context->vir_cid_to_idx_in_block;
     _read_options.vir_col_idx_to_type = _read_context->vir_col_idx_to_type;
@@ -142,6 +146,10 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             read_columns.push_back(cid);
         }
     }
+    // disable condition cache if you have delete condition
+    _read_context->condition_cache_digest =
+            delete_columns_set.empty() ? _read_context->condition_cache_digest : 0;
+    // create segment iterators
     VLOG_NOTICE << "read columns size: " << read_columns.size();
     _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
     if (_read_context->predicates != nullptr) {
@@ -216,6 +224,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 _read_context->runtime_state->query_options().disable_file_cache;
     }
 
+    if (_read_context->condition_cache_digest) {
+        for (const auto& key_range : _read_options.key_ranges) {
+            _read_context->condition_cache_digest =
+                    key_range.get_digest(_read_context->condition_cache_digest);
+        }
+        _read_options.condition_cache_digest = _read_context->condition_cache_digest;
+    }
+
     _read_options.io_ctx.expiration_time =
             read_context->ttl_seconds > 0 && _rowset->rowset_meta()->newest_write_timestamp() > 0
                     ? _rowset->rowset_meta()->newest_write_timestamp() + read_context->ttl_seconds
@@ -246,7 +262,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     if (_read_context->record_rowids && _read_context->rowid_conversion) {
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_rows;
-        RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows));
+        RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows, _stats));
         RETURN_IF_ERROR(_read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(),
                                                                           segment_rows));
     }
@@ -267,6 +283,10 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             DCHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
             auto local_options = _read_options;
             local_options.row_ranges = _segment_row_ranges[i - seg_start];
+            if (local_options.condition_cache_digest) {
+                local_options.condition_cache_digest =
+                        local_options.row_ranges.get_digest(local_options.condition_cache_digest);
+            }
             iter = std::make_unique<LazyInitSegmentIterator>(_rowset, i, should_use_cache,
                                                              _input_schema, local_options);
         }
@@ -302,7 +322,7 @@ Status BetaRowsetReader::_init_iterator() {
         _read_context->merged_rows = &_merged_rows;
     }
     // merge or union segment iterator
-    if (_is_merge_iterator()) {
+    if (is_merge_iterator()) {
         auto sequence_loc = -1;
         if (_read_context->sequence_id_idx != -1) {
             for (int loc = 0; loc < _read_context->return_columns->size(); loc++) {
@@ -329,60 +349,6 @@ Status BetaRowsetReader::_init_iterator() {
         _iterator.reset();
         return Status::Error<ROWSET_READER_INIT>(s.to_string());
     }
-    return Status::OK();
-}
-
-Status BetaRowsetReader::next_block(vectorized::Block* block) {
-    RETURN_IF_ERROR(_init_iterator_once());
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    if (_empty) {
-        return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
-    }
-
-    RuntimeState* runtime_state = nullptr;
-    if (_read_context != nullptr) {
-        runtime_state = _read_context->runtime_state;
-    }
-
-    do {
-        auto s = _iterator->next_batch(block);
-        if (!s.ok()) {
-            if (!s.is<END_OF_FILE>()) {
-                LOG(WARNING) << "failed to read next block: " << s.to_string();
-            }
-            return s;
-        }
-
-        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
-            return runtime_state->cancel_reason();
-        }
-    } while (block->empty());
-
-    return Status::OK();
-}
-
-Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
-    RETURN_IF_ERROR(_init_iterator_once());
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    RuntimeState* runtime_state = nullptr;
-    if (_read_context != nullptr) {
-        runtime_state = _read_context->runtime_state;
-    }
-
-    do {
-        auto s = _iterator->next_block_view(block_view);
-        if (!s.ok()) {
-            if (!s.is<END_OF_FILE>()) {
-                LOG(WARNING) << "failed to read next block view: " << s.to_string();
-            }
-            return s;
-        }
-
-        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
-            return runtime_state->cancel_reason();
-        }
-    } while (block_view->empty());
-
     return Status::OK();
 }
 

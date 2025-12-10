@@ -46,8 +46,6 @@ dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 trinoPluginsPath = "/tmp/trino_connector"
-// sf1DataPath can be url like "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com" or local path like "/data"
-//sf1DataPath = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -78,6 +76,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "cloud," +
     "cloud_p0," +
+    "external_table_p0/remote_doris," + // ubsan issue, need to investigate
     "workload_manager_p1," +
     "plsql_p0," + // plsql is not developped any more, add by sk
     "variant_p0/nested," +
@@ -133,6 +132,10 @@ iceberg_minio_port=19001
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
 iceberg_rest_uri_port_cos=19183
+iceberg_rest_uri_port_obs=19184
+iceberg_rest_uri_port_gcs=19185
+iceberg_rest_uri_port_hdfs=19186
+iceberg_rest_hdfs_port=20020
 
 // polaris rest catalog config
 polaris_rest_uri_port=20181

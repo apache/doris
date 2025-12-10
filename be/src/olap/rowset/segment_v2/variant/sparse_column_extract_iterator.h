@@ -31,6 +31,7 @@
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/stream_reader.h"
+#include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
@@ -56,10 +57,8 @@ namespace doris::segment_v2 {
 // Base class for sparse column processors with common functionality
 class BaseSparseColumnProcessor : public ColumnIterator {
 protected:
-    vectorized::MutableColumnPtr _sparse_column;
-    StorageReadOptions* _read_opts; // Shared cache pointer
-    std::unique_ptr<ColumnIterator> _sparse_column_reader;
-    const TabletColumn& _col;
+    const StorageReadOptions* _read_opts;
+    SparseColumnCacheSPtr _sparse_column_cache;
     // Pure virtual method for data processing when encounter existing sparse columns(to be implemented by subclasses)
     virtual void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
                                                            size_t num_rows) = 0;
@@ -69,31 +68,17 @@ protected:
                                                      size_t num_rows) = 0;
 
 public:
-    BaseSparseColumnProcessor(std::unique_ptr<ColumnIterator>&& reader, StorageReadOptions* opts,
-                              const TabletColumn& col)
-            : _read_opts(opts), _sparse_column_reader(std::move(reader)), _col(col) {
-        _sparse_column = vectorized::ColumnVariant::create_sparse_column_fn();
-    }
+    BaseSparseColumnProcessor(SparseColumnCacheSPtr sparse_column_cache,
+                              const StorageReadOptions* opts)
+            : _read_opts(opts), _sparse_column_cache(std::move(sparse_column_cache)) {}
 
     // Common initialization for all processors
     Status init(const ColumnIteratorOptions& opts) override {
-        return _sparse_column_reader->init(opts);
-    }
-
-    // When performing compaction, multiple columns are extracted from the sparse columns,
-    // and the sparse columns only need to be read once.
-    // So we need to cache the sparse column and reuse it.
-    // The cache is only used when the compaction reader is used.
-    bool has_sparse_column_cache() const {
-        return _read_opts && _read_opts->sparse_column_cache[_col.parent_unique_id()] &&
-               ColumnReader::is_compaction_reader_type(_read_opts->io_ctx.reader_type);
+        return _sparse_column_cache->init(opts);
     }
 
     Status seek_to_ordinal(ordinal_t ord) override {
-        if (has_sparse_column_cache()) {
-            return Status::OK();
-        }
-        return _sparse_column_reader->seek_to_ordinal(ord);
+        return _sparse_column_cache->seek_to_ordinal(ord);
     }
 
     ordinal_t get_current_ordinal() const override {
@@ -104,23 +89,18 @@ public:
     template <typename ReadMethod>
     Status _process_batch(ReadMethod&& read_method, size_t nrows,
                           vectorized::MutableColumnPtr& dst) {
-        // Cache check and population logic
-        if (has_sparse_column_cache()) {
-            _sparse_column =
-                    _read_opts->sparse_column_cache[_col.parent_unique_id()]->assume_mutable();
-        } else {
-            _sparse_column->clear();
+        {
+            SCOPED_RAW_TIMER(&_read_opts->stats->variant_scan_sparse_column_timer_ns);
+            int64_t before_size = _read_opts->stats->uncompressed_bytes_read;
             RETURN_IF_ERROR(read_method());
-
-            // cache the sparse column
-            if (_read_opts) {
-                _read_opts->sparse_column_cache[_col.parent_unique_id()] =
-                        _sparse_column->get_ptr();
-            }
+            _read_opts->stats->variant_scan_sparse_column_bytes +=
+                    _read_opts->stats->uncompressed_bytes_read - before_size;
         }
 
+        SCOPED_RAW_TIMER(&_read_opts->stats->variant_fill_path_from_sparse_column_timer_ns);
         const auto& offsets =
-                assert_cast<const vectorized::ColumnMap&>(*_sparse_column).get_offsets();
+                assert_cast<const vectorized::ColumnMap&>(*_sparse_column_cache->sparse_column)
+                        .get_offsets();
         if (offsets.back() == offsets[-1]) {
             // no sparse column in this batch
             _process_data_without_sparse_column(dst, nrows);
@@ -135,25 +115,21 @@ public:
 // Implementation for path extraction processor
 class SparseColumnExtractIterator : public BaseSparseColumnProcessor {
 public:
-    SparseColumnExtractIterator(std::string_view path, std::unique_ptr<ColumnIterator> reader,
-                                StorageReadOptions* opts, const TabletColumn& col)
-            : BaseSparseColumnProcessor(std::move(reader), opts, col), _path(path) {}
+    SparseColumnExtractIterator(std::string_view path, SparseColumnCacheSPtr sparse_column_cache,
+                                const StorageReadOptions* opts)
+            : BaseSparseColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {}
 
     // Batch processing using template method
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
-        return _process_batch(
-                [&]() { return _sparse_column_reader->next_batch(n, _sparse_column, has_null); },
-                *n, dst);
+        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, *n,
+                              dst);
     }
 
     // RowID-based read using template method
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override {
-        return _process_batch(
-                [&]() {
-                    return _sparse_column_reader->read_by_rowids(rowids, count, _sparse_column);
-                },
-                count, dst);
+        return _process_batch([&]() { return _sparse_column_cache->read_by_rowids(rowids, count); },
+                              count, dst);
     }
 
 private:
@@ -181,8 +157,9 @@ private:
                 nullable_column ? &nullable_column->get_null_map_data() : nullptr;
         vectorized::ColumnVariant::fill_path_column_from_sparse_data(
                 *var.get_subcolumn({}) /*root*/, null_map, StringRef {_path.data(), _path.size()},
-                _sparse_column->get_ptr(), 0, _sparse_column->size());
-        var.incr_num_rows(_sparse_column->size());
+                _sparse_column_cache->sparse_column->get_ptr(), 0,
+                _sparse_column_cache->sparse_column->size());
+        var.incr_num_rows(_sparse_column_cache->sparse_column->size());
         var.get_sparse_column()->assume_mutable()->resize(var.rows());
         ENABLE_CHECK_CONSISTENCY(&var);
     }

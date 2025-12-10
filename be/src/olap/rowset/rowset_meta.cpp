@@ -31,6 +31,8 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/packed_file_manager.h"
+#include "io/fs/packed_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/base_tablet.h"
@@ -99,20 +101,22 @@ bool RowsetMeta::json_rowset_meta(std::string* json_rowset_meta) {
     return ret;
 }
 
-io::FileSystemSPtr RowsetMeta::fs() {
-    auto fs = [this]() -> io::FileSystemSPtr {
-        if (is_local()) {
-            return io::global_local_filesystem();
-        }
+io::FileSystemSPtr RowsetMeta::physical_fs() {
+    if (is_local()) {
+        return io::global_local_filesystem();
+    }
 
-        auto storage_resource = remote_storage_resource();
-        if (storage_resource) {
-            return storage_resource.value()->fs;
-        } else {
-            LOG(WARNING) << storage_resource.error();
-            return nullptr;
-        }
-    }();
+    auto storage_resource = remote_storage_resource();
+    if (storage_resource) {
+        return storage_resource.value()->fs;
+    } else {
+        LOG(WARNING) << storage_resource.error();
+        return nullptr;
+    }
+}
+
+io::FileSystemSPtr RowsetMeta::fs() {
+    auto fs = physical_fs();
 
 #ifndef BE_TEST
     auto algorithm = _determine_encryption_once.call([this]() -> Result<EncryptionAlgorithmPB> {
@@ -128,7 +132,31 @@ io::FileSystemSPtr RowsetMeta::fs() {
         // TODO: return a Result<FileSystemSPtr> in this method?
         return nullptr;
     }
-    return io::make_file_system(fs, algorithm.value());
+
+    auto wrapped = io::make_file_system(fs, algorithm.value());
+
+    // Apply packed file system if enabled and index_map is not empty
+    if (_rowset_meta_pb.packed_slice_locations_size() > 0) {
+        std::unordered_map<std::string, io::PackedSliceLocation> index_map;
+        for (const auto& [path, index_pb] : _rowset_meta_pb.packed_slice_locations()) {
+            io::PackedSliceLocation index;
+            index.packed_file_path = index_pb.packed_file_path();
+            index.offset = index_pb.offset();
+            index.size = index_pb.size();
+            index.tablet_id = tablet_id();
+            index.rowset_id = _rowset_id.to_string();
+            index.resource_id = wrapped->id();
+            index_map[path] = index;
+        }
+        if (!index_map.empty()) {
+            io::PackedAppendContext append_info;
+            append_info.tablet_id = tablet_id();
+            append_info.rowset_id = _rowset_id.to_string();
+            append_info.txn_id = txn_id();
+            wrapped = std::make_shared<io::PackedFileSystem>(wrapped, index_map, append_info);
+        }
+    }
+    return wrapped;
 #else
     return fs;
 #endif

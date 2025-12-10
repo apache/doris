@@ -55,7 +55,7 @@ TEST(TabletMetaTest, SaveAsBufferAndParse) {
                                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
 
     TabletMetaPB tablet_meta_pb;
-    src_tablet_meta.to_meta_pb(&tablet_meta_pb);
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
 
     FileHeader<TabletMetaPB> file_header("");
     file_header.mutable_message()->CopyFrom(tablet_meta_pb);
@@ -85,7 +85,7 @@ TEST(TabletMetaTest, SerializeToMemoryWithSmallBuffer) {
     TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
     TabletMetaPB tablet_meta_pb;
-    src_tablet_meta.to_meta_pb(&tablet_meta_pb);
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
 
     FileHeader<TabletMetaPB> file_header("");
     file_header.mutable_message()->CopyFrom(tablet_meta_pb);
@@ -99,7 +99,7 @@ TEST(TabletMetaTest, DeserializeFromMemoryWithOldHeader) {
     TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
     TabletMetaPB tablet_meta_pb;
-    src_tablet_meta.to_meta_pb(&tablet_meta_pb);
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
 
     std::string proto_string;
     ASSERT_TRUE(tablet_meta_pb.SerializeToString(&proto_string));
@@ -132,7 +132,7 @@ TEST(TabletMetaTest, DeserializeFromMemoryWithInvalidChecksum) {
     TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
     TabletMetaPB tablet_meta_pb;
-    src_tablet_meta.to_meta_pb(&tablet_meta_pb);
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
 
     FileHeader<TabletMetaPB> file_header("");
     file_header.mutable_message()->CopyFrom(tablet_meta_pb);
@@ -152,7 +152,7 @@ TEST(TabletMetaTest, DeserializeFromMemoryWithInvalidProtobuf) {
     TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
     TabletMetaPB tablet_meta_pb;
-    src_tablet_meta.to_meta_pb(&tablet_meta_pb);
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
 
     FileHeader<TabletMetaPB> file_header("");
     file_header.mutable_message()->CopyFrom(tablet_meta_pb);

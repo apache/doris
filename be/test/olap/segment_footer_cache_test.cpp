@@ -28,7 +28,7 @@
 namespace doris {
 
 TabletColumnPtr create_int_sequence_value(int32_t id, bool is_nullable = true,
-                                          bool is_bf_column = false, bool has_bitmap_index = false);
+                                          bool is_bf_column = false);
 
 TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns,
                                KeysType keys_type = UNIQUE_KEYS);

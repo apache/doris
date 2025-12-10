@@ -97,6 +97,11 @@ private:
     std::string _escape(const std::string& path);
     std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);
 
+    // Initialize static partition values from Thrift config
+    void _init_static_partition_values();
+    // Build static partition path from static partition values
+    std::string _build_static_partition_path();
+
     std::shared_ptr<VIcebergPartitionWriter> _create_partition_writer(
             vectorized::Block* transformed_block, int position,
             const std::string* file_name = nullptr, int file_name_index = 0);
@@ -116,11 +121,30 @@ private:
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
 
+    // Target file size in bytes for controlling when to split files
+    int64_t _target_file_size_bytes = 0;
+
     std::shared_ptr<doris::iceberg::Schema> _schema;
     std::unique_ptr<doris::iceberg::PartitionSpec> _partition_spec;
 
     std::set<size_t> _non_write_columns_indices;
     std::vector<IcebergPartitionColumn> _iceberg_partition_columns;
+
+    // Static partition values for each partition column (indexed by column index)
+    // If _partition_column_is_static[i] is true, this stores the static value.
+    std::vector<std::string> _partition_column_static_values;
+    // Flags to indicate if the partition column at index i is static
+    std::vector<uint8_t> _partition_column_is_static;
+
+    // Whether any static partition columns are specified
+    bool _has_static_partition = false;
+    // Whether ALL partition columns are statically specified (full static mode)
+    // If false but _has_static_partition is true, it's partial static (hybrid) mode
+    bool _is_full_static_partition = false;
+    // Pre-computed static partition path prefix (for full static mode, this is the complete path)
+    std::string _static_partition_path;
+    // Pre-computed static partition value list (for full static mode only)
+    std::vector<std::string> _static_partition_value_list;
 
     std::unordered_map<std::string, std::shared_ptr<VIcebergPartitionWriter>>
             _partitions_to_writers;

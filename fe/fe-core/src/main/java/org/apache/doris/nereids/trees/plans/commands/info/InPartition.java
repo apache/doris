@@ -70,4 +70,8 @@ public class InPartition extends PartitionDefinition {
                 partitionDataProperty, isInMemory, tabletType, versionInfo, storagePolicy,
                 isMutable);
     }
+
+    public List<List<Expression>> getValues() {
+        return values;
+    }
 }

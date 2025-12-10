@@ -36,15 +36,8 @@ class ThriftServer;
 class TAgentResult;
 class TAgentTaskRequest;
 class TAgentPublishRequest;
-class TExecPlanFragmentParams;
-class TExecPlanFragmentResult;
-class TCancelPlanFragmentResult;
-class TTransmitDataResult;
-class TExportTaskRequest;
-class TExportStatusResult;
 class TStreamLoadRecordResult;
 class TDiskTrashInfo;
-class TCancelPlanFragmentParams;
 class TCheckStorageFormatResult;
 class TRoutineLoadTask;
 class TScanBatchResult;
@@ -56,7 +49,6 @@ class TScanOpenResult;
 class TSnapshotRequest;
 class TStatus;
 class TTabletStatResult;
-class TTransmitDataParams;
 class TUniqueId;
 class TIngestBinlogRequest;
 class TIngestBinlogResult;
@@ -84,19 +76,6 @@ public:
                             const TPublishTopicRequest& topic_request) override {
         _agent_server->get_topic_subscriber()->handle_topic_info(topic_request);
     }
-
-    // DorisServer service
-    void exec_plan_fragment(TExecPlanFragmentResult& return_val,
-                            const TExecPlanFragmentParams& params) override;
-
-    void cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
-                              const TCancelPlanFragmentParams& params) override {};
-
-    void submit_export_task(TStatus& t_status, const TExportTaskRequest& request) override;
-
-    void get_export_status(TExportStatusResult& result, const TUniqueId& task_id) override;
-
-    void erase_export_task(TStatus& t_status, const TUniqueId& task_id) override;
 
     void submit_routine_load_task(TStatus& t_status,
                                   const std::vector<TRoutineLoadTask>& tasks) override;
@@ -140,6 +119,9 @@ public:
     void get_dictionary_status(TDictionaryStatusList& result,
                                const std::vector<int64_t>& dictionary_id) override;
 
+    void test_storage_connectivity(TTestStorageConnectivityResponse& response,
+                                   const TTestStorageConnectivityRequest& request) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////
@@ -162,8 +144,6 @@ public:
     void stop_works() { _agent_server->stop_report_workers(); }
 
 protected:
-    Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
-
     void get_stream_load_record(TStreamLoadRecordResult& result, int64_t last_stream_record_time,
                                 std::shared_ptr<StreamLoadRecorder> stream_load_recorder);
 

@@ -22,10 +22,12 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -34,7 +36,6 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.policy.FilterType;
@@ -44,6 +45,8 @@ import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Map;
@@ -124,20 +127,45 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 break;
             case ROW:
             default:
-                tableNameInfo.analyze(ctx);
-                if (user != null) {
-                    user.analyze();
-                    if (user.isRootUser() || user.isAdminUser()) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
-                                user.getQualifiedUser(), user.getHost(), tableNameInfo.getTbl());
-                    }
-                }
                 // check auth
                 if (!Env.getCurrentEnv().getAccessManager()
                         .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                             PrivPredicate.GRANT.getPrivs().toString());
                 }
+                tableNameInfo.analyze(ctx);
+                if (user != null) {
+                    user.analyze();
+                    if (user.isRootUser() || user.isAdminUser()) {
+                        throw new AnalysisException("not allow add row policy for system user");
+                    }
+                    if (!Env.getCurrentEnv().getAuth().doesUserExist(user)) {
+                        throw new AnalysisException("user not exist: " + user);
+                    }
+                }
+
+                if (!StringUtils.isEmpty(roleName)) {
+                    if (!Env.getCurrentEnv().getAuth().doesRoleExist(roleName)) {
+                        throw new AnalysisException("role not exist: " + roleName);
+                    }
+                }
+                if (!wherePredicate.isPresent()) {
+                    throw new AnalysisException("wherePredicate can not be null");
+                }
+                TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrAnalysisException(tableNameInfo.getCtl())
+                        .getDbOrAnalysisException(tableNameInfo.getDb())
+                        .getTableOrAnalysisException(tableNameInfo.getTbl());
+                wherePredicate.get().foreach(expr -> {
+                    if (expr instanceof UnboundSlot) {
+                        UnboundSlot slot = (UnboundSlot) expr;
+                        if (tableIf.getColumn(slot.getName()) == null) {
+                            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                                    "column not exist: " + slot.getName());
+                        }
+                    }
+                });
+
         }
     }
 

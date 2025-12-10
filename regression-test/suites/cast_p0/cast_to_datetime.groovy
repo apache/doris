@@ -232,4 +232,30 @@ qt_sql200 """ select cast(cast("2020-12-12 00:00:00.123" as datetime(3)) as date
 qt_sql201 """ select cast(cast("2020-12-12 00:00:00.123456" as datetime(6)) as datetime(3)) """
 qt_sql202 """ select cast(cast("2020-12-12 00:00:00.99666" as datetime(6)) as datetime(2)) """
 qt_sql203 """ select cast(cast("9999-12-31 23:59:59.999999" as datetime(6)) as datetime(5)) """
+
+qt_sql204 """ select cast('9999-12-31 23:59:59.999999 +00:00' as datetime(6)) """
+testFoldConst("select cast('9999-12-31 23:59:59.999999 +00:00' as datetime(6))")
+qt_sql205 """ select cast('0000-01-01 00:00:00+12:00' as datetime(6)); """
+testFoldConst("select cast('0000-01-01 00:00:00+12:00' as datetime(6));")
+
+    sql "set debug_skip_fold_constant = false"
+
+    // for strict mode
+    sql "set enable_strict_cast = true"
+    qt_strict_1 "select cast('2023/6/10 3:55:33' as datetime(6)) "
+    testFoldConst("select cast('2023/6/10 3:55:33' as datetime(6)) ")
+    qt_strict_1 "select cast('2023/6/10 3:55:33' as date) "
+    testFoldConst("select cast('2023/6/10 3:55:33' as date) ")
+    test {
+        sql "select cast('9999-12-31 23:59:59.999999 +00:00' as datetime(6));"
+        exception "out of range"
+    }
+    test {
+        sql "select cast('9999-12-31 23:59:59.999999 +05:00' as datetime(6));"
+        exception "out of range"
+    }
+    test {
+        sql "select cast('0000-01-01 00:00:00+12:00' as datetime(6));"
+        exception "out of range"
+    }
 }

@@ -56,7 +56,6 @@ private:
 };
 
 // Note: the cache_lock is scoped, so do not add do...while(0) here.
-#ifdef ENABLE_CACHE_LOCK_DEBUG
 #define SCOPED_CACHE_LOCK(MUTEX, cache)                                                           \
     std::chrono::time_point<std::chrono::steady_clock> start_time =                               \
             std::chrono::steady_clock::now();                                                     \
@@ -71,9 +70,6 @@ private:
                      << get_stack_trace() << std::endl;                                           \
     }                                                                                             \
     LockScopedTimer cache_lock_timer;
-#else
-#define SCOPED_CACHE_LOCK(MUTEX, cache) std::lock_guard cache_lock(MUTEX);
-#endif
 
 class FSFileCacheStorage;
 
@@ -104,6 +100,7 @@ struct FileBlockCell {
 
     size_t size() const { return file_block->_block_range.size(); }
 
+    FileBlockCell() = default;
     FileBlockCell(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock);
     FileBlockCell(FileBlockCell&& other) noexcept
             : file_block(std::move(other.file_block)),
@@ -114,6 +111,8 @@ struct FileBlockCell {
 
     FileBlockCell& operator=(const FileBlockCell&) = delete;
     FileBlockCell(const FileBlockCell&) = delete;
+
+    size_t dowloading_size() const { return file_block->_downloaded_size; }
 };
 
 class BlockFileCache {
@@ -172,6 +171,9 @@ public:
 
     [[nodiscard]] const std::string& get_base_path() const { return _cache_base_path; }
 
+    // Get storage for inspection
+    FileCacheStorage* get_storage() const { return _storage.get(); }
+
     /**
          * Given an `offset` and `size` representing [offset, offset + size) bytes interval,
          * return list of cached non-overlapping non-empty
@@ -210,6 +212,8 @@ public:
     /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
     std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
+
+    void dump_lru_queues(bool force);
 
     [[nodiscard]] size_t get_used_cache_size(FileCacheType type) const;
 
@@ -335,6 +339,9 @@ public:
                 _cache_capacity_metrics->get_value() - _cur_cache_size_metrics->get_value(), 0);
     }
 
+    Status report_file_cache_inconsistency(std::vector<std::string>& results);
+    Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
+
 private:
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
@@ -432,7 +439,8 @@ private:
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
                      bool evict_in_advance) const;
 
-    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync);
+    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync,
+                            std::string& reason);
 
     void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
                                                 std::lock_guard<std::mutex>&);
@@ -452,6 +460,8 @@ private:
     Status parse_one_lru_entry(std::ifstream& in, std::string& filename, UInt128Wrapper& hash,
                                size_t& offset, size_t& size);
     void remove_lru_dump_files();
+
+    void clear_need_update_lru_blocks();
 
     // info
     std::string _cache_base_path;
@@ -515,6 +525,8 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_read_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_hit_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_bytes_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_count_metrics;
@@ -532,11 +544,23 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _num_hit_blocks;
     std::shared_ptr<bvar::Adder<size_t>> _num_removed_blocks;
 
+    std::shared_ptr<bvar::Adder<size_t>> _no_warmup_num_read_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _no_warmup_num_hit_blocks;
+
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_hit_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_read_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_hit_blocks_1h;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_read_blocks_1h;
+
     std::shared_ptr<bvar::Status<double>> _hit_ratio;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
+    std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio;
+    std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio_5m;
+    std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio_1h;
     std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
     std::shared_ptr<bvar::Status<size_t>> _need_evict_cache_in_advance_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _meta_store_write_queue_size_metrics;
 
     std::shared_ptr<bvar::LatencyRecorder> _cache_lock_wait_time_us;
     std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_us;
@@ -556,7 +580,7 @@ private:
     // so join this async load thread first
     std::unique_ptr<FileCacheStorage> _storage;
     std::shared_ptr<bvar::LatencyRecorder> _lru_dump_latency_us;
-
+    std::mutex _dump_lru_queues_mtx;
     moodycamel::ConcurrentQueue<FileBlockSPtr> _need_update_lru_blocks;
 };
 

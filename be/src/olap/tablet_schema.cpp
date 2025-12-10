@@ -135,76 +135,51 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
 }
 
 PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
-    switch (type) {
-    case FieldType::OLAP_FIELD_TYPE_UNKNOWN:
-        return PrimitiveType::INVALID_TYPE;
-    case FieldType::OLAP_FIELD_TYPE_NONE:
-        return PrimitiveType::TYPE_NULL;
-    case FieldType::OLAP_FIELD_TYPE_BOOL:
-        return PrimitiveType::TYPE_BOOLEAN;
-    case FieldType::OLAP_FIELD_TYPE_TINYINT:
-        return PrimitiveType::TYPE_TINYINT;
-    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
-        return PrimitiveType::TYPE_SMALLINT;
-    case FieldType::OLAP_FIELD_TYPE_INT:
-        return PrimitiveType::TYPE_INT;
-    case FieldType::OLAP_FIELD_TYPE_BIGINT:
-        return PrimitiveType::TYPE_BIGINT;
-    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
-        return PrimitiveType::TYPE_LARGEINT;
-    case FieldType::OLAP_FIELD_TYPE_FLOAT:
-        return PrimitiveType::TYPE_FLOAT;
-    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
-        return PrimitiveType::TYPE_DOUBLE;
-    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
-        return PrimitiveType::TYPE_VARCHAR;
-    case FieldType::OLAP_FIELD_TYPE_STRING:
-        return PrimitiveType::TYPE_STRING;
-    case FieldType::OLAP_FIELD_TYPE_DATE:
-        return PrimitiveType::TYPE_DATE;
-    case FieldType::OLAP_FIELD_TYPE_DATETIME:
-        return PrimitiveType::TYPE_DATETIME;
-    case FieldType::OLAP_FIELD_TYPE_CHAR:
-        return PrimitiveType::TYPE_CHAR;
-    case FieldType::OLAP_FIELD_TYPE_STRUCT:
-        return PrimitiveType::TYPE_STRUCT;
-    case FieldType::OLAP_FIELD_TYPE_ARRAY:
-        return PrimitiveType::TYPE_ARRAY;
-    case FieldType::OLAP_FIELD_TYPE_MAP:
-        return PrimitiveType::TYPE_MAP;
-    case FieldType::OLAP_FIELD_TYPE_HLL:
-        return PrimitiveType::TYPE_HLL;
-    case FieldType::OLAP_FIELD_TYPE_BITMAP:
-        return PrimitiveType::TYPE_BITMAP;
-    case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
-        return PrimitiveType::TYPE_QUANTILE_STATE;
-    case FieldType::OLAP_FIELD_TYPE_DATEV2:
-        return PrimitiveType::TYPE_DATEV2;
-    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
-        return PrimitiveType::TYPE_DATETIMEV2;
-    case FieldType::OLAP_FIELD_TYPE_TIMEV2:
-        return PrimitiveType::TYPE_TIMEV2;
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
-        return PrimitiveType::TYPE_DECIMAL32;
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
-        return PrimitiveType::TYPE_DECIMAL64;
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
-        return PrimitiveType::TYPE_DECIMAL128I;
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
-        return PrimitiveType::TYPE_DECIMAL256;
-    case FieldType::OLAP_FIELD_TYPE_IPV4:
-        return PrimitiveType::TYPE_IPV4;
-    case FieldType::OLAP_FIELD_TYPE_IPV6:
-        return PrimitiveType::TYPE_IPV6;
-    case FieldType::OLAP_FIELD_TYPE_JSONB:
-        return PrimitiveType::TYPE_JSONB;
-    case FieldType::OLAP_FIELD_TYPE_VARIANT:
-        return PrimitiveType::TYPE_VARIANT;
-    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
-        return PrimitiveType::TYPE_AGG_STATE;
-    default:
-        return PrimitiveType::INVALID_TYPE;
-    }
+    static const PrimitiveType mapping[] = {
+            /*  0 */ PrimitiveType::INVALID_TYPE,
+            /*  1 OLAP_FIELD_TYPE_TINYINT           */ PrimitiveType::TYPE_TINYINT,
+            /*  2 OLAP_FIELD_TYPE_UNSIGNED_TINYINT  */ PrimitiveType::INVALID_TYPE,
+            /*  3 OLAP_FIELD_TYPE_SMALLINT          */ PrimitiveType::TYPE_SMALLINT,
+            /*  4 OLAP_FIELD_TYPE_UNSIGNED_SMALLINT */ PrimitiveType::INVALID_TYPE,
+            /*  5 OLAP_FIELD_TYPE_INT               */ PrimitiveType::TYPE_INT,
+            /*  6 OLAP_FIELD_TYPE_UNSIGNED_INT      */ PrimitiveType::INVALID_TYPE,
+            /*  7 OLAP_FIELD_TYPE_BIGINT            */ PrimitiveType::TYPE_BIGINT,
+            /*  8 OLAP_FIELD_TYPE_UNSIGNED_BIGINT   */ PrimitiveType::INVALID_TYPE,
+            /*  9 OLAP_FIELD_TYPE_LARGEINT          */ PrimitiveType::TYPE_LARGEINT,
+            /* 10 OLAP_FIELD_TYPE_FLOAT             */ PrimitiveType::TYPE_FLOAT,
+            /* 11 OLAP_FIELD_TYPE_DOUBLE            */ PrimitiveType::TYPE_DOUBLE,
+            /* 12 OLAP_FIELD_TYPE_DISCRETE_DOUBLE   */ PrimitiveType::INVALID_TYPE,
+            /* 13 OLAP_FIELD_TYPE_CHAR              */ PrimitiveType::TYPE_CHAR,
+            /* 14 OLAP_FIELD_TYPE_DATE              */ PrimitiveType::TYPE_DATE,
+            /* 15 OLAP_FIELD_TYPE_DATETIME          */ PrimitiveType::TYPE_DATETIME,
+            /* 16 OLAP_FIELD_TYPE_DECIMAL           */ PrimitiveType::INVALID_TYPE,
+            /* 17 OLAP_FIELD_TYPE_VARCHAR           */ PrimitiveType::TYPE_VARCHAR,
+            /* 18 OLAP_FIELD_TYPE_STRUCT            */ PrimitiveType::TYPE_STRUCT,
+            /* 19 OLAP_FIELD_TYPE_ARRAY             */ PrimitiveType::TYPE_ARRAY,
+            /* 20 OLAP_FIELD_TYPE_MAP               */ PrimitiveType::TYPE_MAP,
+            /* 21 OLAP_FIELD_TYPE_UNKNOWN           */ PrimitiveType::INVALID_TYPE,
+            /* 22 OLAP_FIELD_TYPE_NONE              */ PrimitiveType::TYPE_NULL,
+            /* 23 OLAP_FIELD_TYPE_HLL               */ PrimitiveType::TYPE_HLL,
+            /* 24 OLAP_FIELD_TYPE_BOOL              */ PrimitiveType::TYPE_BOOLEAN,
+            /* 25 OLAP_FIELD_TYPE_BITMAP            */ PrimitiveType::TYPE_BITMAP,
+            /* 26 OLAP_FIELD_TYPE_STRING            */ PrimitiveType::TYPE_STRING,
+            /* 27 OLAP_FIELD_TYPE_QUANTILE_STATE    */ PrimitiveType::TYPE_QUANTILE_STATE,
+            /* 28 OLAP_FIELD_TYPE_DATEV2            */ PrimitiveType::TYPE_DATEV2,
+            /* 29 OLAP_FIELD_TYPE_DATETIMEV2        */ PrimitiveType::TYPE_DATETIMEV2,
+            /* 30 OLAP_FIELD_TYPE_TIMEV2            */ PrimitiveType::TYPE_TIMEV2,
+            /* 31 OLAP_FIELD_TYPE_DECIMAL32         */ PrimitiveType::TYPE_DECIMAL32,
+            /* 32 OLAP_FIELD_TYPE_DECIMAL64         */ PrimitiveType::TYPE_DECIMAL64,
+            /* 33 OLAP_FIELD_TYPE_DECIMAL128I       */ PrimitiveType::TYPE_DECIMAL128I,
+            /* 34 OLAP_FIELD_TYPE_JSONB             */ PrimitiveType::TYPE_JSONB,
+            /* 35 OLAP_FIELD_TYPE_VARIANT           */ PrimitiveType::TYPE_VARIANT,
+            /* 36 OLAP_FIELD_TYPE_AGG_STATE         */ PrimitiveType::TYPE_AGG_STATE,
+            /* 37 OLAP_FIELD_TYPE_DECIMAL256        */ PrimitiveType::TYPE_DECIMAL256,
+            /* 38 OLAP_FIELD_TYPE_IPV4              */ PrimitiveType::TYPE_IPV4,
+            /* 39 OLAP_FIELD_TYPE_IPV6              */ PrimitiveType::TYPE_IPV6,
+    };
+
+    int idx = static_cast<int>(type);
+    return mapping[idx];
 }
 
 FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
@@ -629,11 +604,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     } else {
         _is_bf_column = false;
     }
-    if (column.has_has_bitmap_index()) {
-        _has_bitmap_index = column.has_bitmap_index();
-    } else {
-        _has_bitmap_index = false;
-    }
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
         _aggregation_name = column.aggregation();
@@ -686,6 +656,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _variant_max_sparse_column_statistics_size =
                 column.variant_max_sparse_column_statistics_size();
     }
+    if (column.has_variant_sparse_hash_shard_count()) {
+        _variant_sparse_hash_shard_count = column.variant_sparse_hash_shard_count();
+    }
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
@@ -732,9 +705,6 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     }
     column->set_result_is_nullable(_result_is_nullable);
     column->set_be_exec_version(_be_exec_version);
-    if (_has_bitmap_index) {
-        column->set_has_bitmap_index(_has_bitmap_index);
-    }
     column->set_visible(_visible);
 
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -771,6 +741,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_enable_typed_paths_to_sparse(_variant_enable_typed_paths_to_sparse);
     column->set_variant_max_sparse_column_statistics_size(
             _variant_max_sparse_column_statistics_size);
+    column->set_variant_sparse_hash_shard_count(_variant_sparse_hash_shard_count);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
@@ -805,7 +776,8 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
         function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                agg_name, {type}, type->is_nullable(), BeExecVersionManager::get_newest_version());
+                agg_name, {type}, type, type->is_nullable(),
+                BeExecVersionManager::get_newest_version());
         if (!function) {
             LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
                          << ", column_type=" << type->get_name();
@@ -1196,6 +1168,11 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
     _enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
+    if (schema.has_is_external_segment_column_meta_used()) {
+        _is_external_segment_column_meta_used = schema.is_external_segment_column_meta_used();
+    } else {
+        _is_external_segment_column_meta_used = false;
+    }
     update_metadata_size();
 }
 
@@ -1236,7 +1213,6 @@ void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
             continue;
         }
         col->set_is_bf_column(tablet_schema._cols[col_idx]->is_bf_column());
-        col->set_has_bitmap_index(tablet_schema._cols[col_idx]->has_bitmap_index());
     }
 }
 
@@ -1311,7 +1287,16 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         } else if (UNLIKELY(column->name() == SKIP_BITMAP_COL)) {
             _skip_bitmap_col_idx = _num_columns;
         }
-        _cols.emplace_back(std::make_shared<TabletColumn>(*column));
+        // Reuse TabletColumn object from pool to reduce memory consumption
+        TabletColumnPtr new_column;
+        ColumnPB column_pb;
+        column->to_schema_pb(&column_pb);
+        auto pair = TabletColumnObjectPool::instance()->insert(
+                deterministic_string_serialize(column_pb));
+        new_column = pair.second;
+        // Release the handle quickly, because we use shared ptr to manage column
+        TabletColumnObjectPool::instance()->release(pair.first);
+        _cols.emplace_back(std::move(new_column));
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
         _field_uniqueid_to_index[_cols.back()->unique_id()] = _num_columns;
         _num_columns++;
@@ -1319,7 +1304,16 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
 
     for (const auto& i : index->indexes) {
         size_t index_pos = _indexes.size();
-        _indexes.emplace_back(std::make_shared<TabletIndex>(*i));
+        // Reuse TabletIndex object from pool to reduce memory consumption
+        TabletIndexPtr new_index;
+        TabletIndexPB index_pb;
+        i->to_schema_pb(&index_pb);
+        auto pair = TabletColumnObjectPool::instance()->insert_index(
+                deterministic_string_serialize(index_pb));
+        new_index = pair.second;
+        // Release the handle quickly, because we use shared ptr to manage index
+        TabletColumnObjectPool::instance()->release(pair.first);
+        _indexes.emplace_back(std::move(new_index));
         for (int32_t col_uid : _indexes.back()->col_unique_ids()) {
             if (auto field_pattern = _indexes.back()->field_pattern(); !field_pattern.empty()) {
                 auto& pattern_to_index_map = _index_by_unique_id_with_pattern[col_uid];
@@ -1449,6 +1443,8 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
     tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
+    tablet_schema_pb->set_is_external_segment_column_meta_used(
+            _is_external_segment_column_meta_used);
 }
 
 size_t TabletSchema::row_size() const {
@@ -1565,7 +1561,8 @@ void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
 
 bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i]->index_type() == IndexType::INVERTED &&
+        if ((_indexes[i]->index_type() == IndexType::INVERTED ||
+             _indexes[i]->index_type() == IndexType::ANN) &&
             _indexes[i]->index_id() == index_id) {
             return true;
         }
@@ -1666,7 +1663,6 @@ const TabletIndex* TabletSchema::ann_index(int32_t col_unique_id,
 }
 
 const TabletIndex* TabletSchema::ann_index(const TabletColumn& col) const {
-    // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
     if (!segment_v2::IndexColumnWriter::check_support_ann_index(col)) {
         return nullptr;
     }
@@ -1694,6 +1690,18 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
     return nullptr;
 }
 
+const TabletIndex* TabletSchema::get_index(int32_t col_unique_id, IndexType index_type,
+                                           const std::string& suffix_path) const {
+    IndexKey index_key(index_type, col_unique_id, suffix_path);
+    auto it = _col_id_suffix_to_index.find(index_key);
+    if (it != _col_id_suffix_to_index.end()) {
+        if (!it->second.empty() && it->second[0] < _indexes.size()) {
+            return _indexes[it->second[0]].get();
+        }
+    }
+    return nullptr;
+}
+
 vectorized::Block TabletSchema::create_block(
         const std::vector<uint32_t>& return_columns,
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
@@ -1705,6 +1713,14 @@ vectorized::Block TabletSchema::create_block(
                             tablet_columns_need_convert_null->find(cid) !=
                                     tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
+        if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT ||
+            col.type() == FieldType::OLAP_FIELD_TYPE_MAP ||
+            col.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            if (_pruned_columns_data_type.contains(col.unique_id())) {
+                data_type = _pruned_columns_data_type.at(col.unique_id());
+            }
+        }
+
         if (_vir_col_idx_to_unique_id.contains(cid)) {
             block.insert({vectorized::ColumnNothing::create(0), data_type, col.name()});
             VLOG_DEBUG << fmt::format(
@@ -1724,7 +1740,13 @@ vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
         if (ignore_dropped_col && is_dropped_column(*col)) {
             continue;
         }
+
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
+        if (col->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            if (_pruned_columns_data_type.contains(col->unique_id())) {
+                data_type = _pruned_columns_data_type.at(col->unique_id());
+            }
+        }
         block.insert({data_type->create_column(), data_type, col->name()});
     }
     return block;
@@ -1735,6 +1757,11 @@ vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>
     for (const auto& cid : cids) {
         const auto& col = *_cols[cid];
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
+        if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            if (_pruned_columns_data_type.contains(col.unique_id())) {
+                data_type = _pruned_columns_data_type.at(col.unique_id());
+            }
+        }
         block.insert({data_type->create_column(), data_type, col.name()});
     }
     return block;
@@ -1759,7 +1786,6 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._length != b._length) return false;
     if (a._index_length != b._index_length) return false;
     if (a._is_bf_column != b._is_bf_column) return false;
-    if (a._has_bitmap_index != b._has_bitmap_index) return false;
     if (a._column_path == nullptr && a._column_path != nullptr) return false;
     if (b._column_path == nullptr && a._column_path != nullptr) return false;
     if (b._column_path != nullptr && a._column_path != nullptr &&
@@ -1799,6 +1825,8 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._storage_dict_page_size != b._storage_dict_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
+    if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
+        return false;
     return true;
 }
 

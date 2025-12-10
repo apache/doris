@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_restore_with_hdfs", "backup_restore") {
+suite("test_backup_restore_with_hdfs", "backup_restore,external") {
     String suiteName = "test_backup_restore_with_hdfs"
 
     if (!enableHdfs()) {

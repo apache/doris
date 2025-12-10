@@ -262,12 +262,21 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        const uint8_t* offsets_data = concrete_array->value_offsets()->data();
+        const size_t offset_size = sizeof(int32_t);
 
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
+                int32_t start_offset = 0;
+                int32_t end_offset = 0;
+                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
+                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+
+                int32_t length = end_offset - start_offset;
+                const auto* raw_data = buffer->data() + start_offset;
+
                 assert_cast<ColumnType&>(column).insert_data(
-                        (char*)raw_data, concrete_array->value_length(offset_i));
+                        reinterpret_cast<const char*>(raw_data), length);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();
             }
@@ -307,19 +316,6 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_mysql(
-        const IColumn& column, MysqlRowBuffer<true>& row_buffer, int64_t row_idx, bool col_const,
-        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_mysql(
-        const IColumn& column, MysqlRowBuffer<false>& row_buffer, int64_t row_idx, bool col_const,
-        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
         const std::string& timezone, const IColumn& column, const NullMap* null_map,
         orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end,
@@ -328,6 +324,7 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
 
     for (auto row_id = start; row_id < end; row_id++) {
         const auto& ele = assert_cast<const ColumnType&>(column).get_data_at(row_id);
+        // to adapt to orc::Writer, no modifications will be made. so can use const_cast
         cur_batch->data[row_id] = const_cast<char*>(ele.data);
         cur_batch->length[row_id] = ele.size;
     }
@@ -422,6 +419,32 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb_vector
         }
     }
     return Status::OK();
+}
+
+template <typename ColumnType>
+void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_t row_num,
+                                                    BufferWritable& bw) const {
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
+    const auto& value =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_num);
+    bw.write(value.data, value.size);
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
+}
+
+template <typename ColumnType>
+bool DataTypeStringSerDeBase<ColumnType>::write_column_to_presto_text(const IColumn& column,
+                                                                      BufferWritable& bw,
+                                                                      int64_t row_idx) const {
+    const auto& value =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_idx);
+    bw.write(value.data, value.size);
+    return true;
 }
 
 template <typename ColumnType>

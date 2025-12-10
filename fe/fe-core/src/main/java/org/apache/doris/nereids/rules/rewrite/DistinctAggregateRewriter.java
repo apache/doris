@@ -41,6 +41,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -83,13 +84,14 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
                         .toRule(RuleType.DISTINCT_AGGREGATE_SPLIT),
                 logicalAggregate()
                         .when(agg -> agg.getGroupByExpressions().isEmpty()
-                                && agg.mustUseMultiDistinctAgg())
+                                && agg.mustUseMultiDistinctAgg() && !AggregateUtils.containsCountDistinctMultiExpr(agg))
                         .then(this::convertToMultiDistinct)
                         .toRule(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT)
         );
     }
 
-    private boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
+    @VisibleForTesting
+    boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
         // count(distinct a,b) cannot use multi_distinct
         if (AggregateUtils.containsCountDistinctMultiExpr(aggregate)) {
             return false;
@@ -111,7 +113,7 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         // has unknown statistics, split to bottom and top agg
         if (AggregateUtils.hasUnknownStatistics(aggregate.getGroupByExpressions(), aggChildStats)
                 || AggregateUtils.hasUnknownStatistics(dstArgs, aggChildStats)) {
-            return false;
+            return true;
         }
 
         double gbyNdv = aggStats.getRowCount();
@@ -147,22 +149,22 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
     }
 
     private Plan splitDistinctAgg(LogicalAggregate<? extends Plan> aggregate) {
-        Set<AggregateFunction> aggFuncs = aggregate.getAggregateFunctions();
+        Map<AggregateFunction, Expression> aggFuncs = aggregate.getAggregateFunctionWithGuardExpr();
         Set<AggregateFunction> distinctAggFuncs = new HashSet<>();
-        Set<AggregateFunction> otherFunctions = new HashSet<>();
-        for (AggregateFunction aggFunc : aggFuncs) {
-            if (aggFunc.isDistinct()) {
-                distinctAggFuncs.add(aggFunc);
+        Map<AggregateFunction, Expression> otherFunctions = new HashMap<>();
+        for (Map.Entry<AggregateFunction, Expression> entry : aggFuncs.entrySet()) {
+            if (entry.getKey().isDistinct()) {
+                distinctAggFuncs.add(entry.getKey());
             } else {
-                otherFunctions.add(aggFunc);
+                otherFunctions.put(entry.getKey(), entry.getValue());
             }
         }
         if (distinctAggFuncs.size() != 1) {
             return null;
         }
         // If there are some functions that cannot be split in other function, AGG cannot be split
-        for (AggregateFunction aggFunc : otherFunctions) {
-            if (!supportSplitOtherFunctions.contains(aggFunc.getClass())) {
+        for (Map.Entry<AggregateFunction, Expression> entry : otherFunctions.entrySet()) {
+            if (!supportSplitOtherFunctions.contains(entry.getKey().getClass())) {
                 return null;
             }
         }
@@ -172,10 +174,10 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         Set<NamedExpression> groupByKeys = AggregateUtils.getAllKeySet(aggregate);
         ImmutableList.Builder<NamedExpression> bottomAggOtherFunctions = ImmutableList.builder();
         Map<AggregateFunction, NamedExpression> aggFuncToSlot = new HashMap<>();
-        for (AggregateFunction aggFunc : otherFunctions) {
-            Alias bottomAggFuncAlias = new Alias(aggFunc);
+        for (Map.Entry<AggregateFunction, Expression> entry : otherFunctions.entrySet()) {
+            Alias bottomAggFuncAlias = new Alias(entry.getValue());
             bottomAggOtherFunctions.add(bottomAggFuncAlias);
-            aggFuncToSlot.put(aggFunc, bottomAggFuncAlias.toSlot());
+            aggFuncToSlot.put(entry.getKey(), bottomAggFuncAlias.toSlot());
         }
 
         List<NamedExpression> aggOutput = ImmutableList.<NamedExpression>builder()

@@ -32,12 +32,8 @@ class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_TIMEV
 public:
     DataTypeTimeV2SerDe(int scale = 0, int nesting_level = 1)
             : DataTypeNumberSerDe<PrimitiveType::TYPE_TIMEV2>(nesting_level), _scale(scale) {};
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
+    Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
+                                        int64_t row_idx, bool col_const) const override;
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
@@ -71,13 +67,9 @@ public:
     template <typename DecimalDataType>
     Status from_decimal_strict_mode_batch(const DecimalDataType::ColumnType& decimal_col,
                                           IColumn& target_col) const;
+    int get_scale() const override { return _scale; }
 
 private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int64_t row_idx, bool col_const,
-                                  const FormatOptions& options) const;
-
     int _scale;
 };
 #include "common/compile_check_end.h"

@@ -47,6 +47,9 @@ suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
         sb.append("curl -X GET ")
         sb.append(tablet.CompactionStatus)
         String command = sb.toString()
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         // wait for cleaning stale_rowsets
         def process = command.execute()
         def code = process.waitFor()
@@ -73,11 +76,18 @@ suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
 
         backend_id = backendId_to_backendIP.keySet()[0]
         StringBuilder showConfigCommand = new StringBuilder();
-        showConfigCommand.append("curl -X GET http://")
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http" 
+        showConfigCommand.append("curl -X GET ${protocol}://")
         showConfigCommand.append(backendId_to_backendIP.get(backend_id))
         showConfigCommand.append(":")
         showConfigCommand.append(backendId_to_backendHttpPort.get(backend_id))
         showConfigCommand.append("/api/show_config")
+        if (enableTls) {
+            showConfigCommand.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+            showConfigCommand.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+            showConfigCommand.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+        }
         logger.info(showConfigCommand.toString())
         def process = showConfigCommand.toString().execute()
         int code = process.waitFor()
@@ -213,7 +223,7 @@ suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
             assertTrue(hasCompactedRowsets, "Should have compacted rowsets starting from version 2")
             int segment_count = calc_segment_count(tablet)
             logger.info("TabletId: " + tablet_id + ", segment_count: " + segment_count)
-            check_nested_index_file(ip, port, tablet_id, activeRowsetCount, 3, "V2")
+            check_nested_index_file(ip, port, tablet_id, activeRowsetCount, 3, "V3")
         }
 
         int segmentsCount = 0

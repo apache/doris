@@ -24,5 +24,4 @@ import org.apache.doris.nereids.trees.expressions.Expression;
  * base class of multi-distinct agg function
  */
 public interface MultiDistinction extends TreeNode<Expression> {
-    Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg);
 }

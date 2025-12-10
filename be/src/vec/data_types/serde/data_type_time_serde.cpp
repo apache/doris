@@ -27,39 +27,13 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-Status DataTypeTimeV2SerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
-                                                  bool col_const,
-                                                  const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-Status DataTypeTimeV2SerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<false>& row_buffer,
-                                                  int64_t row_idx, bool col_const,
-                                                  const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-template <bool is_binary_format>
-Status DataTypeTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
-                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                   int64_t row_idx, bool col_const,
-                                                   const FormatOptions& options) const {
+Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                         MysqlRowBinaryBuffer& result,
+                                                         int64_t row_idx, bool col_const) const {
     const auto& data = assert_cast<const ColumnTimeV2&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
-    // _nesting_level >= 2 means this time is in complex type
-    // and we should add double quotes
-    if (_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
     if (UNLIKELY(0 != result.push_timev2(data[col_index], _scale))) {
         return Status::InternalError("pack mysql buffer failed.");
-    }
-    if (_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
     }
     return Status::OK();
 }

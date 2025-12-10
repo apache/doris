@@ -20,9 +20,9 @@ import java.text.SimpleDateFormat
 suite("test_date_function") {
     def tableName = "test_date_function"
 
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS test_date_function """
     sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
+            CREATE TABLE IF NOT EXISTS test_date_function (
                 test_datetime datetime NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(test_datetime)
@@ -34,16 +34,19 @@ suite("test_date_function") {
                 "storage_format" = "V2"
             )
         """
-    sql """ insert into ${tableName} values ("2019-08-01 13:21:03") """
+    sql """ insert into test_date_function values ("2019-08-01 13:21:03") """
     // convert_tz
-    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'America/Los_Angeles') result from ${tableName}; """
-    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/SHANGHAI', 'america/Los_angeles') result from ${tableName}; """
-    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/Los_Angeles') result from ${tableName}; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'America/Los_Angeles') result from test_date_function; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/SHANGHAI', 'america/Los_angeles') result from test_date_function; """
+    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/Los_Angeles') result from test_date_function; """
 
-    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'Europe/London') result from ${tableName}; """
-    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'Europe/London') result from ${tableName}; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'Europe/London') result from test_date_function; """
+    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'Europe/London') result from test_date_function; """
 
-    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/London') result from ${tableName}; """
+    test {
+        sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/London') result from test_date_function; """
+        exception "invalid timezone"
+    }
 
     qt_sql """ select convert_tz("2019-08-01 02:18:27",  'Asia/Shanghai', 'UTC'); """
     qt_sql """ select convert_tz("2019-08-01 02:18:27",  'Asia/Shanghai', 'UTc'); """
@@ -54,11 +57,14 @@ suite("test_date_function") {
     qt_sql """ SELECT convert_tz('2022-2-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('2022-02-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('1900-00-00 13:21:03', '+08:00', 'America/London') result; """
-    qt_lower_bound """ select convert_tz('0000-01-01 00:00:00', '+08:00', '-02:00'); """
+    test {
+        sql """ select convert_tz('0000-01-01 00:00:00', '+08:00', '-02:00'); """
+        exception "Cannot convert"
+    }
     qt_lower_bound """ select convert_tz('0000-01-01 00:00:00', '+08:00', '+08:00'); """
 
     // bug fix
-    sql """ insert into ${tableName} values 
+    sql """ insert into test_date_function values 
                 ("2019-08-01 13:21:03"),
                 ("2019-08-01 13:21:03"),
                 ("2019-08-01 13:21:03"),
@@ -81,10 +87,9 @@ suite("test_date_function") {
 
     sql """ truncate table ${tableName} """
 
-    def timezoneCachedTableName = "test_convert_tz_with_timezone_cache"
-    sql """ DROP TABLE IF EXISTS ${timezoneCachedTableName} """
+    sql """ DROP TABLE IF EXISTS test_convert_tz_with_timezone_cache """
     sql """
-        CREATE TABLE ${timezoneCachedTableName} (
+        CREATE TABLE test_convert_tz_with_timezone_cache (
             id int,
             test_datetime datetime NULL COMMENT "",
             origin_tz VARCHAR(255),
@@ -101,7 +106,7 @@ suite("test_date_function") {
     """
 
     sql """
-        INSERT INTO ${timezoneCachedTableName} VALUES
+        INSERT INTO test_convert_tz_with_timezone_cache VALUES
             (1, "2019-08-01 13:21:03", "Asia/Shanghai", "Asia/Shanghai"),
             (2, "2019-08-01 13:21:03", "Asia/Singapore", "Asia/Shanghai"),
             (3, "2019-08-01 13:21:03", "Asia/Taipei", "Asia/Shanghai"),
@@ -124,11 +129,18 @@ suite("test_date_function") {
 
     sql "set parallel_pipeline_task_num = 8"
 
+    qt_sql0 """
+        select convert_tz('2000-12-03 00:00:00', `origin_tz`, `target_tz`)
+        from test_convert_tz_with_timezone_cache order by 1;
+    """
+
+    qt_sql00 " select convert_tz(test_datetime, 'a', NULL) from test_convert_tz_with_timezone_cache; "
+
     qt_sql1 """
         SELECT
             `id`, `test_datetime`, `origin_tz`, `target_tz`, convert_tz(`test_datetime`, `origin_tz`, `target_tz`)
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         ORDER BY `id`
     """
     qt_sql2 """
@@ -137,7 +149,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "Asia/Singapore", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 2;
     """
@@ -147,7 +159,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "Australia/Melbourne", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 4;
     """
@@ -157,7 +169,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "America/Dawson", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Africa/Lusaka")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 8;
     """
@@ -166,7 +178,7 @@ suite("test_date_function") {
         SELECT
             `id`, `test_datetime`, `origin_tz`, `target_tz`, convert_tz(`test_datetime`, `origin_tz`, `target_tz`)
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         ORDER BY `id`
     """
     qt_sql_vec2 """
@@ -175,7 +187,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "Asia/Singapore", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 2;
     """
@@ -185,7 +197,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "Australia/Melbourne", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 4;
     """
@@ -195,7 +207,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "America/Dawson", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Africa/Lusaka")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 8;
     """
@@ -214,6 +226,22 @@ suite("test_date_function") {
     // TIME CURTIME()
     def curtime_result = sql """ SELECT CURTIME() """
     assertTrue(curtime_result[0].size() == 1)
+    def curtime_with_arg = sql """ SELECT CAST(CURTIME(3) AS STRING) """
+    assertTrue(curtime_with_arg[0].size() == 1)
+    assertTrue(curtime_with_arg[0][0].contains('.'))
+
+    curtime_with_arg = sql """ SELECT CAST(CURTIME(0) AS STRING) """
+    assertTrue(curtime_with_arg[0].size() == 1)
+    assertFalse(curtime_with_arg[0][0].contains('.'))
+
+    test {
+        sql """ SELECT CURTIME(114514);"""
+        exception "Can not find the compatibility function signature: current_time(INT)"
+    }
+    test {
+        sql """ SELECT CURTIME(7); """
+        exception "The precision must be between 0 and 6"
+    }
 
     sql """ insert into ${tableName} values ("2010-11-30 23:59:59") """
     // DATE_ADD
@@ -223,6 +251,13 @@ suite("test_date_function") {
     qt_sql """ select date_add(test_datetime, INTERVAL 2 HOUR) result from ${tableName}; """
     qt_sql """ select date_add(test_datetime, INTERVAL 2 MINUTE) result from ${tableName}; """
     qt_sql """ select date_add(test_datetime, INTERVAL 2 SECOND) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL '1 00:00:01' DAY_SECOND) result from ${tableName}; """
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL '1 xx:00:01' DAY_SECOND) result from ${tableName}; """
+        // check exception message contains
+        exception "Invalid hours format"
+    }
 
     explain {
         sql """select * from ${tableName} where test_datetime >= date_add('2024-01-16',INTERVAL 1 day);"""
@@ -356,14 +391,21 @@ suite("test_date_function") {
     qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
     qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, '%Y-%m-%d') """
     qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
-    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+    test {
+        sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+        exception "is invalid"
+    }
 
     // HOUR
     qt_sql """ select hour('2018-12-31 23:59:59') """
     qt_sql """ select hour('2018-12-31') """
 
     // MAKEDATE
-    qt_sql """ select makedate(2021,0), makedate(2021,1), makedate(2021,100), makedate(2021,400) """
+    test {
+        sql """ select makedate(2021,0) """
+        exception "out of range"
+    }
+    qt_sql """ select makedate(2021,1), makedate(2021,100), makedate(2021,400) """
 
     // MINUTE
     qt_sql """ select minute('2018-12-31 23:59:59') """
@@ -386,9 +428,21 @@ suite("test_date_function") {
     // SECOND
     qt_sql """ select second('2018-12-31 23:59:59') """
     qt_sql """ select second('2018-12-31 00:00:00') """
-
+    // Test SECOND function with time strings containing microseconds
+    qt_sql_second_time_with_micro1 """ select second('12:00:01.12') """
+    qt_sql_second_time_with_micro2 """ select second('23:59:59.999999') """
+    qt_sql_second_time_with_micro3 """ select second('00:00:00.000001') """
+    qt_sql_second_time_with_micro4 """ select second('15:30:45.5') """
+    
     // MICROSECOND
     qt_sql """ select microsecond(cast('1999-01-02 10:11:12.767890' as datetimev2(6))) """
+    // Test MICROSECOND function with time strings containing microseconds
+    qt_sql_microsecond_special_format """ select microsecond('120000.12') """
+    qt_sql_microsecond_time_with_micro1 """ select microsecond('12:00:00.123456') """
+    qt_sql_microsecond_time_with_micro2 """ select microsecond('23:59:59.999999') """
+    qt_sql_microsecond_time_with_micro3 """ select microsecond('00:00:00.000001') """
+    qt_sql_microsecond_time_with_micro4 """ select microsecond('15:30:45.5') """
+    qt_sql_microsecond_time_with_micro5 """ select microsecond('12:34:56.789') """
 
     // STR_TO_DATE
     sql """ truncate table ${tableName} """
@@ -455,6 +509,34 @@ suite("test_date_function") {
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """
     assertTrue(utc_timestamp_str[0].size() == 2)
+    utc_timestamp_str = sql """ select utc_timestamp(6), utc_timestamp(6) + 1 """
+    assertTrue(utc_timestamp_str[0].size() == 2)
+    test {
+        sql """ select utc_timestamp(7) """
+        exception "scale must be between 0 and 6"
+    }
+    test {
+        sql """ SELECT UTC_TIMESTAMP(NULL); """
+        exception "UTC_TIMESTAMP argument cannot be NULL."
+    }
+
+    // UTC_TIME
+    def utc_time_str = sql """ select utc_time(),utc_time() + 1 """
+    assertTrue(utc_time_str[0].size() == 2)
+    utc_time_str = sql """ select utc_time(6), utc_time(6) + 1 """
+    assertTrue(utc_time_str[0].size() == 2)
+    test {
+        sql """ select utc_time(7) """
+        exception "scale must be between 0 and 6"
+    }
+    test {
+        sql """ SELECT UTC_TIME(NULL); """
+        exception "UTC_TIME argument cannot be NULL."
+    }
+
+    def utc_date_str = sql """ select utc_date(),utc_date() + 1 """
+    assertTrue(utc_date_str[0].size() == 2)
+
     // WEEK
     qt_sql """ select week('2020-1-1') """
     qt_sql """ select week('2020-7-1',1) """
@@ -467,12 +549,39 @@ suite("test_date_function") {
     qt_sql """ select weekofyear('2008-02-20 00:00:00') """
 
     sql """ truncate table ${tableName} """
-    sql """ insert into ${tableName} values ("2019-08-01 13:21:03"), ("9999-08-01 13:21:03"),("0-08-01 13:21:03")"""
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03"), ("9999-08-01 13:21:03"),("0000-08-01 13:21:03")"""
 
     // YEAR
     qt_sql """ select year('1987-01-01') """
     qt_sql """ select year('2050-01-01') """
     qt_sql """ select test_datetime, year(test_datetime) from ${tableName} order by test_datetime """
+
+    // CENTURY
+    qt_sql """ select century('1900-01-01') """
+    qt_sql """ select century('1901-01-01') """
+    qt_sql """ select century('2000-01-01') """
+    qt_sql """ select century('2001-01-01') """
+    qt_sql """ select century('2023-12-31') """
+    qt_sql """ select century('0001-01-01') """
+    qt_sql """ select century('9999-12-31') """
+    qt_sql """ select century('1999-12-31 23:59:59') """
+    qt_sql """ select century(cast('2000-01-01' as date)) """
+    qt_sql """ select century(cast('2000-01-01 12:00:00' as datetime)) """
+    
+    // Test century with different date formats
+    qt_sql """ select century('1900-12-31') """  // 19th century
+    qt_sql """ select century('1899-12-31') """  // 19th century
+    qt_sql """ select century('2000-12-31') """  // 20th century
+    qt_sql """ select century('2001-01-01') """  // 21st century
+    qt_sql """ select century('2100-01-01') """  // 21st century
+    qt_sql """ select century('2101-01-01') """  // 22nd century
+    
+    // Test century with NULL values
+    qt_sql """ select century(NULL) """
+    
+    // Test century with invalid dates
+    qt_sql """ select century('0000-00-00') """
+    qt_sql """ select century('2023-13-45') """
 
     // YEAROFWEEK
     qt_sql """ select year_of_week('1987-01-01') """
@@ -513,18 +622,56 @@ suite("test_date_function") {
     qt_sql """ select count(*) from (select * from numbers("number" = "200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
 
     // microsecond
-    sql """ drop table ${tableName} """
     tableName = "test_microsecond"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
            CREATE TABLE IF NOT EXISTS ${tableName} (k1 datetimev2(6)) duplicate key(k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');
         """
     sql """ insert into ${tableName} values('1999-01-02 10:11:12.767891') """
+    sql """ insert into ${tableName} values('2023-05-15 08:30:45.123456') """
+    sql """ insert into ${tableName} values('2024-01-01 00:00:00.000001') """
+    sql """ insert into ${tableName} values('2024-12-31 23:59:59.999999') """
 
-    qt_sql """ select microsecond(k1) from ${tableName}; """
+    qt_sql """ select microsecond(k1) from ${tableName} order by k1; """
     
-    // from_unixtime
-    sql """ drop table ${tableName} """
+    // Test microsecond extraction from different datetime formats
+    qt_sql """ select microsecond(k1), k1 from ${tableName} where microsecond(k1) > 500000 order by k1; """
+    qt_sql """ select microsecond(k1), k1 from ${tableName} where microsecond(k1) < 100000 order by k1; """
+
+    // Simple tests for basic functionality
+    qt_sql_second_simple """ select second('12:34:56') """
+    // qt_sql_microsecond_simple """ select microsecond('12:34:56.123456') """
+    
+    // Test with datetime values
+    qt_sql_second_datetime_with_micro """ select second('2024-01-01 12:34:56.789') """
+    qt_sql_microsecond_datetime_with_micro """ select microsecond('2024-01-01 12:34:56.789123') """
+
+    // Test SECOND and MICROSECOND functions with table containing time_str column
+    tableName = "test_time_str_functions"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                `id` INT NOT NULL COMMENT "ID",
+                `time_str` VARCHAR(50) NOT NULL COMMENT "时间字符串"
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES("replication_num" = "1");
+        """
+    
+    // Insert key test data
+    sql """ insert into ${tableName} values 
+            (1, '120000.12'),
+            (2, '12:00:01.12'),
+            (3, '23:59:59.999999'),
+            (4, '2024-01-01 12:34:56.789123');
+        """
+    
+    // Test SECOND function with time_str column
+    qt_sql_table_second_all """ select second(time_str) from ${tableName} order by id; """
+    
+    // Test MICROSECOND function with time_str column  
+    qt_sql_table_microsecond_all """ select microsecond(time_str) from ${tableName} order by id; """
 
     tableName = "test_from_unixtime"
 
@@ -560,8 +707,6 @@ suite("test_date_function") {
 
     qt_sql """SELECT CURDATE() = CURRENT_DATE();"""
     qt_sql """SELECT unix_timestamp(CURDATE()) = unix_timestamp(CURRENT_DATE());"""
-
-    sql """ drop table ${tableName} """
 
     qt_sql """ select date_format('1999-01-01', '%X %V'); """
     qt_sql """ select date_format('2025-01-01', '%X %V'); """
@@ -716,7 +861,6 @@ suite("test_date_function") {
                 last_day(birth2), last_day(birth3) 
                 from ${tableName};
     """
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -736,7 +880,6 @@ suite("test_date_function") {
     qt_sql """
         select last_day(birth), last_day(birth1) from ${tableName};
     """
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     // test to_monday
     sql """ DROP TABLE IF EXISTS ${tableName}; """
@@ -804,7 +947,6 @@ suite("test_date_function") {
             logger.info(exception.message)
         }
     }
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
     
     test {
         sql "select cast('20230631' as date), cast('20230632' as date)"
@@ -835,12 +977,12 @@ suite("test_date_function") {
         properties("replication_num" = "1");
     """
     sql """ insert into date_varchar values ("2020-12-12", "%Y-%m-%d"), ("20201111", "%Y%m%d"), ("202012-13", "%Y%m-%d"),
-    ("0000-00-00", "%Y-%m-%d"),("0000-01-01", "%Y-%m-%d"),("9999-12-31 23:59:59", "%Y-%m-%d %H:%i:%s"),
+    ("0000-01-01", "%Y-%m-%d"),("9999-12-31 23:59:59", "%Y-%m-%d %H:%i:%s"),
     ("9999-12-31 23:59:59.999999", "%Y-%m-%d %H:%i:%s.%f"), ("9999-12-31 23:59:59.9999999", "%Y-%m-%d %H:%i:%s.%f"),
     ("1999-12-31 23:59:59.9999999", "%Y-%m-%d %H:%i:%s.%f"); """
     qt_sql_varchar1 """ select dt, fmt, unix_timestamp(dt, fmt) as k1 from date_varchar order by k1,dt,fmt; """
-    qt_sql_varchar1 """ select dt, unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1,dt,fmt; """
-    qt_sql_varchar1 """ select fmt, unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1,dt,fmt; """
+    // qt_sql_varchar1 """ select dt, unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1,dt,fmt; """
+    // qt_sql_varchar1 """ select fmt, unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1,dt,fmt; """
 
     def test_simplify = {
         test {
@@ -878,4 +1020,5 @@ suite("test_date_function") {
     FROM date_add_test123; """
 
     order_qt_sql2 """ SELECT invalid_col,     DATE_ADD(invalid_col, INTERVAL 1+2 DAY)     FROM date_add_test123 """
+
 }

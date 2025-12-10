@@ -55,7 +55,6 @@ class PipelineFragmentContext;
 class QueryContext;
 class ExecEnv;
 class ThreadPool;
-class TExecPlanFragmentParams;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;
 class RuntimeProfile;
@@ -120,16 +119,12 @@ public:
     void stop();
 
     // execute one plan fragment
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
                               const TPipelineFragmentParamsList& parent);
 
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
-
-    // TODO(zc): report this is over
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb);
+    void remove_query_context(const TUniqueId& key);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
                               const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
@@ -214,7 +209,6 @@ private:
 
     // query id -> QueryContext
     ConcurrentContextMap<TUniqueId, std::weak_ptr<QueryContext>, QueryContext> _query_ctx_map;
-    std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _cancel_thread;

@@ -27,6 +27,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/storage_engine.h"
@@ -87,6 +88,7 @@ Status OlapScanLocalState::_init_profile() {
     // Rows read from storage.
     // Include the rows read from doris page cache.
     _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
+
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
@@ -194,10 +196,6 @@ Status OlapScanLocalState::_init_profile() {
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
 
-    _bitmap_index_filter_counter =
-            ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
-    _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
-
     _inverted_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
     _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTime");
@@ -264,8 +262,6 @@ Status OlapScanLocalState::_init_profile() {
     _segment_iterator_init_timer = ADD_TIMER(_scanner_profile, "SegmentIteratorInitTimer");
     _segment_iterator_init_return_column_iterators_timer =
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer");
-    _segment_iterator_init_bitmap_index_iterators_timer =
-            ADD_TIMER(_scanner_profile, "SegmentIteratorInitBitmapIndexIteratorsTimer");
     _segment_iterator_init_index_iterators_timer =
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitIndexIteratorsTimer");
 
@@ -324,7 +320,24 @@ Status OlapScanLocalState::_init_profile() {
     _ann_range_result_convert_costs =
             ADD_CHILD_TIMER(_segment_profile, "AnnIndexRangeResultConvertCosts",
                             "AnnIndexRangeResultPostProcessCosts");
+    _variant_scan_sparse_column_timer = ADD_TIMER(_segment_profile, "VariantScanSparseColumnTimer");
+    _variant_scan_sparse_column_bytes =
+            ADD_COUNTER(_segment_profile, "VariantScanSparseColumnBytes", TUnit::BYTES);
+    _variant_fill_path_from_sparse_column_timer =
+            ADD_TIMER(_segment_profile, "VariantFillPathFromSparseColumnTimer");
+    _variant_subtree_default_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeDefaultIterCount", TUnit::UNIT);
+    _variant_subtree_leaf_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeLeafIterCount", TUnit::UNIT);
+    _variant_subtree_hierarchical_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeHierarchicalIterCount", TUnit::UNIT);
+    _variant_subtree_sparse_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeSparseIterCount", TUnit::UNIT);
 
+    _condition_cache_hit_segment_counter =
+            ADD_COUNTER(_segment_profile, "ConditionCacheSegmentHit", TUnit::UNIT);
+    _condition_cache_filtered_rows_counter =
+            ADD_COUNTER(_segment_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -429,7 +442,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     auto& p = _parent->cast<OlapScanOperatorX>();
 
     for (auto uid : p._olap_scan_node.output_column_unique_ids) {
-        _maybe_read_column_ids.emplace(uid);
+        _output_column_ids.emplace(uid);
     }
 
     // ranges constructed from scan keys
@@ -484,7 +497,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             // TODO: Use optimize_index_scan_parallelism for ann range search in the future.
             // Currently, ann topn is enough
             if (_ann_topn_runtime != nullptr) {
-                scanner_builder.set_optimize_index_scan_parallelism(true);
+                scanner_builder.set_scan_parallelism_by_per_segment(true);
             }
         }
 
@@ -493,6 +506,15 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->init(state(), _conjuncts));
         }
+
+        const OlapReaderStatistics* stats = scanner_builder.builder_stats();
+        io::FileCacheProfileReporter cache_profile(_segment_profile.get());
+        cache_profile.update(&stats->file_cache_stats);
+
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                stats->file_cache_stats.bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                stats->file_cache_stats.bytes_read_from_remote);
 
         return Status::OK();
     }
@@ -618,6 +640,7 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
             return Status::OK();
         }
         COUNTER_UPDATE(_sync_rowset_timer, _sync_cloud_tablets_watcher.elapsed_time());
+        RETURN_IF_ERROR(_cloud_tablet_future.get());
         auto total_rowsets = std::accumulate(
                 _tablets.cbegin(), _tablets.cend(), 0LL,
                 [](long long acc, const auto& tabletWithVersion) {
@@ -691,9 +714,14 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
     }
 
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
-        RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers({0, _tablets[i].version},
-                                                               &_read_sources[i].rs_splits,
-                                                               _state->skip_missing_version()));
+        _read_sources[i] = DORIS_TRY(_tablets[i].tablet->capture_read_source(
+                {0, _tablets[i].version},
+                {.skip_missing_versions = _state->skip_missing_version(),
+                 .enable_fetch_rowsets_from_peers = config::enable_fetch_rowsets_from_peer_replicas,
+                 .enable_prefer_cached_rowset =
+                         config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+                 .query_freshness_tolerance_ms =
+                         config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1}));
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }
@@ -784,30 +812,21 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
     }
 }
 
-static std::string olap_filter_to_string(const doris::TCondition& condition) {
-    auto op_name = condition.condition_op;
-    if (condition.condition_op == "*=") {
-        op_name = "IN";
-    } else if (condition.condition_op == "!*=") {
-        op_name = "NOT IN";
-    }
-    return fmt::format("{{{} {} {}}}", condition.column_name, op_name,
-                       condition.condition_values.size() > 128
-                               ? "[more than 128 elements]"
-                               : to_string(condition.condition_values));
-}
-
-static std::string olap_filters_to_string(const std::vector<FilterOlapParam<TCondition>>& filters) {
-    std::string filters_string;
-    filters_string += "[";
-    for (auto it = filters.cbegin(); it != filters.cend(); it++) {
-        if (it != filters.cbegin()) {
-            filters_string += ", ";
+static std::string predicates_to_string(
+        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                slot_id_to_predicates) {
+    fmt::memory_buffer debug_string_buffer;
+    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
+        if (predicates.empty()) {
+            continue;
         }
-        filters_string += olap_filter_to_string(it->filter);
+        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
+        for (const auto& predicate : predicates) {
+            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
+        }
+        fmt::format_to(debug_string_buffer, "] ");
     }
-    filters_string += "]";
-    return filters_string;
+    return fmt::to_string(debug_string_buffer);
 }
 
 static std::string tablets_id_to_string(
@@ -858,10 +877,17 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         for (int column_index = 0; column_index < column_names.size() &&
                                    !_scan_keys.has_range_value() && !eos && !should_break;
              ++column_index) {
-            auto iter = _colname_to_value_range.find(column_names[column_index]);
-            if (_colname_to_value_range.end() == iter) {
+            if (p._colname_to_slot_id.find(column_names[column_index]) ==
+                p._colname_to_slot_id.end()) {
                 break;
             }
+            auto iter =
+                    _slot_id_to_value_range.find(p._colname_to_slot_id[column_names[column_index]]);
+            if (_slot_id_to_value_range.end() == iter) {
+                break;
+            }
+            DCHECK(_slot_id_to_predicates.count(iter->first) > 0);
+            const auto& value_range = iter->second;
 
             RETURN_IF_ERROR(std::visit(
                     [&](auto&& range) {
@@ -874,11 +900,25 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                     _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
-                                _colname_to_value_range.erase(iter->first);
+                                auto key = iter->first;
+                                _slot_id_to_value_range.erase(key);
+
+                                std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
+                                for (const auto& it : _slot_id_to_predicates[key]) {
+                                    if (it->type() == PredicateType::NOT_IN_LIST ||
+                                        it->type() == PredicateType::NE) {
+                                        new_predicates.push_back(it);
+                                    }
+                                }
+                                if (new_predicates.empty()) {
+                                    _slot_id_to_predicates.erase(key);
+                                } else {
+                                    _slot_id_to_predicates[key] = new_predicates;
+                                }
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
-                            // and will not erase from _colname_to_value_range, it must be not exact_range
+                            // and will not erase from _slot_id_to_value_range, it must be not exact_range
                             temp_range.set_whole_value_range();
                             RETURN_IF_ERROR(
                                     _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
@@ -886,26 +926,11 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         }
                         return Status::OK();
                     },
-                    iter->second));
+                    value_range));
         }
         if (eos) {
             _eos = true;
             _scan_dependency->set_ready();
-        }
-
-        for (auto& iter : _colname_to_value_range) {
-            std::vector<FilterOlapParam<TCondition>> filters;
-            std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
-
-            for (const auto& filter : filters) {
-                _olap_filters.emplace_back(filter);
-            }
-        }
-
-        // Append value ranges in "_not_in_value_ranges"
-        for (auto& range : _not_in_value_ranges) {
-            std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); },
-                       range);
         }
     } else {
         custom_profile()->add_info_string("PushDownAggregate",
@@ -914,7 +939,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
 
     if (state()->enable_profile()) {
         custom_profile()->add_info_string("PushDownPredicates",
-                                          olap_filters_to_string(_olap_filters));
+                                          predicates_to_string(_slot_id_to_predicates));
         custom_profile()->add_info_string("KeyRanges", _scan_keys.debug_string());
         custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }
@@ -933,6 +958,11 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
+    DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
+        LOG(INFO) << "limit_per_scanner: " << _limit_per_scanner
+                  << ", sort_limit: " << _olap_scan_node.sort_limit
+                  << ", isset.sort_limit: " << _olap_scan_node.__isset.sort_limit;
+    })
 }
 
 #include "common/compile_check_end.h"

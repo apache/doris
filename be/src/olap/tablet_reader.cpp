@@ -81,9 +81,9 @@ std::string TabletReader::ReaderParams::to_string() const {
         ss << " end_keys=" << key;
     }
 
-    for (auto& condition : conditions) {
-        ss << " conditions=" << apache::thrift::ThriftDebugString(condition.filter);
-    }
+    //    for (auto& condition : conditions) {
+    //        ss << " conditions=" << apache::thrift::ThriftDebugString(condition.filter);
+    //    }
 
     return ss.str();
 }
@@ -100,25 +100,6 @@ std::string TabletReader::KeysParam::to_string() const {
     }
 
     return ss.str();
-}
-
-void TabletReader::ReadSource::fill_delete_predicates() {
-    DCHECK_EQ(delete_predicates.size(), 0);
-    for (auto&& split : rs_splits) {
-        auto& rs_meta = split.rs_reader->rowset()->rowset_meta();
-        if (rs_meta->has_delete_predicate()) {
-            delete_predicates.push_back(rs_meta);
-        }
-    }
-}
-
-TabletReader::~TabletReader() {
-    for (auto* pred : _col_predicates) {
-        delete pred;
-    }
-    for (auto* pred : _value_col_predicates) {
-        delete pred;
-    }
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
@@ -271,6 +252,10 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.vir_cid_to_idx_in_block = read_params.vir_cid_to_idx_in_block;
     _reader_context.vir_col_idx_to_type = read_params.vir_col_idx_to_type;
     _reader_context.ann_topn_runtime = read_params.ann_topn_runtime;
+
+    _reader_context.condition_cache_digest = read_params.condition_cache_digest;
+    _reader_context.all_access_paths = read_params.all_access_paths;
+    _reader_context.predicate_access_paths = read_params.predicate_access_paths;
 
     return Status::OK();
 }
@@ -527,45 +512,18 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
 
 Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_conditions_param_timer_ns);
-    std::vector<ColumnPredicate*> predicates;
-
-    auto parse_and_emplace_predicates = [this, &predicates](auto& params) {
-        for (const auto& param : params) {
-            ColumnPredicate* predicate = _parse_to_predicate({param.column_name, param.filter});
-            predicate->attach_profile_counter(param.runtime_filter_id, param.filtered_rows_counter,
-                                              param.input_rows_counter);
-            predicates.emplace_back(predicate);
-        }
-    };
-
-    for (const auto& param : read_params.conditions) {
-        TCondition tmp_cond = param.filter;
-        RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
-        // The "column" parameter might represent a column resulting from the decomposition of a variant column.
-        // Instead of using a "unique_id" for identification, we are utilizing a "path" to denote this column.
-        const auto& column = *DORIS_TRY(_tablet_schema->column(tmp_cond.column_name));
-        const auto& mcolumn = materialize_column(column);
-        uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
-        ColumnPredicate* predicate = parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena);
-        // record condition value into predicate_params in order to pushdown segment_iterator,
-        // _gen_predicate_result_sign will build predicate result unique sign with condition value
-        predicate->attach_profile_counter(param.runtime_filter_id, param.filtered_rows_counter,
-                                          param.input_rows_counter);
-        predicates.emplace_back(predicate);
-    }
-    parse_and_emplace_predicates(read_params.bloom_filters);
-    parse_and_emplace_predicates(read_params.bitmap_filters);
-    parse_and_emplace_predicates(read_params.in_filters);
-
+    std::vector<std::shared_ptr<ColumnPredicate>> predicates;
+    std::copy(read_params.predicates.cbegin(), read_params.predicates.cend(),
+              std::inserter(predicates, predicates.begin()));
     // Function filter push down to storage engine
-    auto is_like_predicate = [](ColumnPredicate* _pred) {
-        return dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
-               dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr;
+    auto is_like_predicate = [](std::shared_ptr<ColumnPredicate> _pred) {
+        return dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred.get()) != nullptr ||
+               dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred.get()) != nullptr;
     };
 
     for (const auto& filter : read_params.function_filters) {
         predicates.emplace_back(_parse_to_predicate(filter));
-        auto* pred = predicates.back();
+        auto pred = predicates.back();
 
         const auto& col = _tablet_schema->column(pred->column_id());
         const auto* tablet_index = _tablet_schema->get_ngram_bf_index(col.unique_id());
@@ -586,7 +544,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         }
     }
 
-    for (auto* predicate : predicates) {
+    for (auto predicate : predicates) {
         auto column = _tablet_schema->column(predicate->column_id());
         if (column.aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
             _value_col_predicates.push_back(predicate);
@@ -604,39 +562,12 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-ColumnPredicate* TabletReader::_parse_to_predicate(
-        const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter) {
-    int32_t index = _tablet_schema->field_index(bloom_filter.first);
-    if (index < 0) {
-        return nullptr;
-    }
-    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, bloom_filter.second, column.type(), &column);
-}
-
-ColumnPredicate* TabletReader::_parse_to_predicate(
-        const std::pair<std::string, std::shared_ptr<HybridSetBase>>& in_filter) {
-    int32_t index = _tablet_schema->field_index(in_filter.first);
-    if (index < 0) {
-        return nullptr;
-    }
-    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, in_filter.second, column.type(), &column);
-}
-
-ColumnPredicate* TabletReader::_parse_to_predicate(
-        const std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>& bitmap_filter) {
-    int32_t index = _tablet_schema->field_index(bitmap_filter.first);
-    if (index < 0) {
-        return nullptr;
-    }
-    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, bitmap_filter.second, column.type(), &column);
-}
-
-ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& function_filter) {
+std::shared_ptr<ColumnPredicate> TabletReader::_parse_to_predicate(
+        const FunctionFilter& function_filter) {
     int32_t index = _tablet_schema->field_index(function_filter._col_name);
     if (index < 0) {
+        throw Exception(Status::InternalError("Column {} not found in tablet schema",
+                                              function_filter._col_name));
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
@@ -680,7 +611,7 @@ Status TabletReader::init_reader_params_and_create_block(
     reader_params->version =
             Version(input_rowsets.front()->start_version(), input_rowsets.back()->end_version());
 
-    ReadSource read_source;
+    TabletReadSource read_source;
     for (const auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
@@ -702,9 +633,6 @@ Status TabletReader::init_reader_params_and_create_block(
         merge_tablet_schema->merge_dropped_columns(*del_pred->tablet_schema());
     }
     reader_params->tablet_schema = merge_tablet_schema;
-    if (tablet->enable_unique_key_merge_on_write()) {
-        reader_params->delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
-    }
 
     reader_params->return_columns.resize(read_tablet_schema->num_columns());
     std::iota(reader_params->return_columns.begin(), reader_params->return_columns.end(), 0);

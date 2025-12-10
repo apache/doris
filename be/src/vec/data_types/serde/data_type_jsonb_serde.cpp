@@ -35,11 +35,9 @@ namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
 
-template <bool is_binary_format>
-Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<is_binary_format>& result,
-                                                  int64_t row_idx, bool col_const,
-                                                  const FormatOptions& options) const {
+Status DataTypeJsonbSerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                        MysqlRowBinaryBuffer& result,
+                                                        int64_t row_idx, bool col_const) const {
     auto& data = assert_cast<const ColumnString&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     const auto jsonb_val = data.get_data_at(col_index);
@@ -55,20 +53,6 @@ Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
         }
     }
     return Status::OK();
-}
-
-Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
-                                                 bool col_const,
-                                                 const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
-                                                 bool col_const,
-                                                 const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -131,6 +115,76 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
                 checkArrowStatus(builder.Append(json_string.data(),
                                                 cast_set<int, size_t, false>(json_string.size())),
                                  column.get_name(), array_builder->type()->name()));
+    }
+    return Status::OK();
+}
+
+Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                  int64_t start, int64_t end,
+                                                  const cctz::time_zone& ctz) const {
+    if (arrow_array->type_id() == arrow::Type::STRING ||
+        arrow_array->type_id() == arrow::Type::BINARY) {
+        const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
+        std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+
+        const uint8_t* offsets_data = concrete_array->value_offsets()->data();
+        const size_t offset_size = sizeof(int32_t);
+
+        JsonBinaryValue value;
+        for (auto offset_i = start; offset_i < end; ++offset_i) {
+            if (!concrete_array->IsNull(offset_i)) {
+                int32_t start_offset = 0;
+                int32_t end_offset = 0;
+                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
+                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+
+                int32_t length = end_offset - start_offset;
+                const auto* raw_data = buffer->data() + start_offset;
+
+                RETURN_IF_ERROR(
+                        value.from_json_string(reinterpret_cast<const char*>(raw_data), length));
+                column.insert_data(value.value(), value.size());
+            } else {
+                column.insert_default();
+            }
+        }
+    } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
+        const auto* concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
+        uint32_t width = concrete_array->byte_width();
+        const auto* array_data = concrete_array->GetValue(start);
+
+        JsonBinaryValue value;
+        for (size_t offset_i = 0; offset_i < end - start; ++offset_i) {
+            if (!concrete_array->IsNull(offset_i)) {
+                const auto* raw_data = array_data + (offset_i * width);
+
+                RETURN_IF_ERROR(
+                        value.from_json_string(reinterpret_cast<const char*>(raw_data), width));
+                column.insert_data(value.value(), value.size());
+            } else {
+                column.insert_default();
+            }
+        }
+    } else if (arrow_array->type_id() == arrow::Type::LARGE_STRING ||
+               arrow_array->type_id() == arrow::Type::LARGE_BINARY) {
+        const auto* concrete_array = dynamic_cast<const arrow::LargeBinaryArray*>(arrow_array);
+        std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+
+        JsonBinaryValue value;
+        for (auto offset_i = start; offset_i < end; ++offset_i) {
+            if (!concrete_array->IsNull(offset_i)) {
+                const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
+
+                RETURN_IF_ERROR(value.from_json_string(reinterpret_cast<const char*>(raw_data),
+                                                       concrete_array->value_length(offset_i)));
+                column.insert_data(value.value(), value.size());
+            } else {
+                column.insert_default();
+            }
+        }
+    } else {
+        return Status::InvalidArgument("Unsupported arrow type for json column: {}",
+                                       arrow_array->type_id());
     }
     return Status::OK();
 }
@@ -282,7 +336,7 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
 Status DataTypeJsonbSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
                                                      JsonbWriter& writer) const {
     const auto& jsonb_binary = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     RETURN_IF_ERROR(
             JsonbDocument::checkAndCreateDocument(jsonb_binary.data, jsonb_binary.size, &doc));
 
@@ -329,5 +383,57 @@ void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
            sizeof(size_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data, data_size);
 }
+
+const uint8_t* DataTypeJsonbSerDe::deserialize_binary_to_column(const uint8_t* data,
+                                                                IColumn& column) {
+    auto& col = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    const size_t data_size = unaligned_load<size_t>(data);
+    data += sizeof(size_t);
+    col.insert_data(reinterpret_cast<const char*>(data), data_size);
+    data += data_size;
+    return data;
+}
+
+const uint8_t* DataTypeJsonbSerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                               FieldInfo& info) {
+    const size_t data_size = unaligned_load<size_t>(data);
+    data += sizeof(size_t);
+    field = Field::create_field<TYPE_JSONB>(
+            JsonbField(reinterpret_cast<const char*>(data), data_size));
+    data += data_size;
+    return data;
+}
+
+void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num,
+                                   BufferWritable& bw) const {
+    const auto& col = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    const auto& data_ref = col.get_data_at(row_num);
+    if (data_ref.size > 0) {
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+        std::string str = JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
+        bw.write(str.c_str(), str.size());
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+    } else {
+        bw.write("NULL", 4);
+    }
+}
+
+bool DataTypeJsonbSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                     int64_t row_idx) const {
+    const auto& col = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    const auto& data_ref = col.get_data_at(row_idx);
+    if (data_ref.size > 0) {
+        std::string str = JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
+        bw.write(str.c_str(), str.size());
+    } else {
+        bw.write("NULL", 4);
+    }
+    return true;
+}
+
 } // namespace vectorized
 } // namespace doris

@@ -23,6 +23,7 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
         'fetch_cluster_cache_hotspot_interval_ms=1000',
+        'rehash_tablet_after_be_dead_seconds=1',
     ]
     options.beConfigs += [
         'file_cache_enter_disk_resource_limit_mode_percent=99',
@@ -57,6 +58,9 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
 
     def getBrpcMetrics = {ip, port, name ->
         def url = "http://${ip}:${port}/brpc_metrics"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            url = url.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         def metrics = new URL(url).text
         def matcher = metrics =~ ~"${name}\\s+(\\d+)"
         if (matcher.find()) {

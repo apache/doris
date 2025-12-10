@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.processor.post.materialize;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessor;
+import org.apache.doris.nereids.processor.post.Validator;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -67,6 +69,19 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
 
     @Override
     public Plan visitPhysicalTopN(PhysicalTopN topN, CascadesContext ctx) {
+        try {
+            Plan result = computeTopN(topN, ctx);
+            if (SessionVariable.isFeDebug()) {
+                Validator validator = new Validator();
+                validator.processRoot(result, ctx);
+            }
+            return result;
+        } catch (Exception e) {
+            return topN;
+        }
+    }
+
+    private Plan computeTopN(PhysicalTopN topN, CascadesContext ctx) {
         if (hasMaterialized) {
             return topN;
         }
@@ -119,8 +134,8 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             if (relation instanceof CatalogRelation) {
                 CatalogRelation catalogRelation = (CatalogRelation) relation;
                 Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL + catalogRelation.getTable().getName(),
-                        Type.STRING, false, null, false,
-                        "", catalogRelation.getTable().getName() + ".global_row_id");
+                        Type.STRING, false, AggregateType.REPLACE, false,
+                        catalogRelation.getTable().getName() + ".global_row_id", false, Integer.MAX_VALUE);
                 SlotReference rowIdSlot = SlotReference.fromColumn(threadStatementContext.getNextExprId(),
                         catalogRelation.getTable(), rowIdCol, catalogRelation.getQualifier());
                 result = result.accept(new LazySlotPruning(),
@@ -130,11 +145,9 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 rowIdSet.add(rowIdSlot);
             } else if (relation instanceof PhysicalTVFRelation) {
                 PhysicalTVFRelation tvfRelation = (PhysicalTVFRelation) relation;
-
                 Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL + tvfRelation.getFunction().getName(),
-                        Type.STRING, false, null, false,
-                        "", tvfRelation.getFunction().getName() + ".global_row_id");
-
+                        Type.STRING, false, AggregateType.REPLACE, false,
+                        tvfRelation.getFunction().getName() + ".global_row_id", false, Integer.MAX_VALUE);
                 SlotReference rowIdSlot = SlotReference.fromColumn(threadStatementContext.getNextExprId(),
                         tvfRelation.getFunction().getTable(), rowIdCol, ImmutableList.of());
                 result = result.accept(new LazySlotPruning(),

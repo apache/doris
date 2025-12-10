@@ -17,7 +17,6 @@
 
 import groovy.json.JsonOutput
 import org.codehaus.groovy.runtime.IOGroovyMethods
-import java.time.Duration;
 
 import com.amazonaws.auth.AWSStaticCredentialsProvider
 import com.amazonaws.auth.BasicAWSCredentials
@@ -27,22 +26,19 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsRequest
 import com.amazonaws.services.s3.model.ObjectListing
 import com.amazonaws.services.s3.model.DeleteObjectRequest
-import com.azure.core.http.rest.PagedIterable;
-import com.azure.core.http.rest.PagedResponse;
-import com.azure.core.http.rest.Response;
-import com.azure.core.util.Context;
-import com.azure.storage.blob.BlobClient;
-import com.azure.storage.blob.BlobContainerClient;
-import com.azure.storage.blob.BlobContainerClientBuilder;
-import com.azure.storage.blob.models.BlobItem;
-import com.azure.storage.blob.models.BlobStorageException;
-import com.azure.storage.blob.models.ListBlobsOptions;
-import com.azure.storage.common.StorageSharedKeyCredential;
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.fs.LocatedFileStatus
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.fs.RemoteIterator
+import org.apache.hadoop.security.UserGroupInformation
+
+import com.azure.storage.blob.BlobContainerClient
+import com.azure.storage.blob.BlobContainerClientBuilder
+import com.azure.storage.blob.models.BlobItem
+import com.azure.storage.blob.models.ListBlobsOptions
+import com.azure.storage.common.StorageSharedKeyCredential
+import java.time.Duration
 
 suite("test_checker") {
     def token = "greedisgood9999"
@@ -51,8 +47,16 @@ suite("test_checker") {
     def caseStartTime = System.currentTimeMillis()
 
     def tableName = "test_recycler"
+    def recycleBeforeTest = context.config.recycleBeforeTest
+
+    if( recycleBeforeTest == 'true') {
+        triggerRecycle(token, instanceId)
+        Thread.sleep(60000)
+    }
     // Create table
     sql """ DROP TABLE IF EXISTS ${tableName}; """
+    def getObjStoreInfoApiResult = getObjStoreInfo(token, cloudUniqueId)
+    logger.info("result: ${getObjStoreInfoApiResult}".toString())
     sql """
         CREATE TABLE ${tableName} (
             `id` int(11) NULL,
@@ -78,35 +82,50 @@ suite("test_checker") {
     logger.info("tabletIdSet:${tabletIdSet}")
 
     // Randomly delete segment file under tablet dir
-    def getObjStoreInfoApiResult = getObjStoreInfo(token, cloudUniqueId)
-    if (getObjStoreInfoApiResult.result.containsKey("obj_info")) {
-        String ak = getObjStoreInfoApiResult.result.obj_info[0].ak
-        String sk = getObjStoreInfoApiResult.result.obj_info[0].sk
-        String s3Endpoint = getObjStoreInfoApiResult.result.obj_info[0].endpoint
-        String region = getObjStoreInfoApiResult.result.obj_info[0].region
-        String prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
-        String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
-        String provider = getObjStoreInfoApiResult.result.obj_info[0].provider
-        if (provider.equalsIgnoreCase("azure")) {
-            String uri = String.format("https://%s.blob.core.windows.net/%s", ak, bucket);
-            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(ak, sk);
-            BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
-            builder.credential(cred);
-            builder.endpoint(uri);
-            BlobContainerClient containerClient = builder.buildClient();
-            PagedIterable<BlobItem> blobs = containerClient.listBlobs(
-                new ListBlobsOptions()
-                    .setPrefix("${prefix}/data/${tabletId}/"), Duration.ofMinutes(1));
+    getObjStoreInfoApiResult = getObjStoreInfo(token, cloudUniqueId)
+    if (getObjStoreInfoApiResult.result.toString().contains("obj_info")) {
+        String ak, sk, endpoint, region, prefix, bucket, provider
+        if(!getObjStoreInfoApiResult.result.toString().contains("storage_vault=[")){
+            ak = getObjStoreInfoApiResult.result.obj_info[0].ak
+            sk = getObjStoreInfoApiResult.result.obj_info[0].sk
+            endpoint = getObjStoreInfoApiResult.result.obj_info[0].endpoint
+            region = getObjStoreInfoApiResult.result.obj_info[0].region
+            prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
+            bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
+            provider = getObjStoreInfoApiResult.result.obj_info[0].provider
+        }else{
+            ak = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.ak
+            sk = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.sk
+            endpoint = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.endpoint
+            region = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.region
+            prefix = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.prefix
+            bucket = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.bucket
+            provider = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.provider
+        }
 
-            def objectSummaries = blobs.stream().map(BlobItem::getName).toList()
-            assertTrue(!objectSummaries.isEmpty())
+        if (provider?.equalsIgnoreCase("AZURE")) {
+            // Use Azure Blob Storage SDK
+            String uri = String.format("https://%s/%s", endpoint, bucket);
+            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(ak, sk);
+            BlobContainerClient containerClient = new BlobContainerClientBuilder()
+                .credential(cred)
+                .endpoint(uri)
+                .buildClient();
+
+            def blobs = containerClient.listBlobs(
+                new ListBlobsOptions().setPrefix("${prefix}/data/${tabletId}/"),
+                Duration.ofMinutes(1));
+            def blobsList = blobs.stream().toList()
+            assertTrue(!blobsList.isEmpty())
             Random random = new Random(caseStartTime);
-            def objectKey = objectSummaries.get(random.nextInt(objectSummaries.size()))
-            BlobClient client = containerClient.getBlobClient(objectKey)
-            client.delete()
+            def blobToDelete = blobsList[random.nextInt(blobsList.size())]
+            def blobName = blobToDelete.getName()
+            logger.info("delete blob: ${blobName}")
+            containerClient.getBlobClient(blobName).delete()
         } else {
+            // Use AWS S3 SDK
             def credentials = new BasicAWSCredentials(ak, sk)
-            def endpointConfiguration = new EndpointConfiguration(s3Endpoint, region)
+            def endpointConfiguration = new EndpointConfiguration(endpoint, region)
             def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
                     .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
             def objectListing = s3Client.listObjects(
@@ -118,16 +137,30 @@ suite("test_checker") {
             logger.info("delete objectKey: ${objectKey}")
             s3Client.deleteObject(new DeleteObjectRequest(bucket, objectKey))
         }
-    } else if (getObjStoreInfoApiResult.result.containsKey("storage_vault")) {
+    } else if (getObjStoreInfoApiResult.result.toString().contains("storage_vault=[") && getObjStoreInfoApiResult.result.toString().contains("hdfs_info")) {
+        System.setProperty("java.security.krb5.conf", "/etc/krb/krb5.conf")
         String fsUri = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.fs_name
         String prefix = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.prefix
         String hdfsPath = "/${prefix}/data/${tabletId}/"
         String username = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.user
+        String kbsPrincipal = ''
+        String kbsKeytab = ''
+        Boolean isKbs = false
+        if ( getObjStoreInfoApiResult.result.toString().contains("value=kerberos")) {
+            kbsPrincipal = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.hdfs_kerberos_principal
+            kbsKeytab = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.hdfs_kerberos_keytab
+            isKbs = true
+        }
         logger.info(":${fsUri}|${hdfsPath}".toString())
         Configuration configuration = new Configuration();
         configuration.set("fs.defaultFS", fsUri);
         configuration.set("fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem");
         configuration.set("hadoop.username", username);
+        if (isKbs) {
+            configuration.set("hadoop.security.authentication", "kerberos")
+            UserGroupInformation.setConfiguration(configuration)
+            UserGroupInformation.loginUserFromKeytab(kbsPrincipal, kbsKeytab)
+        }
         FileSystem fs = FileSystem.get(configuration);
         Path path = new Path(hdfsPath);
         try {
@@ -188,6 +221,8 @@ suite("test_checker") {
     }
 
     do {
+        triggerRecycle(token, instanceId)
+        Thread.sleep(10000) // 10s
         triggerChecker()
         Thread.sleep(10000) // 10s
         getCheckJobInfo()

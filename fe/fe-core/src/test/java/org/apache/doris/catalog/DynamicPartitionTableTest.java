@@ -1794,6 +1794,7 @@ public class DynamicPartitionTableTest {
         }
         RebalancerTestUtil.updateReplicaDataSize(1, 1, 1);
 
+        Config.autobucket_out_of_bounds_percent_threshold = 0.99;
         String alterStmt1 =
                 "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '2')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt1));
@@ -1804,6 +1805,7 @@ public class DynamicPartitionTableTest {
         partitions.sort(Comparator.comparing(Partition::getId));
         Assert.assertEquals(53, partitions.size());
         Assert.assertEquals(1, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+        Config.autobucket_out_of_bounds_percent_threshold = 0.5;
 
         table.readLock();
         try {

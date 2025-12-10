@@ -64,6 +64,7 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_varbinary.h"
 #include "vec/data_types/data_type_variant.h"
 
 namespace doris::vectorized {
@@ -105,8 +106,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         nested = std::make_shared<DataTypeVariant>(col_desc.variant_max_subcolumns_count());
     } else {
-        nested =
-                _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac());
+        nested = _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac(),
+                                             col_desc.length());
     }
 
     if ((is_nullable || col_desc.is_nullable()) && nested) {
@@ -116,7 +117,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
 }
 
 DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, int precision,
-                                                         int scale) const {
+                                                         int scale, int length) const {
     DataTypePtr result = nullptr;
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_BOOL:
@@ -162,7 +163,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeFloat64>();
         break;
     case FieldType::OLAP_FIELD_TYPE_CHAR:
-        result = std::make_shared<vectorized::DataTypeString>(-1, TYPE_CHAR);
+        result = std::make_shared<vectorized::DataTypeString>(length, TYPE_CHAR);
         break;
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         result = std::make_shared<vectorized::DataTypeString>(-1, TYPE_VARCHAR);
@@ -264,8 +265,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
                                                      pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL128:
-        nested = std::make_shared<DataTypeDecimalV2>(pcolumn.decimal_param().precision(),
-                                                     pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimalV2>(
+                BeConsts::MAX_DECIMALV2_PRECISION, BeConsts::MAX_DECIMALV2_SCALE,
+                pcolumn.decimal_param().precision(), pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL128I:
         nested = std::make_shared<DataTypeDecimal128>(pcolumn.decimal_param().precision(),
@@ -280,6 +282,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     case PGenericType::HLL:
         nested = std::make_shared<DataTypeHLL>();
+        break;
+    case PGenericType::VARBINARY:
+        nested = std::make_shared<DataTypeVarbinary>();
         break;
     case PGenericType::LIST:
         DCHECK(pcolumn.children_size() == 1);
@@ -374,7 +379,7 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     } else {
         // TODO add precision and frac
         nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
-                                             pcolumn.precision(), pcolumn.frac());
+                                             pcolumn.precision(), pcolumn.frac(), -1);
     }
 
     if (pcolumn.is_nullable() && nested) {
@@ -455,8 +460,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimalV2>(
-                precision > 0 ? precision : 0, precision > 0 ? scale : 0, precision, scale);
+        nested = std::make_shared<vectorized::DataTypeDecimalV2>(27, 9, precision, scale);
         break;
     case TYPE_QUANTILE_STATE:
         nested = std::make_shared<vectorized::DataTypeQuantileState>();
@@ -468,11 +472,14 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = vectorized::create_decimal(precision, scale, false);
         break;
     // Just Mock A NULL Type in Vec Exec Engine
-    case TYPE_NULL:
-        nested = std::make_shared<vectorized::DataTypeUInt8>();
-        const_cast<vectorized::DataTypeUInt8&>(
-                reinterpret_cast<const vectorized::DataTypeUInt8&>(*nested))
-                .set_null_literal(true);
+    case TYPE_NULL: {
+        auto temp_nested = std::make_shared<vectorized::DataTypeUInt8>();
+        temp_nested->set_null_literal(true);
+        nested = std::move(temp_nested);
+        break;
+    }
+    case TYPE_VARBINARY:
+        nested = std::make_shared<vectorized::DataTypeVarbinary>(len, TYPE_VARBINARY);
         break;
     case TYPE_AGG_STATE:
     case TYPE_ARRAY:
@@ -585,7 +592,7 @@ DataTypePtr DataTypeFactory::create_data_type(
         if (primitive_type == TYPE_ARRAY) {
             ++(*idx);
             nested = std::make_shared<vectorized::DataTypeArray>(create_data_type(
-                    types, idx, node.has_contains_null() ? node.has_contains_null() : true));
+                    types, idx, node.has_contains_null() ? node.contains_null() : true));
         } else if (primitive_type == TYPE_MAP) {
             DataTypes data_types;
             data_types.resize(2, nullptr);
@@ -624,7 +631,7 @@ DataTypePtr DataTypeFactory::create_data_type(
     case TTypeNodeType::ARRAY: {
         ++(*idx);
         nested = std::make_shared<vectorized::DataTypeArray>(create_data_type(
-                types, idx, node.has_contains_null() ? node.has_contains_null() : true));
+                types, idx, node.has_contains_null() ? node.contains_null() : true));
         break;
     }
     case TTypeNodeType::MAP: {

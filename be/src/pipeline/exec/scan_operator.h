@@ -37,6 +37,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class ScannerDelegate;
+class OlapScanner;
 } // namespace doris::vectorized
 
 namespace doris::pipeline {
@@ -83,8 +84,20 @@ public:
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
     virtual int64_t get_push_down_count() = 0;
+    // If scan operator is serial operator(like topn), its real parallelism is 1.
+    // Otherwise, its real parallelism is query_parallel_instance_num.
+    // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
+    // for file scan operator, its real parallelism will be 1 if it is in batch mode.
+    // Related pr:
+    // https://github.com/apache/doris/pull/42460
+    // https://github.com/apache/doris/pull/44635
+    [[nodiscard]] virtual int max_scanners_concurrency(RuntimeState* state) const;
+    [[nodiscard]] virtual int min_scanners_concurrency(RuntimeState* state) const;
+    [[nodiscard]] virtual vectorized::ScannerScheduler* scan_scheduler(RuntimeState* state) const;
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
+
+    uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
 
 protected:
     friend class vectorized::ScannerContext;
@@ -122,6 +135,8 @@ protected:
 
     RuntimeFilterConsumerHelper _helper;
     std::mutex _conjunct_lock;
+    // magic number as seed to generate hash value for condition cache
+    uint64_t _condition_cache_digest = 0;
 };
 
 template <typename LocalStateType>
@@ -171,7 +186,7 @@ class ScanLocalState : public ScanLocalStateBase {
 
     std::vector<int> get_topn_filter_source_node_ids(RuntimeState* state, bool push_down) {
         std::vector<int> result;
-        for (int id : _parent->cast<typename Derived::Parent>().topn_filter_source_node_ids) {
+        for (int id : _parent->cast<typename Derived::Parent>()._topn_filter_source_node_ids) {
             if (!state->get_query_ctx()->has_runtime_predicate(id)) {
                 // compatible with older versions fe
                 continue;
@@ -195,10 +210,7 @@ protected:
     friend class vectorized::Scanner;
 
     Status _init_profile() override;
-    virtual Status _process_conjuncts(RuntimeState* state) {
-        RETURN_IF_ERROR(_normalize_conjuncts(state));
-        return Status::OK();
-    }
+    virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }
@@ -235,52 +247,49 @@ protected:
     }
 
     Status _normalize_conjuncts(RuntimeState* state);
-    Status _normalize_predicate(const vectorized::VExprSPtr& conjunct_expr_root,
-                                vectorized::VExprContext* context,
+    Status _normalize_predicate(vectorized::VExprContext* context,
                                 vectorized::VExprSPtr& output_expr);
-    Status _eval_const_conjuncts(vectorized::VExpr* vexpr, vectorized::VExprContext* expr_ctx,
-                                 PushDownType* pdt);
+    Status _eval_const_conjuncts(vectorized::VExprContext* expr_ctx, PushDownType* pdt);
 
-    Status _normalize_bloom_filter(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                   SlotDescriptor* slot, PushDownType* pdt);
+    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                   PushDownType* pdt);
 
-    Status _normalize_bitmap_filter(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                    SlotDescriptor* slot, PushDownType* pdt);
+    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                    PushDownType* pdt);
 
-    Status _normalize_function_filters(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                       SlotDescriptor* slot, PushDownType* pdt);
+    Status _normalize_function_filters(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                       PushDownType* pdt);
 
-    bool _is_predicate_acting_on_slot(
-            vectorized::VExpr* expr,
-            const std::function<bool(const vectorized::VExprSPtrs&,
-                                     std::shared_ptr<vectorized::VSlotRef>&,
-                                     vectorized::VExprSPtr&)>& checker,
-            SlotDescriptor** slot_desc, ColumnValueRangeType** range);
+    bool _is_predicate_acting_on_slot(const std::shared_ptr<vectorized::VSlotRef>& slot_ref,
+                                      const vectorized::VExprSPtr& child_contains_slot,
+                                      ColumnValueRangeType** range);
 
     template <PrimitiveType T>
-    Status _normalize_in_and_eq_predicate(vectorized::VExpr* expr,
-                                          vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    Status _normalize_in_and_eq_predicate(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                          std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                           ColumnValueRange<T>& range, PushDownType* pdt);
     template <PrimitiveType T>
-    Status _normalize_not_in_and_not_eq_predicate(vectorized::VExpr* expr,
-                                                  vectorized::VExprContext* expr_ctx,
-                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                  PushDownType* pdt);
+    Status _normalize_not_in_and_not_eq_predicate(
+            vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+            std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
+            PushDownType* pdt);
 
     template <PrimitiveType T>
-    Status _normalize_noneq_binary_predicate(vectorized::VExpr* expr,
-                                             vectorized::VExprContext* expr_ctx,
-                                             SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                             PushDownType* pdt);
+    Status _normalize_noneq_binary_predicate(
+            vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+            std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
+            PushDownType* pdt);
     template <PrimitiveType T>
-    Status _normalize_is_null_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                        SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                        PushDownType* pdt);
+    Status _normalize_is_null_predicate(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                        std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                        ColumnValueRange<T>& range, PushDownType* pdt);
 
     bool _ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr);
 
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
-    Status _change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
+    Status _change_value_range(ColumnValueRange<PrimitiveType>& range, const void* value,
                                const ChangeFixedValueRangeFunc& func, const std::string& fn_name,
                                int slot_ref_child = -1);
 
@@ -307,8 +316,6 @@ protected:
 
     std::shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
 
-    FilterPredicates _filter_predicates {};
-
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
 
@@ -317,27 +324,16 @@ protected:
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
-    phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
-            _slot_id_to_value_range;
-    // column -> ColumnValueRange
-    // We use _colname_to_value_range to store a column and its conresponding value ranges.
-    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
-
-    // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
-    // in this case we can not merge "1 < col < 10" with "col not in (2)".
-    // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
-    // When the data source try to use the value ranges, it should use both ranges in
-    // "_colname_to_value_range" and in "_not_in_value_ranges"
-    std::vector<ColumnValueRangeType> _not_in_value_ranges;
+    phmap::flat_hash_map<int, ColumnValueRangeType> _slot_id_to_value_range;
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
 
     std::atomic<bool> _eos = false;
-
-    std::mutex _block_lock;
 
     std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;
+    vectorized::Arena _arena;
 };
 
 template <typename LocalStateType>
@@ -362,10 +358,6 @@ public:
 
     [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
 
-    [[nodiscard]] virtual int query_parallel_instance_num() const {
-        return _query_parallel_instance_num;
-    }
-
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state) override;
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
@@ -374,7 +366,7 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<LocalStateType>::is_serial_operator()) {
             // `is_serial_operator()` returns true means we ignore the distribution.
             return {ExchangeType::NOOP};
@@ -401,6 +393,7 @@ public:
 
 protected:
     using LocalState = LocalStateType;
+    friend class vectorized::OlapScanner;
     ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                   const DescriptorTbl& descs, int parallel_tasks = 0);
     virtual ~ScanOperatorX() = default;
@@ -442,9 +435,7 @@ protected:
     int64_t _push_down_count = -1;
     const int _parallel_tasks = 0;
 
-    int _query_parallel_instance_num = 0;
-
-    std::vector<int> topn_filter_source_node_ids;
+    std::vector<int> _topn_filter_source_node_ids;
 };
 
 #include "common/compile_check_end.h"

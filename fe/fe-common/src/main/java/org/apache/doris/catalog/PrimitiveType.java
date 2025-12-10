@@ -21,7 +21,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
@@ -53,6 +52,7 @@ public enum PrimitiveType {
     // Aligning to 8 bytes so 16 total.
     VARCHAR("VARCHAR", 16, TPrimitiveType.VARCHAR, true),
     JSONB("JSON", 16, TPrimitiveType.JSONB, true),
+    VARBINARY("VARBINARY", 16, TPrimitiveType.VARBINARY, true),
 
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2, true),
     DECIMAL32("DECIMAL32", 4, TPrimitiveType.DECIMAL32, true),
@@ -80,8 +80,7 @@ public enum PrimitiveType {
     VARIANT("VARIANT", 24, TPrimitiveType.VARIANT, false),
     TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE, false),
     // Unsupported scalar types.
-    BINARY("BINARY", -1, TPrimitiveType.BINARY, false),
-    ALL("ALL", -1, TPrimitiveType.INVALID_TYPE, false);
+    BINARY("BINARY", -1, TPrimitiveType.BINARY, false);
 
 
     private static final int DATE_INDEX_LEN = 3;
@@ -103,528 +102,7 @@ public enum PrimitiveType {
         typeWithPrecision = builder.build();
     }
 
-    private static final ImmutableSetMultimap<PrimitiveType, PrimitiveType> implicitCastMap;
-
-    public static ImmutableSetMultimap<PrimitiveType, PrimitiveType> getImplicitCastMap() {
-        return implicitCastMap;
-    }
-
-    static {
-        ImmutableSetMultimap.Builder<PrimitiveType, PrimitiveType> builder = ImmutableSetMultimap.builder();
-        // Nulltype
-        builder.put(NULL_TYPE, BOOLEAN);
-        builder.put(NULL_TYPE, TINYINT);
-        builder.put(NULL_TYPE, SMALLINT);
-        builder.put(NULL_TYPE, INT);
-        builder.put(NULL_TYPE, BIGINT);
-        builder.put(NULL_TYPE, LARGEINT);
-        builder.put(NULL_TYPE, FLOAT);
-        builder.put(NULL_TYPE, DOUBLE);
-        builder.put(NULL_TYPE, DATE);
-        builder.put(NULL_TYPE, DATETIME);
-        builder.put(NULL_TYPE, DATEV2);
-        builder.put(NULL_TYPE, DATETIMEV2);
-        builder.put(NULL_TYPE, IPV4);
-        builder.put(NULL_TYPE, IPV6);
-        builder.put(NULL_TYPE, DECIMALV2);
-        builder.put(NULL_TYPE, DECIMAL32);
-        builder.put(NULL_TYPE, DECIMAL64);
-        builder.put(NULL_TYPE, DECIMAL128);
-        builder.put(NULL_TYPE, DECIMAL256);
-        builder.put(NULL_TYPE, CHAR);
-        builder.put(NULL_TYPE, VARCHAR);
-        builder.put(NULL_TYPE, STRING);
-        builder.put(NULL_TYPE, JSONB);
-        builder.put(NULL_TYPE, VARIANT);
-        builder.put(NULL_TYPE, BITMAP); //TODO(weixiang):why null type can cast to bitmap?
-        builder.put(NULL_TYPE, TIMEV2);
-        // Boolean
-        builder.put(BOOLEAN, BOOLEAN);
-        builder.put(BOOLEAN, TINYINT);
-        builder.put(BOOLEAN, SMALLINT);
-        builder.put(BOOLEAN, INT);
-        builder.put(BOOLEAN, BIGINT);
-        builder.put(BOOLEAN, LARGEINT);
-        builder.put(BOOLEAN, FLOAT);
-        builder.put(BOOLEAN, DOUBLE);
-        builder.put(BOOLEAN, DATE);
-        builder.put(BOOLEAN, DATETIME);
-        builder.put(BOOLEAN, DATEV2);
-        builder.put(BOOLEAN, DATETIMEV2);
-        builder.put(BOOLEAN, IPV4);
-        builder.put(BOOLEAN, IPV6);
-        builder.put(BOOLEAN, DECIMALV2);
-        builder.put(BOOLEAN, DECIMAL32);
-        builder.put(BOOLEAN, DECIMAL64);
-        builder.put(BOOLEAN, DECIMAL128);
-        builder.put(BOOLEAN, DECIMAL256);
-        builder.put(BOOLEAN, VARCHAR);
-        builder.put(BOOLEAN, STRING);
-        // Tinyint
-        builder.put(TINYINT, BOOLEAN);
-        builder.put(TINYINT, TINYINT);
-        builder.put(TINYINT, SMALLINT);
-        builder.put(TINYINT, INT);
-        builder.put(TINYINT, BIGINT);
-        builder.put(TINYINT, LARGEINT);
-        builder.put(TINYINT, FLOAT);
-        builder.put(TINYINT, DOUBLE);
-        builder.put(TINYINT, DATE);
-        builder.put(TINYINT, DATETIME);
-        builder.put(TINYINT, DATEV2);
-        builder.put(TINYINT, DATETIMEV2);
-        builder.put(TINYINT, IPV4);
-        builder.put(TINYINT, IPV6);
-        builder.put(TINYINT, DECIMALV2);
-        builder.put(TINYINT, DECIMAL32);
-        builder.put(TINYINT, DECIMAL64);
-        builder.put(TINYINT, DECIMAL128);
-        builder.put(TINYINT, DECIMAL256);
-        builder.put(TINYINT, VARCHAR);
-        builder.put(TINYINT, STRING);
-        builder.put(TINYINT, TIMEV2);
-        // Smallint
-        builder.put(SMALLINT, BOOLEAN);
-        builder.put(SMALLINT, TINYINT);
-        builder.put(SMALLINT, SMALLINT);
-        builder.put(SMALLINT, INT);
-        builder.put(SMALLINT, BIGINT);
-        builder.put(SMALLINT, LARGEINT);
-        builder.put(SMALLINT, FLOAT);
-        builder.put(SMALLINT, DOUBLE);
-        builder.put(SMALLINT, DATE);
-        builder.put(SMALLINT, DATETIME);
-        builder.put(SMALLINT, DATEV2);
-        builder.put(SMALLINT, DATETIMEV2);
-        builder.put(SMALLINT, IPV4);
-        builder.put(SMALLINT, IPV6);
-        builder.put(SMALLINT, DECIMALV2);
-        builder.put(SMALLINT, DECIMAL32);
-        builder.put(SMALLINT, DECIMAL64);
-        builder.put(SMALLINT, DECIMAL128);
-        builder.put(SMALLINT, DECIMAL256);
-        builder.put(SMALLINT, VARCHAR);
-        builder.put(SMALLINT, STRING);
-        builder.put(SMALLINT, TIMEV2);
-        // Int
-        builder.put(INT, BOOLEAN);
-        builder.put(INT, TINYINT);
-        builder.put(INT, SMALLINT);
-        builder.put(INT, INT);
-        builder.put(INT, BIGINT);
-        builder.put(INT, LARGEINT);
-        builder.put(INT, FLOAT);
-        builder.put(INT, DOUBLE);
-        builder.put(INT, DATE);
-        builder.put(INT, DATETIME);
-        builder.put(INT, DATEV2);
-        builder.put(INT, DATETIMEV2);
-        builder.put(INT, IPV4);
-        builder.put(INT, IPV6);
-        builder.put(INT, DECIMALV2);
-        builder.put(INT, DECIMAL32);
-        builder.put(INT, DECIMAL64);
-        builder.put(INT, DECIMAL128);
-        builder.put(INT, DECIMAL256);
-        builder.put(INT, VARCHAR);
-        builder.put(INT, STRING);
-        builder.put(INT, TIMEV2);
-        // Bigint
-        builder.put(BIGINT, BOOLEAN);
-        builder.put(BIGINT, TINYINT);
-        builder.put(BIGINT, SMALLINT);
-        builder.put(BIGINT, INT);
-        builder.put(BIGINT, BIGINT);
-        builder.put(BIGINT, LARGEINT);
-        builder.put(BIGINT, FLOAT);
-        builder.put(BIGINT, DOUBLE);
-        builder.put(BIGINT, DATE);
-        builder.put(BIGINT, DATETIME);
-        builder.put(BIGINT, DATEV2);
-        builder.put(BIGINT, DATETIMEV2);
-        builder.put(BIGINT, IPV4);
-        builder.put(BIGINT, IPV6);
-        builder.put(BIGINT, DECIMALV2);
-        builder.put(BIGINT, DECIMAL32);
-        builder.put(BIGINT, DECIMAL64);
-        builder.put(BIGINT, DECIMAL128);
-        builder.put(BIGINT, DECIMAL256);
-        builder.put(BIGINT, VARCHAR);
-        builder.put(BIGINT, STRING);
-        builder.put(BIGINT, TIMEV2);
-        // Largeint
-        builder.put(LARGEINT, BOOLEAN);
-        builder.put(LARGEINT, TINYINT);
-        builder.put(LARGEINT, SMALLINT);
-        builder.put(LARGEINT, INT);
-        builder.put(LARGEINT, BIGINT);
-        builder.put(LARGEINT, LARGEINT);
-        builder.put(LARGEINT, FLOAT);
-        builder.put(LARGEINT, DOUBLE);
-        builder.put(LARGEINT, DATE);
-        builder.put(LARGEINT, DATETIME);
-        builder.put(LARGEINT, DATEV2);
-        builder.put(LARGEINT, DATETIMEV2);
-        builder.put(LARGEINT, IPV4);
-        builder.put(LARGEINT, IPV6);
-        builder.put(LARGEINT, DECIMALV2);
-        builder.put(LARGEINT, DECIMAL32);
-        builder.put(LARGEINT, DECIMAL64);
-        builder.put(LARGEINT, DECIMAL128);
-        builder.put(LARGEINT, DECIMAL256);
-        builder.put(LARGEINT, VARCHAR);
-        builder.put(LARGEINT, STRING);
-        builder.put(LARGEINT, TIMEV2);
-        // Float
-        builder.put(FLOAT, BOOLEAN);
-        builder.put(FLOAT, TINYINT);
-        builder.put(FLOAT, SMALLINT);
-        builder.put(FLOAT, INT);
-        builder.put(FLOAT, BIGINT);
-        builder.put(FLOAT, LARGEINT);
-        builder.put(FLOAT, FLOAT);
-        builder.put(FLOAT, DOUBLE);
-        builder.put(FLOAT, DATE);
-        builder.put(FLOAT, DATETIME);
-        builder.put(FLOAT, DATEV2);
-        builder.put(FLOAT, DATETIMEV2);
-        builder.put(FLOAT, IPV4);
-        builder.put(FLOAT, IPV6);
-        builder.put(FLOAT, DECIMALV2);
-        builder.put(FLOAT, DECIMAL32);
-        builder.put(FLOAT, DECIMAL64);
-        builder.put(FLOAT, DECIMAL128);
-        builder.put(FLOAT, DECIMAL256);
-        builder.put(FLOAT, VARCHAR);
-        builder.put(FLOAT, STRING);
-        builder.put(FLOAT, TIMEV2);
-        // Double
-        builder.put(DOUBLE, BOOLEAN);
-        builder.put(DOUBLE, TINYINT);
-        builder.put(DOUBLE, SMALLINT);
-        builder.put(DOUBLE, INT);
-        builder.put(DOUBLE, BIGINT);
-        builder.put(DOUBLE, LARGEINT);
-        builder.put(DOUBLE, FLOAT);
-        builder.put(DOUBLE, DOUBLE);
-        builder.put(DOUBLE, DATE);
-        builder.put(DOUBLE, DATETIME);
-        builder.put(DOUBLE, DATEV2);
-        builder.put(DOUBLE, DATETIMEV2);
-        builder.put(DOUBLE, IPV4);
-        builder.put(DOUBLE, IPV6);
-        builder.put(DOUBLE, DECIMALV2);
-        builder.put(DOUBLE, DECIMAL32);
-        builder.put(DOUBLE, DECIMAL64);
-        builder.put(DOUBLE, DECIMAL128);
-        builder.put(DOUBLE, DECIMAL256);
-        builder.put(DOUBLE, VARCHAR);
-        builder.put(DOUBLE, STRING);
-        builder.put(DOUBLE, TIMEV2);
-        // Date
-        builder.put(DATE, BOOLEAN);
-        builder.put(DATE, TINYINT);
-        builder.put(DATE, SMALLINT);
-        builder.put(DATE, INT);
-        builder.put(DATE, BIGINT);
-        builder.put(DATE, LARGEINT);
-        builder.put(DATE, FLOAT);
-        builder.put(DATE, DOUBLE);
-        builder.put(DATE, DATE);
-        builder.put(DATE, DATETIME);
-        builder.put(DATE, DATEV2);
-        builder.put(DATE, DATETIMEV2);
-        builder.put(DATE, DECIMALV2);
-        builder.put(DATE, DECIMAL32);
-        builder.put(DATE, DECIMAL64);
-        builder.put(DATE, DECIMAL128);
-        builder.put(DATE, DECIMAL256);
-        builder.put(DATE, VARCHAR);
-        builder.put(DATE, STRING);
-        // Datetime
-        builder.put(DATETIME, BOOLEAN);
-        builder.put(DATETIME, TINYINT);
-        builder.put(DATETIME, SMALLINT);
-        builder.put(DATETIME, INT);
-        builder.put(DATETIME, BIGINT);
-        builder.put(DATETIME, LARGEINT);
-        builder.put(DATETIME, FLOAT);
-        builder.put(DATETIME, DOUBLE);
-        builder.put(DATETIME, DATE);
-        builder.put(DATETIME, DATETIME);
-        builder.put(DATETIME, DATEV2);
-        builder.put(DATETIME, DATETIMEV2);
-        builder.put(DATETIME, TIMEV2);
-        builder.put(DATETIME, DECIMALV2);
-        builder.put(DATETIME, DECIMAL32);
-        builder.put(DATETIME, DECIMAL64);
-        builder.put(DATETIME, DECIMAL128);
-        builder.put(DATETIME, DECIMAL256);
-        builder.put(DATETIME, VARCHAR);
-        builder.put(DATETIME, STRING);
-        // DateV2
-        builder.put(DATEV2, BOOLEAN);
-        builder.put(DATEV2, TINYINT);
-        builder.put(DATEV2, SMALLINT);
-        builder.put(DATEV2, INT);
-        builder.put(DATEV2, BIGINT);
-        builder.put(DATEV2, LARGEINT);
-        builder.put(DATEV2, FLOAT);
-        builder.put(DATEV2, DOUBLE);
-        builder.put(DATEV2, DATE);
-        builder.put(DATEV2, DATETIME);
-        builder.put(DATEV2, DATEV2);
-        builder.put(DATEV2, DATETIMEV2);
-        builder.put(DATEV2, TIMEV2);
-        builder.put(DATEV2, DECIMALV2);
-        builder.put(DATEV2, DECIMAL32);
-        builder.put(DATEV2, DECIMAL64);
-        builder.put(DATEV2, DECIMAL128);
-        builder.put(DATEV2, DECIMAL256);
-        builder.put(DATEV2, VARCHAR);
-        builder.put(DATEV2, STRING);
-        // DatetimeV2
-        builder.put(DATETIMEV2, BOOLEAN);
-        builder.put(DATETIMEV2, TINYINT);
-        builder.put(DATETIMEV2, SMALLINT);
-        builder.put(DATETIMEV2, INT);
-        builder.put(DATETIMEV2, BIGINT);
-        builder.put(DATETIMEV2, LARGEINT);
-        builder.put(DATETIMEV2, FLOAT);
-        builder.put(DATETIMEV2, DOUBLE);
-        builder.put(DATETIMEV2, DATE);
-        builder.put(DATETIMEV2, DATETIME);
-        builder.put(DATETIMEV2, DATEV2);
-        builder.put(DATETIMEV2, DATETIMEV2);
-        builder.put(DATETIMEV2, TIMEV2);
-        builder.put(DATETIMEV2, DECIMALV2);
-        builder.put(DATETIMEV2, DECIMAL32);
-        builder.put(DATETIMEV2, DECIMAL64);
-        builder.put(DATETIMEV2, DECIMAL128);
-        builder.put(DATETIMEV2, DECIMAL256);
-        builder.put(DATETIMEV2, VARCHAR);
-        builder.put(DATETIMEV2, STRING);
-        // Char
-        builder.put(CHAR, BOOLEAN);
-        builder.put(CHAR, TINYINT);
-        builder.put(CHAR, SMALLINT);
-        builder.put(CHAR, CHAR);
-        builder.put(CHAR, INT);
-        builder.put(CHAR, BIGINT);
-        builder.put(CHAR, LARGEINT);
-        builder.put(CHAR, FLOAT);
-        builder.put(CHAR, DOUBLE);
-        builder.put(CHAR, DATE);
-        builder.put(CHAR, DATETIME);
-        builder.put(CHAR, DATEV2);
-        builder.put(CHAR, DATETIMEV2);
-        builder.put(CHAR, DECIMALV2);
-        builder.put(CHAR, DECIMAL32);
-        builder.put(CHAR, DECIMAL64);
-        builder.put(CHAR, DECIMAL128);
-        builder.put(CHAR, DECIMAL256);
-        builder.put(CHAR, VARCHAR);
-        builder.put(CHAR, STRING);
-        builder.put(CHAR, TIMEV2);
-        // Varchar
-        builder.put(VARCHAR, BOOLEAN);
-        builder.put(VARCHAR, TINYINT);
-        builder.put(VARCHAR, SMALLINT);
-        builder.put(VARCHAR, INT);
-        builder.put(VARCHAR, BIGINT);
-        builder.put(VARCHAR, LARGEINT);
-        builder.put(VARCHAR, FLOAT);
-        builder.put(VARCHAR, DOUBLE);
-        builder.put(VARCHAR, DATE);
-        builder.put(VARCHAR, DATETIME);
-        builder.put(VARCHAR, DATEV2);
-        builder.put(VARCHAR, DATETIMEV2);
-        builder.put(VARCHAR, IPV4);
-        builder.put(VARCHAR, IPV6);
-        builder.put(VARCHAR, DECIMALV2);
-        builder.put(VARCHAR, DECIMAL32);
-        builder.put(VARCHAR, DECIMAL64);
-        builder.put(VARCHAR, DECIMAL128);
-        builder.put(VARCHAR, DECIMAL256);
-        builder.put(VARCHAR, VARCHAR);
-        builder.put(VARCHAR, JSONB);
-        builder.put(VARCHAR, VARIANT);
-        builder.put(VARCHAR, STRING);
-        builder.put(VARCHAR, TIMEV2);
-
-        // String
-        builder.put(STRING, BOOLEAN);
-        builder.put(STRING, TINYINT);
-        builder.put(STRING, SMALLINT);
-        builder.put(STRING, INT);
-        builder.put(STRING, BIGINT);
-        builder.put(STRING, LARGEINT);
-        builder.put(STRING, FLOAT);
-        builder.put(STRING, DOUBLE);
-        builder.put(STRING, DATE);
-        builder.put(STRING, DATETIME);
-        builder.put(STRING, DATEV2);
-        builder.put(STRING, DATETIMEV2);
-        builder.put(STRING, IPV4);
-        builder.put(STRING, IPV6);
-        builder.put(STRING, DECIMALV2);
-        builder.put(STRING, DECIMAL32);
-        builder.put(STRING, DECIMAL64);
-        builder.put(STRING, DECIMAL128);
-        builder.put(STRING, DECIMAL256);
-        builder.put(STRING, VARCHAR);
-        builder.put(STRING, JSONB);
-        builder.put(STRING, VARIANT);
-        builder.put(STRING, STRING);
-        builder.put(STRING, TIMEV2);
-
-        // DecimalV2
-        builder.put(DECIMALV2, BOOLEAN);
-        builder.put(DECIMALV2, TINYINT);
-        builder.put(DECIMALV2, SMALLINT);
-        builder.put(DECIMALV2, INT);
-        builder.put(DECIMALV2, BIGINT);
-        builder.put(DECIMALV2, LARGEINT);
-        builder.put(DECIMALV2, FLOAT);
-        builder.put(DECIMALV2, DOUBLE);
-        builder.put(DECIMALV2, DECIMALV2);
-        builder.put(DECIMALV2, DECIMAL32);
-        builder.put(DECIMALV2, DECIMAL64);
-        builder.put(DECIMALV2, DECIMAL128);
-        builder.put(DECIMALV2, DECIMAL256);
-        builder.put(DECIMALV2, VARCHAR);
-        builder.put(DECIMALV2, STRING);
-        builder.put(DECIMALV2, TIMEV2);
-
-        builder.put(DECIMAL32, BOOLEAN);
-        builder.put(DECIMAL32, TINYINT);
-        builder.put(DECIMAL32, SMALLINT);
-        builder.put(DECIMAL32, INT);
-        builder.put(DECIMAL32, BIGINT);
-        builder.put(DECIMAL32, LARGEINT);
-        builder.put(DECIMAL32, FLOAT);
-        builder.put(DECIMAL32, DOUBLE);
-        builder.put(DECIMAL32, DECIMALV2);
-        builder.put(DECIMAL32, DECIMAL32);
-        builder.put(DECIMAL32, DECIMAL64);
-        builder.put(DECIMAL32, DECIMAL128);
-        builder.put(DECIMAL32, DECIMAL256);
-        builder.put(DECIMAL32, VARCHAR);
-        builder.put(DECIMAL32, STRING);
-        builder.put(DECIMAL32, TIMEV2);
-
-        builder.put(DECIMAL64, BOOLEAN);
-        builder.put(DECIMAL64, TINYINT);
-        builder.put(DECIMAL64, SMALLINT);
-        builder.put(DECIMAL64, INT);
-        builder.put(DECIMAL64, BIGINT);
-        builder.put(DECIMAL64, LARGEINT);
-        builder.put(DECIMAL64, FLOAT);
-        builder.put(DECIMAL64, DOUBLE);
-        builder.put(DECIMAL64, DECIMALV2);
-        builder.put(DECIMAL64, DECIMAL32);
-        builder.put(DECIMAL64, DECIMAL64);
-        builder.put(DECIMAL64, DECIMAL128);
-        builder.put(DECIMAL64, DECIMAL256);
-        builder.put(DECIMAL64, VARCHAR);
-        builder.put(DECIMAL64, STRING);
-        builder.put(DECIMAL64, TIMEV2);
-
-        builder.put(DECIMAL128, BOOLEAN);
-        builder.put(DECIMAL128, TINYINT);
-        builder.put(DECIMAL128, SMALLINT);
-        builder.put(DECIMAL128, INT);
-        builder.put(DECIMAL128, BIGINT);
-        builder.put(DECIMAL128, LARGEINT);
-        builder.put(DECIMAL128, FLOAT);
-        builder.put(DECIMAL128, DOUBLE);
-        builder.put(DECIMAL128, DECIMALV2);
-        builder.put(DECIMAL128, DECIMAL32);
-        builder.put(DECIMAL128, DECIMAL64);
-        builder.put(DECIMAL128, DECIMAL128);
-        builder.put(DECIMAL128, DECIMAL256);
-        builder.put(DECIMAL128, VARCHAR);
-        builder.put(DECIMAL128, STRING);
-        builder.put(DECIMAL128, TIMEV2);
-
-        // decimal256
-        builder.put(DECIMAL256, BOOLEAN);
-        builder.put(DECIMAL256, TINYINT);
-        builder.put(DECIMAL256, SMALLINT);
-        builder.put(DECIMAL256, INT);
-        builder.put(DECIMAL256, BIGINT);
-        builder.put(DECIMAL256, LARGEINT);
-        builder.put(DECIMAL256, FLOAT);
-        builder.put(DECIMAL256, DOUBLE);
-        builder.put(DECIMAL256, DECIMALV2);
-        builder.put(DECIMAL256, DECIMAL32);
-        builder.put(DECIMAL256, DECIMAL64);
-        builder.put(DECIMAL256, DECIMAL128);
-        builder.put(DECIMAL256, DECIMAL256);
-        builder.put(DECIMAL256, VARCHAR);
-        builder.put(DECIMAL256, STRING);
-        builder.put(DECIMAL256, TIMEV2);
-
-        // JSONB
-        builder.put(JSONB, BOOLEAN);
-        builder.put(JSONB, TINYINT);
-        builder.put(JSONB, SMALLINT);
-        builder.put(JSONB, INT);
-        builder.put(JSONB, BIGINT);
-        builder.put(JSONB, LARGEINT);
-        builder.put(JSONB, FLOAT);
-        builder.put(JSONB, DOUBLE);
-        builder.put(JSONB, DECIMALV2);
-        builder.put(JSONB, DECIMAL32);
-        builder.put(JSONB, DECIMAL64);
-        builder.put(JSONB, DECIMAL128);
-        // TODO: support and test decimal256?
-        // builder.put(JSONB, DECIMAL256);
-        builder.put(JSONB, VARCHAR);
-        builder.put(JSONB, STRING);
-        builder.put(JSONB, VARIANT);
-
-        // VARIANT
-        builder.put(VARIANT, VARCHAR);
-        builder.put(VARIANT, STRING);
-        builder.put(VARIANT, JSONB);
-
-        // ipv4
-        builder.put(IPV4, VARCHAR);
-        builder.put(IPV4, STRING);
-        builder.put(IPV4, IPV6);
-
-        // ipv6
-        builder.put(IPV6, VARCHAR);
-        builder.put(IPV6, STRING);
-
-        // HLL
-        builder.put(HLL, HLL);
-
-        // BITMAP
-        builder.put(BITMAP, BITMAP);
-
-        // QUANTILE_STATE
-        builder.put(QUANTILE_STATE, QUANTILE_STATE);
-
-        builder.put(AGG_STATE, AGG_STATE);
-        builder.put(AGG_STATE, VARCHAR);
-
-        // TIMEV2
-        builder.put(TIMEV2, TIMEV2);
-        builder.put(TIMEV2, DOUBLE);
-        builder.put(TIMEV2, VARCHAR);
-        builder.put(TIMEV2, STRING);
-        builder.put(TIMEV2, DATE);
-        builder.put(TIMEV2, DATETIME);
-        builder.put(TIMEV2, DATEV2);
-        builder.put(TIMEV2, DATETIMEV2);
-
-        implicitCastMap = builder.build();
-    }
-
     private static final ArrayList<PrimitiveType> integerTypes;
-    private static final ArrayList<PrimitiveType> numericTypes;
     private static final ArrayList<PrimitiveType> supportedTypes;
 
     static {
@@ -634,20 +112,6 @@ public enum PrimitiveType {
         integerTypes.add(INT);
         integerTypes.add(BIGINT);
         integerTypes.add(LARGEINT);
-
-        numericTypes = Lists.newArrayList();
-        numericTypes.add(TINYINT);
-        numericTypes.add(SMALLINT);
-        numericTypes.add(INT);
-        numericTypes.add(BIGINT);
-        numericTypes.add(LARGEINT);
-        numericTypes.add(FLOAT);
-        numericTypes.add(DOUBLE);
-        numericTypes.add(DECIMALV2);
-        numericTypes.add(DECIMAL32);
-        numericTypes.add(DECIMAL64);
-        numericTypes.add(DECIMAL128);
-        numericTypes.add(DECIMAL256);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.add(NULL_TYPE);
@@ -688,17 +152,8 @@ public enum PrimitiveType {
         return integerTypes;
     }
 
-    public static ArrayList<PrimitiveType> getNumericTypes() {
-        return numericTypes;
-    }
-
     public static ArrayList<PrimitiveType> getSupportedTypes() {
         return supportedTypes;
-    }
-
-    // Check whether 'type' can cast to 'target'
-    public static boolean isImplicitCast(PrimitiveType type, PrimitiveType target) {
-        return implicitCastMap.get(type).contains(target);
     }
 
     @SerializedName("d")
@@ -795,10 +250,11 @@ public enum PrimitiveType {
                 return MAP;
             case STRUCT:
                 return STRUCT;
-            case ALL:
-                return ALL;
             case VARIANT:
                 return VARIANT;
+            case VARBINARY:
+                return VARBINARY;
+            case ALL:
             default:
                 return INVALID_TYPE;
         }
@@ -918,11 +374,6 @@ public enum PrimitiveType {
         return (this == VARCHAR || this == CHAR || this == STRING);
     }
 
-    public boolean isIntegerType() {
-        return (this == TINYINT || this == SMALLINT
-                || this == INT || this == BIGINT);
-    }
-
     public boolean isIPType() {
         return (this == IPV4 || this == IPV6);
     }
@@ -933,6 +384,10 @@ public enum PrimitiveType {
 
     public boolean isIPv6Type() {
         return (this == IPV6);
+    }
+
+    public boolean isVarbinaryType() {
+        return (this == VARBINARY);
     }
 
     // TODO(zhaochun): Add Mysql Type to it's private field
@@ -982,6 +437,8 @@ public enum PrimitiveType {
             case JSONB:
             case VARIANT:
                 return MysqlColType.MYSQL_TYPE_JSON;
+            case VARBINARY:
+                return MysqlColType.MYSQL_TYPE_VARSTRING;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

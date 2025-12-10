@@ -35,6 +35,8 @@ namespace doris {
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> base_output_size("base_compaction", "output_size");
+bvar::Adder<uint64_t> base_input_cached_size("base_compaction", "input_cached_size");
+bvar::Adder<uint64_t> base_input_size("base_compaction", "input_size");
 bvar::LatencyRecorder g_base_compaction_hold_delete_bitmap_lock_time_ms(
         "base_compaction_hold_delete_bitmap_lock_time_ms");
 
@@ -82,6 +84,8 @@ Status CloudBaseCompaction::prepare_compact() {
         _input_rowsets_data_size += rs->data_disk_size();
         _input_rowsets_index_size += rs->index_disk_size();
         _input_rowsets_total_size += rs->total_disk_size();
+        _input_rowsets_cached_data_size += rs->approximate_cached_data_size();
+        _input_rowsets_cached_index_size += rs->approximate_cache_index_size();
     }
     LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
              _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
@@ -91,7 +95,11 @@ Status CloudBaseCompaction::prepare_compact() {
             .tag("input_segments", _input_segments)
             .tag("input_rowsets_data_size", _input_rowsets_data_size)
             .tag("input_rowsets_index_size", _input_rowsets_index_size)
-            .tag("input_rowsets_total_size", _input_rowsets_total_size);
+            .tag("input_rowsets_total_size", _input_rowsets_total_size)
+            .tag("input_rowsets_cached_data_size", _input_rowsets_cached_data_size)
+            .tag("input_rowsets_cached_index_size", _input_rowsets_cached_index_size);
+    base_input_cached_size << (_input_rowsets_cached_data_size + _input_rowsets_cached_index_size);
+    base_input_size << _input_rowsets_total_size;
     return Status::OK();
 }
 
@@ -218,6 +226,7 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
                     << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
                     << ", base_compaction_num_cumulative_rowsets="
                     << config::base_compaction_min_rowset_num;
+        apply_txn_size_truncation_and_log("CloudBaseCompaction");
         return Status::OK();
     }
 
@@ -243,6 +252,7 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
                     << ", base_size=" << base_size
                     << ", cumulative_base_ratio=" << cumulative_base_ratio
                     << ", policy_ratio=" << base_cumulative_delta_ratio;
+        apply_txn_size_truncation_and_log("CloudBaseCompaction");
         return Status::OK();
     }
 
@@ -255,6 +265,7 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
                     << ", interval_since_last_base_compaction="
                     << interval_since_last_base_compaction
                     << ", interval_threshold=" << interval_threshold;
+        apply_txn_size_truncation_and_log("CloudBaseCompaction");
         return Status::OK();
     }
 

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -248,6 +250,35 @@ public class ComputeSignatureHelper {
                 sigType = signature.argumentsTypes.get(i);
             }
             DataType expressionType = arguments.get(i).getDataType();
+            // Convert legacy datetime/date types to v2 types, keep v2 types as is
+            if (sigType.isDateType()) {
+                // Legacy DateType -> DateV2Type
+                sigType = DateV2Type.INSTANCE;
+            } else if (sigType.isDateTimeType()) {
+                // Legacy DateTimeType -> DateTimeV2Type
+                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
+            }
+            newArgTypes.add(replaceAnyDataTypeWithOutIndex(sigType, expressionType));
+        }
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
+        return signature;
+    }
+
+    /** implementFollowToAnyDataType without legacy date/datetime V2 promotion */
+    public static FunctionSignature implementAnyDataTypeWithOutIndexNoLegacyDateUpgrade(
+            FunctionSignature signature, List<Expression> arguments) {
+        // collect all any data type with index
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
+        for (int i = 0; i < arguments.size(); i++) {
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+            DataType expressionType = arguments.get(i).getDataType();
+            // SKIP: legacy Date/DateTime type promotion to V2
             newArgTypes.add(replaceAnyDataTypeWithOutIndex(sigType, expressionType));
         }
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
@@ -301,8 +332,12 @@ public class ComputeSignatureHelper {
 
         // get all common type for any data type
         for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
-            // TODO: should use the same common type method of implicitCast
-            Optional<DataType> dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            Optional<DataType> dataType;
+            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true);
+            } else {
+                dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            }
             // TODO: should we use tinyint when all any data type's expression is null type?
             // if (dataType.isPresent() && dataType.get() instanceof NullType) {
             //     dataType = Optional.of(TinyIntType.INSTANCE);
@@ -313,6 +348,87 @@ public class ComputeSignatureHelper {
         // replace any data type and follow to any data type with real data type
         List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
         for (DataType sigType : signature.argumentsTypes) {
+            // Convert legacy datetime/date types to v2 types, keep v2 types as is
+            if (sigType.isDateType()) {
+                // Legacy DateType -> DateV2Type
+                sigType = DateV2Type.INSTANCE;
+            } else if (sigType.isDateTimeType()) {
+                // Legacy DateTimeType -> DateTimeV2Type
+                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
+            }
+            newArgTypes.add(replaceAnyDataType(sigType, indexToCommonTypes));
+        }
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
+        DataType returnType = replaceAnyDataType(signature.returnType, indexToCommonTypes);
+        signature = signature.withReturnType(returnType);
+        return signature;
+    }
+
+    /** implementFollowToAnyDataType without legacy date/datetime V2 promotion */
+    public static FunctionSignature implementAnyDataTypeWithIndexNoLegacyDateUpgrade(
+            FunctionSignature signature, List<Expression> arguments) {
+        // collect all any data type with index
+        Map<Integer, List<DataType>> indexToArgumentTypes = Maps.newHashMap();
+        Map<Integer, Optional<DataType>> indexToCommonTypes = Maps.newHashMap();
+        for (int i = 0; i < arguments.size(); i++) {
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+            DataType expressionType = arguments.get(i).getDataType();
+            collectAnyDataType(sigType, expressionType, indexToArgumentTypes);
+        }
+        // if all any data type's expression is NULL, we should use follow to any data
+        // type to do type coercion
+        Set<Integer> allNullTypeIndex = Sets.newHashSetWithExpectedSize(indexToArgumentTypes.size());
+        for (Entry<Integer, List<DataType>> entry : indexToArgumentTypes.entrySet()) {
+            boolean allIsNullType = true;
+            for (DataType dataType : entry.getValue()) {
+                if (!(dataType instanceof NullType)) {
+                    allIsNullType = false;
+                    break;
+                }
+            }
+            if (allIsNullType) {
+                allNullTypeIndex.add(entry.getKey());
+            }
+        }
+        if (!allNullTypeIndex.isEmpty()) {
+            for (int i = 0; i < arguments.size(); i++) {
+                DataType sigType;
+                if (i >= signature.argumentsTypes.size()) {
+                    sigType = signature.getVarArgType().orElseThrow(
+                            () -> new IllegalStateException("function arity not match with signature"));
+                } else {
+                    sigType = signature.argumentsTypes.get(i);
+                }
+                DataType expressionType = arguments.get(i).getDataType();
+                collectFollowToAnyDataType(sigType, expressionType, indexToArgumentTypes, allNullTypeIndex);
+            }
+        }
+
+        // get all common type for any data type
+        for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
+            Optional<DataType> dataType;
+            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true);
+            } else {
+                dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            }
+            // TODO: should we use tinyint when all any data type's expression is null type?
+            // if (dataType.isPresent() && dataType.get() instanceof NullType) {
+            // dataType = Optional.of(TinyIntType.INSTANCE);
+            // }
+            indexToCommonTypes.put(dataTypes.getKey(), dataType);
+        }
+
+        // replace any data type and follow to any data type with real data type
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
+        for (DataType sigType : signature.argumentsTypes) {
+            // SKIP: legacy Date/DateTime type promotion to V2
             newArgTypes.add(replaceAnyDataType(sigType, indexToCommonTypes));
         }
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);

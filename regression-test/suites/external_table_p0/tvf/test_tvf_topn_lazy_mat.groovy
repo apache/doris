@@ -139,7 +139,8 @@ suite("test_tvf_topn_lazy_mat","external,hive,tvf,external_docker") {
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         //id   | name  | value | active | score 
-        sql """ set enable_topn_lazy_materialization=true; """
+        sql """ set topn_lazy_materialization_threshold=1024; """
+         
         explain {
             sql """ verbose select * from ${tvf_parquet_1} order by id limit 5; """ 
             contains("VMaterializeNode")
@@ -151,7 +152,7 @@ suite("test_tvf_topn_lazy_mat","external,hive,tvf,external_docker") {
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__hdfs]")
             contains("isTopMaterializeNode: true")
             contains("SlotDescriptor{id=0, col=id, colUniqueId=-1, type=bigint, nullable=true")
-            contains("SlotDescriptor{id=1, col=__DORIS_GLOBAL_ROWID_COL__hdfs, colUniqueId=-1, type=text, nullable=false,")
+            contains("SlotDescriptor{id=1, col=__DORIS_GLOBAL_ROWID_COL__hdfs, colUniqueId=2147483647, type=text, nullable=false,")
         }
 
 
@@ -168,17 +169,13 @@ suite("test_tvf_topn_lazy_mat","external,hive,tvf,external_docker") {
 
 
             contains("SlotDescriptor{id=0, col=id, colUniqueId=-1, type=int, nullable=true")
-            contains("SlotDescriptor{id=1, col=__DORIS_GLOBAL_ROWID_COL__hdfs, colUniqueId=-1, type=text, nullable=false,")
+            contains("SlotDescriptor{id=1, col=__DORIS_GLOBAL_ROWID_COL__hdfs, colUniqueId=2147483647, type=text, nullable=false,")
         }
 
 
         explain {
             sql """verbose select * from ${tvf_parquet_1} as a join  ${tvf_orc_1} as b on a.id =  b.id  order by a.name limit 5; """
             contains("VMaterializeNode")
-            contains("projectList:[id, name, value, active, score, id, name, value, active, score]")
-            contains("column_descs_lists[[`value` double NULL, `active` boolean NULL, `score` double NULL], [`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL]]")
-            contains("locations: [[3, 4, 5], [6, 7, 8, 9]]")
-            contains("table_idxs: [[2, 3, 4], [1, 2, 3, 4]]")
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__hdfs, __DORIS_GLOBAL_ROWID_COL__hdfs]")
             contains("isTopMaterializeNode: true")
         }
@@ -189,7 +186,7 @@ suite("test_tvf_topn_lazy_mat","external,hive,tvf,external_docker") {
 
 
 
-        sql """ set enable_topn_lazy_materialization=false; """
+        sql """ set topn_lazy_materialization_threshold=-1; """
         explain {
             sql """ verbose select * from ${tvf_parquet_1} order by id limit 5; """ 
             notContains ("VMaterializeNode")

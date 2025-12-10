@@ -24,20 +24,9 @@ import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
-import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ModifyDistributionClause;
-import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.ReplacePartitionClause;
-import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
@@ -106,8 +95,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.deploy.DeployManager;
-import org.apache.doris.deploy.impl.AmbariDeployManager;
-import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
 import org.apache.doris.encryption.KeyManagerFactory;
@@ -123,6 +110,8 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -136,9 +125,7 @@ import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.StreamLoadRecordMgr;
-import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
-import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.loadv2.ProgressManager;
@@ -180,7 +167,6 @@ import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
@@ -188,14 +174,23 @@ import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -203,7 +198,6 @@ import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.CreateDbInfo;
-import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
@@ -231,12 +225,12 @@ import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.persist.meta.MetaWriter;
 import org.apache.doris.planner.TabletLoadIndexRecorderMgr;
-import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.FEOpExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
@@ -261,12 +255,14 @@ import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.StatisticsJobAppender;
+import org.apache.doris.statistics.StatisticsMetricCollector;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTaskCleanupDaemon;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -302,7 +298,7 @@ import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -353,7 +349,7 @@ public class Env {
     public static final String CLIENT_NODE_HOST_KEY = "CLIENT_NODE_HOST";
     public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
 
-    private String metaDir;
+    protected String metaDir;
     private String bdbDir;
     protected String imageDir;
 
@@ -430,7 +426,7 @@ public class Env {
     protected int clusterId;
     protected String token;
     // For checkpoint and observer memory replayed marker
-    private AtomicLong replayedJournalId;
+    protected AtomicLong replayedJournalId;
 
     private static Env CHECKPOINT = null;
     private static long checkpointThreadId = -1;
@@ -493,9 +489,6 @@ public class Env {
 
     protected LoadJobScheduler loadJobScheduler;
 
-    private LoadEtlChecker loadEtlChecker;
-    private LoadLoadingChecker loadLoadingChecker;
-
     private RoutineLoadScheduler routineLoadScheduler;
 
     private RoutineLoadTaskScheduler routineLoadTaskScheduler;
@@ -535,8 +528,6 @@ public class Env {
     private QueryStats queryStats;
 
     private StatisticsCleaner statisticsCleaner;
-
-    private PlsqlManager plsqlManager;
 
     private BinlogManager binlogManager;
 
@@ -583,6 +574,10 @@ public class Env {
     private KeyManagerStore keyManagerStore;
 
     private KeyManagerInterface keyManager;
+
+    private StatisticsMetricCollector statisticsMetricCollector;
+
+    private AgentTaskCleanupDaemon agentTaskCleanupDaemon;
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
@@ -749,7 +744,6 @@ public class Env {
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
         this.functionSet = new FunctionSet();
-        this.functionSet.init();
 
         this.functionRegistry = new FunctionRegistry();
 
@@ -792,8 +786,6 @@ public class Env {
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
         this.tabletLoadIndexRecorderMgr = new TabletLoadIndexRecorderMgr();
-        this.loadEtlChecker = new LoadEtlChecker(loadManager);
-        this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
@@ -817,6 +809,7 @@ public class Env {
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.statisticsJobAppender = new StatisticsJobAppender();
+        this.statisticsMetricCollector = new StatisticsMetricCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.computeGroupMgr = new ComputeGroupMgr(systemInfo);
@@ -825,7 +818,6 @@ public class Env {
         this.admissionControl = new AdmissionControl(systemInfo);
         this.queryStats = new QueryStats();
         this.hiveTransactionMgr = new HiveTransactionMgr();
-        this.plsqlManager = new PlsqlManager();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
@@ -845,6 +837,9 @@ public class Env {
         this.dictionaryManager = new DictionaryManager();
         this.keyManagerStore = new KeyManagerStore();
         this.keyManager = KeyManagerFactory.getKeyManager();
+        if (Config.agent_task_health_check_intervals_ms > 0) {
+            this.agentTaskCleanupDaemon = new AgentTaskCleanupDaemon();
+        }
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -994,10 +989,6 @@ public class Env {
         return metastoreEventsProcessor;
     }
 
-    public PlsqlManager getPlsqlManager() {
-        return plsqlManager;
-    }
-
     public KeyManagerStore getKeyManagerStore() {
         return keyManagerStore;
     }
@@ -1134,16 +1125,22 @@ public class Env {
             File bdbDir = new File(this.bdbDir);
             if (!bdbDir.exists()) {
                 bdbDir.mkdirs();
+            } else {
+                checkClusterSnapshot(bdbDir);
             }
         }
         File imageDir = new File(this.imageDir);
         if (!imageDir.exists()) {
             imageDir.mkdirs();
+        } else {
+            checkClusterSnapshot(imageDir);
         }
 
         // init plugin manager
         pluginMgr.init();
         auditEventProcessor.start();
+
+        cloneClusterSnapshot();
 
         // 2. get cluster id and role (Observer or Follower)
         if (!Config.enable_check_compatibility_mode) {
@@ -1549,11 +1546,7 @@ public class Env {
         }
 
         if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
-            if (Config.enable_deploy_manager.equalsIgnoreCase("k8s")) {
-                deployManager = new K8sDeployManager(this, 5000 /* 5s interval */);
-            } else if (Config.enable_deploy_manager.equalsIgnoreCase("ambari")) {
-                deployManager = new AmbariDeployManager(this, 5000 /* 5s interval */);
-            } else if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
+            if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
                 deployManager = new LocalFileDeployManager(this, 5000 /* 5s interval */);
             } else {
                 throw new AnalysisException("Unknow deploy manager: " + Config.enable_deploy_manager);
@@ -1891,8 +1884,6 @@ public class Env {
         loadingLoadTaskScheduler.start();
         loadManager.prepareJobs();
         loadJobScheduler.start();
-        loadEtlChecker.start();
-        loadLoadingChecker.start();
         if (Config.isNotCloudMode()) {
             // Tablet checker and scheduler
             tabletChecker.start();
@@ -1959,9 +1950,11 @@ public class Env {
         statisticsCleaner.start();
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
+        statisticsMetricCollector.start();
         if (keyManager != null) {
             keyManager.init();
         }
+        agentTaskCleanupDaemon.start();
     }
 
     // start threads that should run on all FE
@@ -2452,7 +2445,7 @@ public class Env {
     }
 
     public long loadPlsqlProcedure(DataInputStream in, long checksum) throws IOException {
-        plsqlManager = PlsqlManager.read(in);
+        Text.readString(in);
         LOG.info("finished replay plsql procedure from image");
         return checksum;
     }
@@ -2768,7 +2761,6 @@ public class Env {
     }
 
     public long savePlsqlProcedure(CountingDataOutputStream dos, long checksum) throws IOException {
-        Env.getCurrentEnv().getPlsqlManager().write(dos);
         return checksum;
     }
 
@@ -3280,6 +3272,17 @@ public class Env {
         }
     }
 
+    public boolean invalidCacheForCloud() {
+        if (Config.isCloudMode()) {
+            // the cloud mode will not update table version when use recover partition,
+            // so we should invalidate all cache to avoid bugs
+            getSqlCacheManager().invalidateAll();
+            getSortedPartitionsCacheManager().invalidateAll();
+            return true;
+        }
+        return false;
+    }
+
     private void removeDroppedFrontends(ConcurrentLinkedQueue<String> removedFrontends) {
         if (removedFrontends.size() == 0) {
             return;
@@ -3355,7 +3358,7 @@ public class Env {
         if (StringUtils.isEmpty(command.getCtlName())) {
             catalogIf = getCurrentCatalog();
         } else {
-            catalogIf = catalogMgr.getCatalog(command.getCtlName());
+            catalogIf = catalogMgr.getCatalogOrDdlException(command.getCtlName());
         }
         catalogIf.createDb(command.getDbName(), command.isIfNotExists(), command.getProperties());
     }
@@ -3461,39 +3464,10 @@ public class Env {
      * @return if CreateTableStmt.isIfNotExists is true, return true if table already exists
      * otherwise return false
      */
-    public boolean createTable(CreateTableCommand command) throws UserException {
-        org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo createTableInfo =
-                command.getCreateTableInfo();
+    public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(createTableInfo.getCtlName(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        return catalogIf.createTable(command);
-    }
-
-    /**
-     * Following is the step to create an olap table:
-     * 1. create columns
-     * 2. create partition info
-     * 3. create distribution info
-     * 4. set table id and base index id
-     * 5. set bloom filter columns
-     * 6. set and build TableProperty includes:
-     * 6.1. dynamicProperty
-     * 6.2. replicationNum
-     * 6.3. inMemory
-     * 6.4. storageFormat
-     * 6.5. compressionType
-     * 7. set index meta
-     * 8. check colocation properties
-     * 9. create tablet in BE
-     * 10. add this table to FE's meta
-     * 11. add this table to ColocateGroup if necessary
-     * @return if CreateTableStmt.isIfNotExists is true, return true if table already exists
-     * otherwise return false
-     */
-    public boolean createTable(CreateTableStmt stmt) throws UserException {
-        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
-                catalog -> new DdlException(("Unknown catalog " + catalog)));
-        return catalogIf.createTable(stmt);
+        return catalogIf.createTable(createTableInfo);
     }
 
     /**
@@ -3501,36 +3475,36 @@ public class Env {
      *
      * @param db
      * @param tableName
-     * @param addPartitionClause clause in the CreateTableStmt
+     * @param addPartitionOp clause in the CreateTableStmt
      * @param isCreateTable this call is for creating table
      * @param generatedPartitionId the preset partition id for the partition to add
      * @param writeEditLog whether to write an edit log for this addition
      * @return PartitionPersistInfo to be written to editlog. It may be null if no partitions added.
      * @throws DdlException
      */
-    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
+    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionOp addPartitionOp,
                                              boolean isCreateTable, long generatedPartitionId,
                                              boolean writeEditLog) throws DdlException {
-        return getInternalCatalog().addPartition(db, tableName, addPartitionClause,
+        return getInternalCatalog().addPartition(db, tableName, addPartitionOp,
             isCreateTable, generatedPartitionId, writeEditLog);
     }
 
-    public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionClause multiPartitionClause)
+    public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionOp multiPartitionOp)
             throws DdlException {
-        getInternalCatalog().addMultiPartitions(db, tableName, multiPartitionClause);
+        getInternalCatalog().addMultiPartitions(db, tableName, multiPartitionOp);
     }
 
-    public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
+    public void addPartitionLike(Database db, String tableName, AddPartitionLikeOp addPartitionLikeOp)
             throws DdlException {
-        getInternalCatalog().addPartitionLike(db, tableName, addPartitionLikeClause);
+        getInternalCatalog().addPartitionLike(db, tableName, addPartitionLikeOp);
     }
 
     public void replayAddPartition(PartitionPersistInfo info) throws MetaNotFoundException {
         getInternalCatalog().replayAddPartition(info);
     }
 
-    public void dropPartition(Database db, OlapTable olapTable, DropPartitionClause clause) throws DdlException {
-        getInternalCatalog().dropPartition(db, olapTable, clause);
+    public void dropPartition(Database db, OlapTable olapTable, DropPartitionOp dropPartitionOp) throws DdlException {
+        getInternalCatalog().dropPartition(db, olapTable, dropPartitionOp);
     }
 
     public void replayDropPartition(DropPartitionInfo info) throws MetaNotFoundException {
@@ -3571,7 +3545,7 @@ public class Env {
         try {
             StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
             sb.append(mtmv.getName());
-            addMTMVCols(mtmv, sb);
+            addColNameAndComment(mtmv, sb);
             sb.append("\n");
             sb.append(mtmv.getRefreshInfo());
             addMTMVKeyInfo(mtmv, sb);
@@ -3620,9 +3594,9 @@ public class Env {
         sb.append(")");
     }
 
-    private static void addMTMVCols(MTMV mtmv, StringBuilder sb) {
+    private static void addColNameAndComment(TableIf tableIf, StringBuilder sb) {
         sb.append("\n(");
-        List<Column> columns = mtmv.getBaseSchema();
+        List<Column> columns = tableIf.getBaseSchema();
         for (int i = 0; i < columns.size(); i++) {
             if (i != 0) {
                 sb.append(",");
@@ -3701,6 +3675,12 @@ public class Env {
         // dynamic partition
         if (olapTable.dynamicPartitionExists()) {
             sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
+        }
+
+        // partition retention count
+        if (olapTable.getPartitionRetentionCount() > 0) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT).append("\" = \"");
+            sb.append(olapTable.getPartitionRetentionCount()).append("\"");
         }
 
         // only display z-order sort info
@@ -4340,6 +4320,8 @@ public class Env {
             View view = (View) table;
 
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
+            addColNameAndComment(view, sb);
+            sb.append("\n");
             if (StringUtils.isNotBlank(table.getComment())) {
                 sb.append(" COMMENT '").append(table.getComment()).append("'");
             }
@@ -4750,7 +4732,7 @@ public class Env {
         }
     }
 
-    public void replayCreateTable(CreateTableInfo info) throws MetaNotFoundException {
+    public void replayCreateTable(org.apache.doris.persist.CreateTableInfo info) throws MetaNotFoundException {
         if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
                 .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             Table table = info.getTable();
@@ -5408,8 +5390,8 @@ public class Env {
         getBackupHandler().cancel(command);
     }
 
-    public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
-        renameTable(db, table, tableRenameClause.getNewTableName());
+    public void renameTable(Database db, Table table, RenameTableOp renameTableOp) throws DdlException {
+        renameTable(db, table, renameTableOp.getNewTableName());
     }
 
     // entry of rename table operation
@@ -5617,17 +5599,17 @@ public class Env {
         }
     }
 
-    public void renameRollup(Database db, OlapTable table, RollupRenameClause renameClause) throws DdlException {
+    public void renameRollup(Database db, OlapTable table, RenameRollupOp renameRollupOp) throws DdlException {
         table.writeLockOrDdlException();
         try {
             table.checkNormalStateForAlter();
-            String rollupName = renameClause.getRollupName();
+            String rollupName = renameRollupOp.getRollupName();
             // check if it is base table name
             if (rollupName.equals(table.getName())) {
                 throw new DdlException("Using ALTER TABLE RENAME to change table name");
             }
 
-            String newRollupName = renameClause.getNewRollupName();
+            String newRollupName = renameRollupOp.getNewRollupName();
             if (rollupName.equals(newRollupName)) {
                 throw new DdlException("Same rollup name");
             }
@@ -5676,18 +5658,18 @@ public class Env {
         }
     }
 
-    public void renamePartition(Database db, OlapTable table, PartitionRenameClause renameClause) throws DdlException {
+    public void renamePartition(Database db, OlapTable table, RenamePartitionOp renamePartitionOp) throws DdlException {
         table.writeLockOrDdlException();
         try {
             table.checkNormalStateForAlter();
             if (table.getPartitionInfo().getType() != PartitionType.RANGE
                     && table.getPartitionInfo().getType() != PartitionType.LIST) {
                 throw new DdlException(
-                        "Table[" + table.getName() + "] is single partitioned. " + "no need to rename partition name.");
+                    "Table[" + table.getName() + "] is single partitioned. " + "no need to rename partition name.");
             }
 
-            String partitionName = renameClause.getPartitionName();
-            String newPartitionName = renameClause.getNewPartitionName();
+            String partitionName = renamePartitionOp.getPartitionName();
+            String newPartitionName = renamePartitionOp.getNewPartitionName();
             if (partitionName.equalsIgnoreCase(newPartitionName)) {
                 throw new DdlException("Same partition name");
             }
@@ -5762,7 +5744,8 @@ public class Env {
             // check if have materialized view on rename column
             // and check whether colName is referenced by generated columns
             for (Column column : entry.getValue().getSchema()) {
-                if (column.getName().equals(colName) && !column.getGeneratedColumnsThatReferToThis().isEmpty()) {
+                if (column.getName().equals(colName)
+                        && CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis())) {
                     throw new DdlException(
                             "Cannot rename column, because column '" + colName
                                     + "' has a generated column dependency on :"
@@ -5890,11 +5873,11 @@ public class Env {
         }
     }
 
-    public void renameColumn(Database db, OlapTable table, ColumnRenameClause renameClause) throws DdlException {
+    public void renameColumn(Database db, OlapTable table, RenameColumnOp renameColumnOp) throws DdlException {
         table.writeLockOrDdlException();
         try {
-            String colName = renameClause.getColName();
-            String newColName = renameClause.getNewColName();
+            String colName = renameColumnOp.getColName();
+            String newColName = renameColumnOp.getNewColName();
             Map<Long, Integer> indexIdToSchemaVersion = new HashMap<Long, Integer>();
             renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, false);
         } finally {
@@ -6062,7 +6045,8 @@ public class Env {
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
                 .buildTTLSeconds()
-                .buildAutoAnalyzeProperty();
+                .buildAutoAnalyzeProperty()
+                .buildPartitionRetentionCount();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -6167,7 +6151,7 @@ public class Env {
     }
 
     public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable,
-                                                   ModifyDistributionClause modifyDistributionClause)
+                                                   ModifyDistributionOp modifyDistributionOp)
             throws DdlException {
         olapTable.writeLockOrDdlException();
         try {
@@ -6180,7 +6164,7 @@ public class Env {
                 throw new DdlException("Only support change partitioned table's distribution.");
             }
 
-            DistributionDesc distributionDesc = modifyDistributionClause.getDistributionDesc();
+            DistributionDesc distributionDesc = modifyDistributionOp.getDistributionDesc().translateToCatalogStyle();
             if (distributionDesc != null) {
                 DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
                 List<Column> baseSchema = olapTable.getBaseSchema();
@@ -6188,14 +6172,14 @@ public class Env {
                 // for now. we only support modify distribution's bucket num
                 if (distributionInfo.getType() != defaultDistributionInfo.getType()) {
                     throw new DdlException(
-                            "Cannot change distribution type when modify" + " default distribution bucket num");
+                        "Cannot change distribution type when modify" + " default distribution bucket num");
                 }
                 if (distributionInfo.getType() == DistributionInfoType.HASH) {
                     HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                     if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
-                                + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
-                                + ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns());
+                            + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
+                            + ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns());
                     }
                 }
 
@@ -6208,8 +6192,8 @@ public class Env {
 
                 ModifyTableDefaultDistributionBucketNumOperationLog info
                         = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(),
-                                distributionInfo.getType(), distributionInfo.getAutoBucket(), bucketNum,
-                                defaultDistributionInfo.getColumnsName());
+                        distributionInfo.getType(), distributionInfo.getAutoBucket(), bucketNum,
+                        defaultDistributionInfo.getColumnsName());
                 editLog.logModifyDefaultDistributionBucketNum(info);
                 LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
             }
@@ -6249,12 +6233,7 @@ public class Env {
 
     // Switch catalog of this session
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
-        CatalogIf catalogIf = catalogMgr.getCatalog(catalogName);
-        if (catalogIf == null) {
-            throw new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalogName),
-                    ErrorCode.ERR_UNKNOWN_CATALOG);
-        }
-
+        CatalogIf catalogIf = catalogMgr.getCatalogOrDdlException(catalogName);
         String currentDB = ctx.getDatabase();
         if (StringUtils.isNotEmpty(currentDB)) {
             // When dropped the current catalog in current context, the current catalog will be null.
@@ -6329,8 +6308,8 @@ public class Env {
             long tableId = Env.getCurrentEnv().getNextId();
             View newView = new View(tableId, tableName, columns);
             newView.setComment(createViewInfo.getComment());
-            newView.setInlineViewDefWithSqlMode(createViewInfo.getInlineViewDef(),
-                    ConnectContext.get().getSessionVariable().getSqlMode());
+            newView.setInlineViewDefWithSessionVariables(createViewInfo.getInlineViewDef(),
+                    ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()));
             if (!((Database) db).createTableWithLock(newView, false, createViewInfo.isIfNotExists()).first) {
                 throw new DdlException("Failed to create view[" + tableName + "].");
             }
@@ -6342,38 +6321,12 @@ public class Env {
         return functionRegistry;
     }
 
-    /**
-     * Returns the function that best matches 'desc' that is registered with the
-     * catalog using 'mode' to check for matching. If desc matches multiple
-     * functions in the catalog, it will return the function with the strictest
-     * matching mode. If multiple functions match at the same matching mode,
-     * ties are broken by comparing argument types in lexical order. Argument
-     * types are ordered by argument precision (e.g. double is preferred over
-     * float) and then by alphabetical order of argument type name, to guarantee
-     * deterministic results.
-     */
-    public Function getFunction(Function desc, Function.CompareMode mode) {
-        return functionSet.getFunction(desc, mode);
-    }
-
-    public List<Function> getBuiltinFunctions() {
-        return functionSet.getBulitinFunctions();
-    }
-
-    public Function getTableFunction(Function desc, Function.CompareMode mode) {
-        return functionSet.getFunction(desc, mode, true);
-    }
-
     public boolean isNondeterministicFunction(String funcName) {
         return functionSet.isNondeterministicFunction(funcName);
     }
 
     public boolean isNullResultWithOneNullParamFunction(String funcName) {
         return functionSet.isNullResultWithOneNullParamFunctions(funcName);
-    }
-
-    public boolean isAggFunctionName(String name) {
-        return functionSet.isAggFunctionName(name);
     }
 
     @Deprecated
@@ -6492,8 +6445,7 @@ public class Env {
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         TableNameInfo nameInfo = command.getTableNameInfo();
         PartitionNamesInfo partitionNamesInfo = command.getPartitionNamesInfo().orElse(null);
-        catalogIf.truncateTable(nameInfo.getDb(), nameInfo.getTbl(),
-                partitionNamesInfo == null ? null : partitionNamesInfo.translateToLegacyPartitionNames(),
+        catalogIf.truncateTable(nameInfo.getDb(), nameInfo.getTbl(), partitionNamesInfo,
                 command.isForceDrop(), command.toSqlWithoutTable());
     }
 
@@ -6732,14 +6684,14 @@ public class Env {
     /*
      * The entry of replacing partitions with temp partitions.
      */
-    public void replaceTempPartition(Database db, OlapTable olapTable, ReplacePartitionClause clause)
+    public void replaceTempPartition(Database db, OlapTable olapTable, ReplacePartitionOp replacePartitionOp)
             throws DdlException {
         Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
-        List<String> partitionNames = clause.getPartitionNames();
-        List<String> tempPartitionNames = clause.getTempPartitionNames();
-        boolean isStrictRange = clause.isStrictRange();
-        boolean useTempPartitionName = clause.useTempPartitionName();
-        boolean isForceDropOld = clause.isForceDropOldPartition();
+        List<String> partitionNames = replacePartitionOp.getPartitionNames();
+        List<String> tempPartitionNames = replacePartitionOp.getTempPartitionNames();
+        boolean isStrictRange = replacePartitionOp.isStrictRange();
+        boolean useTempPartitionName = replacePartitionOp.useTempPartitionName();
+        boolean isForceDropOld = replacePartitionOp.isForceDropOldPartition();
         // check partition exist
         for (String partName : partitionNames) {
             if (!olapTable.checkPartitionNameExist(partName, false)) {
@@ -6767,8 +6719,8 @@ public class Env {
         // it does not affect the logic of replace the partition
         try {
             Env.getCurrentEnv().getEventProcessor().processEvent(
-                    new ReplacePartitionEvent(db.getCatalog().getId(), db.getId(),
-                            olapTable.getId()));
+                new ReplacePartitionEvent(db.getCatalog().getId(), db.getId(),
+                    olapTable.getId()));
         } catch (Throwable t) {
             // According to normal logic, no exceptions will be thrown,
             // but in order to avoid bugs affecting the original logic, all exceptions are caught
@@ -6781,8 +6733,9 @@ public class Env {
                 versionTime,
                 isForceDropOld);
         editLog.logReplaceTempPartition(info);
-        LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
-                clause.getTempPartitionNames(), olapTable.getName());
+        LOG.info("finished to replace partitions {} with temp partitions {} from table: {}",
+                replacePartitionOp.getPartitionNames(),
+                replacePartitionOp.getTempPartitionNames(), olapTable.getName());
     }
 
     public void replayReplaceTempPartition(ReplacePartitionOperationLog replaceTempPartitionLog)
@@ -6868,6 +6821,7 @@ public class Env {
                 LOG.warn("ignore set same state {} for table {}. is replay: {}.",
                             olapTable.getState(), tableName, isReplay);
             }
+            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -6975,6 +6929,7 @@ public class Env {
                 LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {}, "
                         + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
                         backendId, version, lastSuccessVersion, lastFailedVersion, updateTime, isReplay);
+                Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
             } finally {
                 table.writeUnlock();
             }
@@ -6992,7 +6947,7 @@ public class Env {
         }
     }
 
-    public void onEraseOlapTable(OlapTable olapTable, boolean isReplay) {
+    public void onEraseOlapTable(long dbId, OlapTable olapTable, boolean isReplay) {
         // inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Collection<Partition> allPartitions = olapTable.getAllPartitions();
@@ -7008,7 +6963,7 @@ public class Env {
         // colocation
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
 
-        getInternalCatalog().eraseTableDropBackendReplicas(olapTable, isReplay);
+        getInternalCatalog().eraseTableDropBackendReplicas(dbId, olapTable, isReplay);
     }
 
     public void onErasePartition(Partition partition) {
@@ -7054,6 +7009,8 @@ public class Env {
                 LOG.info("set partition {} visible version from {} to {}. Database {}, Table {}, is replay:"
                         + " {}.", partitionId, oldVersion, visibleVersion, database, table, isReplay);
             }
+
+            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -7266,6 +7223,10 @@ public class Env {
         return statisticsAutoCollector;
     }
 
+    public StatisticsMetricCollector getStatisticsMetricCollector() {
+        return statisticsMetricCollector;
+    }
+
     public MasterDaemon getTabletStatMgr() {
         return tabletStatMgr;
     }
@@ -7400,5 +7361,13 @@ public class Env {
     public List<String> getAllAliveSessionIds() {
         return new ArrayList<>(aliveSessionSet);
     }
+
+    public void setClusterSnapshotFile(String clusterSnapshotFile) throws Exception {
+        throw new Exception("cluster snapshot only support cloud mode");
+    }
+
+    protected void checkClusterSnapshot(File dir) {}
+
+    protected void cloneClusterSnapshot() throws Exception {}
 }
 

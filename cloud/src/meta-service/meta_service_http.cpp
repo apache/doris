@@ -41,7 +41,6 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <variant>
 #include <vector>
 
 #include "common/config.h"
@@ -49,7 +48,6 @@
 #include "common/logging.h"
 #include "common/string_util.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta_service.h"
@@ -666,6 +664,154 @@ static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller*) {
     return http_json_reply(MetaServiceCode::OK, "");
 }
 
+static HttpResponse process_list_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    ListSnapshotRequest req;
+    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    ListSnapshotResponse resp;
+    service->list_snapshot(ctrl, &req, &resp, nullptr);
+    return http_json_reply_message(resp.status(), resp);
+}
+
+static HttpResponse process_set_snapshot_property(MetaServiceImpl* service,
+                                                  brpc::Controller* ctrl) {
+    AlterInstanceRequest req;
+    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    auto* properties = req.mutable_properties();
+    if (properties->contains("status")) {
+        std::string status = properties->at("status");
+        if (status != "ENABLED" && status != "DISABLED") {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "Invalid value for status property: " + status +
+                                           ", expected 'ENABLED' or 'DISABLED' (case insensitive)");
+        }
+        std::string_view is_enable = (status == "ENABLED") ? "true" : "false";
+        const std::string& property_name =
+                AlterInstanceRequest::SnapshotProperty_Name(AlterInstanceRequest::ENABLE_SNAPSHOT);
+        (*properties)[property_name] = is_enable;
+        properties->erase("status");
+    }
+    if (properties->contains("max_reserved_snapshots")) {
+        const std::string& property_name = AlterInstanceRequest::SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS);
+        (*properties)[property_name] = properties->at("max_reserved_snapshots");
+        properties->erase("max_reserved_snapshots");
+    }
+    if (properties->contains("snapshot_interval_seconds")) {
+        const std::string& property_name = AlterInstanceRequest::SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS);
+        (*properties)[property_name] = properties->at("snapshot_interval_seconds");
+        properties->erase("snapshot_interval_seconds");
+    }
+    req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+    AlterInstanceResponse resp;
+    service->alter_instance(ctrl, &req, &resp, nullptr);
+    return http_json_reply(resp.status());
+}
+
+static HttpResponse process_set_multi_version_status(MetaServiceImpl* service,
+                                                     brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    std::string cloud_unique_id(http_query(uri, "cloud_unique_id"));
+    std::string multi_version_status_str(http_query(uri, "multi_version_status"));
+
+    // Prefer instance_id if provided, fallback to cloud_unique_id
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "empty instance id");
+    }
+
+    if (multi_version_status_str.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "multi_version_status is required");
+    }
+
+    // Parse multi_version_status from string to enum
+    MultiVersionStatus multi_version_status;
+    std::string multi_version_status_upper = multi_version_status_str;
+    std::ranges::transform(multi_version_status_upper, multi_version_status_upper.begin(),
+                           ::toupper);
+
+    if (multi_version_status_upper == "MULTI_VERSION_DISABLED") {
+        multi_version_status = MultiVersionStatus::MULTI_VERSION_DISABLED;
+    } else if (multi_version_status_upper == "MULTI_VERSION_WRITE_ONLY") {
+        multi_version_status = MultiVersionStatus::MULTI_VERSION_WRITE_ONLY;
+    } else if (multi_version_status_upper == "MULTI_VERSION_READ_WRITE") {
+        multi_version_status = MultiVersionStatus::MULTI_VERSION_READ_WRITE;
+    } else if (multi_version_status_upper == "MULTI_VERSION_ENABLED") {
+        multi_version_status = MultiVersionStatus::MULTI_VERSION_ENABLED;
+    } else {
+        return http_json_reply(
+                MetaServiceCode::INVALID_ARGUMENT,
+                "invalid multi_version_status value. Supported values: MULTI_VERSION_DISABLED, "
+                "MULTI_VERSION_WRITE_ONLY, MULTI_VERSION_READ_WRITE, MULTI_VERSION_ENABLED");
+    }
+    // Call snapshot manager directly
+    auto [code, msg] = service->snapshot_manager()->set_multi_version_status(instance_id,
+                                                                             multi_version_status);
+
+    return http_json_reply(code, msg);
+}
+
+static HttpResponse process_get_snapshot_property(MetaServiceImpl* service,
+                                                  brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string_view instance_id = http_query(uri, "instance_id");
+    std::string_view cloud_unique_id = http_query(uri, "cloud_unique_id");
+
+    if (instance_id.empty() && cloud_unique_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "empty instance_id and cloud_unique_id");
+    }
+
+    InstanceInfoPB instance;
+    auto [code, msg] = service->get_instance_info(std::string(instance_id),
+                                                  std::string(cloud_unique_id), &instance);
+    if (code != MetaServiceCode::OK) {
+        return http_json_reply(code, msg);
+    }
+
+    // Build snapshot properties response
+    rapidjson::Document doc;
+    doc.SetObject();
+
+    // Snapshot switch status
+    std::string_view switch_status;
+    switch (instance.snapshot_switch_status()) {
+    case SNAPSHOT_SWITCH_DISABLED:
+        switch_status = "UNSUPPORTED";
+        break;
+    case SNAPSHOT_SWITCH_OFF:
+        switch_status = "DISABLED";
+        break;
+    case SNAPSHOT_SWITCH_ON:
+        switch_status = "ENABLED";
+        break;
+    default:
+        switch_status = "UNKNOWN";
+        break;
+    }
+    doc.AddMember("status", rapidjson::StringRef(switch_status.data(), switch_status.size()),
+                  doc.GetAllocator());
+
+    // Max reserved snapshots
+    if (instance.has_max_reserved_snapshot()) {
+        doc.AddMember("max_reserved_snapshots", instance.max_reserved_snapshot(),
+                      doc.GetAllocator());
+    }
+
+    // Snapshot interval seconds
+    if (instance.has_snapshot_interval_seconds()) {
+        doc.AddMember("snapshot_interval_seconds", instance.snapshot_interval_seconds(),
+                      doc.GetAllocator());
+    }
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    doc.Accept(writer);
+
+    return http_json_reply(MetaServiceCode::OK, "", buffer.GetString());
+}
+
 void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
                            const MetaServiceHttpRequest*, MetaServiceHttpResponse*,
                            ::google::protobuf::Closure* done) {
@@ -753,6 +899,15 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/get_tablet_stats", process_get_tablet_stats},
             {"v1/get_stage", process_get_stage},
             {"v1/get_cluster_status", process_get_cluster_status},
+            // snapshot related
+            {"list_snapshot", process_list_snapshot},
+            {"set_snapshot_property", process_set_snapshot_property},
+            {"get_snapshot_property", process_get_snapshot_property},
+            {"set_multi_version_status", process_set_multi_version_status},
+            {"v1/list_snapshot", process_list_snapshot},
+            {"v1/set_snapshot_property", process_set_snapshot_property},
+            {"v1/get_snapshot_property", process_get_snapshot_property},
+            {"v1/set_multi_version_status", process_set_multi_version_status},
             // misc
             {"abort_txn", process_abort_txn},
             {"abort_tablet_job", process_abort_tablet_job},

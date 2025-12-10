@@ -27,7 +27,6 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsFileGroupInfo;
 import org.apache.doris.nereids.load.NereidsLoadPlanInfoCollector;
 import org.apache.doris.nereids.load.NereidsParamCreateContext;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -60,22 +59,17 @@ public class FileLoadScanNode extends FileScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public FileLoadScanNode(PlanNodeId id, TupleDescriptor desc) {
-        super(id, desc, "FILE_LOAD_SCAN_NODE", StatisticalType.FILE_SCAN_NODE, false);
+        super(id, desc, "FILE_LOAD_SCAN_NODE", false);
     }
 
     public void finalizeForNereids(TUniqueId loadId, List<NereidsFileGroupInfo> fileGroupInfos,
-            List<NereidsParamCreateContext> contexts, NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo)
+            List<NereidsParamCreateContext> contexts, List<NereidsLoadPlanInfoCollector.LoadPlanInfo> loadPlanInfos)
             throws UserException {
         Preconditions.checkState(contexts.size() == fileGroupInfos.size(),
                 contexts.size() + " vs. " + fileGroupInfos.size());
-        List<Expr> preFilterList = loadPlanInfo.getPreFilterExprList();
-        if (preFilterList != null) {
-            addPreFilterConjuncts(preFilterList);
-        }
-        List<Expr> postFilterList = loadPlanInfo.getPostFilterExprList();
-        if (postFilterList != null) {
-            addConjuncts(postFilterList);
-        }
+        Preconditions.checkState(loadPlanInfos.size() == fileGroupInfos.size(),
+                loadPlanInfos.size() + " vs. " + fileGroupInfos.size());
+
         // ATTN: for load scan node, do not use backend policy in ExternalScanNode.
         // Because backend policy in ExternalScanNode may only contain compute backend.
         // But for load job, we should select backends from all backends, both compute and mix.
@@ -88,6 +82,16 @@ public class FileLoadScanNode extends FileScanNode {
         for (int i = 0; i < contexts.size(); ++i) {
             NereidsParamCreateContext context = contexts.get(i);
             NereidsFileGroupInfo fileGroupInfo = fileGroupInfos.get(i);
+            NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = loadPlanInfos.get(i);
+            // Add filters for each file group's load plan info
+            List<Expr> preFilterList = loadPlanInfo.getPreFilterExprList();
+            if (preFilterList != null) {
+                addPreFilterConjuncts(preFilterList);
+            }
+            List<Expr> postFilterList = loadPlanInfo.getPostFilterExprList();
+            if (postFilterList != null) {
+                addConjuncts(postFilterList);
+            }
             context.params = loadPlanInfo.toFileScanRangeParams(loadId, fileGroupInfo);
             createScanRangeLocations(context, fileGroupInfo, localBackendPolicy);
             this.selectedSplitNum += fileGroupInfo.getFileStatuses().size();

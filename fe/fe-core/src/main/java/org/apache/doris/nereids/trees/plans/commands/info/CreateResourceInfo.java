@@ -25,7 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.constants.AzureProperties;
+import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -91,7 +91,7 @@ public class CreateResourceInfo {
             throw new AnalysisException("Resource type can't be null");
         }
 
-        if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+        if (AzureProperties.guessIsMe(properties)) {
             resourceType = ResourceType.AZURE;
             return;
         }

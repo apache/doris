@@ -615,9 +615,9 @@ Status DataDir::load() {
         if (!tablet) {
             return true;
         }
-        const std::vector<RowsetMetaSharedPtr>& all_rowsets = tablet->tablet_meta()->all_rs_metas();
+        const auto& all_rowsets = tablet->tablet_meta()->all_rs_metas();
         RowsetIdUnorderedSet rowset_ids;
-        for (auto& rowset_meta : all_rowsets) {
+        for (const auto& [_, rowset_meta] : all_rowsets) {
             rowset_ids.insert(rowset_meta->rowset_id());
         }
 

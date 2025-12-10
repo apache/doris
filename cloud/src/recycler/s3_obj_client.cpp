@@ -18,6 +18,7 @@
 #include "recycler/s3_obj_client.h"
 
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/AbortMultipartUploadRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/GetBucketLifecycleConfigurationRequest.h>
@@ -374,6 +375,29 @@ ObjectStorageResponse S3ObjClient::check_versioning(const std::string& bucket) {
         return -1;
     }
     return 0;
+}
+
+ObjectStorageResponse S3ObjClient::abort_multipart_upload(ObjectStoragePathRef path,
+                                                          const std::string& upload_id) {
+    Aws::S3::Model::AbortMultipartUploadRequest request;
+    request.WithBucket(path.bucket).WithKey(path.key).WithUploadId(upload_id);
+    auto outcome = s3_put_rate_limit([&]() { return s3_client_->AbortMultipartUpload(request); });
+    if (!outcome.IsSuccess()) {
+        LOG_WARNING("failed to abort multipart upload")
+                .tag("endpoint", endpoint_)
+                .tag("bucket", path.bucket)
+                .tag("key", path.key)
+                .tag("upload_id", upload_id)
+                .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
+                .tag("error", outcome.GetError().GetMessage())
+                .tag("exception", outcome.GetError().GetExceptionName())
+                .tag("request_id", outcome.GetError().GetRequestId());
+        if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+            return {ObjectStorageResponse::OK};
+        }
+        return {ObjectStorageResponse::UNDEFINED, outcome.GetError().GetMessage()};
+    }
+    return {ObjectStorageResponse::OK};
 }
 
 } // namespace doris::cloud

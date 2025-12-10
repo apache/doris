@@ -164,7 +164,6 @@ private:
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();
-    Status _write_bitmap_index();
     Status _write_inverted_index();
     Status _write_ann_index();
     Status _write_bloom_filter_index();
@@ -180,7 +179,7 @@ private:
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
             bool null_first = true);
 
-    std::string _full_encode_keys(
+    static std::string _full_encode_keys(
             const std::vector<const KeyCoder*>& key_coders,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
             bool null_first = true);
@@ -192,7 +191,7 @@ private:
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(vectorized::Block& block);
+    void _serialize_block_to_row_column(const vectorized::Block& block);
     Status _generate_primary_key_index(
             const std::vector<const KeyCoder*>& primary_key_coders,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& primary_key_columns,

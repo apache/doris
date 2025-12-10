@@ -17,18 +17,14 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
-import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.UserException;
-import org.apache.doris.qe.SetExecutor;
+import org.apache.doris.qe.VariableMgr;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class WorkloadActionSetSessionVar implements WorkloadAction {
 
@@ -45,12 +41,8 @@ public class WorkloadActionSetSessionVar implements WorkloadAction {
     @Override
     public void exec(WorkloadQueryInfo queryInfo) {
         try {
-            List<SetVar> list = new ArrayList<>();
-            SetVar sv = new SetVar(varName, new StringLiteral(varValue));
-            list.add(sv);
-            SetStmt setStmt = new SetStmt(list);
-            SetExecutor executor = new SetExecutor(queryInfo.context, setStmt);
-            executor.execute();
+            SetVar var = new SetVar(varName, new StringLiteral(varValue));
+            VariableMgr.setVar(queryInfo.context.getSessionVariable(), var);
         } catch (Throwable t) {
             LOG.error("error happens when exec {}", WorkloadActionType.SET_SESSION_VARIABLE, t);
         }

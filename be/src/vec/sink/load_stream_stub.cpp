@@ -88,6 +88,10 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
         ss << ", status: " << st;
         LOG(INFO) << ss.str();
 
+        if (response.tablet_load_rowset_num_infos_size() > 0) {
+            stub->_refresh_back_pressure_version_wait_time(response.tablet_load_rowset_num_infos());
+        }
+
         if (response.has_load_stream_profile()) {
             TRuntimeProfileTree tprofile;
             const uint8_t* buf =
@@ -196,6 +200,9 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         _enable_unique_mow_for_index->emplace(resp.index_id(),
                                               resp.enable_unique_key_merge_on_write());
     }
+    if (response.tablet_load_rowset_num_infos_size() > 0) {
+        _refresh_back_pressure_version_wait_time(response.tablet_load_rowset_num_infos());
+    }
     if (cntl.Failed()) {
         brpc::StreamClose(_stream_id);
         _status = Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
@@ -253,7 +260,8 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
 }
 
 // CLOSE_LOAD
-Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit,
+                                  int num_incremental_streams) {
     if (!_is_open.load()) {
         return _status;
     }
@@ -264,6 +272,7 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     for (const auto& tablet : tablets_to_commit) {
         *header.add_tablets() = tablet;
     }
+    header.set_num_incremental_streams(num_incremental_streams);
     _status = _encode_and_send(header);
     if (!_status.ok()) {
         LOG(WARNING) << "stream " << _stream_id << " close failed: " << _status;
@@ -496,6 +505,44 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
     }
 }
 
+void LoadStreamStub::_refresh_back_pressure_version_wait_time(
+        const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>&
+                tablet_load_infos) {
+    int64_t max_rowset_num_gap = 0;
+    // if any one tablet is under high load pressure, we would make the whole procedure
+    // sleep to prevent the corresponding BE return -235
+    std::for_each(
+            tablet_load_infos.begin(), tablet_load_infos.end(),
+            [&max_rowset_num_gap](auto& load_info) {
+                int64_t cur_rowset_num = load_info.current_rowset_nums();
+                int64_t high_load_point = load_info.max_config_rowset_nums() *
+                                          (config::load_back_pressure_version_threshold / 100);
+                DCHECK(cur_rowset_num > high_load_point);
+                max_rowset_num_gap = std::max(max_rowset_num_gap, cur_rowset_num - high_load_point);
+            });
+    // to slow down the high load pressure
+    // we would use the rowset num gap to calculate one sleep time
+    // for example:
+    // if the max tablet version is 2000, there are 3 BE
+    // A: ====================  1800
+    // B: ===================   1700
+    // C: ==================    1600
+    //    ==================    1600
+    //                      ^
+    //                      the high load point
+    // then then max gap is 1800 - (max tablet version * config::load_back_pressure_version_threshold / 100) = 200,
+    // we would make the whole send procesure sleep
+    // 1200ms for compaction to be done toe reduce the high pressure
+    auto max_time = config::max_load_back_pressure_version_wait_time_ms;
+    if (UNLIKELY(max_rowset_num_gap > 0)) {
+        _load_back_pressure_version_wait_time_ms.store(
+                std::min(max_rowset_num_gap + 1000, max_time));
+        LOG(INFO) << "try to back pressure version, wait time(ms): "
+                  << _load_back_pressure_version_wait_time_ms << ", load id: " << print_id(_load_id)
+                  << ", max_rowset_num_gap: " << max_rowset_num_gap;
+    }
+}
+
 std::string LoadStreamStub::to_string() {
     std::ostringstream ss;
     ss << *this;
@@ -541,7 +588,8 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
     return status;
 }
 
-Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_commit,
+                                   int num_incremental_streams) {
     if (!_open_success.load()) {
         return Status::InternalError("streams not open");
     }
@@ -550,10 +598,10 @@ Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_comm
     for (auto& stream : _streams) {
         Status st;
         if (first) {
-            st = stream->close_load(tablets_to_commit);
+            st = stream->close_load(tablets_to_commit, num_incremental_streams);
             first = false;
         } else {
-            st = stream->close_load({});
+            st = stream->close_load({}, num_incremental_streams);
         }
         if (!st.ok()) {
             LOG(WARNING) << "close_load failed: " << st << "; stream: " << *stream;

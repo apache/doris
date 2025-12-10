@@ -34,7 +34,7 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer_address]
 ------------PhysicalProject
---------------PhysicalOlapScan[customer_address]
+--------------PhysicalOlapScan[customer_address(current_addr)]
 
 Hint log:
 Used: leading(store_sales store date_dim household_demographics customer_address ) leading(customer dn current_addr )

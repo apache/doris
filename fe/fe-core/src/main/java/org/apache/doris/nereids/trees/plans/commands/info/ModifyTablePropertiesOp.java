@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -344,6 +342,20 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            // do a check here for valid value
+            int retentionCount = -1;
+            String val = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+            try {
+                retentionCount = Integer.parseInt(val);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("partition.retention_count format error");
+            }
+            if (retentionCount <= 0) {
+                throw new AnalysisException("partition.retention_count should be > 0");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME)) {
             throw new AnalysisException("You can not modify storage vault name");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID)) {
@@ -379,11 +391,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
         analyzeForMTMV();
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyTablePropertiesClause(properties, storagePolicy, isBeingSynced, needTableStable, opType);
     }
 
     private void analyzeForMTMV() throws AnalysisException {

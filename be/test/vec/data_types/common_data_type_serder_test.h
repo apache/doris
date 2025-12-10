@@ -288,11 +288,11 @@ public:
         EXPECT_EQ(jsonb_column->size(), load_cols[0]->size());
         for (size_t r = 0; r < jsonb_column->size(); ++r) {
             StringRef jsonb_data = jsonb_column->get_data_at(r);
-            JsonbDocument* pdoc = nullptr;
+            const JsonbDocument* pdoc = nullptr;
             auto st =
                     JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
             ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-            JsonbDocument& doc = *pdoc;
+            const JsonbDocument& doc = *pdoc;
             size_t cIdx = 0;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serders[cIdx]->read_one_cell_from_jsonb(*assert_cols[cIdx], it->value());
@@ -307,20 +307,6 @@ public:
                 auto cell = col->operator[](j);
                 auto assert_cell = assert_col->operator[](j);
                 EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
-            }
-        }
-    }
-
-    // assert mysql text format, now we just simple assert not to fatal or exception here
-    static void assert_mysql_format(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
-        MysqlRowBuffer<false> row_buffer;
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& col = load_cols[i];
-            for (size_t j = 0; j < col->size(); ++j) {
-                Status st;
-                EXPECT_NO_FATAL_FAILURE(
-                        st = serders[i]->write_column_to_mysql(*col, row_buffer, j, false, {}));
-                EXPECT_TRUE(st.ok()) << st.to_string();
             }
         }
     }

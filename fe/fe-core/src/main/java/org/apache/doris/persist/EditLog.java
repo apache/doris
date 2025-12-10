@@ -42,6 +42,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
+import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -86,9 +87,6 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
-import org.apache.doris.plsql.metastore.PlsqlPackage;
-import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
-import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
@@ -897,12 +895,6 @@ public class EditLog {
                     env.getLoadManager().replayUpdateLoadJobStateInfo(info);
                     break;
                 }
-                case OperationType.OP_CREATE_SYNC_JOB: {
-                    break;
-                }
-                case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
-                    break;
-                }
                 case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
                     FetchStreamLoadRecord fetchStreamLoadRecord = (FetchStreamLoadRecord) journal.getData();
                     env.getStreamLoadRecordMgr().replayFetchStreamLoadRecord(fetchStreamLoadRecord);
@@ -1180,8 +1172,8 @@ public class EditLog {
                 }
                 case OperationType.OP_INIT_CATALOG:
                 case OperationType.OP_INIT_CATALOG_COMP: {
-                    final InitCatalogLog log = (InitCatalogLog) journal.getData();
-                    env.getCatalogMgr().replayInitCatalog(log);
+                    // final InitCatalogLog log = (InitCatalogLog) journal.getData();
+                    // just ignore, init catalog is deprecated since 4.0
                     break;
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_DB: {
@@ -1190,8 +1182,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_DB: {
-                    final InitDatabaseLog log = (InitDatabaseLog) journal.getData();
-                    env.getCatalogMgr().replayInitExternalDb(log);
+                    // final InitDatabaseLog log = (InitDatabaseLog) journal.getData();
+                    // just ignore, init db is deprecated since 4.0
                     break;
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
@@ -1281,19 +1273,15 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_ADD_PLSQL_STORED_PROCEDURE: {
-                    env.getPlsqlManager().replayAddPlsqlStoredProcedure((PlsqlStoredProcedure) journal.getData());
                     break;
                 }
                 case OperationType.OP_DROP_PLSQL_STORED_PROCEDURE: {
-                    env.getPlsqlManager().replayDropPlsqlStoredProcedure((PlsqlProcedureKey) journal.getData());
                     break;
                 }
                 case OperationType.OP_ADD_PLSQL_PACKAGE: {
-                    env.getPlsqlManager().replayAddPlsqlPackage((PlsqlPackage) journal.getData());
                     break;
                 }
                 case OperationType.OP_DROP_PLSQL_PACKAGE: {
-                    env.getPlsqlManager().replayDropPlsqlPackage((PlsqlProcedureKey) journal.getData());
                     break;
                 }
                 case OperationType.OP_ALTER_DATABASE_PROPERTY: {
@@ -1410,6 +1398,11 @@ public class EditLog {
                 case OperationType.OP_OPERATE_KEY: {
                     KeyOperationInfo info = (KeyOperationInfo) journal.getData();
                     env.getKeyManager().replayKeyOperation(info);
+                    break;
+                }
+                case OperationType.OP_BEGIN_SNAPSHOT: {
+                    // SnapshotState info = (SnapshotState) journal.getData();
+                    // TODO: implement
                     break;
                 }
                 default: {
@@ -2096,22 +2089,6 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_WORKLOAD_SCHED_POLICY, new DropWorkloadSchedPolicyOperatorLog(policyId));
     }
 
-    public void logAddPlsqlStoredProcedure(PlsqlStoredProcedure plsqlStoredProcedure) {
-        logEdit(OperationType.OP_ADD_PLSQL_STORED_PROCEDURE, plsqlStoredProcedure);
-    }
-
-    public void logDropPlsqlStoredProcedure(PlsqlProcedureKey plsqlProcedureKey) {
-        logEdit(OperationType.OP_DROP_PLSQL_STORED_PROCEDURE, plsqlProcedureKey);
-    }
-
-    public void logAddPlsqlPackage(PlsqlPackage pkg) {
-        logEdit(OperationType.OP_ADD_PLSQL_PACKAGE, pkg);
-    }
-
-    public void logDropPlsqlPackage(PlsqlProcedureKey plsqlProcedureKey) {
-        logEdit(OperationType.OP_DROP_PLSQL_PACKAGE, plsqlProcedureKey);
-    }
-
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
         logEdit(OperationType.OP_ALTER_STORAGE_POLICY, storagePolicy);
     }
@@ -2473,5 +2450,9 @@ public class EditLog {
 
     public void logOperateKey(KeyOperationInfo info) {
         logEdit(OperationType.OP_OPERATE_KEY, info);
+    }
+
+    public long logBeginSnapshot(SnapshotState snapshotState) {
+        return logEdit(OperationType.OP_BEGIN_SNAPSHOT, snapshotState);
     }
 }

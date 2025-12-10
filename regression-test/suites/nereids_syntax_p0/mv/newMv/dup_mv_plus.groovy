@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("dup_mv_plus") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
     sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS dup_mv_plus; """
@@ -38,8 +40,7 @@ suite ("dup_mv_plus") {
     sql "insert into dup_mv_plus select 2,2,2,'b';"
     sql "insert into dup_mv_plus select 3,-3,null,'c';"
 
-    createMV ("create materialized view k12p as select k1 as a1,k2+1 from dup_mv_plus;")
-    sleep(3000)
+    create_sync_mv(db, "dup_mv_plus", "k12p", "select k1 as a1,k2+1 from dup_mv_plus;")
 
     sql "insert into dup_mv_plus select -4,-4,-4,'d';"
     sql "SET experimental_enable_nereids_planner=true"
@@ -48,7 +49,6 @@ suite ("dup_mv_plus") {
     sql "analyze table dup_mv_plus with sync;"
     sql """alter table dup_mv_plus modify column k1 set stats ('row_count'='4');"""
 
-    sql """set enable_stats=false;"""
 
     order_qt_select_star "select * from dup_mv_plus order by k1;"
 
@@ -87,18 +87,4 @@ suite ("dup_mv_plus") {
 
     mv_rewrite_fail("select k1,k2+1 from dup_mv_plus order by k2;", "k12p")
     order_qt_select_mv "select k1,k2+1 from dup_mv_plus order by k2;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_success("select k1,k2+1 from dup_mv_plus order by k1;", "k12p")
-
-    mv_rewrite_success("select k2+1 from dup_mv_plus order by k1;", "k12p")
-
-    mv_rewrite_success("select sum(k2+1) from dup_mv_plus group by k1 order by k1;", "k12p")
-
-    mv_rewrite_success("select sum(k1) from dup_mv_plus group by k2+1 order by k2+1;", "k12p")
-
-    mv_rewrite_success("select sum(k2+1) from dup_mv_plus group by k1 order by k1;", "k12p")
-
-    mv_rewrite_success("select sum(k1) from dup_mv_plus group by k2+1 order by k2+1;", "k12p")
 }

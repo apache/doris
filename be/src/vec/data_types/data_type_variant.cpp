@@ -67,6 +67,8 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
                                                            int be_exec_version) const {
     const auto& column_variant = assert_cast<const ColumnVariant&>(column);
     if (!column_variant.is_finalized()) {
+        // Icolumn originates from MutablePtr or block, and therefore can be modified.
+        // todo: We should reconsider the logic here, why are we using finalize() in this context?
         const_cast<ColumnVariant&>(column_variant).finalize();
     }
 
@@ -105,6 +107,8 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
 char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     const auto& column_variant = assert_cast<const ColumnVariant&>(column);
     if (!column_variant.is_finalized()) {
+        // Icolumn originates from block, and therefore can be modified.
+        // todo: We should reconsider the logic here, why are we using finalize() in this context?
         const_cast<ColumnVariant&>(column_variant).finalize();
     }
 #ifndef NDEBUG
@@ -225,18 +229,6 @@ const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* colu
     column_variant->check_consistency();
 #endif
     return buf;
-}
-
-std::string DataTypeVariant::to_string(const IColumn& column, size_t row_num) const {
-    const auto& variant = assert_cast<const ColumnVariant&>(column);
-    std::string res;
-    variant.serialize_one_row_to_string(cast_set<Int64>(row_num), &res);
-    return res;
-}
-
-void DataTypeVariant::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    const auto& variant = assert_cast<const ColumnVariant&>(column);
-    variant.serialize_one_row_to_string(cast_set<Int64>(row_num), ostr);
 }
 
 void DataTypeVariant::to_pb_column_meta(PColumnMeta* col_meta) const {

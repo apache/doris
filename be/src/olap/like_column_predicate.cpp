@@ -28,7 +28,7 @@ namespace doris {
 template <PrimitiveType T>
 LikeColumnPredicate<T>::LikeColumnPredicate(bool opposite, uint32_t column_id,
                                             doris::FunctionContext* fn_ctx, doris::StringRef val)
-        : ColumnPredicate(column_id, opposite), pattern(val) {
+        : ColumnPredicate(column_id, T, opposite), pattern(val) {
     static_assert(T == TYPE_VARCHAR || T == TYPE_CHAR || T == TYPE_STRING,
                   "LikeColumnPredicate only supports the following types: TYPE_VARCHAR, TYPE_CHAR, "
                   "TYPE_STRING");
@@ -91,8 +91,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                     sel[new_size] = idx;
                     unsigned char flag = 0;
                     THROW_IF_ERROR((_state->scalar_function)(
-                            const_cast<vectorized::LikeSearchState*>(&_like_state),
-                            str_col->get_data_at(idx), pattern, &flag));
+                            &_like_state, str_col->get_data_at(idx), pattern, &flag));
                     new_size += _opposite ^ flag;
                 }
             } else {
@@ -107,8 +106,8 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                     StringRef cell_value = str_col->get_data_at(idx);
                     unsigned char flag = 0;
                     THROW_IF_ERROR((_state->scalar_function)(
-                            const_cast<vectorized::LikeSearchState*>(&_like_state),
-                            StringRef(cell_value.data, cell_value.size), pattern, &flag));
+                            &_like_state, StringRef(cell_value.data, cell_value.size), pattern,
+                            &flag));
                     new_size += _opposite ^ flag;
                 }
             }
@@ -134,9 +133,8 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 unsigned char flag = 0;
-                THROW_IF_ERROR((_state->scalar_function)(
-                        const_cast<vectorized::LikeSearchState*>(&_like_state),
-                        str_col->get_data_at(idx), pattern, &flag));
+                THROW_IF_ERROR((_state->scalar_function)(&_like_state, str_col->get_data_at(idx),
+                                                         pattern, &flag));
                 new_size += _opposite ^ flag;
             }
         }

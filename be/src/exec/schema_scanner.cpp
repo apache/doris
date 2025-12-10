@@ -32,21 +32,27 @@
 #include "exec/schema_scanner/schema_backend_kerberos_ticket_cache.h"
 #include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
+#include "exec/schema_scanner/schema_cluster_snapshot_properties_scanner.h"
+#include "exec/schema_scanner/schema_cluster_snapshots_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
+#include "exec/schema_scanner/schema_column_data_sizes_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
+#include "exec/schema_scanner/schema_database_properties_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
 #include "exec/schema_scanner/schema_encryption_keys_scanner.h"
+#include "exec/schema_scanner/schema_file_cache_info_scanner.h"
 #include "exec/schema_scanner/schema_file_cache_statistics.h"
 #include "exec/schema_scanner/schema_files_scanner.h"
+#include "exec/schema_scanner/schema_load_job_scanner.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
 #include "exec/schema_scanner/schema_processlist_scanner.h"
 #include "exec/schema_scanner/schema_profiling_scanner.h"
 #include "exec/schema_scanner/schema_routine_load_job_scanner.h"
-#include "exec/schema_scanner/schema_routine_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
+#include "exec/schema_scanner/schema_sql_block_rule_status_scanner.h"
 #include "exec/schema_scanner/schema_table_options_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 #include "exec/schema_scanner/schema_table_properties_scanner.h"
@@ -156,6 +162,7 @@ Status SchemaScanner::init(RuntimeState* state, SchemaScannerParam* param, Objec
     }
 
     _param = param;
+    _timezone = state->timezone();
     _timezone_obj = state->timezone_obj();
     _is_init = true;
 
@@ -214,8 +221,6 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaWorkloadGroupsScanner::create_unique();
     case TSchemaTableType::SCH_PROCESSLIST:
         return SchemaProcessListScanner::create_unique();
-    case TSchemaTableType::SCH_PROCEDURES:
-        return SchemaRoutinesScanner::create_unique();
     case TSchemaTableType::SCH_USER:
         return SchemaUserScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_POLICY:
@@ -228,6 +233,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendWorkloadGroupResourceUsage::create_unique();
     case TSchemaTableType::SCH_TABLE_PROPERTIES:
         return SchemaTablePropertiesScanner::create_unique();
+    case TSchemaTableType::SCH_DATABASE_PROPERTIES:
+        return SchemaDatabasePropertiesScanner::create_unique();
     case TSchemaTableType::SCH_FILE_CACHE_STATISTICS:
         return SchemaFileCacheStatisticsScanner::create_unique();
     case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:
@@ -236,12 +243,24 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendKerberosTicketCacheScanner::create_unique();
     case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
         return SchemaRoutineLoadJobScanner::create_unique();
+    case TSchemaTableType::SCH_LOAD_JOBS:
+        return SchemaLoadJobScanner::create_unique();
     case TSchemaTableType::SCH_BACKEND_TABLETS:
         return SchemaTabletsScanner::create_unique();
     case TSchemaTableType::SCH_VIEW_DEPENDENCY:
         return SchemaViewDependencyScanner::create_unique();
+    case TSchemaTableType::SCH_SQL_BLOCK_RULE_STATUS:
+        return SchemaSqlBlockRuleStatusScanner::create_unique();
     case TSchemaTableType::SCH_ENCRYPTION_KEYS:
         return SchemaEncryptionKeysScanner::create_unique();
+    case TSchemaTableType::SCH_CLUSTER_SNAPSHOTS:
+        return SchemaClusterSnapshotsScanner::create_unique();
+    case TSchemaTableType::SCH_CLUSTER_SNAPSHOT_PROPERTIES:
+        return SchemaClusterSnapshotPropertiesScanner::create_unique();
+    case TSchemaTableType::SCH_COLUMN_DATA_SIZES:
+        return SchemaColumnDataSizesScanner::create_unique();
+    case TSchemaTableType::SCH_FILE_CACHE_INFO:
+        return SchemaFileCacheInfoScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

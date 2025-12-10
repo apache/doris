@@ -114,7 +114,7 @@ public:
 
     virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
                                               SyncRowsetStats* sync_stats = nullptr,
-                                              bool force_use_cache = false) = 0;
+                                              bool force_use_only_cached = false) = 0;
 
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
@@ -132,6 +132,10 @@ public:
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
     CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
         return _calc_delete_bitmap_executor.get();
+    }
+
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor_for_load() {
+        return _calc_delete_bitmap_executor_for_load.get();
     }
 
     void add_quering_rowset(RowsetSharedPtr rs);
@@ -163,6 +167,7 @@ protected:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
+    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor_for_load;
     CountDownLatch _stop_background_threads_latch;
 
     // Hold reference of quering rowsets
@@ -233,7 +238,7 @@ public:
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
     Result<BaseTabletSPtr> get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats = nullptr,
-                                      bool force_use_cache = false) override;
+                                      bool force_use_only_cached = false) override;
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,

@@ -32,8 +32,8 @@ class Arena;
 class BufferReadable;
 
 struct QuantileReservoirSampler {
-    void add(const double x, const double level) {
-        this->level = level;
+    void add(const double x, const double input_level) {
+        this->level = input_level;
         data.insert(x);
     }
 
@@ -58,6 +58,8 @@ struct QuantileReservoirSampler {
     }
 
     double get() const {
+        // The caller is a ConstAggregateDataPtr, but it itself is an AggregateDataPtr.
+        // To call a non-const method here, a const_cast is required.
         return const_cast<ReservoirSampler&>(data).quantileInterpolated(this->level);
     }
 

@@ -24,6 +24,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
@@ -67,6 +69,7 @@ public class ExecuteCommand extends Command {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         StatementContext statementContext = ctx.getStatementContext();
         statementContext.setPrepareStage(false);
+        statementContext.setIsInsert(false);
         PreparedStatementContext preparedStmtCtx = ctx.getPreparedStementContext(stmtName);
         if (null == preparedStmtCtx) {
             throw new AnalysisException(
@@ -76,6 +79,11 @@ public class ExecuteCommand extends Command {
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
         if (logicalPlan instanceof LogicalSqlCache) {
             throw new AnalysisException("Unsupported sql cache for server prepared statement");
+        }
+        if (logicalPlan instanceof InsertIntoTableCommand
+                || logicalPlan instanceof InsertOverwriteTableCommand
+                || logicalPlan instanceof UpdateCommand) {
+            ctx.getStatementContext().setIsInsert(true);
         }
         LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(
                 logicalPlan, executor.getContext().getStatementContext());

@@ -54,37 +54,37 @@ max_allowed_packet	4194304	16777216	1
 0
 
 -- !nested_with_join_19 --
-9
+10
 
 -- !nested_with_join_20 --
 0
 
 -- !nested_with_join_21 --
-9
+10
 
 -- !nested_with_join_22 --
 0
 
 -- !nested_with_join_23 --
-14
+15
 
 -- !nested_with_join_24 --
 0
 
 -- !nested_with_join_25 --
-14
+15
 
 -- !nested_with_join_26 --
 0
 
 -- !nested_with_join_27 --
-8
+10
 
 -- !nested_with_join_28 --
 0
 
 -- !nested_with_join_29 --
-8
+10
 
 -- !nested_with_join_30 --
 

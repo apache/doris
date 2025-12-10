@@ -135,8 +135,16 @@ public:
     // Operator |=
     InvertedIndexResultBitmap& operator|=(const InvertedIndexResultBitmap& other) {
         if (_data_bitmap && _null_bitmap && other._data_bitmap && other._null_bitmap) {
-            auto new_null_bitmap = (*_null_bitmap | *other._null_bitmap) - *_data_bitmap;
+            // SQL three-valued logic for OR:
+            // - TRUE OR anything = TRUE (not NULL)
+            // - FALSE OR NULL = NULL
+            // - NULL OR NULL = NULL
+            // Result is NULL when the row is NULL on either side while the other side
+            // is not TRUE. Rows that become TRUE must be removed from the NULL bitmap.
             *_data_bitmap |= *other._data_bitmap;
+            auto new_null_bitmap =
+                    (*_null_bitmap - *other._data_bitmap) | (*other._null_bitmap - *_data_bitmap);
+            new_null_bitmap -= *_data_bitmap;
             *_null_bitmap = std::move(new_null_bitmap);
         }
         return *this;
@@ -218,6 +226,8 @@ public:
     static Status create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
                                         lucene::store::Directory* dir, IndexSearcherPtr* searcher,
                                         size_t& reader_size);
+    std::shared_ptr<IndexFileReader> get_index_file_reader() const { return _index_file_reader; }
+    const TabletIndex& get_index_meta() const { return _index_meta; }
 
 protected:
     Status match_index_search(const IndexQueryContextPtr& context,
@@ -377,17 +387,31 @@ public:
         std::unique_ptr<InvertedIndexQueryParam<PT>> param =
                 InvertedIndexQueryParam<PT>::create_unique();
 
-        CPP_TYPE cpp_val;
-        if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
-            auto field_val =
-                    doris::vectorized::get<doris::vectorized::NearestFieldType<CPP_TYPE>>(*value);
-            cpp_val = static_cast<CPP_TYPE>(field_val);
+        if constexpr (is_string_type(PT)) {
+            if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
+                const auto& str = doris::vectorized::get<vectorized::String>(*value);
+                param->set_value(str);
+            } else if constexpr (std::is_same_v<ValueType, StringRef>) {
+                param->set_value(value);
+            } else {
+                static_assert(std::is_convertible_v<ValueType, std::string>,
+                              "ValueType must be convertible to std::string for string types");
+                param->set_value(std::string(*value));
+            }
         } else {
-            cpp_val = static_cast<CPP_TYPE>(*value);
-        }
+            CPP_TYPE cpp_val;
+            if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
+                auto field_val =
+                        doris::vectorized::get<doris::vectorized::NearestFieldType<CPP_TYPE>>(
+                                *value);
+                cpp_val = static_cast<CPP_TYPE>(field_val);
+            } else {
+                cpp_val = static_cast<CPP_TYPE>(*value);
+            }
 
-        auto storage_val = PrimitiveTypeConvertor<PT>::to_storage_field_type(cpp_val);
-        param->set_value(&storage_val);
+            auto storage_val = PrimitiveTypeConvertor<PT>::to_storage_field_type(cpp_val);
+            param->set_value(&storage_val);
+        }
         result_param = std::move(param);
         return Status::OK();
     }
@@ -443,14 +467,27 @@ class InvertedIndexQueryParam : public InvertedIndexQueryParamFactory {
     using storage_val = typename PrimitiveTypeTraits<PT>::StorageFieldType;
 
 public:
-    void set_value(const storage_val* value) {
-        _value = *reinterpret_cast<const storage_val*>(value);
-    }
+    void set_value(const storage_val* value) { _value = *value; }
 
     const void* get_value() const override { return &_value; }
 
 private:
     storage_val _value;
+};
+
+template <PrimitiveType PT>
+    requires(is_string_type(PT))
+class InvertedIndexQueryParam<PT> : public InvertedIndexQueryParamFactory {
+    ENABLE_FACTORY_CREATOR(InvertedIndexQueryParam);
+
+public:
+    void set_value(const std::string& value) { _value = value; }
+    void set_value(const StringRef* value) { _value.assign(value->data, value->size); }
+
+    const void* get_value() const override { return &_value; }
+
+private:
+    std::string _value;
 };
 
 } // namespace segment_v2

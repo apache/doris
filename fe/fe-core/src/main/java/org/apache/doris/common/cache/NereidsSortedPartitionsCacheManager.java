@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.Par
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndRange;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 
 import com.github.benmanes.caffeine.cache.Cache;
@@ -69,6 +70,10 @@ public class NereidsSortedPartitionsCacheManager {
         );
     }
 
+    public void invalidateAll() {
+        this.partitionCaches.invalidateAll();
+    }
+
     public Optional<SortedPartitionRanges<?>> get(
             SupportBinarySearchFilteringPartitions table, CatalogRelation scan) {
         ConnectContext connectContext = ConnectContext.get();
@@ -76,6 +81,7 @@ public class NereidsSortedPartitionsCacheManager {
             return Optional.empty();
         }
 
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
         DatabaseIf<?> database = table.getDatabase();
         if (database == null) {
             return Optional.empty();
@@ -90,13 +96,13 @@ public class NereidsSortedPartitionsCacheManager {
 
         try {
             if (partitionCacheContext == null) {
-                return Optional.ofNullable(loadCache(key, table, scan));
+                return Optional.ofNullable(loadCache(key, table, scan, sessionVariable));
             }
             if (table.getId() != partitionCacheContext.tableId
                     || !Objects.equals(table.getPartitionMetaVersion(scan),
                     partitionCacheContext.partitionMetaVersion)) {
                 partitionCaches.invalidate(key);
-                return Optional.ofNullable(loadCache(key, table, scan));
+                return Optional.ofNullable(loadCache(key, table, scan, sessionVariable));
             }
         } catch (Throwable t) {
             LOG.warn("Failed to load cache for table {}, key {}.", table.getName(), key, t);
@@ -112,13 +118,18 @@ public class NereidsSortedPartitionsCacheManager {
     }
 
     private SortedPartitionRanges<?> loadCache(
-            TableIdentifier key, SupportBinarySearchFilteringPartitions table, CatalogRelation scan)
+            TableIdentifier key, SupportBinarySearchFilteringPartitions table, CatalogRelation scan,
+            SessionVariable sessionVariable)
             throws RpcException {
         long now = System.currentTimeMillis();
         long partitionMetaLoadTime = table.getPartitionMetaLoadTimeMillis(scan);
 
+        long cacheSortedPartitionIntervalSecond = sessionVariable.cacheSortedPartitionIntervalSecond;
+
         // if insert too frequently, we will skip sort partitions
-        if (now <= partitionMetaLoadTime || (now - partitionMetaLoadTime) <= (10 * 1000)) {
+        if (cacheSortedPartitionIntervalSecond >= 0
+                && (now <= partitionMetaLoadTime
+                    || (now - partitionMetaLoadTime) <= (cacheSortedPartitionIntervalSecond * 1000))) {
             return null;
         }
 

@@ -146,7 +146,6 @@ void RuntimeFilterProducer::latch_dependency(
         const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
     if (_rf_state != State::WAITING_FOR_SEND_SIZE) {
-        _check_state({State::WAITING_FOR_DATA});
         return;
     }
     DCHECK(dependency != nullptr);
@@ -157,7 +156,6 @@ void RuntimeFilterProducer::latch_dependency(
 Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filter_size) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
     if (_rf_state != State::WAITING_FOR_SEND_SIZE) {
-        _check_state({State::WAITING_FOR_DATA});
         return Status::OK();
     }
     DCHECK(_dependency != nullptr);

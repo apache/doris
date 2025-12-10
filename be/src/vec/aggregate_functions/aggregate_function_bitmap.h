@@ -147,6 +147,8 @@ struct AggregateFunctionBitmapData {
     }
 
     BitmapValue& get() { return value; }
+
+    const BitmapValue& get() const { return value; }
 };
 
 template <typename Data, typename Derived>
@@ -309,8 +311,7 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
-        this->data(place).merge(
-                const_cast<AggregateFunctionBitmapData<Op>&>(this->data(rhs)).get());
+        this->data(place).merge(this->data(rhs).get());
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -324,8 +325,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(
-                const_cast<AggregateFunctionBitmapData<Op>&>(this->data(place)).get());
+        column.get_data().push_back(this->data(place).get());
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
@@ -442,7 +442,7 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
-        this->data(place).merge(const_cast<AggFunctionData&>(this->data(rhs)).get());
+        this->data(place).merge(this->data(rhs).get());
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -455,7 +455,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& value_data = const_cast<AggFunctionData&>(this->data(place)).get();
+        auto& value_data = this->data(place).get();
         auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(value_data.cardinality());
     }

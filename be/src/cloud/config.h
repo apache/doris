@@ -76,6 +76,12 @@ DECLARE_mInt32(sync_rowsets_slow_threshold_ms);
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
 DECLARE_mBool(enable_new_tablet_do_compaction);
+// Enable empty rowset compaction strategy
+DECLARE_mBool(enable_empty_rowset_compaction);
+// Minimum number of consecutive empty rowsets to trigger compaction
+DECLARE_mInt32(empty_rowset_compaction_min_count);
+// Minimum percentage of empty rowsets to trigger compaction
+DECLARE_mDouble(empty_rowset_compaction_min_ratio);
 // For cloud read/write separate mode
 DECLARE_mInt64(base_compaction_freeze_interval_s);
 DECLARE_mInt64(compaction_load_max_freeze_interval_s);
@@ -90,6 +96,7 @@ DECLARE_mInt32(check_auto_compaction_interval_seconds);
 DECLARE_mInt32(max_base_compaction_task_num_per_disk);
 DECLARE_mBool(prioritize_query_perf_in_compaction);
 DECLARE_mInt32(compaction_max_rowset_count);
+DECLARE_mInt64(compaction_txn_max_size_bytes);
 
 // CloudStorageEngine config
 DECLARE_mInt32(refresh_s3_info_interval_s);
@@ -100,6 +107,9 @@ DECLARE_mInt32(schedule_sync_tablets_interval_s);
 DECLARE_mInt32(mow_stream_load_commit_retry_times);
 
 DECLARE_mBool(save_load_error_log_to_s3);
+
+// Whether to use public endpoint for error log presigned URL
+DECLARE_mBool(use_public_endpoint_for_error_log);
 
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
@@ -118,6 +128,9 @@ DECLARE_mBool(enable_agg_delta_delete_bitmap_for_store_v2);
 DECLARE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb);
 DECLARE_Int32(sync_delete_bitmap_task_max_thread);
 DECLARE_mBool(enable_delete_bitmap_store_v2_check_correctness);
+
+DECLARE_mBool(enable_batch_get_delete_bitmap);
+DECLARE_mInt64(get_delete_bitmap_bytes_threshold);
 
 // Skip writing empty rowset metadata to meta service
 DECLARE_mBool(skip_writing_empty_rowset_metadata);
@@ -147,6 +160,8 @@ DECLARE_mInt64(warmup_tablet_replica_info_cache_ttl_sec);
 
 DECLARE_mInt64(warm_up_rowset_slow_log_ms);
 
+DECLARE_mInt32(warm_up_manager_thread_pool_size);
+
 // When event driven warm-up is enabled by the user, turning on this option can help
 // avoid file cache misses in the read cluster caused by compaction.
 // If enabled, compaction will wait for the warm-up to complete before committing.
@@ -159,6 +174,25 @@ DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
 DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
 
 DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
+
+// Packed file manager config
+DECLARE_mBool(enable_packed_file);
+DECLARE_mInt64(packed_file_size_threshold_bytes);
+DECLARE_mInt64(packed_file_time_threshold_ms);
+DECLARE_mInt64(packed_file_try_lock_timeout_ms);
+DECLARE_mInt64(packed_file_small_file_count_threshold);
+DECLARE_mInt64(small_file_threshold_bytes);
+DECLARE_mInt64(uploaded_file_retention_seconds);
+DECLARE_mInt64(index_retention_seconds);
+DECLARE_mInt64(packed_file_cleanup_interval_seconds);
+
+DECLARE_mBool(enable_standby_passive_compaction);
+
+DECLARE_mDouble(standby_compaction_version_ratio);
+
+DECLARE_mBool(enable_cache_read_from_peer);
+
+DECLARE_mInt64(cache_read_from_peer_expired_seconds);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

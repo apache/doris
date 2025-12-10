@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.DbName;
-import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -28,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.audit.AuditLoader;
@@ -196,14 +195,13 @@ public class InternalSchemaInitializer extends Thread {
         for (Column col : table.getFullSchema()) {
             if (col.isKey() && col.getType().isVarchar()
                     && col.getType().getLength() < StatisticConstants.MAX_NAME_LEN) {
-                TypeDef typeDef = new TypeDef(
-                        ScalarType.createVarchar(StatisticConstants.MAX_NAME_LEN), col.isAllowNull());
+                Type type = ScalarType.createVarchar(StatisticConstants.MAX_NAME_LEN);
                 ColumnNullableType nullableType =
                         col.isAllowNull() ? ColumnNullableType.NULLABLE : ColumnNullableType.NOT_NULLABLE;
 
                 ColumnDefinition columnDefinition = new ColumnDefinition(
                         col.getName(),
-                        DataType.fromCatalogType(typeDef.getType()),
+                        DataType.fromCatalogType(type),
                         true,
                         null,
                         nullableType,
@@ -497,7 +495,7 @@ public class InternalSchemaInitializer extends Thread {
         StringBuilder sb = new StringBuilder();
         for (ColumnDef column : schema) {
             sb.append("  `").append(column.getName()).append("` ")
-                    .append(column.getTypeDef().toSql())
+                    .append(column.getType().toSql())
                     .append(column.isAllowNull() ? " NULL" : " NOT NULL")
                     .append(" COMMENT \"\",\n");
         }

@@ -25,34 +25,6 @@
 
 namespace doris::vectorized {
 
-TEST(FixedLengthObjectSerdeTest, writeColumnToMysql) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(1);
-    auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
-    column_fixed_length->insert_default();
-    ASSERT_EQ(column_fixed_length->size(), 1);
-    MysqlRowBuffer<false> mysql_rb;
-    DataTypeSerDe::FormatOptions options;
-    options.nested_string_wrapper = "\"";
-    options.wrapper_len = 1;
-    options.map_key_delim = ':';
-    options.null_format = "null";
-    options.null_len = 4;
-    fixed_length_serde->set_return_object_as_string(true);
-    auto st = fixed_length_serde->write_column_to_mysql(*column_fixed_length, mysql_rb, 0, false,
-                                                        options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 9);
-
-    column_fixed_length->resize(2);
-    *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
-    fixed_length_serde->set_return_object_as_string(true);
-    st = fixed_length_serde->write_column_to_mysql(*column_fixed_length, mysql_rb, 1, false,
-                                                   options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 18);
-    std::cout << "test write_column_to_mysql success" << std::endl;
-}
-
 TEST(FixedLengthObjectSerdeTest, writeOneCellToJsonb) {
     auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
@@ -69,10 +41,10 @@ TEST(FixedLengthObjectSerdeTest, writeOneCellToJsonb) {
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    JsonbDocument* pdoc = nullptr;
+    const JsonbDocument* pdoc = nullptr;
     auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
     ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-    JsonbDocument& doc = *pdoc;
+    const JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         fixed_length_serde->read_one_cell_from_jsonb(*column_fixed_length, it->value());
     }

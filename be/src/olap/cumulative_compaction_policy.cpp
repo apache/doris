@@ -43,8 +43,8 @@ SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
           _compaction_min_size(compaction_min_size) {}
 
 void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
-        Tablet* tablet, const std::vector<RowsetMetaSharedPtr>& all_metas,
-        int64_t current_cumulative_point, int64_t* ret_cumulative_point) {
+        Tablet* tablet, const RowsetMetaMapContainer& all_metas, int64_t current_cumulative_point,
+        int64_t* ret_cumulative_point) {
     *ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
     if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT) {
         // only calculate the point once.
@@ -57,7 +57,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
     }
 
     std::list<RowsetMetaSharedPtr> existing_rss;
-    for (auto& rs : all_metas) {
+    for (const auto& [_, rs] : all_metas) {
         existing_rss.emplace_back(rs);
     }
 
@@ -182,7 +182,7 @@ uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(T
     // NOTE: tablet._meta_lock is hold
     auto& rs_metas = tablet->tablet_meta()->all_rs_metas();
     // check the base rowset and collect the rowsets of cumulative part
-    for (auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         if (rs_meta->start_version() < first_version) {
             first_version = rs_meta->start_version();
             first_meta = rs_meta;

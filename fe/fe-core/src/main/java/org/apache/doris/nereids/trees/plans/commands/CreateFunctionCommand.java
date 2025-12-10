@@ -80,6 +80,7 @@ import org.apache.doris.proto.FunctionService;
 import org.apache.doris.proto.PFunctionServiceGrpc;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -89,7 +90,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.NettyChannelBuilder;
 import org.apache.commons.codec.binary.Hex;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
@@ -993,8 +994,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                         + typeDefParams.stream().map(String::toString).collect(Collectors.joining(", ")));
             }
         }
+        Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultInPlanVariables(ctx);
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
-                Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx));
+                Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx),
+                sessionVariables);
     }
 
     private boolean checkParams(Expression expr, String param) {

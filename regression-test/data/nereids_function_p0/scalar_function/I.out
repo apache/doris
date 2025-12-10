@@ -86,3 +86,61 @@ Varchar13
 1
 1
 
+-- !sql_is_uuid_Varchar --
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
+-- !sql_is_uuid_Varchar_notnull --
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
+-- !sql_is_uuid_String --
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
+-- !sql_is_uuid_String_notnull --
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+

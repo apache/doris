@@ -34,10 +34,12 @@ suite("test_mv_case") {
             select ordernum as a1,max(dnt) as a2 from test_table_aaa2
             group by ordernum
             ORDER BY ordernum;""")
+    sql "set enable_insert_strict = false"
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}' ;"""
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}' ;"""
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}' ;"""
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}' ;"""
+    sql "set enable_insert_strict = true"
     qt_select_default """ select * from test_table_aaa2 order by dnt;"""
 
     sql """drop table if exists test_mv_view_t;"""

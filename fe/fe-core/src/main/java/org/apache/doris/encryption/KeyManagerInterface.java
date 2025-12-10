@@ -20,6 +20,7 @@ package org.apache.doris.encryption;
 import org.apache.doris.persist.KeyOperationInfo;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Interface for managing cryptographic keys, including root key setup,
@@ -64,4 +65,11 @@ public interface KeyManagerInterface {
      *         (may include versioning or metadata as part of each key object)
      */
     public List<EncryptionKey> getAllMasterKeys();
+
+    /**
+     * Rotate root key
+     *
+     * @param properties rotate info
+     */
+    void rotateRootKey(Map<String, String> properties) throws Exception;
 }

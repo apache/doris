@@ -16,6 +16,7 @@
 // under the License.
 
 suite("adjust_virtual_slot_nullable") {
+    sql "set experimental_enable_virtual_slot_for_cse=true;"
     def tbl1 = "tbl_adjust_virtual_slot_nullable_1"
     def tbl2 = "tbl_adjust_virtual_slot_nullable_2"
 
@@ -50,7 +51,7 @@ suite("adjust_virtual_slot_nullable") {
             NOT (
                     day(t2.c_date) IN (1, 3)
                 AND
-                    day(t2.c_date) IN (2, 3, 3)
+                    day(t2.c_date) = t2.c_int
                 );
     """
 

@@ -94,8 +94,6 @@ public:
         return 1 + nested_data_type->get_size_of_value_in_memory();
     }
     bool is_nullable() const override { return true; }
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
     bool is_null_literal() const override { return nested_data_type->is_null_literal(); }

@@ -20,5 +20,6 @@ package org.apache.doris.job.common;
 public enum TaskType {
 
     SCHEDULED,
-    MANUAL;
+    MANUAL,
+    STREAMING;
 }

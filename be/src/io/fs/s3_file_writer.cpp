@@ -18,7 +18,9 @@
 #include "io/fs/s3_file_writer.h"
 
 #include <aws/s3/model/CompletedPart.h>
+#include <bvar/recorder.h>
 #include <bvar/reducer.h>
+#include <bvar/window.h>
 #include <fmt/core.h>
 #include <glog/logging.h>
 
@@ -52,6 +54,10 @@ bvar::Adder<uint64_t> s3_file_being_written("s3_file_writer_file_being_written")
 bvar::Adder<uint64_t> s3_file_writer_async_close_queuing("s3_file_writer_async_close_queuing");
 bvar::Adder<uint64_t> s3_file_writer_async_close_processing(
         "s3_file_writer_async_close_processing");
+bvar::IntRecorder s3_file_writer_first_append_to_close_ms_recorder;
+bvar::Window<bvar::IntRecorder> s3_file_writer_first_append_to_close_ms_window(
+        "s3_file_writer_first_append_to_close_ms",
+        &s3_file_writer_first_append_to_close_ms_recorder, /*window_size=*/10);
 
 S3FileWriter::S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket,
                            std::string key, const FileWriterOptions* opts)
@@ -120,10 +126,48 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
 }
 
 Status S3FileWriter::close(bool non_block) {
+    auto record_close_latency = [this]() {
+        if (_close_latency_recorded || !_first_append_timestamp.has_value()) {
+            return;
+        }
+        auto now = std::chrono::steady_clock::now();
+        auto latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  now - *_first_append_timestamp)
+                                  .count();
+        s3_file_writer_first_append_to_close_ms_recorder << latency_ms;
+        if (auto* sampler = s3_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
+            sampler->take_sample();
+        }
+        _close_latency_recorded = true;
+    };
+
     if (state() == State::CLOSED) {
-        return Status::InternalError("S3FileWriter already closed, file path {}, file key {}",
-                                     _obj_storage_path_opts.path.native(),
-                                     _obj_storage_path_opts.key);
+        if (_async_close_pack != nullptr) {
+            _st = _async_close_pack->future.get();
+            _async_close_pack = nullptr;
+            // Return the final close status so that a blocking close issued after
+            // an async close observes the real result just like the legacy behavior.
+            if (!non_block && _st.ok()) {
+                record_close_latency();
+            }
+            return _st;
+        }
+        if (non_block) {
+            if (_st.ok()) {
+                record_close_latency();
+                return Status::Error<ErrorCode::ALREADY_CLOSED>(
+                        "S3FileWriter already closed, file path {}, file key {}",
+                        _obj_storage_path_opts.path.native(), _obj_storage_path_opts.key);
+            }
+            return _st;
+        }
+        if (_st.ok()) {
+            record_close_latency();
+            return Status::Error<ErrorCode::ALREADY_CLOSED>(
+                    "S3FileWriter already closed, file path {}, file key {}",
+                    _obj_storage_path_opts.path.native(), _obj_storage_path_opts.key);
+        }
+        return _st;
     }
     if (state() == State::ASYNC_CLOSING) {
         if (non_block) {
@@ -136,6 +180,9 @@ Status S3FileWriter::close(bool non_block) {
         _state = State::CLOSED;
         // The next time we call close() with no matter non_block true or false, it would always return the
         // '_st' value because this writer is already closed.
+        if (!non_block && _st.ok()) {
+            record_close_latency();
+        }
         return _st;
     }
     if (non_block) {
@@ -146,12 +193,17 @@ Status S3FileWriter::close(bool non_block) {
         return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func([&]() {
             s3_file_writer_async_close_queuing << -1;
             s3_file_writer_async_close_processing << 1;
-            _async_close_pack->promise.set_value(_close_impl());
+            _st = _close_impl();
+            _state = State::CLOSED;
+            _async_close_pack->promise.set_value(_st);
             s3_file_writer_async_close_processing << -1;
         });
     }
     _st = _close_impl();
     _state = State::CLOSED;
+    if (!non_block && _st.ok()) {
+        record_close_latency();
+    }
     return _st;
 }
 
@@ -188,10 +240,12 @@ Status S3FileWriter::_build_upload_buffer() {
         // that this instance of S3FileWriter might have been destructed when we
         // try to do writing into file cache, so we make the lambda capture the variable
         // we need by value to extend their lifetime
-        builder.set_allocate_file_blocks_holder(
-                [builder = *_cache_builder, offset = _bytes_appended]() -> FileBlocksHolderPtr {
-                    return builder.allocate_cache_holder(offset, config::s3_write_buffer_size);
-                });
+        int64_t id = get_tablet_id(_obj_storage_path_opts.path.native()).value_or(0);
+        builder.set_allocate_file_blocks_holder([builder = *_cache_builder,
+                                                 offset = _bytes_appended,
+                                                 tablet_id = id]() -> FileBlocksHolderPtr {
+            return builder.allocate_cache_holder(offset, config::s3_write_buffer_size, tablet_id);
+        });
     }
     RETURN_IF_ERROR(builder.build(&_pending_buf));
     auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
@@ -234,6 +288,10 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     if (state() != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}",
                                      _obj_storage_path_opts.path.native());
+    }
+
+    if (!_first_append_timestamp.has_value()) {
+        _first_append_timestamp = std::chrono::steady_clock::now();
     }
 
     size_t buffer_size = config::s3_write_buffer_size;
@@ -480,6 +538,7 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
               << " size=" << _bytes_appended << " time=" << timer.elapsed_time_milliseconds()
               << "ms";
     s3_file_created_total << 1;
+    s3_bytes_written_total << buf.get_size();
 }
 
 std::string S3FileWriter::_dump_completed_part() const {

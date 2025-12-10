@@ -108,7 +108,7 @@ public:
                 RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
                                                  array_builder->type()->name()));
             } else {
-                auto& quantile_state_value = const_cast<QuantileState&>(col.get_element(string_i));
+                auto& quantile_state_value = col.get_element(string_i);
                 std::string memory_buffer(quantile_state_value.get_serialized_size(), '0');
                 quantile_state_value.serialize((uint8_t*)memory_buffer.data());
                 RETURN_IF_ERROR(
@@ -125,16 +125,13 @@ public:
                              "read_column_from_arrow with type " + column.get_name());
     }
 
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
+    Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& result,
+                                        int64_t row_idx, bool col_const) const override {
+        return Status::NotSupported("write_column_to_mysql_binary with type " + column.get_name());
     }
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-    }
+
+    bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
+                                    int64_t row_idx) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -146,7 +143,7 @@ public:
         size_t total_size = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                auto quantilestate_value = const_cast<QuantileState&>(col_data.get_element(row_id));
+                auto quantilestate_value = col_data.get_element(row_id);
                 size_t len = quantilestate_value.get_serialized_size();
                 total_size += len;
             }
@@ -162,7 +159,7 @@ public:
         size_t offset = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                auto quantilestate_value = const_cast<QuantileState&>(col_data.get_element(row_id));
+                auto quantilestate_value = col_data.get_element(row_id);
                 size_t len = quantilestate_value.get_serialized_size();
                 if (offset + len > total_size) {
                     return Status::InternalError(
@@ -181,37 +178,13 @@ public:
         return Status::OK();
     }
 
-private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int64_t row_idx, bool col_const,
-                                  const FormatOptions& options) const;
-};
-
-// QuantileState is binary data which is not shown by mysql
-template <bool is_binary_format>
-Status DataTypeQuantileStateSerDe::_write_column_to_mysql(const IColumn& column,
-                                                          MysqlRowBuffer<is_binary_format>& result,
-                                                          int64_t row_idx, bool col_const,
-                                                          const FormatOptions& options) const {
-    auto& data_column = reinterpret_cast<const ColumnQuantileState&>(column);
-
-    if (_return_object_as_string) {
-        const auto col_index = index_check_const(row_idx, col_const);
-        auto& quantile_value = const_cast<QuantileState&>(data_column.get_element(col_index));
-        size_t size = quantile_value.get_serialized_size();
-        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
-        quantile_value.serialize((uint8_t*)buf.get());
-        if (0 != result.push_string(buf.get(), size)) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    } else {
-        if (0 != result.push_null()) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override {
+        const auto& data = assert_cast<const ColumnQuantileState&>(column).get_element(row_num);
+        std::string result(data.get_serialized_size(), '0');
+        data.serialize((uint8_t*)result.data());
+        bw.write(result.data(), result.size());
     }
-    return Status::OK();
-}
+};
 #include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris

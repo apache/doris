@@ -1308,7 +1308,7 @@ TEST_F(ColumnVariantTest, pop_back_test) {
 }
 
 // serialize and deserialize is not implemented
-// serialize_vec, deserialize_vec, serialize_vec_with_null_map, deserialize_vec_with_null_map, get_max_row_byte_size
+// serialize, deserialize, get_max_row_byte_size
 // hash interface
 TEST_F(ColumnVariantTest, update_xxHash_with_value) {
     hash_common_test("update_xxHash_with_value", assert_update_xxHash_with_value_callback);
@@ -3078,7 +3078,7 @@ EXPECT_EQ(info.num_dimensions, 2);
 
     Field array = Field::create_field<TYPE_ARRAY>(Array());
     array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(std::move(field)));
-    array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(std::move(JsonbField())));
+    array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(JsonbField()));
     FieldInfo info;
     schema_util::get_field_info(array, &info);
     // which should support ??!!
@@ -3128,120 +3128,6 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         // Test with different types
         auto src_column2 = VariantUtil::construct_advanced_varint_column();
         dst_subcolumn->insert_range_from(src_column2->get_subcolumns().get_root()->data, 0, 1);
-    }
-
-    // Test parse_binary_from_sparse_column
-    {
-        auto column = VariantUtil::construct_basic_varint_column();
-        vectorized::Field res;
-        FieldInfo field_info;
-
-        // Test String type
-        {
-            std::string test_str = "test_data";
-            std::vector<char> binary_data;
-            size_t str_size = test_str.size();
-            binary_data.resize(sizeof(size_t) + test_str.size());
-            memcpy(binary_data.data(), &str_size, sizeof(size_t));
-            memcpy(binary_data.data() + sizeof(size_t), test_str.data(), test_str.size());
-            const char* data = binary_data.data();
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_STRING, data, res,
-                                            field_info);
-            EXPECT_EQ(res.get<String>(), "test_data");
-        }
-
-        // Test integer types
-        {
-            Int8 int8_val = 42;
-            const char* data = reinterpret_cast<const char*>(&int8_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_TINYINT, data, res,
-                                            field_info);
-            EXPECT_EQ(res.get<Int8>(), 42);
-        }
-
-        {
-            Int16 int16_val = 12345;
-            const char* data = reinterpret_cast<const char*>(&int16_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_SMALLINT, data, res,
-                                            field_info);
-            EXPECT_EQ(res.get<Int16>(), 12345);
-        }
-
-        {
-            Int32 int32_val = 123456789;
-            const char* data = reinterpret_cast<const char*>(&int32_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_INT, data, res, field_info);
-            EXPECT_EQ(res.get<Int32>(), 123456789);
-        }
-
-        {
-            Int64 int64_val = 1234567890123456789LL;
-            const char* data = reinterpret_cast<const char*>(&int64_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_BIGINT, data, res,
-                                            field_info);
-            EXPECT_EQ(res.get<Int64>(), 1234567890123456789LL);
-        }
-
-        // Test floating point types
-        {
-            Float32 float32_val = 3.1415901f;
-            const char* data = reinterpret_cast<const char*>(&float32_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_FLOAT, data, res,
-                                            field_info);
-            EXPECT_FLOAT_EQ(res.get<Float32>(), 0);
-        }
-
-        {
-            Float64 float64_val = 3.141592653589793;
-            const char* data = reinterpret_cast<const char*>(&float64_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_DOUBLE, data, res,
-                                            field_info);
-            EXPECT_DOUBLE_EQ(res.get<Float64>(), 3.141592653589793);
-        }
-
-        // Test JSONB type
-        {
-            std::string json_str = "{\"key\": \"value\"}";
-            std::vector<char> binary_data;
-            size_t json_size = json_str.size();
-            binary_data.resize(sizeof(size_t) + json_str.size());
-            memcpy(binary_data.data(), &json_size, sizeof(size_t));
-            memcpy(binary_data.data() + sizeof(size_t), json_str.data(), json_str.size());
-            const char* data = binary_data.data();
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_JSONB, data, res,
-                                            field_info);
-        }
-
-        // Test Array type
-        {
-            std::vector<char> binary_data;
-            size_t array_size = 2;
-            binary_data.resize(sizeof(size_t) + 2 * (sizeof(uint8_t) + sizeof(Int32)));
-            char* data_ptr = binary_data.data();
-
-            // Write array size
-            memcpy(data_ptr, &array_size, sizeof(size_t));
-            data_ptr += sizeof(size_t);
-
-            // Write first element (Int32)
-            *data_ptr++ = static_cast<uint8_t>(PrimitiveType::TYPE_INT);
-            Int32 val1 = 42;
-            memcpy(data_ptr, &val1, sizeof(Int32));
-            data_ptr += sizeof(Int32);
-
-            // Write second element (Int32)
-            *data_ptr++ = static_cast<uint8_t>(PrimitiveType::TYPE_INT);
-            Int32 val2 = 43;
-            memcpy(data_ptr, &val2, sizeof(Int32));
-
-            const char* data = binary_data.data();
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_ARRAY, data, res,
-                                            field_info);
-            const Array& array = res.get<Array>();
-            EXPECT_EQ(array.size(), 2);
-            EXPECT_EQ(array[0].get<Int32>(), 42);
-            EXPECT_EQ(array[1].get<Int32>(), 43);
-        }
     }
 
     // Test add_sub_column
@@ -3353,219 +3239,6 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
             EXPECT_FALSE(v->try_insert_default_from_nested(sub));
         }
     }
-}
-
-// Helper function to create ColumnVariant with various types (int, double, array, string)
-static auto create_mixed_type_variant_column() {
-    auto variant = ColumnVariant::create(1);
-
-    // Create test data with different types
-    std::vector<std::pair<std::string, doris::vectorized::Field>> test_data = {
-            // int type
-            {"data.int_field", doris::vectorized::Field::create_field<TYPE_INT>(42)},
-            // double type
-            {"data.double_field", doris::vectorized::Field::create_field<TYPE_DOUBLE>(3.14159)},
-            // string type
-            {"data.string_field",
-             doris::vectorized::Field::create_field<TYPE_STRING>(String("hello_world"))},
-            // array of ints
-            {"data.array_int_field",
-             [] {
-                 auto array_field = doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
-                 auto& array = array_field.get<Array>();
-                 array.emplace_back(doris::vectorized::Field::create_field<TYPE_INT>(1));
-                 array.emplace_back(doris::vectorized::Field::create_field<TYPE_INT>(2));
-                 array.emplace_back(doris::vectorized::Field::create_field<TYPE_INT>(3));
-                 return array_field;
-             }()},
-            // array of strings
-            {"data.array_string_field", [] {
-                 auto array_field = doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
-                 auto& array = array_field.get<Array>();
-                 array.emplace_back(
-                         doris::vectorized::Field::create_field<TYPE_STRING>(String("apple")));
-                 array.emplace_back(
-                         doris::vectorized::Field::create_field<TYPE_STRING>(String("banana")));
-                 return array_field;
-             }()}};
-
-    // Insert 5 rows with the same structure
-    for (int i = 0; i < 5; ++i) {
-        auto variant_map = VariantUtil::construct_variant_map(test_data);
-        variant->try_insert(variant_map);
-    }
-
-    // Add some additional rows with different structures for sparse column
-    std::vector<std::pair<std::string, doris::vectorized::Field>> sparse_data = {
-            {"data.int_field", doris::vectorized::Field::create_field<TYPE_INT>(100)},
-            {"data.double_field", doris::vectorized::Field::create_field<TYPE_DOUBLE>(2.71828)},
-            {"data.nested.sparse_string",
-             doris::vectorized::Field::create_field<TYPE_STRING>(String("sparse_data"))},
-            {"data.nested.sparse_int", doris::vectorized::Field::create_field<TYPE_INT>(999)}};
-
-    // Insert 3 more rows with sparse structure
-    for (int i = 0; i < 3; ++i) {
-        auto sparse_variant_map = VariantUtil::construct_variant_map(sparse_data);
-        variant->try_insert(sparse_variant_map);
-    }
-
-    return variant;
-}
-
-// // Test to generate ColumnVariant data and serialize to binary file
-// TEST_F(ColumnVariantTest, generate_compatibility_test_data) {
-//     // 1. Create ColumnVariant with various types
-//     auto variant_column = create_mixed_type_variant_column();
-//     variant_column->finalize();
-//     EXPECT_TRUE(variant_column->pick_subcolumns_to_sparse_column({}, false).ok());
-//     variant_column->finalize();
-//     EXPECT_LE(variant_column->get_subcolumns().size(), 2);
-//
-//     // 2. Create DataTypeVariant for serialization
-//     auto data_type_variant = std::make_shared<DataTypeVariant>();
-//
-//     // 3. Calculate serialized size
-//     int be_exec_version = 0; // Use current version
-//     int64_t serialized_size =
-//             data_type_variant->get_uncompressed_serialized_bytes(*variant_column, be_exec_version);
-//     EXPECT_GT(serialized_size, 0);
-//
-//     // 4. Serialize to buffer
-//     std::vector<char> buffer(serialized_size);
-//     char* buf_end = data_type_variant->serialize(*variant_column, buffer.data(), be_exec_version);
-//     size_t actual_size = buf_end - buffer.data();
-//     // EXPECT_EQ(actual_size, serialized_size);
-//
-//     // 5. Write to binary file
-//     std::string test_data_path =
-//             std::string(getenv("ROOT")) + "/be/test/util/test_data/column_variant.bin";
-//     std::ofstream file(test_data_path, std::ios::binary);
-//     ASSERT_TRUE(file.is_open()) << "Failed to open file for writing: " << test_data_path;
-//     file.write(buffer.data(), actual_size);
-//     file.close();
-//
-//     std::cout << "Successfully generated test data file: " << test_data_path << std::endl;
-//     std::cout << "Serialized size: " << actual_size << " bytes" << std::endl;
-// }
-
-// Test to deserialize from binary file and verify data consistency
-TEST_F(ColumnVariantTest, compatibility_deserialize_and_verify) {
-    // 1. Create reference data for comparison
-    auto expected_variant = create_mixed_type_variant_column();
-    expected_variant->finalize();
-
-    // 2. Read binary data from file
-    std::string test_data_path =
-            std::string(getenv("ROOT")) + "/be/test/util/test_data/column_variant.bin";
-    std::ifstream file(test_data_path, std::ios::binary);
-    ASSERT_TRUE(file.is_open()) << "Failed to open test data file: " << test_data_path;
-
-    // Get file size
-    file.seekg(0, std::ios::end);
-    size_t file_size = file.tellg();
-    file.seekg(0, std::ios::beg);
-    EXPECT_GT(file_size, 0);
-
-    // Read all data
-    std::vector<char> buffer(file_size);
-    file.read(buffer.data(), file_size);
-    file.close();
-
-    // 3. Deserialize from binary data
-    auto data_type_variant = std::make_shared<DataTypeVariant>();
-    auto deserialized_column = data_type_variant->create_column();
-    int be_exec_version = 0;
-
-    const char* buf_end =
-            data_type_variant->deserialize(buffer.data(), &deserialized_column, be_exec_version);
-    size_t consumed_size = buf_end - buffer.data();
-    EXPECT_EQ(consumed_size, file_size);
-
-    auto variant_column = assert_cast<ColumnVariant*>(deserialized_column.get());
-    EXPECT_EQ(variant_column->size(), 8);
-
-    // 4. Use ColumnVariant::get to retrieve VariantMap and verify data
-    for (size_t row = 0; row < variant_column->size(); ++row) {
-        Field result_field;
-        variant_column->get(row, result_field);
-        EXPECT_EQ(result_field.get_type(), TYPE_VARIANT);
-
-        const auto& variant_map = result_field.get<VariantMap>();
-
-        if (row < 5) {
-            // First 5 rows should have the structured data
-            EXPECT_TRUE(variant_map.find(PathInData("data.int_field")) != variant_map.end());
-            EXPECT_TRUE(variant_map.find(PathInData("data.double_field")) != variant_map.end());
-            EXPECT_TRUE(variant_map.find(PathInData("data.string_field")) != variant_map.end());
-            EXPECT_TRUE(variant_map.find(PathInData("data.array_int_field")) != variant_map.end());
-            EXPECT_TRUE(variant_map.find(PathInData("data.array_string_field")) !=
-                        variant_map.end());
-
-            // Verify specific values
-            auto int_iter = variant_map.find(PathInData("data.int_field"));
-            if (int_iter != variant_map.end()) {
-                EXPECT_EQ(int_iter->second.field.get<Int32>(), 42);
-            }
-
-            auto double_iter = variant_map.find(PathInData("data.double_field"));
-            if (double_iter != variant_map.end()) {
-                EXPECT_DOUBLE_EQ(double_iter->second.field.get<Float64>(), 3.14159);
-            }
-
-            auto string_iter = variant_map.find(PathInData("data.string_field"));
-            if (string_iter != variant_map.end()) {
-                EXPECT_EQ(string_iter->second.field.get<String>(), "hello_world");
-            }
-
-            auto array_int_iter = variant_map.find(PathInData("data.array_int_field"));
-            if (array_int_iter != variant_map.end()) {
-                const auto& array = array_int_iter->second.field.get<Array>();
-                EXPECT_EQ(array.size(), 3);
-                EXPECT_EQ(array[0].get<Int32>(), 1);
-                EXPECT_EQ(array[1].get<Int32>(), 2);
-                EXPECT_EQ(array[2].get<Int32>(), 3);
-            }
-
-            auto array_string_iter = variant_map.find(PathInData("data.array_string_field"));
-            if (array_string_iter != variant_map.end()) {
-                const auto& array = array_string_iter->second.field.get<Array>();
-                EXPECT_EQ(array.size(), 2);
-                EXPECT_EQ(array[0].get<String>(), "apple");
-                EXPECT_EQ(array[1].get<String>(), "banana");
-            }
-        } else {
-            // Last 3 rows should have sparse data
-            EXPECT_TRUE(variant_map.find(PathInData("data.int_field")) != variant_map.end());
-            EXPECT_TRUE(variant_map.find(PathInData("data.double_field")) != variant_map.end());
-            EXPECT_TRUE(variant_map.find(PathInData("data.nested.sparse_string")) !=
-                        variant_map.end());
-            EXPECT_TRUE(variant_map.find(PathInData("data.nested.sparse_int")) !=
-                        variant_map.end());
-
-            // Verify sparse data values
-            auto int_iter = variant_map.find(PathInData("data.int_field"));
-            if (int_iter != variant_map.end()) {
-                EXPECT_EQ(int_iter->second.field.get<Int32>(), 100);
-            }
-
-            auto double_iter = variant_map.find(PathInData("data.double_field"));
-            if (double_iter != variant_map.end()) {
-                EXPECT_DOUBLE_EQ(double_iter->second.field.get<Float64>(), 2.71828);
-            }
-
-            auto sparse_string_iter = variant_map.find(PathInData("data.nested.sparse_string"));
-            if (sparse_string_iter != variant_map.end()) {
-                EXPECT_EQ(sparse_string_iter->second.field.get<String>(), "sparse_data");
-            }
-
-            auto sparse_int_iter = variant_map.find(PathInData("data.nested.sparse_int"));
-            if (sparse_int_iter != variant_map.end()) {
-                EXPECT_EQ(sparse_int_iter->second.field.get<Int32>(), 999);
-            }
-        }
-    }
-
-    std::cout << "Successfully verified deserialized data integrity!" << std::endl;
 }
 
 TEST_F(ColumnVariantTest, subcolumn_insert_range_from_test) {
@@ -3796,6 +3469,107 @@ TEST_F(ColumnVariantTest, subcolumn_insert_range_from_test_advanced) {
         if (i % 1000 == 0) {
             std::cout << "insert count " << i << std::endl;
         }
+    }
+}
+
+TEST_F(ColumnVariantTest, test_variant_no_data_insert) {
+    auto variant = ColumnVariant::create(1);
+    variant->insert_many_defaults(10);
+    EXPECT_EQ(variant->size(), 10);
+    EXPECT_TRUE(variant->only_have_default_values());
+}
+
+TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
+    auto sparse_column = ColumnVariant::create_sparse_column_fn();
+    auto& column_map = assert_cast<ColumnMap&>(*sparse_column);
+    auto& key = assert_cast<ColumnString&>(column_map.get_keys());
+    auto& value = assert_cast<ColumnString&>(column_map.get_values());
+    auto& offsets = column_map.get_offsets();
+
+    {
+        Field int_field = Field::create_field<TYPE_INT>(123);
+        Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
+        array_field.get<Array&>()[0] = int_field;
+        FieldInfo info = {PrimitiveType::TYPE_TINYINT, false, false, 1};
+        ColumnVariant::Subcolumn int_subcolumn(0, true, false);
+        int_subcolumn.insert(array_field, info);
+        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 0);
+
+        info = {PrimitiveType::TYPE_INT, false, false, 1};
+        int_subcolumn.insert(array_field, info);
+        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 1);
+
+        offsets.push_back(key.size());
+
+        ColumnVariant::Subcolumn subcolumn(0, true, false);
+        subcolumn.deserialize_from_sparse_column(&value, 0);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_TINYINT);
+        auto v = subcolumn.get_last_field();
+        auto& arr = v.get<Array>();
+        EXPECT_EQ(arr.size(), 1);
+        EXPECT_EQ(arr[0].get<Int32>(), 123);
+
+        subcolumn.deserialize_from_sparse_column(&value, 1);
+        EXPECT_EQ(subcolumn.data.size(), 2);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
+        auto v2 = subcolumn.get_last_field();
+        auto& arr2 = v2.get<Array>();
+        EXPECT_EQ(arr2.size(), 1);
+        EXPECT_EQ(arr2[0].get<Int32>(), 123);
+    }
+
+    column_map.clear();
+    offsets.clear();
+    key.clear();
+    value.clear();
+
+    {
+        Field int_field = Field::create_field<TYPE_INT>(123);
+        Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
+        array_field.get<Array&>()[0] = Field();
+        FieldInfo info = {PrimitiveType::TYPE_NULL, false, false, 1};
+        ColumnVariant::Subcolumn int_subcolumn(0, true, false);
+        int_subcolumn.insert(array_field, info);
+        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 0);
+
+        array_field = Field::create_field<TYPE_ARRAY>(Array(2));
+        array_field.get<Array&>()[0] = Field();
+        array_field.get<Array&>()[1] = int_field;
+        info = {PrimitiveType::TYPE_INT, false, false, 1};
+        int_subcolumn.insert(array_field, info);
+        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 1);
+
+        offsets.push_back(key.size());
+
+        ColumnVariant::Subcolumn subcolumn(0, true, false);
+        subcolumn.deserialize_from_sparse_column(&value, 0);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+        auto v = subcolumn.get_last_field();
+        auto& arr = v.get<Array>();
+        EXPECT_EQ(arr.size(), 1);
+        EXPECT_TRUE(arr[0].is_null());
+
+        subcolumn.deserialize_from_sparse_column(&value, 1);
+        EXPECT_EQ(subcolumn.data.size(), 2);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
+        auto v2 = subcolumn.get_last_field();
+        auto& arr2 = v2.get<Array>();
+        EXPECT_EQ(arr2.size(), 2);
+        EXPECT_TRUE(arr2[0].is_null());
+        EXPECT_EQ(arr2[1].get<Int32>(), 123);
     }
 }
 

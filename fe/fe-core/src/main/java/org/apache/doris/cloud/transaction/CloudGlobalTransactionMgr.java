@@ -85,6 +85,7 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.event.DataChangeEvent;
+import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.metric.MetricRepo;
@@ -106,6 +107,7 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
+import org.apache.doris.transaction.AutoPartitionCacheManager;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.SubTransactionState;
@@ -207,6 +209,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private Map<Long, Map<Long, Long>> lastTxnIdMap = Maps.newConcurrentMap();
     // dbId -> txnId -> signature
     private Map<Long, Map<Long, Long>> txnLastSignatureMap = Maps.newConcurrentMap();
+
+    private final AutoPartitionCacheManager autoPartitionCacheManager = new AutoPartitionCacheManager();
+
+    public AutoPartitionCacheManager getAutoPartitionCacheMgr() {
+        return autoPartitionCacheManager;
+    }
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -619,6 +627,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 }
                 builder.setCommitAttachment(TxnUtil
                         .rlTaskTxnCommitAttachmentToPb(rlTaskTxnCommitAttachment));
+            } else if (txnCommitAttachment instanceof StreamingTaskTxnCommitAttachment) {
+                StreamingTaskTxnCommitAttachment streamingTaskTxnCommitAttachment =
+                            (StreamingTaskTxnCommitAttachment) txnCommitAttachment;
+                TxnStateChangeCallback cb = callbackFactory.getCallback(streamingTaskTxnCommitAttachment.getJobId());
+                TxnCommitAttachment commitAttachment = null;
+                if (cb != null) {
+                    // use a temporary transaction state to do before commit check,
+                    // what actually works is the transactionId
+                    TransactionState tmpTxnState = new TransactionState();
+                    tmpTxnState.setTransactionId(transactionId);
+                    cb.beforeCommitted(tmpTxnState);
+                    commitAttachment = tmpTxnState.getTxnCommitAttachment();
+                }
+                builder.setCommitAttachment(TxnUtil
+                        .streamingTaskTxnCommitAttachmentToPb((StreamingTaskTxnCommitAttachment) commitAttachment));
             } else {
                 throw new UserException("invalid txnCommitAttachment");
             }
@@ -662,6 +685,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
                 RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
                 callbackId = rlTaskTxnCommitAttachment.getJobId();
+            } else if (txnCommitAttachment != null
+                        && txnCommitAttachment instanceof StreamingTaskTxnCommitAttachment) {
+                StreamingTaskTxnCommitAttachment streamingTaskTxnCommitAttachment =
+                        (StreamingTaskTxnCommitAttachment) txnCommitAttachment;
+                callbackId = streamingTaskTxnCommitAttachment.getJobId();
             } else if (txnState != null) {
                 callbackId = txnState.getCallbackId();
             }
@@ -1600,6 +1628,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         List<Table> tablesToUnlock = getTablesNeedCommitLock(tableList);
         decreaseWaitingLockCount(tablesToUnlock);
         MetaLockUtils.commitUnlockTables(tablesToUnlock);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
     }
 
     @Override
@@ -1661,6 +1690,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException {
         cleanSubTransactions(transactionId);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
         abortTransaction(dbId, transactionId, reason, null, null);
     }
 
@@ -1854,7 +1884,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId, long dbId, List<Long> tableIdList)
             throws UserException {
-        LOG.info("getUnFinishedPreviousLoad(), endTransactionId:{}, dbId:{}, tableIdList:{}",
+        LOG.debug("getUnFinishedPreviousLoad(), endTransactionId:{}, dbId:{}, tableIdList:{}",
                 endTransactionId, dbId, tableIdList);
 
         if (endTransactionId <= 0) {
@@ -1869,10 +1899,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         final CheckTxnConflictRequest checkTxnConflictRequest = builder.build();
         CheckTxnConflictResponse checkTxnConflictResponse = null;
         try {
-            LOG.info("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
+            LOG.debug("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
             checkTxnConflictResponse = MetaServiceProxy
                 .getInstance().checkTxnConflict(checkTxnConflictRequest);
-            LOG.info("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
+            LOG.debug("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
         } catch (RpcException e) {
             throw new UserException(e.getMessage());
         }
@@ -1891,7 +1921,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)
             throws AnalysisException {
-        LOG.info("isPreviousTransactionsFinished(), endTransactionId:{}, dbId:{}, tableIdList:{}",
+        LOG.debug("isPreviousTransactionsFinished(), endTransactionId:{}, dbId:{}, tableIdList:{}",
                 endTransactionId, dbId, tableIdList);
 
         if (endTransactionId <= 0) {
@@ -1906,10 +1936,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         final CheckTxnConflictRequest checkTxnConflictRequest = builder.build();
         CheckTxnConflictResponse checkTxnConflictResponse = null;
         try {
-            LOG.info("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
+            LOG.debug("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
             checkTxnConflictResponse = MetaServiceProxy
                     .getInstance().checkTxnConflict(checkTxnConflictRequest);
-            LOG.info("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
+            LOG.debug("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());
         }
@@ -1927,7 +1957,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     public boolean isPreviousNonTimeoutTxnFinished(long endTransactionId, long dbId, List<Long> tableIdList)
             throws AnalysisException {
-        LOG.info("isPreviousNonTimeoutTxnFinished(), endTransactionId:{}, dbId:{}, tableIdList:{}",
+        LOG.debug("isPreviousNonTimeoutTxnFinished(), endTransactionId:{}, dbId:{}, tableIdList:{}",
                 endTransactionId, dbId, tableIdList);
 
         if (endTransactionId <= 0) {
@@ -1943,10 +1973,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         final CheckTxnConflictRequest checkTxnConflictRequest = builder.build();
         CheckTxnConflictResponse checkTxnConflictResponse = null;
         try {
-            LOG.info("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
+            LOG.debug("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
             checkTxnConflictResponse = MetaServiceProxy
                     .getInstance().checkTxnConflict(checkTxnConflictRequest);
-            LOG.info("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
+            LOG.debug("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());
         }
@@ -2070,6 +2100,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             response = MetaServiceProxy
                 .getInstance().abortTxnWithCoordinator(request);
             LOG.info("AbortTxnWithCoordinatorResponse: {}", response);
+            if (DebugPointUtil.isEnable("FE.abortTxnWhenCoordinateBeRestart.slow")) {
+                LOG.info("debug point FE.abortTxnWhenCoordinateBeRestart.slow enabled, sleep 15s");
+                try {
+                    Thread.sleep(15 * 1000);
+                } catch (InterruptedException ie) {
+                    LOG.info("error ", ie);
+                }
+            }
         } catch (RpcException e) {
             LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
         }

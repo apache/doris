@@ -134,7 +134,6 @@ suite("agg_sync_mv") {
     sql """ SET enable_nereids_planner=true """
     sql """ SET enable_fallback_to_original_planner=false """
     sql """ analyze table agg_mv_test with sync"""
-    sql """ set enable_stats=false"""
 
     qt_select_any_value """select id, any_value(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync1 on agg_mv_test;"""
@@ -331,7 +330,7 @@ suite("agg_sync_mv") {
     qt_select_ndv """select id, ndv(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync32 on agg_mv_test;"""
     createMV("""create materialized view mv_sync32 as select id as f1, ndv(kint) as xx1 from agg_mv_test group by id order by id;""")
-    mv_rewrite_success("select id, ndv(kint) from agg_mv_test group by id order by id;", "mv_sync32")
+    mv_rewrite_any_success("select id, ndv(kint) from agg_mv_test group by id order by id;", ["mv_sync32", "mv_sync3"])
     qt_select_ndv_mv """select id, ndv(kint) from agg_mv_test group by id order by id;"""
 
     qt_select_covar """select id, covar(kint, kint) from agg_mv_test group by id order by id;"""

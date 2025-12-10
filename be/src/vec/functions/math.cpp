@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 
@@ -26,11 +27,15 @@
 #include <type_traits>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_math_log.h"
@@ -71,10 +76,86 @@ struct AsinhName {
 };
 using FunctionAsinh = FunctionMathUnary<UnaryFunctionPlain<AsinhName, std::asinh>>;
 
-struct AtanName {
+class FunctionAtan : public IFunction {
+public:
     static constexpr auto name = "atan";
+    static FunctionPtr create() { return std::make_shared<FunctionAtan>(); }
+
+    String get_name() const override { return name; }
+    bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 0; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        if (arguments.size() == 1) {
+            return execute_unary(block, arguments, result, input_rows_count);
+        } else if (arguments.size() == 2) {
+            return execute_binary(block, arguments, result, input_rows_count);
+        } else {
+            return Status::InvalidArgument("atan function expects 1 or 2 arguments, but got {}",
+                                           arguments.size());
+        }
+    }
+
+private:
+    Status execute_unary(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                         size_t input_rows_count) const {
+        auto res_col = ColumnFloat64::create(input_rows_count);
+        auto& res_data = res_col->get_data();
+
+        const auto& col_data =
+                assert_cast<const ColumnFloat64*>(block.get_by_position(arguments[0]).column.get())
+                        ->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            res_data[i] = std::atan(col_data[i]);
+        }
+
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+
+    Status execute_binary(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                          size_t input_rows_count) const {
+        auto [col_y, is_const_y] = unpack_if_const(block.get_by_position(arguments[0]).column);
+        auto [col_x, is_const_x] = unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        auto result_column = ColumnFloat64::create(input_rows_count);
+        auto& result_data = result_column->get_data();
+
+        if (is_const_y) {
+            auto y_val = assert_cast<const ColumnFloat64*>(col_y.get())->get_element(0);
+
+            const auto* x_col = assert_cast<const ColumnFloat64*>(col_x.get());
+            const auto& x_data = x_col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_data[i] = std::atan2(y_val, x_data[i]);
+            }
+        } else if (is_const_x) {
+            auto x_val = assert_cast<const ColumnFloat64*>(col_x.get())->get_element(0);
+
+            const auto* y_col = assert_cast<const ColumnFloat64*>(col_y.get());
+            const auto& y_data = y_col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_data[i] = std::atan2(y_data[i], x_val);
+            }
+        } else {
+            const auto* y_col = assert_cast<const ColumnFloat64*>(col_y.get());
+            const auto* x_col = assert_cast<const ColumnFloat64*>(col_x.get());
+            const auto& y_data = y_col->get_data();
+            const auto& x_data = x_col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_data[i] = std::atan2(y_data[i], x_data[i]);
+            }
+        }
+
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
 };
-using FunctionAtan = FunctionMathUnary<UnaryFunctionPlain<AtanName, std::atan>>;
 
 struct AtanhName {
     static constexpr auto name = "atanh";
@@ -113,6 +194,7 @@ using FunctionExp = FunctionMathUnary<UnaryFunctionPlain<ExpName, std::exp>>;
 template <typename A>
 struct SignImpl {
     static constexpr PrimitiveType ResultType = TYPE_TINYINT;
+    using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
     static inline UInt8 apply(A a) {
         if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>) {
             return static_cast<UInt8>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
@@ -127,12 +209,12 @@ struct SignImpl {
 struct NameSign {
     static constexpr auto name = "sign";
 };
-using FunctionSign = FunctionUnaryArithmetic<SignImpl, NameSign>;
+using FunctionSign = FunctionUnaryArithmetic<SignImpl<double>, NameSign, TYPE_DOUBLE>;
 
 template <typename A>
 struct AbsImpl {
     static constexpr PrimitiveType ResultType = NumberTraits::ResultOfAbs<A>::Type;
-
+    using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
         if constexpr (IsDecimalNumber<A>) {
             return a < A(0) ? A(-a) : a;
@@ -152,6 +234,43 @@ struct AbsImpl {
 
 struct NameAbs {
     static constexpr auto name = "abs";
+};
+
+template <typename A>
+struct ResultOfPosAndNegTive;
+
+template <>
+struct ResultOfPosAndNegTive<Int64> {
+    static constexpr PrimitiveType ResultType = TYPE_BIGINT;
+};
+template <>
+struct ResultOfPosAndNegTive<double> {
+    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
+};
+
+template <>
+struct ResultOfPosAndNegTive<Decimal32> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL32;
+};
+
+template <>
+struct ResultOfPosAndNegTive<Decimal64> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL64;
+};
+
+template <>
+struct ResultOfPosAndNegTive<Decimal128V2> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMALV2;
+};
+
+template <>
+struct ResultOfPosAndNegTive<Decimal128V3> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL128I;
+};
+
+template <>
+struct ResultOfPosAndNegTive<Decimal256> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL256;
 };
 
 template <typename A>
@@ -222,12 +341,27 @@ struct ResultOfUnaryFunc<double> {
     static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
 };
 
-using FunctionAbs = FunctionUnaryArithmetic<AbsImpl, NameAbs>;
+using FunctionAbsUInt8 = FunctionUnaryArithmetic<AbsImpl<UInt8>, NameAbs, TYPE_BOOLEAN>;
+using FunctionAbsInt8 = FunctionUnaryArithmetic<AbsImpl<Int8>, NameAbs, TYPE_TINYINT>;
+using FunctionAbsInt16 = FunctionUnaryArithmetic<AbsImpl<Int16>, NameAbs, TYPE_SMALLINT>;
+using FunctionAbsInt32 = FunctionUnaryArithmetic<AbsImpl<Int32>, NameAbs, TYPE_INT>;
+using FunctionAbsInt64 = FunctionUnaryArithmetic<AbsImpl<Int64>, NameAbs, TYPE_BIGINT>;
+using FunctionAbsInt128 = FunctionUnaryArithmetic<AbsImpl<Int128>, NameAbs, TYPE_LARGEINT>;
+using FunctionAbsDecimal32 = FunctionUnaryArithmetic<AbsImpl<Decimal32>, NameAbs, TYPE_DECIMAL32>;
+using FunctionAbsDecimal64 = FunctionUnaryArithmetic<AbsImpl<Decimal64>, NameAbs, TYPE_DECIMAL64>;
+using FunctionAbsDecimalV3 =
+        FunctionUnaryArithmetic<AbsImpl<Decimal128V3>, NameAbs, TYPE_DECIMAL128I>;
+using FunctionAbsDecimalV2 =
+        FunctionUnaryArithmetic<AbsImpl<Decimal128V2>, NameAbs, TYPE_DECIMALV2>;
+using FunctionAbsDecimal256 =
+        FunctionUnaryArithmetic<AbsImpl<Decimal256>, NameAbs, TYPE_DECIMAL256>;
+using FunctionAbsFloat = FunctionUnaryArithmetic<AbsImpl<float>, NameAbs, TYPE_FLOAT>;
+using FunctionAbsDouble = FunctionUnaryArithmetic<AbsImpl<double>, NameAbs, TYPE_DOUBLE>;
 
 template <typename A>
 struct NegativeImpl {
-    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
-
+    static constexpr PrimitiveType ResultType = ResultOfPosAndNegTive<A>::ResultType;
+    using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
     NO_SANITIZE_UNDEFINED static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType
     apply(A a) {
         return -a;
@@ -238,12 +372,25 @@ struct NameNegative {
     static constexpr auto name = "negative";
 };
 
-using FunctionNegative = FunctionUnaryArithmetic<NegativeImpl, NameNegative>;
+using FunctionNegativeDouble =
+        FunctionUnaryArithmetic<NegativeImpl<double>, NameNegative, TYPE_DOUBLE>;
+using FunctionNegativeBigInt =
+        FunctionUnaryArithmetic<NegativeImpl<Int64>, NameNegative, TYPE_BIGINT>;
+using FunctionNegativeDecimalV2 =
+        FunctionUnaryArithmetic<NegativeImpl<Decimal128V2>, NameNegative, TYPE_DECIMALV2>;
+using FunctionNegativeDecimal256 =
+        FunctionUnaryArithmetic<NegativeImpl<Decimal256>, NameNegative, TYPE_DECIMAL256>;
+using FunctionNegativeDecimalV3 =
+        FunctionUnaryArithmetic<NegativeImpl<Decimal128V3>, NameNegative, TYPE_DECIMAL128I>;
+using FunctionNegativeDecimal32 =
+        FunctionUnaryArithmetic<NegativeImpl<Decimal32>, NameNegative, TYPE_DECIMAL32>;
+using FunctionNegativeDecimal64 =
+        FunctionUnaryArithmetic<NegativeImpl<Decimal64>, NameNegative, TYPE_DECIMAL64>;
 
 template <typename A>
 struct PositiveImpl {
-    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
-
+    static constexpr PrimitiveType ResultType = ResultOfPosAndNegTive<A>::ResultType;
+    using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
         return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
     }
@@ -253,7 +400,20 @@ struct NamePositive {
     static constexpr auto name = "positive";
 };
 
-using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
+using FunctionPositiveDouble =
+        FunctionUnaryArithmetic<PositiveImpl<double>, NamePositive, TYPE_DOUBLE>;
+using FunctionPositiveBigInt =
+        FunctionUnaryArithmetic<PositiveImpl<Int64>, NamePositive, TYPE_BIGINT>;
+using FunctionPositiveDecimalV2 =
+        FunctionUnaryArithmetic<PositiveImpl<Decimal128V2>, NamePositive, TYPE_DECIMALV2>;
+using FunctionPositiveDecimal256 =
+        FunctionUnaryArithmetic<PositiveImpl<Decimal256>, NamePositive, TYPE_DECIMAL256>;
+using FunctionPositiveDecimalV3 =
+        FunctionUnaryArithmetic<PositiveImpl<Decimal128V3>, NamePositive, TYPE_DECIMAL128I>;
+using FunctionPositiveDecimal32 =
+        FunctionUnaryArithmetic<PositiveImpl<Decimal32>, NamePositive, TYPE_DECIMAL32>;
+using FunctionPositiveDecimal64 =
+        FunctionUnaryArithmetic<PositiveImpl<Decimal64>, NamePositive, TYPE_DECIMAL64>;
 
 struct SinName {
     static constexpr auto name = "sin";
@@ -312,13 +472,81 @@ double csc(double x) {
 }
 using FunctionCosec = FunctionMathUnary<UnaryFunctionPlain<CscName, csc>>;
 
+static const Int64 FACT_TABLE[] = {1LL,
+                                   1LL,
+                                   2LL,
+                                   6LL,
+                                   24LL,
+                                   120LL,
+                                   720LL,
+                                   5040LL,
+                                   40320LL,
+                                   362880LL,
+                                   3628800LL,
+                                   39916800LL,
+                                   479001600LL,
+                                   6227020800LL,
+                                   87178291200LL,
+                                   1307674368000LL,
+                                   20922789888000LL,
+                                   355687428096000LL,
+                                   6402373705728000LL,
+                                   121645100408832000LL,
+                                   2432902008176640000LL};
+
+class FunctionFactorial : public IFunction {
+public:
+    static constexpr auto name = "factorial";
+    static FunctionPtr create() { return std::make_shared<FunctionFactorial>(); }
+
+private:
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeInt64>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto* data_col =
+                check_and_get_column<ColumnInt64>(block.get_by_position(arguments[0]).column.get());
+        if (!data_col) {
+            return Status::InternalError(
+                    "Unexpected column '%s' for argument of function %s",
+                    block.get_by_position(arguments[0]).column->get_name().c_str(), get_name());
+        }
+
+        auto result_column = ColumnInt64::create(input_rows_count);
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& result_data = result_column->get_data();
+        auto& result_null_map_data = result_null_map->get_data();
+
+        const auto& src_data = data_col->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            Int64 n = src_data[i];
+            if (n < 0 || n > 20) {
+                result_null_map_data[i] = 1;
+                result_data[i] = 0;
+            } else {
+                result_data[i] = FACT_TABLE[n];
+            }
+        }
+
+        block.replace_by_position(result, ColumnNullable::create(std::move(result_column),
+                                                                 std::move(result_null_map)));
+
+        return Status::OK();
+    }
+};
+
 template <typename A>
 struct RadiansImpl {
-    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
-
+    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
+    using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
-                a * PiImpl::value / 180.0);
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a / 180.0 *
+                                                                                     PiImpl::value);
     }
 };
 
@@ -326,12 +554,12 @@ struct NameRadians {
     static constexpr auto name = "radians";
 };
 
-using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl, NameRadians>;
+using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl<double>, NameRadians, TYPE_DOUBLE>;
 
 template <typename A>
 struct DegreesImpl {
-    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
-
+    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
+    using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
         return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a * 180.0 /
                                                                                      PiImpl::value);
@@ -342,7 +570,7 @@ struct NameDegrees {
     static constexpr auto name = "degrees";
 };
 
-using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl, NameDegrees>;
+using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl<double>, NameDegrees, TYPE_DOUBLE>;
 
 struct NameBin {
     static constexpr auto name = "bin";
@@ -620,7 +848,7 @@ public:
 template <typename A>
 struct SignBitImpl {
     static constexpr PrimitiveType ResultType = TYPE_BOOLEAN;
-
+    using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
     static inline bool apply(A a) { return std::signbit(static_cast<Float64>(a)); }
 };
 
@@ -628,7 +856,7 @@ struct NameSignBit {
     static constexpr auto name = "signbit";
 };
 
-using FunctionSignBit = FunctionUnaryArithmetic<SignBitImpl, NameSignBit>;
+using FunctionSignBit = FunctionUnaryArithmetic<SignBitImpl<double>, NameSignBit, TYPE_DOUBLE>;
 
 double EvenImpl(double a) {
     double mag = std::abs(a);
@@ -765,9 +993,35 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_alias("log10", "dlog10");
     factory.register_function<FunctionPi>();
     factory.register_function<FunctionSign>();
-    factory.register_function<FunctionAbs>();
-    factory.register_function<FunctionNegative>();
-    factory.register_function<FunctionPositive>();
+    factory.register_function<FunctionAbsInt8>();
+    factory.register_function<FunctionAbsInt16>();
+    factory.register_function<FunctionAbsInt32>();
+    factory.register_function<FunctionAbsInt64>();
+    factory.register_function<FunctionAbsInt128>();
+    factory.register_function<FunctionAbsUInt8>();
+    factory.register_function<FunctionAbsDecimal32>();
+    factory.register_function<FunctionAbsDecimal64>();
+    factory.register_function<FunctionAbsDecimalV3>();
+    factory.register_function<FunctionAbsDecimalV2>();
+    factory.register_function<FunctionAbsDecimal256>();
+    factory.register_function<FunctionAbsFloat>();
+    factory.register_function<FunctionAbsDouble>();
+    factory.register_function<FunctionNegativeDouble>();
+    factory.register_function<FunctionNegativeBigInt>();
+    factory.register_function<FunctionNegativeDecimalV2>();
+    factory.register_function<FunctionNegativeDecimal256>();
+    factory.register_function<FunctionNegativeDecimalV3>();
+    factory.register_function<FunctionNegativeDecimal32>();
+    factory.register_function<FunctionNegativeDecimal64>();
+
+    factory.register_function<FunctionPositiveDecimal32>();
+    factory.register_function<FunctionPositiveDecimal64>();
+    factory.register_function<FunctionPositiveDecimalV3>();
+    factory.register_function<FunctionPositiveDecimalV2>();
+    factory.register_function<FunctionPositiveDecimal256>();
+    factory.register_function<FunctionPositiveDouble>();
+    factory.register_function<FunctionPositiveBigInt>();
+
     factory.register_function<FunctionSin>();
     factory.register_function<FunctionSinh>();
     factory.register_function<FunctionSqrt>();
@@ -783,6 +1037,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_alias("pow", "fpow");
     factory.register_function<FunctionExp>();
     factory.register_alias("exp", "dexp");
+    factory.register_function<FunctionFactorial>();
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();

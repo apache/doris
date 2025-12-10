@@ -59,8 +59,8 @@ public class ColumnStatistic {
             .build();
 
     public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT,
-            Type.MAP, Type.QUANTILE_STATE, Type.JSONB, Type.VARIANT, Type.TIMEV2, Type.LAMBDA_FUNCTION);
-
+            Type.MAP, Type.QUANTILE_STATE, Type.JSONB, Type.VARIANT, Type.TIMEV2, Type.LAMBDA_FUNCTION,
+            Type.VARBINARY);
 
     // ATTENTION: Stats deriving WILL NOT use 'count' field any longer.
     // Use 'rowCount' field in Statistics if needed.
@@ -208,7 +208,7 @@ public class ColumnStatistic {
         } else {
             if (ndv > 0) {
                 columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(),
-                        1 / ndv));
+                        1.0 / ndv));
             }
         }
         return columnStatisticBuilder.build();

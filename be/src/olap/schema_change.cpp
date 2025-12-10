@@ -293,8 +293,10 @@ private:
     vectorized::Arena _arena;
 };
 
-BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
-        : _desc_tbl(std::move(desc_tbl)) {
+BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl,
+                           std::shared_ptr<RuntimeState> state)
+        : _desc_tbl(std::move(desc_tbl)), _state(std::move(state)) {
+    CHECK(_state != nullptr);
     _schema_mapping.resize(tablet_schema->num_columns());
 }
 
@@ -315,20 +317,19 @@ ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
 
 Status BlockChanger::change_block(vectorized::Block* ref_block,
                                   vectorized::Block* new_block) const {
-    std::unique_ptr<RuntimeState> state = RuntimeState::create_unique();
-    state->set_desc_tbl(&_desc_tbl);
-    state->set_be_exec_version(_fe_compatible_version);
+    // for old version request compatibility
+    _state->set_desc_tbl(&_desc_tbl);
+    _state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =
             RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]), false);
 
     if (_where_expr != nullptr) {
         vectorized::VExprContextSPtr ctx = nullptr;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_where_expr, ctx));
-        RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
-        RETURN_IF_ERROR(ctx->open(state.get()));
+        RETURN_IF_ERROR(ctx->prepare(_state.get(), row_desc));
+        RETURN_IF_ERROR(ctx->open(_state.get()));
 
-        RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(ctx.get(), ref_block, ref_block->columns()));
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(ctx.get(), ref_block));
     }
 
     const int row_num = cast_set<int>(ref_block->rows());
@@ -341,8 +342,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
         if (expr != nullptr) {
             vectorized::VExprContextSPtr ctx;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*expr, ctx));
-            RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
-            RETURN_IF_ERROR(ctx->open(state.get()));
+            RETURN_IF_ERROR(ctx->prepare(_state.get(), row_desc));
+            RETURN_IF_ERROR(ctx->open(_state.get()));
 
             int result_tmp_column_idx = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_tmp_column_idx));
@@ -358,6 +359,16 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "result size invalid, expect={}, real={}; input expr={}, block={}", row_num,
                         result_tmp_column_def.column->size(),
+                        apache::thrift::ThriftDebugString(*expr), ref_block->dump_structure());
+            }
+
+            auto lhs = _schema_mapping[idx].new_column->get_vec_type()->get_primitive_type();
+            auto rhs = result_tmp_column_def.type->get_primitive_type();
+            if (is_string_type(lhs) != is_string_type(rhs) && lhs != rhs) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "result type invalid, expect={}, real={}; input expr={}, block={}",
+                        _schema_mapping[idx].new_column->get_vec_type()->get_name(),
+                        result_tmp_column_def.type->get_name(),
                         apache::thrift::ThriftDebugString(*expr), ref_block->dump_structure());
             }
 
@@ -545,6 +556,20 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     return Status::OK();
 }
 
+Status next_batch(RowsetReaderSharedPtr rowset_reader, vectorized::Block* input_block,
+                  std::vector<bool>& row_same_bit) {
+    Status st;
+    if (rowset_reader->is_merge_iterator()) {
+        row_same_bit.clear();
+        BlockWithSameBit block_with_same_bit = {.block = input_block, .same_bit = row_same_bit};
+        st = rowset_reader->next_batch(&block_with_same_bit);
+        // todo: use row_same_bit to clean some useless row
+    } else {
+        st = rowset_reader->next_batch(input_block);
+    }
+    return st;
+}
+
 Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
                                              RowsetWriter* rowset_writer, BaseTabletSPtr new_tablet,
                                              TabletSchemaSPtr base_tablet_schema,
@@ -552,9 +577,9 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     bool eof = false;
     do {
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
 
-        auto st = rowset_reader->next_block(ref_block.get());
+        Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
                 if (ref_block->rows() == 0) {
@@ -621,8 +646,8 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
 
     bool eof = false;
     do {
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
-        auto st = rowset_reader->next_block(ref_block.get());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
+        Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
                 if (ref_block->rows() == 0) {
@@ -686,6 +711,7 @@ Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
     context.tablet_schema = new_tablet_schema;
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+    context.allow_packed_file = false;
     std::unique_ptr<RowsetWriter> rowset_writer;
     // TODO(plat1ko): Use monad op
     if (auto result = new_tablet->create_rowset_writer(context, false); !result.has_value())
@@ -714,6 +740,7 @@ Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
     context.tablet_schema = new_tablet_schema;
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+    context.allow_packed_file = false;
     std::unique_ptr<RowsetWriter> rowset_writer;
     // TODO(plat1ko): Use monad op
     if (auto result = new_tablet->create_rowset_writer(context, false); !result.has_value())
@@ -1020,7 +1047,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
             reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
-            reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
+            reader_context.delete_bitmap = _base_tablet->tablet_meta()->delete_bitmap_ptr();
             reader_context.version = Version(0, end_version);
             if (!_base_tablet_schema->cluster_key_uids().empty()) {
                 for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
@@ -1045,6 +1072,14 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             break;
         }
         SchemaChangeParams sc_params;
+
+        if (request.__isset.query_globals && request.__isset.query_options) {
+            sc_params.runtime_state =
+                    std::make_shared<RuntimeState>(request.query_options, request.query_globals);
+        } else {
+            // for old version request compatibility
+            sc_params.runtime_state = std::make_shared<RuntimeState>();
+        }
 
         RETURN_IF_ERROR(
                 DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
@@ -1144,9 +1179,8 @@ Status SchemaChangeJob::_get_versions_to_be_changed(std::vector<Version>* versio
     }
     *max_rowset = rowset;
 
-    RETURN_IF_ERROR(_base_tablet->capture_consistent_versions_unlocked(
-            Version(0, rowset->version().second), versions_to_be_changed, false, false));
-
+    *versions_to_be_changed = DORIS_TRY(_base_tablet->capture_consistent_versions_unlocked(
+            Version(0, rowset->version().second), {}));
     return Status::OK();
 }
 
@@ -1168,7 +1202,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
 
     // Add filter information in change, and filter column information will be set in parse_request
     // And filter some data every time the row block changes
-    BlockChanger changer(_new_tablet_schema, *sc_params.desc_tbl);
+    BlockChanger changer(_new_tablet_schema, *sc_params.desc_tbl, sc_params.runtime_state);
 
     bool sc_sorting = false;
     bool sc_directly = false;
@@ -1230,6 +1264,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet_schema;
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
+        context.allow_packed_file = false;
 
         if (!rs_reader->rowset()->is_local()) {
             auto maybe_resource = rs_reader->rowset()->rowset_meta()->remote_storage_resource();
@@ -1559,8 +1594,9 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
                   << "double write rowsets for version: " << alter_version + 1 << "-" << max_version
                   << " new_tablet=" << _new_tablet->tablet_id();
         std::shared_lock rlock(_new_tablet->get_header_lock());
-        RETURN_IF_ERROR(_new_tablet->capture_consistent_rowsets_unlocked(
-                {alter_version + 1, max_version}, &rowsets));
+        auto ret = DORIS_TRY(_new_tablet->capture_consistent_rowsets_unlocked(
+                {alter_version + 1, max_version}, CaptureRowsetOps {}));
+        rowsets = std::move(ret.rowsets);
     }
     for (auto rowset_ptr : rowsets) {
         std::lock_guard rwlock(_new_tablet->get_rowset_update_lock());
@@ -1578,8 +1614,9 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
         LOG(INFO) << "alter table for unique with merge-on-write, calculate delete bitmap of "
                   << "incremental rowsets for version: " << max_version + 1 << "-"
                   << new_max_version << " new_tablet=" << _new_tablet->tablet_id();
-        RETURN_IF_ERROR(_new_tablet->capture_consistent_rowsets_unlocked(
-                {max_version + 1, new_max_version}, &rowsets));
+        auto ret = DORIS_TRY(_new_tablet->capture_consistent_rowsets_unlocked(
+                {max_version + 1, new_max_version}, CaptureRowsetOps {}));
+        rowsets = std::move(ret.rowsets);
     }
     for (auto&& rowset_ptr : rowsets) {
         RETURN_IF_ERROR(Tablet::update_delete_bitmap_without_lock(_new_tablet, rowset_ptr));

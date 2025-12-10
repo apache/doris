@@ -18,6 +18,7 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -54,7 +55,7 @@ public class ProfileStructureTest {
         TUniqueId queryId = new TUniqueId(1L, 2L);
         ExecutionProfile profile = new ExecutionProfile(queryId, Lists.newArrayList(0, 1));
 
-        StringBuilder sb = new StringBuilder();
+        SafeStringBuilder sb = new SafeStringBuilder();
         profile.prettyPrint(sb, "  ");
         String result = sb.toString();
 
