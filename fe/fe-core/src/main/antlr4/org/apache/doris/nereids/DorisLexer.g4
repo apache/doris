@@ -594,6 +594,9 @@ WORKLOAD: 'WORKLOAD';
 WRITE: 'WRITE';
 XOR: 'XOR';
 YEAR: 'YEAR';
+MASTER: 'MASTER';
+FOLLOWERS: 'FOLLOWERS';
+OBSERVERS: 'OBSERVERS';
 //--DORIS-KEYWORD-LIST-END
 //============================
 // End of the keywords list

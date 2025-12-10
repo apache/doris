@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
@@ -87,24 +88,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
     }
 
-    public static List<Pair<String, Integer>> getFrontendWithRpcPort(Env env, boolean includeSelf) {
-        List<Pair<String, Integer>> allFe = new ArrayList<>();
-        List<Frontend> frontends = env.getFrontends(null);
-
-        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
-        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
-            selfNode = ConnectContext.get().getCurrentConnectedFEIp();
-        }
-
-        String finalSelfNode = selfNode;
-        frontends.stream()
-            .filter(fe -> (!fe.getHost().equals(finalSelfNode) || includeSelf))
-            .map(fe -> Pair.of(fe.getHost(), fe.getRpcPort()))
-                .forEach(allFe::add);
-        return allFe;
+    public static void getFrontendsInfo(Env env, List<List<String>> infos) {
+        getFrontendsInfo(env, infos, null);
     }
 
-    public static void getFrontendsInfo(Env env, List<List<String>> infos) {
+    public static void getFrontendsInfo(Env env, List<List<String>> infos, FrontendNodeType nodeType) {
         InetSocketAddress master = null;
         try {
             master = env.getHaProtocol().getLeader();
@@ -125,7 +113,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             selfNode = ConnectContext.get().getCurrentConnectedFEIp();
         }
 
-        List<Frontend> envFes = env.getFrontends(null /* all */);
+        List<Frontend> envFes = env.getFrontends(null);
         LOG.info("bdbje fes {}, env fes {}", allFe, envFes);
         for (Frontend fe : envFes) {
             List<String> info = new ArrayList<String>();
@@ -168,9 +156,37 @@ public class FrontendsProcNode implements ProcNodeInterface {
             // To indicate which FE we currently connected
             info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
             info.add(TimeUtils.longToTimeString(fe.getLiveSince()));
-
-            infos.add(info);
+            if (nodeType == null) {
+                infos.add(info);
+            } else if (nodeType.equals(FrontendNodeType.MASTER)
+                    && socketAddress.equals(master) && fe.getRole().equals(FrontendNodeType.FOLLOWER)) {
+                infos.add(info);
+                break;
+            } else if (nodeType.equals(FrontendNodeType.FOLLOWER)
+                    && !socketAddress.equals(master) && fe.getRole().equals(FrontendNodeType.FOLLOWER)) {
+                infos.add(info);
+            } else if (nodeType.equals(FrontendNodeType.OBSERVER)
+                    && fe.getRole().equals(FrontendNodeType.OBSERVER)) {
+                infos.add(info);
+            }
         }
+    }
+
+    public static List<Pair<String, Integer>> getFrontendWithRpcPort(Env env, boolean includeSelf) {
+        List<Pair<String, Integer>> allFe = new ArrayList<>();
+        List<Frontend> frontends = env.getFrontends(null);
+
+        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
+        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+            selfNode = ConnectContext.get().getCurrentConnectedFEIp();
+        }
+
+        String finalSelfNode = selfNode;
+        frontends.stream()
+            .filter(fe -> (!fe.getHost().equals(finalSelfNode) || includeSelf))
+            .map(fe -> Pair.of(fe.getHost(), fe.getRpcPort()))
+                .forEach(allFe::add);
+        return allFe;
     }
 
     public static Frontend getCurrentFrontendVersion(Env env) {

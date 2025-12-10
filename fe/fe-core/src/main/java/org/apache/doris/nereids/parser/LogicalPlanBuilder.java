@@ -384,6 +384,9 @@ import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
 import org.apache.doris.nereids.DorisParser.ShowEncryptKeysContext;
 import org.apache.doris.nereids.DorisParser.ShowEventsContext;
 import org.apache.doris.nereids.DorisParser.ShowExportContext;
+import org.apache.doris.nereids.DorisParser.ShowFrontendFollowersContext;
+import org.apache.doris.nereids.DorisParser.ShowFrontendMasterContext;
+import org.apache.doris.nereids.DorisParser.ShowFrontendObserversContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGlobalFunctionsContext;
@@ -803,6 +806,9 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand
 import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowExportCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowFrontendFollowersCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowFrontendMasterCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowFrontendObserversCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
@@ -9470,5 +9476,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public AlterTableOp visitDropBranchClause(DorisParser.DropBranchClauseContext ctx) {
         return new DropBranchOp(ctx.name.getText(), ctx.EXISTS() != null);
+    }
+
+    @Override
+    public LogicalPlan visitShowFrontendMaster(ShowFrontendMasterContext ctx) {
+        return new ShowFrontendMasterCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowFrontendFollowers(ShowFrontendFollowersContext ctx) {
+        return new ShowFrontendFollowersCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowFrontendObservers(ShowFrontendObserversContext ctx) {
+        return new ShowFrontendObserversCommand();
     }
 }
