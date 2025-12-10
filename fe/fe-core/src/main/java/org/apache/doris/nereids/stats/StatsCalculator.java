@@ -502,6 +502,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return Optional.empty();
     }
 
+    private boolean isRegisteredRowCount(OlapScan olapScan) {
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        return tableMeta != null && tableMeta.userInjected;
+    }
+
     private Statistics computeOlapScan(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         double tableRowCount = getOlapTableRowCount(olapScan);
