@@ -513,7 +513,7 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
-    public static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_size_size";
+    public static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
 
     public static final String MAX_FILE_SPLIT_SIZE = "max_file_split_size";
 
