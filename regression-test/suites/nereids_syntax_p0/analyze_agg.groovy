@@ -268,12 +268,15 @@ suite("analyze_agg") {
     // when not generate an aggregate, having can treat like a filter, then no check in group by list error
     sql "select 1000 from t2 having id > 0"
 
-    /*
+    // check sort -> having -> project generate aggregate
     test {
-        sql "select a from t2 having count(c) > 10 order by sum(id);
-        exception "xxxx"
+        // check project fail
+        sql "select a from t2 having count(c) > 10 order by sum(id)"
+        exception "PROJECT expression 'a' must appear in the GROUP BY clause or be used in an aggregate function"
     }
-    */
+    // check project ok
+    sql "select 1000 from t2 having count(c) > 10 order by sum(id)"
+    sql "select 1000 as k from t2 having count(c) > 10 order by sum(id)"
 
     explainAndOrderResult 'sort_project_1', '''
         select 1 from t2 order by sum(id);

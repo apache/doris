@@ -171,6 +171,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
     }
 
     public enum ResolvePlanType {
+        PROJECT,
         HAVING,
         QUALIFY,
         SORT,
@@ -451,10 +452,16 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                     oldSortExpressions, resolver, ResolvePlanType.SORT);
             newHavingExpressions = ImmutableSet.copyOf(
                     resolveAndRewriteExprsForEmptyGroupBy(oldHavingExpressions, resolver, ResolvePlanType.HAVING));
+            // select a from t having sum(a) > 0, check 'a' not in group by list.
+            List<Expression> newProjectExpressions = resolveAndRewriteExprsForEmptyGroupBy(
+                    oldProject.getProjects(), resolver, ResolvePlanType.PROJECT);
             agg = agg.withAggOutput(resolver.getNewOutputSlots());
             ImmutableList.Builder<NamedExpression> newProjectBuilder
-                    = ImmutableList.builderWithExpectedSize(oldProject.getOutputs().size() + agg.getOutput().size());
-            newProjectBuilder.addAll(oldProject.getOutputs()).addAll(agg.getOutput());
+                    = ImmutableList.builderWithExpectedSize(newProjectExpressions.size() + agg.getOutput().size());
+            for (Expression expr : newProjectExpressions) {
+                newProjectBuilder.add((NamedExpression) expr);
+            }
+            newProjectBuilder.addAll(agg.getOutput());
             newProject = new LogicalProject<>(newProjectBuilder.build(), agg);
         } else {
             ImmutableList.Builder<NamedExpression> newProjectBuilder = ImmutableList.builderWithExpectedSize(
@@ -501,7 +508,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
     }
 
     private List<Expression> resolveAndRewriteExprsForEmptyGroupBy(
-            Collection<Expression> expressions, Resolver resolver, ResolvePlanType planType) {
+            Collection<? extends Expression> expressions, Resolver resolver, ResolvePlanType planType) {
         List<Expression> result = Lists.newArrayListWithExpectedSize(expressions.size());
         for (Expression expr : expressions) {
             // for empty group by, the NullableAggregateFunction is always nullable
