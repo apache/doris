@@ -236,12 +236,12 @@ suite("analyze_agg") {
 
     test {
         sql "select id + sum(c) from t2 group by a"
-        exception "'id' must appear in the GROUP BY clause or be used in an aggregate function"
+        exception "PROJECT expression 'id' must appear in the GROUP BY clause or be used in an aggregate function"
     }
 
     test {
         sql "select a from t2 order by sum(id)"
-        exception "'a' must appear in the GROUP BY clause or be used in an aggregate function"
+        exception "PROJECT expression 'a' must appear in the GROUP BY clause or be used in an aggregate function"
     }
 
     test {

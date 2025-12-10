@@ -297,8 +297,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             }
             if (!missingSlotsInAggregate.isEmpty()) {
                 if (SqlModeHelper.hasOnlyFullGroupBy()) {
-                    throw new AnalysisException(
-                            String.format("%s must appear in the GROUP BY clause or be used in an aggregate function",
+                    throw new AnalysisException(String.format("PROJECT expression %s must appear in the GROUP BY"
+                            + " clause or be used in an aggregate function",
                             missingSlotsInAggregate.stream()
                                     .map(slot -> "'" + slot.getName() + "'")
                                     .collect(Collectors.joining(", "))));
