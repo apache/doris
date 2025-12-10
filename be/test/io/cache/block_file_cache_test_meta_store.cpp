@@ -414,6 +414,87 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
     }
 }
 
+TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries) {
+    config::enable_evict_file_cache_in_advance = false;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 5000000;
+    settings.query_queue_elements = 50000;
+    settings.index_queue_size = 5000000;
+    settings.index_queue_elements = 50000;
+    settings.disposable_queue_size = 5000000;
+    settings.disposable_queue_elements = 50000;
+    settings.capacity = 20000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.query_id.hi = 1;
+    context.query_id.lo = 2;
+    context.tablet_id = 314;
+    auto key = io::BlockFileCache::hash("meta_clear_key");
+
+    auto holder = cache.get_or_set(key, 0, 100000, context);
+    auto blocks = fromHolder(holder);
+    ASSERT_EQ(blocks.size(), 1);
+    assert_range(1, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::EMPTY);
+    ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+    download(blocks[0]);
+    assert_range(2, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::DOWNLOADED);
+    blocks.clear();
+
+    auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+    ASSERT_NE(fs_storage, nullptr) << "Expected FSFileCacheStorage but got different storage type";
+    auto& meta_store = fs_storage->_meta_store;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    verify_meta_key(*meta_store, context.tablet_id, "meta_clear_key", 0, FileCacheType::NORMAL, 0,
+                    100000);
+
+    cache.clear_file_cache_directly();
+
+    std::string meta_dir = cache.get_base_path() + "/meta";
+    ASSERT_TRUE(fs::exists(meta_dir));
+    ASSERT_TRUE(fs::is_directory(meta_dir));
+
+    BlockMetaKey mkey(context.tablet_id, key, 0);
+    auto meta = meta_store->get(mkey);
+    ASSERT_FALSE(meta.has_value());
+
+    auto iterator = meta_store->get_all();
+    if (iterator != nullptr) {
+        bool has_entry = false;
+        for (; iterator->valid(); iterator->next()) {
+            has_entry = true;
+            break;
+        }
+        ASSERT_FALSE(has_entry) << "Meta store still contains entries after clearing cache";
+    }
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
 //TODO(zhengyu): check lazy load
 //TODO(zhengyu): check version2 start
 //TODO(zhengyu): check version2 version3 mixed start
