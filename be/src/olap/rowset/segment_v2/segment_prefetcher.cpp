@@ -21,11 +21,10 @@
 
 #include "common/logging.h"
 #include "olap/iterators.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
-#include "olap/rowset/segment_v2/page_pointer.h"
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 void SegmentPrefetcher::_build_block_sequence_from_bitmap(const roaring::Roaring& row_bitmap,
                                                           OrdinalIndexReader* ordinal_index) {
@@ -218,5 +217,4 @@ bool SegmentPrefetcher::need_prefetch(rowid_t current_rowid, std::vector<BlockRa
     return !out_ranges->empty();
 }
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

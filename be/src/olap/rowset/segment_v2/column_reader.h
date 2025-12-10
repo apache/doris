@@ -32,6 +32,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h" // for Status
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
@@ -41,6 +42,7 @@
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
+#include "olap/rowset/segment_v2/segment_prefetcher.h"
 #include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
@@ -236,6 +238,7 @@ public:
 
 private:
     friend class VariantColumnReader;
+    friend class FileColumnIterator;
 
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
@@ -377,6 +380,8 @@ public:
 
     virtual bool is_all_dict_encoding() const { return false; }
 
+    virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
+
 protected:
     ColumnIteratorOptions _opts;
 };
@@ -424,11 +429,14 @@ public:
 
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
+    void _trigger_prefetch_if_eligible(ordinal_t ord);
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
 
@@ -456,6 +464,10 @@ private:
     bool _is_all_dict_encoding = false;
 
     std::unique_ptr<StringRef[]> _dict_word_info;
+
+    bool _enable_prefetch {false};
+    std::unique_ptr<SegmentPrefetcher> _prefetcher;
+    std::shared_ptr<io::CachedRemoteFileReader> _cached_remote_file_reader {nullptr};
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -500,6 +512,10 @@ public:
         return _offset_iterator->read_by_rowids(rowids, count, dst);
     }
 
+    Status init_prefetcher(const SegmentPrefetchParams& params) override {
+        return _offset_iterator->init_prefetcher(params);
+    }
+
 private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
     // reuse a tiny column for peek to avoid frequent allocations
@@ -537,6 +553,13 @@ public:
 
     ordinal_t get_current_ordinal() const override {
         return _offsets_iterator->get_current_ordinal();
+    }
+
+    Status init_prefetcher(const SegmentPrefetchParams& params) override {
+        RETURN_IF_ERROR(_key_iterator->init_prefetcher(params));
+        RETURN_IF_ERROR(_val_iterator->init_prefetcher(params));
+        RETURN_IF_ERROR(_offsets_iterator->init_prefetcher(params));
+        return Status::OK();
     }
 
 private:
@@ -578,6 +601,13 @@ public:
         return _sub_column_iterators[0]->get_current_ordinal();
     }
 
+    Status init_prefetcher(const SegmentPrefetchParams& params) override {
+        for (auto& column_iterator : _sub_column_iterators) {
+            RETURN_IF_ERROR(column_iterator->init_prefetcher(params));
+        }
+        return Status::OK();
+    }
+
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -613,6 +643,12 @@ public:
 
     ordinal_t get_current_ordinal() const override {
         return _offset_iterator->get_current_ordinal();
+    }
+
+    Status init_prefetcher(const SegmentPrefetchParams& params) override {
+        RETURN_IF_ERROR(_offset_iterator->init_prefetcher(params));
+        RETURN_IF_ERROR(_item_iterator->init_prefetcher(params));
+        return Status::OK();
     }
 
 private:

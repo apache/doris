@@ -1340,7 +1340,19 @@ Status FileColumnIterator::seek_to_first() {
     return Status::OK();
 }
 
+void FileColumnIterator::_trigger_prefetch_if_eligible(ordinal_t ord) {
+    std::vector<BlockRange> ranges;
+    if (_prefetcher->need_prefetch(ord, &ranges)) {
+        for (const auto& range : ranges) {
+            _cached_remote_file_reader->prefetch_range(range.offset, range.size, &_opts.io_ctx);
+        }
+    }
+}
+
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
+    if (_enable_prefetch) {
+        _trigger_prefetch_if_eligible(ord);
+    }
     // if current page contains this row, we don't need to seek
     if (!_page || !_page.contains(ord) || !_page_iter.valid()) {
         RETURN_IF_ERROR(_reader->seek_at_or_before(ord, &_page_iter, _opts));
@@ -1620,6 +1632,18 @@ Status FileColumnIterator::get_row_ranges_by_dict(const AndBlockColumnPredicate*
     if (!col_predicates->evaluate_and(_dict_word_info.get(), _dict_decoder->count())) {
         row_ranges->clear();
     }
+    return Status::OK();
+}
+
+Status FileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    if (_cached_remote_file_reader =
+                std::dynamic_pointer_cast<io::CachedRemoteFileReader>(_reader->_file_reader);
+        !_cached_remote_file_reader) {
+        return Status::OK();
+    }
+    _enable_prefetch = true;
+    _prefetcher = std::make_unique<SegmentPrefetcher>(params.config);
+    RETURN_IF_ERROR(_prefetcher->init(params.row_bitmap, _reader, params.read_options));
     return Status::OK();
 }
 

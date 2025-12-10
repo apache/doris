@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/iterators.h"
 #include "olap/rowset/segment_v2/common.h"
 
 namespace doris {
@@ -33,6 +33,7 @@ class FileReader;
 
 namespace segment_v2 {
 class OrdinalIndexReader;
+class ColumnReader;
 
 // Configuration for segment prefetcher
 struct SegmentPrefetcherConfig {
@@ -65,6 +66,12 @@ struct BlockInfo {
     rowid_t first_rowid;
 
     BlockInfo(size_t bid, rowid_t rid) : block_id(bid), first_rowid(rid) {}
+};
+
+struct SegmentPrefetchParams {
+    SegmentPrefetcherConfig config;
+    const roaring::Roaring& row_bitmap;
+    const StorageReadOptions& read_options;
 };
 
 // SegmentPrefetcher maintains block sequence and triggers prefetch to keep

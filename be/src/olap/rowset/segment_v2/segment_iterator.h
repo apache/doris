@@ -487,10 +487,6 @@ private:
 
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
-
-    // Segment prefetch related members
-    std::unordered_map<ColumnId, std::unique_ptr<SegmentPrefetcher>> _column_prefetchers;
-    bool _enable_prefetch = false;
 };
 
 } // namespace segment_v2

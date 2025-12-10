@@ -31,6 +31,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/consts.h"
@@ -407,6 +408,9 @@ Status SegmentIterator::_lazy_init() {
 }
 
 void SegmentIterator::_init_segment_prefetchers() {
+    if (!config::is_cloud_mode()) {
+        return;
+    }
     static std::vector<ReaderType> supported_reader_types {
             ReaderType::READER_QUERY, ReaderType::READER_BASE_COMPACTION,
             ReaderType::READER_CUMULATIVE_COMPACTION, ReaderType::READER_FULL_COMPACTION};
@@ -420,70 +424,44 @@ void SegmentIterator::_init_segment_prefetchers() {
                                     : config::enable_compaction_segment_cache_prefetch;
     LOG_INFO(
             "[verbose] SegmentIterator lazy_init, is_query={}, enable_prefetch={}, "
-            "_row_bitmap.isEmpty()={}, tablet={}, rowset={}, segment={}, predicate_column_ids={}, "
+            "_row_bitmap.isEmpty()={}, row_bitmap.cardinality()={}, ,row_btmap.size()={} "
+            "tablet={}, rowset={}, segment={}, predicate_column_ids={}, "
             "non_predicate_column_ids={}",
-            is_query, enable_prefetch, _row_bitmap.isEmpty(), _opts.tablet_id,
-            _opts.rowset_id.to_string(), segment_id(), fmt::join(_predicate_column_ids, ","),
-            fmt::join(_non_predicate_column_ids, ","));
+            is_query, enable_prefetch, _row_bitmap.isEmpty(), _row_bitmap.cardinality(),
+            _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
+            fmt::join(_predicate_column_ids, ","), fmt::join(_non_predicate_column_ids, ","));
     if (enable_prefetch && !_row_bitmap.isEmpty()) {
         int window_size = is_query ? config::query_segment_cache_prefetch_window_size
                                    : config::compaction_segment_cache_prefetch_window_size;
         LOG_INFO("[verbose] SegmentIterator prefetch config: window_size={}", window_size);
         if (window_size > 0 &&
-            (!_predicate_column_ids.empty() || !_non_predicate_column_ids.empty())) {
+            !_column_iterators.empty()) { // ensure init_iterators has been called
             SegmentPrefetcherConfig prefetch_config(window_size,
                                                     config::file_cache_each_block_size);
-
-            // Collect all columns that need prefetching
-            std::set<ColumnId> columns_to_prefetch;
-            for (auto cid : _predicate_column_ids) {
-                columns_to_prefetch.insert(cid);
-            }
-            for (auto cid : _non_predicate_column_ids) {
-                columns_to_prefetch.insert(cid);
-            }
-
-            LOG_INFO("[verbose] Columns to prefetch: {}", fmt::join(columns_to_prefetch, ","));
-
-            for (auto cid : columns_to_prefetch) {
-                const auto& tablet_column = _opts.tablet_schema->column(cid);
-                if (!field_is_numeric_type(tablet_column.type()) &&
-                    !field_is_slice_type(tablet_column.type())) {
-                    // TODO: for complex nested type, the underlying data pages are not continuous,
-                    // should use diffeerent prefetch strategy
+            for (auto cid : _schema->column_ids()) {
+                auto& column_iter = _column_iterators[cid];
+                if (column_iter == nullptr) {
                     continue;
                 }
-                LOG_INFO("[verbose] Initializing prefetcher for column_id: {}, type: {}", cid,
-                         tablet_column.type());
-
-                // Initialize prefetcher with row bitmap, ordinal index, and reading direction
-                std::shared_ptr<ColumnReader> column_reader;
-                if (auto st =
-                            _segment->get_column_reader(tablet_column, &column_reader, _opts.stats);
-                    st.ok() && column_reader != nullptr) {
-                    LOG_INFO(
-                            "[verbose] init SegmentPrefetcher for column_id: {}, tablet_id: "
-                            "{}, rowset_id: {}, segment_id: {}, row_count: {}, is_reverse: {}, "
-                            "config: window_size={}, block_size={}",
-                            cid, _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
-                            _row_bitmap.cardinality(), _opts.read_orderby_key_reverse,
-                            prefetch_config.prefetch_window_size, prefetch_config.block_size);
-                    auto prefetcher = std::make_unique<SegmentPrefetcher>(prefetch_config);
-                    st = prefetcher->init(_row_bitmap, column_reader, _opts);
-                    if (st.ok()) {
-                        _column_prefetchers[cid] = std::move(prefetcher);
-                    }
-                } else {
+                const auto* tablet_column = _schema->column(cid);
+                SegmentPrefetchParams params {
+                        .config = prefetch_config,
+                        .row_bitmap = _row_bitmap,
+                        .read_options = _opts,
+                };
+                LOG_INFO(
+                        "[verbose] SegmentIterator init_segment_prefetchers, "
+                        "tablet={}, rowset={}, segment={}, column_id={}, col_name={}, type={}",
+                        _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(), cid,
+                        tablet_column->name(), tablet_column->type());
+                Status st = column_iter->init_prefetcher(params);
+                if (!st.ok()) {
                     LOG_WARNING(
-                            "[verbose] cannot get ColumnReader from cache for column_id: {}, "
-                            "tablet_id: {}, rowset_id: {}, segment_id: {}, status: {}",
+                            "[verbose] failed to init prefetcher for column_id={}, "
+                            "tablet={}, rowset={}, segment={}, error={}",
                             cid, _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
                             st.to_string());
                 }
-            }
-
-            if (!_column_prefetchers.empty()) {
-                _enable_prefetch = true;
             }
         }
     }
@@ -1798,22 +1776,6 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
             continue;
         }
 
-        // Trigger prefetch for this column after pruning checks
-        if (_enable_prefetch && nrows_read > 0) {
-            auto it = _column_prefetchers.find(cid);
-            if (it != _column_prefetchers.end()) {
-                auto* cached_reader = dynamic_cast<io::CachedRemoteFileReader*>(_file_reader.get());
-                if (cached_reader) {
-                    std::vector<BlockRange> ranges;
-                    if (it->second->need_prefetch(_block_rowids[0], &ranges)) {
-                        for (const auto& range : ranges) {
-                            cached_reader->prefetch_range(range.offset, range.size, &_opts.io_ctx);
-                        }
-                    }
-                }
-            }
-        }
-
         DBUG_EXECUTE_IF("segment_iterator._read_columns_by_index", {
             auto col_name = _opts.tablet_schema->column(cid).name();
             auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
@@ -2029,23 +1991,6 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
         }
         if (_prune_column(cid, colunm, true, select_size)) {
             continue;
-        }
-
-        // Trigger prefetch for this column after pruning checks
-        if (_enable_prefetch && select_size > 0) {
-            auto it = _column_prefetchers.find(cid);
-            if (it != _column_prefetchers.end()) {
-                io::CachedRemoteFileReader* cached_reader =
-                        dynamic_cast<io::CachedRemoteFileReader*>(_file_reader.get());
-                if (cached_reader) {
-                    std::vector<BlockRange> ranges;
-                    if (it->second->need_prefetch(rowids[0], &ranges)) {
-                        for (const auto& range : ranges) {
-                            cached_reader->prefetch_range(range.offset, range.size, &_opts.io_ctx);
-                        }
-                    }
-                }
-            }
         }
 
         DBUG_EXECUTE_IF("segment_iterator._read_columns_by_index", {
