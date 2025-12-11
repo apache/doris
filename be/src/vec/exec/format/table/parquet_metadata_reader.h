@@ -19,7 +19,9 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/factory_creator.h"
@@ -30,10 +32,16 @@
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
+namespace io {
+class FileReader;
+} // namespace io
 } // namespace doris
 
 namespace doris::vectorized {
 class Block;
+class FieldDescriptor;
+struct FieldSchema;
+class FileMetaData;
 
 class ParquetMetadataReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetMetadataReader);
@@ -48,12 +56,25 @@ public:
 
 private:
     Status _init_from_scan_range(const TMetaScanRange& scan_range);
+    Status _build_rows(std::vector<MutableColumnPtr>& columns);
+    Status _append_file_rows(const std::string& path, std::vector<MutableColumnPtr>& columns);
+    Status _append_schema_rows(const std::string& path, FileMetaData* metadata,
+                               std::vector<MutableColumnPtr>& columns);
+    Status _append_schema_field(const std::string& path, const FieldSchema& field,
+                                const std::string& current_path,
+                                std::vector<MutableColumnPtr>& columns);
+    Status _append_metadata_rows(const std::string& path, FileMetaData* metadata,
+                                 std::vector<MutableColumnPtr>& columns);
 
+    enum class Mode { SCHEMA, METADATA };
+
+    std::vector<SlotDescriptor*> _slots;
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     TMetaScanRange _scan_range;
     std::vector<std::string> _paths;
     std::string _mode;
+    Mode _mode_type = Mode::METADATA;
     bool _eof = false;
 };
 
