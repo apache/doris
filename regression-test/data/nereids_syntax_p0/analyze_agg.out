@@ -101,6 +101,91 @@ PhysicalResultSink
 ----------------filter((t1.__DORIS_DELETE_SIGN__ = 0))
 ------------------PhysicalOlapScan[t1]
 
+-- !disable_full_group_by_1_shape --
+PhysicalResultSink
+--PhysicalProject
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------filter((t2.__DORIS_DELETE_SIGN__ = 0))
+------------PhysicalOlapScan[t2]
+
+-- !disable_full_group_by_1_result --
+
+-- !disable_full_group_by_2_shape --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------filter((t2.__DORIS_DELETE_SIGN__ = 0))
+----------------PhysicalOlapScan[t2]
+
+-- !disable_full_group_by_2_result --
+\N
+
+-- !disable_full_group_by_3_shape --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------filter((count(c) > 10))
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------filter((t2.__DORIS_DELETE_SIGN__ = 0))
+--------------------PhysicalOlapScan[t2]
+
+-- !disable_full_group_by_3_result --
+
+-- !disable_full_group_by_4_shape --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------filter((count(c) > 10))
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------filter((t2.__DORIS_DELETE_SIGN__ = 0))
+--------------------PhysicalOlapScan[t2]
+
+-- !disable_full_group_by_4_result --
+
+-- !disable_full_group_by_5_shape --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------filter((any_value(c) > 10))
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------filter((t2.__DORIS_DELETE_SIGN__ = 0))
+--------------------PhysicalOlapScan[t2]
+
+-- !disable_full_group_by_5_result --
+
+-- !disable_full_group_by_6_shape --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------filter((count(c) > 10))
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------filter((t2.__DORIS_DELETE_SIGN__ = 0))
+--------------------PhysicalOlapScan[t2]
+
+-- !disable_full_group_by_6_result --
+
 -- !sort_project_1_shape --
 PhysicalResultSink
 --PhysicalProject

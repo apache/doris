@@ -239,25 +239,45 @@ suite("analyze_agg") {
         exception "PROJECT expression 'id' must appear in the GROUP BY clause or be used in an aggregate function"
     }
 
+    explainAndOrderResult 'disable_full_group_by_1', '''
+        select /*+ SET_VAR(sql_mode='') */ id + sum(c) from t2 group by a
+        '''
+
     test {
         sql "select a from t2 order by sum(id)"
         exception "PROJECT expression 'a' must appear in the GROUP BY clause or be used in an aggregate function"
     }
+
+    explainAndOrderResult 'disable_full_group_by_2', '''
+        select /*+ SET_VAR(sql_mode='') */ a from t2 order by sum(id)
+        '''
 
     test {
         sql "select 1000 from t2 having count(c) > 10 order by sum(id), a"
         exception "SORT expression 'a' must appear in the GROUP BY clause or be used in an aggregate function"
     }
 
+    explainAndOrderResult 'disable_full_group_by_3', '''
+        select /*+ SET_VAR(sql_mode='') */ 1000 from t2 having count(c) > 10 order by sum(id), a
+        '''
+
     test {
         sql "select 1000 from t2 having count(c) > 10 order by a"
         exception "SORT expression 'a' must appear in the GROUP BY clause or be used in an aggregate function"
     }
 
+    explainAndOrderResult 'disable_full_group_by_4', '''
+        select /*+ SET_VAR(sql_mode='') */ 1000 from t2 having count(c) > 10 order by a
+        '''
+
     test {
         sql "select 1000 from t2 having c > 10 order by sum(id)"
         exception "HAVING expression 'c' must appear in the GROUP BY clause or be used in an aggregate function"
     }
+
+    explainAndOrderResult 'disable_full_group_by_5', '''
+        select /*+ SET_VAR(sql_mode='') */ 1000 from t2 having c > 10 order by sum(id)
+        '''
 
     test {
         // when generate an aggregate, havig also need to check slots for group by
@@ -277,6 +297,10 @@ suite("analyze_agg") {
     // check project ok
     sql "select 1000 from t2 having count(c) > 10 order by sum(id)"
     sql "select 1000 as k from t2 having count(c) > 10 order by sum(id)"
+
+    explainAndOrderResult 'disable_full_group_by_6', '''
+        select /*+ SET_VAR(sql_mode='') */ a + id from t2 having count(c) > 10 order by sum(id)
+        '''
 
     explainAndOrderResult 'sort_project_1', '''
         select 1 from t2 order by sum(id);
