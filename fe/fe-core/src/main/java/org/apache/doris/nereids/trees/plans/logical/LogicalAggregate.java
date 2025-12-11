@@ -425,6 +425,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         }
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
+                .filter(s -> s instanceof Slot)
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
         // when group by all tuples, the result only have one row
@@ -460,6 +461,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             return;
         }
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
+                .filter(s -> s instanceof Slot)
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
         // when group by all tuples, the result only have one row

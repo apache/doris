@@ -404,6 +404,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public void computeUnique(DataTrait.Builder builder) {
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
+                .filter(s -> s instanceof Slot)
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
         // when group by all tuples, the result only have one row
@@ -434,6 +435,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
         builder.addUniformSlot(childFd);
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
+                .filter(s -> s instanceof Slot)
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
         // when group by all tuples, the result only have one row
