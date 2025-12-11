@@ -841,13 +841,13 @@ public:
               _type(tnode.node_type),
               _pool(pool),
               _tuple_ids(tnode.row_tuples),
-              _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+              _row_descriptor(descs, tnode.row_tuples),
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
-            _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
-            _output_row_descriptor = std::make_unique<RowDescriptor>(
-                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
+            _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}));
+            _output_row_descriptor =
+                    std::make_unique<RowDescriptor>(descs, std::vector {tnode.output_tuple_id});
         }
         if (!tnode.intermediate_output_tuple_id_list.empty()) {
             // common subexpression elimination
@@ -855,7 +855,7 @@ public:
                     tnode.intermediate_output_tuple_id_list.size());
             for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {
                 _intermediate_output_row_descriptor.push_back(
-                        RowDescriptor(descs, std::vector {output_tuple_id}, std::vector {true}));
+                        RowDescriptor(descs, std::vector {output_tuple_id}));
             }
         }
     }

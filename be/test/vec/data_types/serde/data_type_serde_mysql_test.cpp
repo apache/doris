@@ -313,7 +313,7 @@ void serialize_and_deserialize_mysql_test() {
         builder.declare_tuple() << type_desc;
         doris::DescriptorTbl* desc_tbl = builder.build();
         auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-        doris::RowDescriptor row_desc(tuple_desc, false);
+        doris::RowDescriptor row_desc(tuple_desc);
         runtime_stat.set_desc_tbl(desc_tbl);
         st = ctx->prepare(&runtime_stat, row_desc);
         std::cout << st.to_string() << std::endl;
