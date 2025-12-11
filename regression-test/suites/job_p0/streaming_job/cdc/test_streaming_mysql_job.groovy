@@ -90,8 +90,8 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
                     {
                         def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobSuccendCount: " + jobSuccendCount)
-                        // check job status and succeed task count larger than 1
-                        jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                        // check job status and succeed task count larger than 2
+                        jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
                     }
             )
         } catch (Exception ex){
@@ -102,8 +102,10 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
             throw ex;
         }
 
+
         // check snapshot data
         qt_select """ SELECT * FROM ${table1} order by name asc """
+
         qt_select """ SELECT * FROM ${table2} order by name asc """
 
         // mock mysql incremental into

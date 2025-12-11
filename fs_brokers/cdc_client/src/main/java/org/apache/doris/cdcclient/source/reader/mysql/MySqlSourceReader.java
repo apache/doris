@@ -33,7 +33,18 @@ import org.apache.doris.cdcclient.source.split.AbstractSourceSplit;
 import org.apache.doris.cdcclient.source.split.BinlogSplit;
 import org.apache.doris.cdcclient.source.split.SnapshotSplit;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
-
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.shyiko.mysql.binlog.BinaryLogClient;
+import io.debezium.connector.mysql.MySqlConnection;
+import io.debezium.connector.mysql.MySqlPartition;
+import io.debezium.document.Array;
+import io.debezium.relational.Column;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.HistoryRecord;
+import io.debezium.relational.history.TableChanges;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -43,6 +54,7 @@ import org.apache.flink.cdc.connectors.mysql.debezium.reader.BinlogSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.DebeziumReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.SnapshotSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.task.context.StatefulTaskContext;
+import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
 import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlSnapshotSplitAssigner;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
@@ -61,7 +73,8 @@ import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.debezium.history.FlinkJsonTableChangeSerializer;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -74,28 +87,10 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.shyiko.mysql.binlog.BinaryLogClient;
-import io.debezium.connector.mysql.MySqlConnection;
-import io.debezium.connector.mysql.MySqlPartition;
-import io.debezium.document.Array;
-import io.debezium.relational.Column;
-import io.debezium.relational.TableId;
-import io.debezium.relational.history.HistoryRecord;
-import io.debezium.relational.history.TableChanges;
-import lombok.Getter;
-import lombok.Setter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitState> {
     private static final Logger LOG = LoggerFactory.getLogger(MySqlSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
     private static final String SPLIT_ID = "splitId";
-    private static final String PURE_BINLOG_PHASE = "pureBinlogPhase";
     private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
             new FlinkJsonTableChangeSerializer();
     private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
@@ -229,28 +224,31 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         MySqlSplit split = readResult.getSplit();
         MySqlSplitState currentSplitState = readResult.getSplitState();
         int count = 0;
-        // Serialize records and add them to the response (collect from iterator)
-        Iterator<SourceRecord> iterator = readResult.getRecordIterator();
-        while (iterator != null && iterator.hasNext()) {
-            SourceRecord element = iterator.next();
-            List<String> serializedRecords =
-                    serializer.deserialize(fetchRecord.getConfig(), element);
-            if (!CollectionUtils.isEmpty(serializedRecords)) {
-                recordResponse.getRecords().addAll(serializedRecords);
-                count += serializedRecords.size();
-                // update meta
-                Map<String, String> lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
-                if (split.isBinlogSplit()) {
-                    lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
-                    recordResponse.setMeta(lastMeta);
-                }
-                if (count >= fetchRecord.getFetchSize()) {
-                    return recordResponse;
+        try {
+            // Serialize records and add them to the response (collect from iterator)
+            Iterator<SourceRecord> iterator = readResult.getRecordIterator();
+            while (iterator != null && iterator.hasNext()) {
+                SourceRecord element = iterator.next();
+                List<String> serializedRecords =
+                        serializer.deserialize(fetchRecord.getConfig(), element);
+                if (!CollectionUtils.isEmpty(serializedRecords)) {
+                    recordResponse.getRecords().addAll(serializedRecords);
+                    count += serializedRecords.size();
+                    // update meta
+                    Map<String, String> lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
+                    if (split.isBinlogSplit()) {
+                        lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
+                        recordResponse.setMeta(lastMeta);
+                    }
+                    if (count >= fetchRecord.getFetchSize()) {
+                        return recordResponse;
+                    }
                 }
             }
+        } finally {
+            finishSplitRecords();
         }
 
-        finishSplitRecords();
         // Set meta information
         if (split.isSnapshotSplit() && currentSplitState != null) {
             BinlogOffset highWatermark =

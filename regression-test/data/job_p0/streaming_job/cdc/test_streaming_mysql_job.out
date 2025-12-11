@@ -4,6 +4,8 @@ A1	1
 B1	2
 
 -- !select --
+A2	1
+B2	2
 
 -- !select --
 B1	10

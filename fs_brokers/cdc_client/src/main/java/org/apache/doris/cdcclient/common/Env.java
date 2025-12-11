@@ -21,13 +21,11 @@ import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.factory.SourceReaderFactory;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
-
+import lombok.Setter;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-
-import lombok.Setter;
 
 public class Env {
     private static volatile Env INSTANCE;
@@ -40,7 +38,6 @@ public class Env {
 
     public String getBackendHostPort() {
         return "127.0.0.1:" + backendHttpPort;
-        // return "10.16.10.6:28949";
     }
 
     public static Env getCurrentEnv() {

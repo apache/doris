@@ -41,7 +41,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import io.debezium.data.Envelope;
 import org.slf4j.Logger;
@@ -53,8 +52,6 @@ import org.springframework.stereotype.Component;
 public class PipelineCoordinator {
     private static final Logger LOG = LoggerFactory.getLogger(PipelineCoordinator.class);
     private static final String SPLIT_ID = "splitId";
-    private static final String PURE_BINLOG_PHASE = "pureBinlogPhase";
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     // jobId
     private final Map<Long, DorisBatchStreamLoad> batchStreamLoadMap = new ConcurrentHashMap<>();
     private final SourceRecordDeserializer<SourceRecord, List<String>> serializer;
@@ -113,8 +110,12 @@ public class PipelineCoordinator {
         SourceReader<?, ?> sourceReader = Env.getCurrentEnv().getReader(writeRecordReq);
         DorisBatchStreamLoad batchStreamLoad = null;
         Map<String, String> metaResponse = new HashMap<>();
+        boolean hasData = false;
+        long scannedRows = 0L;
+        long scannedBytes = 0L;
+        SplitReadResult<?, ?> readResult = null;
         try {
-            SplitReadResult<?, ?> readResult = sourceReader.readSplitRecords(writeRecordReq);
+            readResult = sourceReader.readSplitRecords(writeRecordReq);
             batchStreamLoad =
                     getOrCreateBatchStreamLoad(
                             writeRecordReq.getJobId(), writeRecordReq.getTargetDb());
@@ -122,13 +123,10 @@ public class PipelineCoordinator {
             batchStreamLoad.setFrontendAddress(writeRecordReq.getFrontendAddress());
             batchStreamLoad.setToken(writeRecordReq.getToken());
 
-            boolean hasData = false;
             // Record start time for maxInterval check
             long startTime = System.currentTimeMillis();
             long maxIntervalMillis = writeRecordReq.getMaxInterval() * 1000;
 
-            long scannedRows = 0L;
-            long scannedBytes = 0L;
             // Use iterators to read and write.
             Iterator<SourceRecord> iterator = readResult.getRecordIterator();
             while (iterator != null && iterator.hasNext()) {
@@ -167,6 +165,11 @@ public class PipelineCoordinator {
                     break;
                 }
             }
+        } finally {
+            sourceReader.finishSplitRecords();
+        }
+
+        try {
             if (!hasData) {
                 // todo: need return the lastest heartbeat offset, means the maximum offset that the
                 // current job can recover.
@@ -196,11 +199,9 @@ public class PipelineCoordinator {
             }
             // request fe api
             batchStreamLoad.commitOffset(metaResponse, scannedRows, scannedBytes);
+
         } finally {
-            sourceReader.finishSplitRecords();
-            if (batchStreamLoad != null) {
-                batchStreamLoad.resetTaskId();
-            }
+            batchStreamLoad.resetTaskId();
         }
     }
 
