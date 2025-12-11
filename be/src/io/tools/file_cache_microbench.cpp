@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -1001,7 +1002,9 @@ public:
         return Status::OK();
     }
 
-    doris::Status global_load_once_env() {
+    doris::Status load_bench_exec_env() {
+        SCOPED_INIT_THREAD_CONTEXT();
+
         doris::CpuInfo::init();
         doris::DiskInfo::init();
         doris::MemInfo::init();
@@ -1009,12 +1012,6 @@ public:
         LOG(INFO) << doris::CpuInfo::debug_string();
         LOG(INFO) << doris::DiskInfo::debug_string();
         LOG(INFO) << doris::MemInfo::debug_string();
-
-        return Status::OK();
-    }
-
-    doris::Status load_bench_exec_env() {
-        SCOPED_INIT_THREAD_CONTEXT();
 
         std::vector<doris::StorePath> paths;
         auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
@@ -1102,12 +1099,28 @@ public:
         return Status::OK();
     }
 
-    doris::Status release_bench_exec_env() {
-        auto* exec_env = doris::ExecEnv::GetInstance();
-        if (auto* file_cache_factory = exec_env->file_cache_factory()) {
-            file_cache_factory->clear_file_caches(true);
+    doris::Status reload_or_create_cache_in_config() {
+        std::unordered_set<std::string> cache_path_set;
+        std::vector<doris::CachePath> cache_paths;
+        Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+        if (!rest) {
+            return rest;
         }
-        exec_env->destroy();
+
+        doris::Status cache_status;
+        for (auto& cache_path : cache_paths) {
+            if (cache_path_set.contains(cache_path.path)) {
+                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
+                continue;
+            }
+
+            cache_status = doris::io::FileCacheFactory::instance()->reload_or_create_file_cache(
+                    cache_path.path, cache_path.init_settings());
+            if (!cache_status.ok()) {
+                return cache_status;
+            }
+            cache_path_set.emplace(cache_path.path);
+        }
         return Status::OK();
     }
 
@@ -1162,19 +1175,15 @@ private:
 
             doris::Status status;
             try {
-                status = release_bench_exec_env();
-                if (!status.ok()) {
-                    LOG(ERROR) << "Failed to release bench env: " << status.to_string();
-                }
-
                 status = load_config();
-                if (!status.ok()) {
-                    LOG(ERROR) << "Failed to reload config: " << status.to_string();
+                if (!status) {
+                    LOG(ERROR) << "Failed to load config!";
+                    throw std::runtime_error(status.to_string().c_str());
                 }
-
-                status = load_bench_exec_env();
-                if (!status.ok()) {
-                    LOG(ERROR) << "Failed to load bench env: " << status.to_string();
+                status = reload_or_create_cache_in_config();
+                if (!status) {
+                    LOG(ERROR) << "Failed to reload file cache!";
+                    throw std::runtime_error(status.to_string().c_str());
                 }
             } catch (const std::exception& e) {
                 LOG(ERROR) << "Exception during reload: " << e.what();
@@ -1624,12 +1633,10 @@ private:
                             }
                             if (exist_job_perfile_size != -1) {
                                 // read exist files
-                                if (config.read_offset_right > exist_job_perfile_size) {
-                                    config.read_offset_right = exist_job_perfile_size;
-                                }
-                                if (config.read_length_right > exist_job_perfile_size) {
-                                    config.read_length_right = exist_job_perfile_size;
-                                }
+                                config.read_offset_right =
+                                        std::min(config.read_offset_right, exist_job_perfile_size);
+                                config.read_length_right =
+                                        std::min(config.read_length_right, exist_job_perfile_size);
 
                                 if (use_random) {
                                     std::random_device rd;
@@ -1785,11 +1792,6 @@ public:
 
     doris::Status init_microbench_service() {
         auto status = _bench_env_mgr->load_config();
-        if (!status) {
-            return status;
-        }
-
-        status = _bench_env_mgr->global_load_once_env();
         if (!status) {
             return status;
         }
@@ -2415,8 +2417,8 @@ public:
                 need_persist = true;
             }
             cntl->http_request().uri().RemoveQuery("persist");
-            std::string key = "";
-            std::string value = "";
+            std::string key;
+            std::string value;
             for (brpc::URI::QueryIterator it = cntl->http_request().uri().QueryBegin();
                  it != cntl->http_request().uri().QueryEnd(); ++it) {
                 key = it->first;
