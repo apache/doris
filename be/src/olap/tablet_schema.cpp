@@ -107,6 +107,8 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_DATEV2;
     case PrimitiveType::TYPE_DATETIMEV2:
         return FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
     case PrimitiveType::TYPE_TIMEV2:
         return FieldType::OLAP_FIELD_TYPE_TIMEV2;
     case PrimitiveType::TYPE_DECIMAL32:
@@ -176,6 +178,7 @@ PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
             /* 37 OLAP_FIELD_TYPE_DECIMAL256        */ PrimitiveType::TYPE_DECIMAL256,
             /* 38 OLAP_FIELD_TYPE_IPV4              */ PrimitiveType::TYPE_IPV4,
             /* 39 OLAP_FIELD_TYPE_IPV6              */ PrimitiveType::TYPE_IPV6,
+            /* 40 OLAP_FIELD_TYPE_TIMESTAMPTZ       */ PrimitiveType::TYPE_TIMESTAMPTZ,
     };
 
     int idx = static_cast<int>(type);
@@ -226,6 +229,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIME;
+    } else if (0 == upper_type_str.compare("TIMESTAMPTZ")) {
+        type = FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
     } else if (0 == upper_type_str.compare("DECIMAL32")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL32;
     } else if (0 == upper_type_str.compare("DECIMAL64")) {
@@ -364,6 +369,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return "DATETIMEV2";
 
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+        return "TIMESTAMPTZ";
+
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
         return "DECIMAL";
 
@@ -475,6 +483,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DATETIME:
         return 8;
     case TPrimitiveType::DATETIMEV2:
+    case TPrimitiveType::TIMESTAMPTZ:
         return 8;
     case TPrimitiveType::FLOAT:
         return 4;

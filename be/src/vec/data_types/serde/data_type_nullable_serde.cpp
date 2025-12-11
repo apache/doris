@@ -303,14 +303,15 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
 
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                     Arena& mem_pool, int32_t col_id,
-                                                    int64_t row_num) const {
+                                                    int64_t row_num,
+                                                    const FormatOptions& options) const {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     if (nullable_col.is_null_at(row_num)) {
         result.writeNull();
     } else {
         nested_serde->write_one_cell_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
-                                              col_id, row_num);
+                                              col_id, row_num, options);
     }
 }
 
@@ -354,17 +355,20 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
 }
 
 bool DataTypeNullableSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
-                                                       int64_t row_idx) const {
+                                                       int64_t row_idx,
+                                                       const FormatOptions& options) const {
     if (column.is_null_at(row_idx)) {
         return false;
     } else {
         const auto& col = assert_cast<const ColumnNullable&>(column);
-        return nested_serde->write_column_to_mysql_text(col.get_nested_column(), bw, row_idx);
+        return nested_serde->write_column_to_mysql_text(col.get_nested_column(), bw, row_idx,
+                                                        options);
     }
 }
 
 bool DataTypeNullableSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                                        int64_t row_idx) const {
+                                                        int64_t row_idx,
+                                                        const FormatOptions& options) const {
     if (column.is_null_at(row_idx)) {
         if (_nesting_level > 1) {
             // if is nested type
@@ -378,12 +382,14 @@ bool DataTypeNullableSerDe::write_column_to_presto_text(const IColumn& column, B
         }
     } else {
         const auto& col = assert_cast<const ColumnNullable&>(column);
-        return nested_serde->write_column_to_presto_text(col.get_nested_column(), bw, row_idx);
+        return nested_serde->write_column_to_presto_text(col.get_nested_column(), bw, row_idx,
+                                                         options);
     }
 }
 
 bool DataTypeNullableSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                                      int64_t row_idx) const {
+                                                      int64_t row_idx,
+                                                      const FormatOptions& options) const {
     if (column.is_null_at(row_idx)) {
         if (_nesting_level > 1) {
             // if is nested type
@@ -397,13 +403,15 @@ bool DataTypeNullableSerDe::write_column_to_hive_text(const IColumn& column, Buf
         }
     } else {
         const auto& col = assert_cast<const ColumnNullable&>(column);
-        return nested_serde->write_column_to_hive_text(col.get_nested_column(), bw, row_idx);
+        return nested_serde->write_column_to_hive_text(col.get_nested_column(), bw, row_idx,
+                                                       options);
     }
 }
 
 Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                            MysqlRowBinaryBuffer& result,
-                                                           int64_t row_idx, bool col_const) const {
+                                                           int64_t row_idx, bool col_const,
+                                                           const FormatOptions& options) const {
     const auto& col = assert_cast<const ColumnNullable&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     if (col.has_null() && col.is_null_at(col_index)) {
@@ -413,7 +421,7 @@ Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column
     } else {
         const auto& nested_col = col.get_nested_column();
         RETURN_IF_ERROR(nested_serde->write_column_to_mysql_binary(nested_col, result, col_index,
-                                                                   col_const));
+                                                                   col_const, options));
     }
     return Status::OK();
 }
@@ -422,7 +430,8 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
                                                   const IColumn& column, const NullMap* null_map,
                                                   orc::ColumnVectorBatch* orc_col_batch,
                                                   int64_t start, int64_t end,
-                                                  vectorized::Arena& arena) const {
+                                                  vectorized::Arena& arena,
+                                                  const FormatOptions& options) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
     const auto& null_map_tmp = column_nullable.get_null_map_data();
@@ -435,7 +444,7 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
 
     RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, column_nullable.get_nested_column(),
                                                       &column_nullable.get_null_map_data(),
-                                                      orc_col_batch, start, end, arena));
+                                                      orc_col_batch, start, end, arena, options));
     return Status::OK();
 }
 
@@ -455,8 +464,8 @@ void DataTypeNullableSerDe::write_one_cell_to_binary(const IColumn& src_column,
     }
 }
 
-void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num,
-                                      BufferWritable& bw) const {
+void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                      const FormatOptions& options) const {
     const auto& col_null = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
     if (col_null.is_null_at(row_num)) {
         if (_nesting_level > 1) {
@@ -465,7 +474,7 @@ void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num,
             bw.write("NULL", 4);
         }
     } else {
-        nested_serde->to_string(col_null.get_nested_column(), row_num, bw);
+        nested_serde->to_string(col_null.get_nested_column(), row_num, bw, options);
     }
 }
 

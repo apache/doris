@@ -33,6 +33,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/field.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 namespace vectorized {
@@ -121,6 +122,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::VARIANT;
     case PrimitiveType::TYPE_DATETIMEV2:
         return PGenericType::DATETIMEV2;
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return PGenericType::TIMESTAMPTZ;
     case PrimitiveType::TYPE_BITMAP:
         return PGenericType::BITMAP;
     case PrimitiveType::TYPE_HLL:
@@ -203,16 +206,26 @@ FieldWithDataType IDataType::get_field_with_data_type(const IColumn& column, siz
                               .base_scalar_type_id = get_primitive_type()};
 }
 
-std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
+std::string IDataType::to_string(const IColumn& column, size_t row_num,
+                                 const DataTypeSerDe::FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
     auto serde = get_serde();
     auto tmp_col = ColumnString::create();
     BufferWriter write_buffer(*tmp_col);
-    serde->to_string(*ptr, row_num, write_buffer);
+    serde->to_string(*ptr, row_num, write_buffer, options);
     write_buffer.commit();
     return tmp_col->get_data_at(0).to_string();
 }
+
+#ifdef BE_TEST
+std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto timezone = cctz::utc_time_zone();
+    format_options.timezone = &timezone;
+    return to_string(column, row_num, format_options);
+}
+#endif
 
 } // namespace doris::vectorized
