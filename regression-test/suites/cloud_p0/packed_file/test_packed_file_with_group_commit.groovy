@@ -68,7 +68,7 @@ suite("test_packed_file_with_group_commit", "p0, nonConcurrent") {
 
         // Test case: Packed file with group commit enabled
         // This test verifies that packed file logic works correctly when group commit is enabled
-        def tableName = "test_merge_file_with_group_commit"
+        def tableName = "test_packed_file_with_group_commit"
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -140,7 +140,7 @@ suite("test_packed_file_with_group_commit", "p0, nonConcurrent") {
             t.join(60000)
         }
 
-        // Wait a bit for group commit to finish and merge operations to complete
+        // Wait a bit for group commit to finish and packed operations to complete
         sleep(5000)
 
         def result = sql "select count(*) from ${tableName}"

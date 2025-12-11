@@ -206,7 +206,7 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
         "small_file_threshold_bytes": "102400"  // 100KB threshold
     ]) {
         // Test case 1: Mixed load (small and large files) - check query results
-        def tableName1 = "test_merge_file_mixed_load_query"
+        def tableName1 = "test_packed_file_mixed_load_query"
         sql """ DROP TABLE IF EXISTS ${tableName1} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName1} (
@@ -220,10 +220,10 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
         """
 
         def load_threads = []
-        def small_load_count = 5  // Small loads that will trigger merge
-        def large_load_count = 3  // Large loads that won't trigger merge
+        def small_load_count = 5  // Small loads that will trigger packed
+        def large_load_count = 3  // Large loads that won't trigger packed
 
-        // Small load function - generates files smaller than threshold (will be merged)
+        // Small load function - generates files smaller than threshold (will be packed)
         def small_load = { table_name, thread_id ->
             try {
                 for (int i = 0; i < 3; i++) {
@@ -255,7 +255,7 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
             }
         }
 
-        // Large load function - generates files larger than threshold (won't be merged)
+        // Large load function - generates files larger than threshold (won't be packed)
         def large_load = { table_name, thread_id ->
             try {
                 for (int i = 0; i < 2; i++) {
@@ -308,7 +308,7 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
             t.join(120000)  // 2 minutes timeout
         }
 
-        // Wait a bit for merge operations to complete
+        // Wait a bit for packed operations to complete
         sleep(5000)
 
         // Verify query results - should include data from both small and large loads
@@ -343,7 +343,7 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
         logger.info("✓ Test case 1.1 passed: Query results are correct after clearing file cache")
 
         // Test case 2: Mixed load - check index and delete bitmap
-        def tableName2 = "test_merge_file_mixed_load_index"
+        def tableName2 = "test_packed_file_mixed_load_index"
         sql """ DROP TABLE IF EXISTS ${tableName2} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName2} (

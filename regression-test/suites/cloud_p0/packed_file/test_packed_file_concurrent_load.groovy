@@ -68,7 +68,7 @@ suite("test_packed_file_concurrent_load", "p0, nonConcurrent") {
         logger.info("Initial packed_file_total_small_file_count: ${initial_packed_file_count}")
 
         // Test case 1: Multiple small concurrent loads to the same tablet
-        def tableName1 = "test_merge_file_same_tablet"
+        def tableName1 = "test_packed_file_same_tablet"
         sql """ DROP TABLE IF EXISTS ${tableName1} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName1} (
@@ -140,7 +140,7 @@ suite("test_packed_file_concurrent_load", "p0, nonConcurrent") {
                    "Initial: ${initial_packed_file_count}, After test1: ${count_after_test1}")
 
         // Test case 2: Multiple small concurrent loads to different partitions
-        def tableName2 = "test_merge_file_different_partitions"
+        def tableName2 = "test_packed_file_different_partitions"
         sql """ DROP TABLE IF EXISTS ${tableName2} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName2} (
@@ -246,7 +246,7 @@ suite("test_packed_file_concurrent_load", "p0, nonConcurrent") {
         def load_count3 = 6
         def load_data_different_tables = { table_id, thread_id ->
             try {
-                def table_name = "test_merge_file_table_${table_id}"
+                def table_name = "test_packed_file_table_${table_id}"
                 sql """ DROP TABLE IF EXISTS ${table_name} """
                 sql """
                     CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -305,7 +305,7 @@ suite("test_packed_file_concurrent_load", "p0, nonConcurrent") {
         // Verify data in all tables
         def expected_rows_per_table = 5 * 100  // 5 batches * 100 rows = 500 rows per table
         for (int i = 0; i < load_count3; i++) {
-            def table_name = "test_merge_file_table_${i}"
+            def table_name = "test_packed_file_table_${i}"
             def result = sql "select count(*) from ${table_name}"
             logger.info("Table ${table_name} row count: ${result[0][0]}, expected: ${expected_rows_per_table}")
             // For DUPLICATE KEY table, all rows should be preserved exactly
