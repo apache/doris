@@ -5404,5 +5404,78 @@ private:
     }
 };
 
+class FunctionStringLevenshtein : public IFunction {
+public:
+    static constexpr auto name = "levenshtein";
+    static FunctionPtr create() { return std::make_shared<FunctionStringLevenshtein>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt32>();
+    }
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        //Convert to vectors
+        auto col_left = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_right = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+
+        const auto* col_left_str = check_and_get_column<ColumnString>(col_left.get());
+        const auto* col_right_str = check_and_get_column<ColumnString>(col_right.get());
+
+        if (!col_left_str || !col_right_str) {
+            return Status::InternalError("Levenshtein arguments must be String");
+        }
+
+        auto col_res = ColumnInt32::create(input_rows_count);
+        auto& res_data = col_res->get_data();
+
+        vector_vector(col_left_str, col_right_str, res_data, input_rows_count);
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    static int32_t calculate_levenshtein(const StringRef& str1, const StringRef& str2) {
+        const size_t len1 = str1.size;
+        const size_t len2 = str2.size;
+        if (len1 == 0) return static_cast<int32_t>(len2);
+        if (len2 == 0) return static_cast<int32_t>(len1);
+
+        std::vector<int32_t> prev_dp(len2 + 1);
+        std::vector<int32_t> curr_dp(len2 + 1);
+
+        for (size_t j = 0; j <= len2; ++j) prev_dp[j] = static_cast<int32_t>(j);
+
+        for (size_t i = 1; i <= len1; ++i) {
+            curr_dp[0] = static_cast<int32_t>(i);
+            for (size_t j = 1; j <= len2; ++j) {
+                int cost = (str1.data[i - 1] == str2.data[j - 1]) ? 0 : 1;
+                curr_dp[j] = std::min({prev_dp[j] + 1, curr_dp[j - 1] + 1, prev_dp[j - 1] + cost});
+            }
+            prev_dp.swap(curr_dp);
+        }
+        return prev_dp[len2];
+    }
+
+    static void vector_vector(const ColumnString* col_left, const ColumnString* col_right,
+                              PaddedPODArray<Int32>& res, size_t rows) {
+        const auto& l_offsets = col_left->get_offsets();
+        const auto& l_chars = col_left->get_chars();
+        const auto& r_offsets = col_right->get_offsets();
+        const auto& r_chars = col_right->get_chars();
+
+        for (size_t i = 0; i < rows; ++i) {
+            auto l_off = i == 0 ? 0 : l_offsets[i - 1];
+            auto r_off = i == 0 ? 0 : r_offsets[i - 1];
+            StringRef lstr(reinterpret_cast<const char*>(&l_chars[l_off]), l_offsets[i] - l_off);
+            StringRef rstr(reinterpret_cast<const char*>(&r_chars[r_off]), r_offsets[i] - r_off);
+            res[i] = calculate_levenshtein(lstr, rstr);
+        }
+    }
+};
+
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized
