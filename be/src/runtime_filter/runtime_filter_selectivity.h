@@ -64,7 +64,11 @@ public:
         if (config::runtime_filter_sampling_frequency <= 0) {
             return false;
         } else {
-            return _always_true;
+            if (_judge_counter < 13) {
+                return false;
+            } else {
+                return _always_true;
+            }
         }
     }
 
