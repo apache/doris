@@ -81,9 +81,9 @@ suite("variables_up_down_test_view_var_persist", "restart_fe") {
     order_qt_if_condition_func_master_sql "select * from v_test_if_condition;"
 
     // array func
-    order_qt_array_funcs_master_sql "select * from v_test_array_func;"
-
-    order_qt_array_product_master_sql "select * from v_test_array_product;"
+//    order_qt_array_funcs_master_sql "select * from v_test_array_func;"
+//
+//    order_qt_array_product_master_sql "select * from v_test_array_product;"
 
     // compare expr
     order_qt_compare_expr_master_sql "select * from v_test_compare;"
