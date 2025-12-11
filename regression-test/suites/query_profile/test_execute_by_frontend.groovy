@@ -18,28 +18,7 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
-
-def getProfileList = {
-    def dst = 'http://' + context.config.feHttpAddress
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
-}
-
-def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        // set conn parameters
-        
-        return conn.getInputStream().getText()
-    }
+import org.apache.doris.regression.action.ProfileAction
 
 suite('test_execute_by_frontend') {
     sql """
@@ -60,8 +39,8 @@ suite('test_execute_by_frontend') {
     def simpleSql2 = """select  cast("1"  as  Int)"""
     sql "${simpleSql2}"
     def isRecorded = false
-    def wholeString = getProfileList()
-    List profileData = new JsonSlurper().parseText(wholeString).data.rows
+    def profileAction = new ProfileAction(context)
+    List profileData = profileAction.getProfileList()
     String queryId1 = "";
     String queryId2 = "";
 
@@ -78,11 +57,11 @@ suite('test_execute_by_frontend') {
 
     assertTrue(isRecorded)
 
-    String profileContent1 = getProfile(queryId1)
+    String profileContent1 = profileAction.getProfile(queryId1)
     logger.info("Profile of ${queryId1}: ${profileContent1}")
     def executionProfileIdx1 = profileContent1.indexOf("Executed By Frontend: true")
     assertTrue(executionProfileIdx1 > 0)
-    String profileContent2 = getProfile(queryId2)
+    String profileContent2 = profileAction.getProfile(queryId2)
     logger.info("Profile of ${queryId2}: ${profileContent2}")
     def executionProfileIdx2 = profileContent2.indexOf("Executed By Frontend: true")
     assertTrue(executionProfileIdx2 > 0)

@@ -862,6 +862,9 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
+        if (parsedStmt != null && statementContext.getParsedStatement() == null) {
+            statementContext.setParsedStatement(parsedStmt);
+        }
     }
 
     public void finalizeQuery() {
@@ -1302,12 +1305,6 @@ public class StmtExecutor {
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
-                return;
-            }
-
-            if (context.isRunProcedure()) {
-                // plsql will get the returned results without sending them to mysql client.
-                // see org/apache/doris/plsql/executor/DorisRowResult.java
                 return;
             }
 
@@ -1986,14 +1983,6 @@ public class StmtExecutor {
 
     public Coordinator getCoord() {
         return coord;
-    }
-
-    public List<String> getColumns() {
-        return parsedStmt.getColLabels();
-    }
-
-    public List<Type> getReturnTypes() {
-        return exprToType(parsedStmt.getResultExprs());
     }
 
     public List<Type> getReturnTypes(Queriable stmt) {

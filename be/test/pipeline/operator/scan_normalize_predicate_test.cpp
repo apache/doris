@@ -53,8 +53,7 @@ TEST_F(ScanNormalizePredicate, test1) {
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root =
             MockSlotRef::create_mock_context(0, std::make_shared<DataTypeInt64>());
-    auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
     EXPECT_TRUE(st) << st.msg();
     std::cout << new_root->debug_string() << std::endl;
 }
@@ -82,8 +81,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts1) {
 
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
 
     EXPECT_EQ(new_root, nullptr);
     EXPECT_TRUE(local_state->_scan_dependency->ready());
@@ -112,8 +110,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts2) {
 
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
     EXPECT_EQ(new_root, nullptr);
     EXPECT_TRUE(local_state->_scan_dependency->ready());
     EXPECT_TRUE(local_state->_eos);
@@ -137,7 +134,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts3) {
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
     // There is a DCHECK in the code to ensure size must be equal to 1, wait for this part of the code to be removed later
-    // auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
+    // auto st = local_state->_normalize_predicate(
     //                                             conjunct_expr_root.get(), new_root);
     // EXPECT_FALSE(st.ok());
     // std::cout << st.msg() << std::endl;
@@ -160,8 +157,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts4) {
 
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
     EXPECT_TRUE(st.ok());
     std::cout << st.msg() << std::endl;
 }
@@ -180,7 +176,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
             PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -200,15 +198,14 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
 
-    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId];
 
     std::visit(
             [](auto&& arg) {
@@ -237,7 +234,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot2) {
             PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -257,8 +256,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot2) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
     }
@@ -281,15 +279,14 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot2) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
 
-    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId];
 
     std::visit(
             [](auto&& arg) {
@@ -317,7 +314,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot3) {
             PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     local_state->_scan_dependency = Dependency::create_shared(0, 0, "DEPENDENCY");
 
@@ -341,8 +340,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot3) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
     EXPECT_TRUE(local_state->_scan_dependency->ready());
     EXPECT_TRUE(local_state->_eos);
@@ -361,7 +359,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot4) {
             PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -378,13 +378,12 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot4) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
 
-    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId];
 
     std::visit(
             [](auto&& arg) {
@@ -417,7 +416,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot5) {
             PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -434,13 +435,12 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot5) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
 
-    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId];
 
     std::visit(
             [](auto&& arg) {
@@ -473,7 +473,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot6) {
             PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -496,13 +498,12 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot6) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
 
-    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId];
 
     std::visit(
             [](auto&& arg) {
@@ -529,7 +530,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
             PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -558,8 +561,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     EXPECT_TRUE(local_state->_scan_dependency->ready());
@@ -585,7 +587,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot8) {
     EXPECT_TRUE(range.add_fixed_value(100));
     EXPECT_TRUE(range.add_fixed_value(1000));
 
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -602,11 +606,10 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot8) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
-    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId];
     std::visit(
             [](auto&& arg) {
                 using T = std::decay_t<decltype(arg)>;
@@ -636,7 +639,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot10) {
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
 
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -653,27 +658,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot10) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
-
-    auto& output_range = local_state->_not_in_value_ranges.front();
-    std::visit(
-            [](auto&& arg) {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
-                    EXPECT_EQ(arg._fixed_values.size(), 3);
-                    auto it = arg._fixed_values.begin();
-                    EXPECT_EQ(*it, 1);
-                    ++it;
-                    EXPECT_EQ(*it, 10);
-                    ++it;
-                    EXPECT_EQ(*it, 100);
-                } else {
-                    FAIL() << "unexpected type";
-                }
-            },
-            output_range);
 }
 
 TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot11) {
@@ -691,7 +677,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot11) {
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
 
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -711,23 +699,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot11) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
-
-    auto& output_range = local_state->_not_in_value_ranges.front();
-    std::visit(
-            [](auto&& arg) {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
-                    EXPECT_EQ(arg._fixed_values.size(), 1);
-                    auto it = arg._fixed_values.begin();
-                    EXPECT_EQ(*it, 100);
-                } else {
-                    FAIL() << "unexpected type";
-                }
-            },
-            output_range);
 }
 
 TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot12) {
@@ -748,7 +721,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot12) {
     EXPECT_TRUE(range.add_fixed_value(10));
     EXPECT_TRUE(range.add_fixed_value(100));
 
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -768,11 +743,10 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot12) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
-    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId];
     std::visit(
             [](auto&& arg) {
                 using T = std::decay_t<decltype(arg)>;
@@ -803,7 +777,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot13) {
     EXPECT_TRUE(range.add_fixed_value(10));
     EXPECT_TRUE(range.add_fixed_value(100));
 
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -823,11 +799,10 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot13) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
-    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId];
     std::visit(
             [](auto&& arg) {
                 using T = std::decay_t<decltype(arg)>;
@@ -858,7 +833,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot14) {
     EXPECT_TRUE(range.add_fixed_value(10));
     EXPECT_TRUE(range.add_fixed_value(100));
 
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -878,11 +855,10 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot14) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
-    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId];
     std::visit(
             [](auto&& arg) {
                 using T = std::decay_t<decltype(arg)>;
@@ -917,7 +893,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot15) {
     EXPECT_TRUE(range.add_fixed_value(10));
     EXPECT_TRUE(range.add_fixed_value(100));
 
-    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+    local_state->_slot_id_to_value_range[SlotId] = range;
+    local_state->_slot_id_to_predicates[SlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
     {
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
@@ -937,11 +915,10 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot15) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
-    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId];
     std::visit(
             [](auto&& arg) {
                 using T = std::decay_t<decltype(arg)>;
@@ -981,7 +958,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
     for (auto const_v : test_values) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
         auto fn_eq = MockFnCall::create("eq");
@@ -1000,13 +980,12 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [&](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;
@@ -1024,7 +1003,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
     {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
         auto ctx = MockInExpr::create_with_ctx(
                 ColumnHelper::create_column<DataTypeFloat64>(test_values));
@@ -1039,13 +1021,12 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
 
-        auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [&](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;
@@ -1061,7 +1042,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
     for (auto const_v : test_values) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
         auto fn_eq = MockFnCall::create("ne");
         auto const_val = std::make_shared<MockLiteral>(
@@ -1079,30 +1063,18 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-
-        auto& output_range = local_state->_not_in_value_ranges.front();
-        std::visit(
-                [&](auto&& arg) {
-                    using T = std::decay_t<decltype(arg)>;
-                    if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_DOUBLE>>) {
-                        EXPECT_EQ(arg._fixed_values.size(), 1);
-                        auto it = arg._fixed_values.begin();
-                        EXPECT_TRUE(Compare::equal(*it, const_v));
-                    } else {
-                        FAIL() << "unexpected type";
-                    }
-                },
-                output_range);
     }
     // test not in
     {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
         auto ctx = MockInExpr::create_with_ctx(
                 ColumnHelper::create_column<DataTypeFloat64>(test_values), true);
@@ -1117,29 +1089,16 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-
-        auto& output_range = local_state->_not_in_value_ranges.front();
-        std::visit(
-                [&](auto&& arg) {
-                    using T = std::decay_t<decltype(arg)>;
-                    if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_DOUBLE>>) {
-                        EXPECT_EQ(arg._fixed_values.size(), test_values.size());
-                    } else {
-                        FAIL() << "unexpected type";
-                    }
-                },
-                output_range);
     }
     // test is null
     {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_DOUBLE> range("mock", true, 0, 0);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&nullable_slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
         auto slot_ref = std::make_shared<MockSlotRef>(
                 0, std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>()));
         auto fn_eq = MockFnCall::create("is_null_pred");
@@ -1155,9 +1114,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
-        auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;
@@ -1172,46 +1130,48 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
                 output_range);
     }
     // test is not null
-    {
-        auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
-        ColumnValueRange<TYPE_DOUBLE> range("mock", true, 0, 0);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&nullable_slot_desc, range);
-        auto slot_ref = std::make_shared<MockSlotRef>(
-                0, std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>()));
-        auto fn_eq = MockFnCall::create("is_not_null_pred");
-
-        fn_eq->add_child(slot_ref);
-        fn_eq->_node_type = TExprNodeType::FUNCTION_CALL;
-        slot_ref->_slot_id = SlotId;
-        EXPECT_FALSE(fn_eq->is_constant());
-
-        auto ctx = VExprContext::create_shared(fn_eq);
-        ctx->_prepared = true;
-        ctx->_opened = true;
-
-        vectorized::VExprSPtr new_root;
-        auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
-        auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
-        std::visit(
-                [](auto&& arg) {
-                    using T = std::decay_t<decltype(arg)>;
-                    if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_DOUBLE>>) {
-                        EXPECT_FALSE(arg.is_fixed_value_range());
-                        EXPECT_FALSE(arg.contain_null());
-                    } else {
-                        FAIL() << "unexpected type";
-                    }
-                },
-                output_range);
-    }
+    //    {
+    //        auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+    //        ColumnValueRange<TYPE_DOUBLE> range("mock", true, 0, 0);
+    //        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&nullable_slot_desc, range);
+    //        auto slot_ref = std::make_shared<MockSlotRef>(
+    //                0, std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>()));
+    //        auto fn_eq = MockFnCall::create("is_not_null_pred");
+    //
+    //        fn_eq->add_child(slot_ref);
+    //        fn_eq->_node_type = TExprNodeType::FUNCTION_CALL;
+    //        slot_ref->_slot_id = SlotId;
+    //        EXPECT_FALSE(fn_eq->is_constant());
+    //
+    //        auto ctx = VExprContext::create_shared(fn_eq);
+    //        ctx->_prepared = true;
+    //        ctx->_opened = true;
+    //
+    //        vectorized::VExprSPtr new_root;
+    //        auto conjunct_expr_root = ctx;
+    //        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+    //        auto& output_range = local_state->_slot_id_to_value_range[SlotId];
+    //        std::visit(
+    //                [](auto&& arg) {
+    //                    using T = std::decay_t<decltype(arg)>;
+    //                    if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_DOUBLE>>) {
+    //                        EXPECT_FALSE(arg.is_fixed_value_range());
+    //                        EXPECT_FALSE(arg.contain_null());
+    //                    } else {
+    //                        FAIL() << "unexpected type";
+    //                    }
+    //                },
+    //                output_range);
+    //    }
     // test less
     for (auto const_v : test_values) {
         // std::cout << "test less const_v=" << const_v << std::endl;
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
         auto fn_eq = MockFnCall::create("lt");
@@ -1230,13 +1190,12 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         /*
         _low_value = -inf,
         _high_value = 90,
@@ -1268,7 +1227,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
         // std::cout << "test less or equal const_v=" << const_v << std::endl;
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
         auto fn_eq = MockFnCall::create("le");
@@ -1287,13 +1249,12 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [&](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;
@@ -1322,7 +1283,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
         // std::cout << "test greater const_v=" << const_v << std::endl;
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
         auto fn_eq = MockFnCall::create("gt");
@@ -1341,13 +1305,12 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         /*
         _low_value = 90,
         _high_value = nan,
@@ -1379,7 +1342,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
         // std::cout << "test greater or equal const_v=" << const_v << std::endl;
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
         auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
         auto fn_eq = MockFnCall::create("ge");
@@ -1398,13 +1364,12 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [&](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;

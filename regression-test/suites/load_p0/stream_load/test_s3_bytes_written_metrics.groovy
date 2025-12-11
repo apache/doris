@@ -23,6 +23,9 @@ suite("test_s3_bytes_written_metrics", "p0") {
     def tableName = "test_s3_bytes_written_metrics"
     def getBrpcMetrics = {ip, port, name ->
         def url = "http://${ip}:${port}/brpc_metrics"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            url = url.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         def metrics = new URL(url).text
         def matcher = metrics =~ ~"${name}\\s+(\\d+)"
         if (matcher.find()) {

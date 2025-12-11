@@ -49,9 +49,9 @@ namespace doris {
 template <typename ConditionType>
 class PredicateCreator {
 public:
-    virtual ColumnPredicate* create(const vectorized::DataTypePtr& data_type, int index,
-                                    const ConditionType& conditions, bool opposite,
-                                    vectorized::Arena& arena) = 0;
+    virtual std::shared_ptr<ColumnPredicate> create(const vectorized::DataTypePtr& data_type,
+                                                    int index, const ConditionType& conditions,
+                                                    bool opposite, vectorized::Arena& arena) = 0;
     virtual ~PredicateCreator() = default;
 };
 
@@ -59,15 +59,16 @@ template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 class IntegerPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     using CppType = typename PrimitiveTypeTraits<Type>::CppType;
-    ColumnPredicate* create(const vectorized::DataTypePtr& data_type, int index,
-                            const ConditionType& conditions, bool opposite,
-                            vectorized::Arena& arena) override {
+    std::shared_ptr<ColumnPredicate> create(const vectorized::DataTypePtr& data_type, int index,
+                                            const ConditionType& conditions, bool opposite,
+                                            vectorized::Arena& arena) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             return create_in_list_predicate<Type, PT, ConditionType, decltype(convert)>(
                     index, conditions, convert, opposite, data_type, arena);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
-            return new ComparisonPredicateBase<Type, PT>(index, convert(conditions), opposite);
+            return ComparisonPredicateBase<Type, PT>::create_shared(index, convert(conditions),
+                                                                    opposite);
         }
     }
 
@@ -104,16 +105,16 @@ template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 class DecimalPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     using CppType = typename PrimitiveTypeTraits<Type>::CppType;
-    ColumnPredicate* create(const vectorized::DataTypePtr& data_type, int index,
-                            const ConditionType& conditions, bool opposite,
-                            vectorized::Arena& arena) override {
+    std::shared_ptr<ColumnPredicate> create(const vectorized::DataTypePtr& data_type, int index,
+                                            const ConditionType& conditions, bool opposite,
+                                            vectorized::Arena& arena) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             return create_in_list_predicate<Type, PT, ConditionType, decltype(convert)>(
                     index, conditions, convert, opposite, data_type, arena);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
-            return new ComparisonPredicateBase<Type, PT>(index, convert(data_type, conditions),
-                                                         opposite);
+            return ComparisonPredicateBase<Type, PT>::create_shared(
+                    index, convert(data_type, conditions), opposite);
         }
     }
 
@@ -130,20 +131,21 @@ private:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 class StringPredicateCreator : public PredicateCreator<ConditionType> {
 public:
-    ColumnPredicate* create(const vectorized::DataTypePtr& data_type, int index,
-                            const ConditionType& conditions, bool opposite,
-                            vectorized::Arena& arena) override {
+    std::shared_ptr<ColumnPredicate> create(const vectorized::DataTypePtr& data_type, int index,
+                                            const ConditionType& conditions, bool opposite,
+                                            vectorized::Arena& arena) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             return create_in_list_predicate<Type, PT, ConditionType, decltype(convert)>(
                     index, conditions, convert, opposite, data_type, arena);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
-            return new ComparisonPredicateBase<Type, PT>(
+            return ComparisonPredicateBase<Type, PT>::create_shared(
                     index, convert(data_type, conditions, arena), opposite);
         }
     }
 
 private:
+    // TODO(gabriel): remove conversion
     static StringRef convert(const vectorized::DataTypePtr& data_type, const std::string& condition,
                              vectorized::Arena& arena) {
         size_t length = condition.length();
@@ -170,15 +172,16 @@ public:
     CustomPredicateCreator(const std::function<CppType(const std::string& condition)>& convert)
             : _convert(convert) {}
 
-    ColumnPredicate* create(const vectorized::DataTypePtr& data_type, int index,
-                            const ConditionType& conditions, bool opposite,
-                            vectorized::Arena& arena) override {
+    std::shared_ptr<ColumnPredicate> create(const vectorized::DataTypePtr& data_type, int index,
+                                            const ConditionType& conditions, bool opposite,
+                                            vectorized::Arena& arena) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             return create_in_list_predicate<Type, PT, ConditionType, decltype(_convert)>(
                     index, conditions, _convert, opposite, data_type, arena);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
-            return new ComparisonPredicateBase<Type, PT>(index, _convert(conditions), opposite);
+            return ComparisonPredicateBase<Type, PT>::create_shared(index, _convert(conditions),
+                                                                    opposite);
         }
     }
 
@@ -296,25 +299,26 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(
 }
 
 template <PredicateType PT, typename ConditionType>
-ColumnPredicate* create_predicate(const vectorized::DataTypePtr& data_type, int index,
-                                  const ConditionType& conditions, bool opposite,
-                                  vectorized::Arena& arena) {
+std::shared_ptr<ColumnPredicate> create_predicate(const vectorized::DataTypePtr& data_type,
+                                                  int index, const ConditionType& conditions,
+                                                  bool opposite, vectorized::Arena& arena) {
     return get_creator<PT, ConditionType>(data_type)->create(data_type, index, conditions, opposite,
                                                              arena);
 }
 
 template <PredicateType PT>
-ColumnPredicate* create_comparison_predicate(const vectorized::DataTypePtr& data_type, int index,
-                                             const std::string& condition, bool opposite,
-                                             vectorized::Arena& arena) {
+std::shared_ptr<ColumnPredicate> create_comparison_predicate(
+        const vectorized::DataTypePtr& data_type, int index, const std::string& condition,
+        bool opposite, vectorized::Arena& arena) {
     static_assert(PredicateTypeTraits::is_comparison(PT));
     return create_predicate<PT, std::string>(data_type, index, condition, opposite, arena);
 }
 
 template <PredicateType PT>
-ColumnPredicate* create_list_predicate(const vectorized::DataTypePtr& data_type, int index,
-                                       const std::vector<std::string>& conditions, bool opposite,
-                                       vectorized::Arena& arena) {
+std::shared_ptr<ColumnPredicate> create_list_predicate(const vectorized::DataTypePtr& data_type,
+                                                       int index,
+                                                       const std::vector<std::string>& conditions,
+                                                       bool opposite, vectorized::Arena& arena) {
     static_assert(PredicateTypeTraits::is_list(PT));
     return create_predicate<PT, std::vector<std::string>>(data_type, index, conditions, opposite,
                                                           arena);
@@ -322,12 +326,15 @@ ColumnPredicate* create_list_predicate(const vectorized::DataTypePtr& data_type,
 
 // This method is called in reader and in deletehandler.
 // The "column" parameter might represent a column resulting from the decomposition of a variant column.
-inline ColumnPredicate* parse_to_predicate(const vectorized::DataTypePtr& data_type, uint32_t index,
-                                           const TCondition& condition, vectorized::Arena& arena,
-                                           bool opposite = false) {
+inline std::shared_ptr<ColumnPredicate> parse_to_predicate(const vectorized::DataTypePtr& data_type,
+                                                           uint32_t index,
+                                                           const TCondition& condition,
+                                                           vectorized::Arena& arena,
+                                                           bool opposite = false) {
     if (to_lower(condition.condition_op) == "is") {
-        return new NullPredicate(index, to_lower(condition.condition_values[0]) == "null",
-                                 opposite);
+        return NullPredicate::create_shared(index,
+                                            to_lower(condition.condition_values[0]) == "null",
+                                            data_type->get_primitive_type(), opposite);
     }
 
     if ((condition.condition_op == "*=" || condition.condition_op == "!*=") &&
@@ -358,5 +365,236 @@ inline ColumnPredicate* parse_to_predicate(const vectorized::DataTypePtr& data_t
     }
     return create(data_type, index, condition.condition_values[0], opposite, arena);
 }
+
+template <PrimitiveType TYPE, PredicateType PT>
+std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
+                                                          const std::shared_ptr<HybridSetBase>& set,
+                                                          bool is_opposite,
+                                                          size_t char_length = 0) {
+    auto set_size = set->size();
+    if (set_size == 1) {
+        return InListPredicateBase<TYPE, PT, 1>::create_shared(cid, set, is_opposite, char_length);
+    } else if (set_size == 2) {
+        return InListPredicateBase<TYPE, PT, 2>::create_shared(cid, set, is_opposite, char_length);
+    } else if (set_size == 3) {
+        return InListPredicateBase<TYPE, PT, 3>::create_shared(cid, set, is_opposite, char_length);
+    } else if (set_size == 4) {
+        return InListPredicateBase<TYPE, PT, 4>::create_shared(cid, set, is_opposite, char_length);
+    } else if (set_size == 5) {
+        return InListPredicateBase<TYPE, PT, 5>::create_shared(cid, set, is_opposite, char_length);
+    } else if (set_size == 6) {
+        return InListPredicateBase<TYPE, PT, 6>::create_shared(cid, set, is_opposite, char_length);
+    } else if (set_size == 7) {
+        return InListPredicateBase<TYPE, PT, 7>::create_shared(cid, set, is_opposite, char_length);
+    } else if (set_size == FIXED_CONTAINER_MAX_SIZE) {
+        return InListPredicateBase<TYPE, PT, 8>::create_shared(cid, set, is_opposite, char_length);
+    } else {
+        return InListPredicateBase<TYPE, PT, FIXED_CONTAINER_MAX_SIZE + 1>::create_shared(
+                cid, set, is_opposite, char_length);
+    }
+}
+
+template <PredicateType PT>
+std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
+                                                          const vectorized::DataTypePtr& data_type,
+                                                          const std::shared_ptr<HybridSetBase> set,
+                                                          bool is_opposite) {
+    switch (data_type->get_primitive_type()) {
+    case TYPE_TINYINT: {
+        return create_in_list_predicate<TYPE_TINYINT, PT>(cid, set, is_opposite);
+    }
+    case TYPE_SMALLINT: {
+        return create_in_list_predicate<TYPE_SMALLINT, PT>(cid, set, is_opposite);
+    }
+    case TYPE_INT: {
+        return create_in_list_predicate<TYPE_INT, PT>(cid, set, is_opposite);
+    }
+    case TYPE_BIGINT: {
+        return create_in_list_predicate<TYPE_BIGINT, PT>(cid, set, is_opposite);
+    }
+    case TYPE_LARGEINT: {
+        return create_in_list_predicate<TYPE_LARGEINT, PT>(cid, set, is_opposite);
+    }
+    case TYPE_FLOAT: {
+        return create_in_list_predicate<TYPE_FLOAT, PT>(cid, set, is_opposite);
+    }
+    case TYPE_DOUBLE: {
+        return create_in_list_predicate<TYPE_DOUBLE, PT>(cid, set, is_opposite);
+    }
+    case TYPE_DECIMALV2: {
+        return create_in_list_predicate<TYPE_DECIMALV2, PT>(cid, set, is_opposite);
+    }
+    case TYPE_DECIMAL32: {
+        return create_in_list_predicate<TYPE_DECIMAL32, PT>(cid, set, is_opposite);
+    }
+    case TYPE_DECIMAL64: {
+        return create_in_list_predicate<TYPE_DECIMAL64, PT>(cid, set, is_opposite);
+    }
+    case TYPE_DECIMAL128I: {
+        return create_in_list_predicate<TYPE_DECIMAL128I, PT>(cid, set, is_opposite);
+    }
+    case TYPE_DECIMAL256: {
+        return create_in_list_predicate<TYPE_DECIMAL256, PT>(cid, set, is_opposite);
+    }
+    case TYPE_CHAR: {
+        return create_in_list_predicate<TYPE_CHAR, PT>(
+                cid, set, is_opposite,
+                assert_cast<const vectorized::DataTypeString*>(
+                        vectorized::remove_nullable(data_type).get())
+                        ->len());
+    }
+    case TYPE_VARCHAR: {
+        return create_in_list_predicate<TYPE_VARCHAR, PT>(cid, set, is_opposite);
+    }
+    case TYPE_STRING: {
+        return create_in_list_predicate<TYPE_STRING, PT>(cid, set, is_opposite);
+    }
+    case TYPE_DATE: {
+        return create_in_list_predicate<TYPE_DATE, PT>(cid, set, is_opposite);
+    }
+    case TYPE_DATEV2: {
+        return create_in_list_predicate<TYPE_DATEV2, PT>(cid, set, is_opposite);
+    }
+    case TYPE_DATETIME: {
+        return create_in_list_predicate<TYPE_DATETIME, PT>(cid, set, is_opposite);
+    }
+    case TYPE_DATETIMEV2: {
+        return create_in_list_predicate<TYPE_DATETIMEV2, PT>(cid, set, is_opposite);
+    }
+    case TYPE_BOOLEAN: {
+        return create_in_list_predicate<TYPE_BOOLEAN, PT>(cid, set, is_opposite);
+    }
+    case TYPE_IPV4: {
+        return create_in_list_predicate<TYPE_IPV4, PT>(cid, set, is_opposite);
+    }
+    case TYPE_IPV6: {
+        return create_in_list_predicate<TYPE_IPV6, PT>(cid, set, is_opposite);
+    }
+    default:
+        throw Exception(Status::InternalError("Unsupported type {} for in_predicate",
+                                              type_to_string(data_type->get_primitive_type())));
+        return nullptr;
+    }
+}
+
+template <PredicateType PT>
+std::shared_ptr<ColumnPredicate> create_comparison_predicate0(
+        const uint32_t cid, const vectorized::DataTypePtr& data_type, StringRef& value,
+        bool opposite, vectorized::Arena& arena) {
+    switch (data_type->get_primitive_type()) {
+    case TYPE_TINYINT: {
+        return ComparisonPredicateBase<TYPE_TINYINT, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType*)value.data, opposite);
+    }
+    case TYPE_SMALLINT: {
+        return ComparisonPredicateBase<TYPE_SMALLINT, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType*)value.data, opposite);
+    }
+    case TYPE_INT: {
+        return ComparisonPredicateBase<TYPE_INT, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_INT>::CppType*)value.data, opposite);
+    }
+    case TYPE_BIGINT: {
+        return ComparisonPredicateBase<TYPE_BIGINT, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType*)value.data, opposite);
+    }
+    case TYPE_LARGEINT: {
+        return ComparisonPredicateBase<TYPE_LARGEINT, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType*)value.data, opposite);
+    }
+    case TYPE_FLOAT: {
+        return ComparisonPredicateBase<TYPE_FLOAT, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType*)value.data, opposite);
+    }
+    case TYPE_DOUBLE: {
+        return ComparisonPredicateBase<TYPE_DOUBLE, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType*)value.data, opposite);
+    }
+    case TYPE_DECIMALV2: {
+        return ComparisonPredicateBase<TYPE_DECIMALV2, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType*)value.data, opposite);
+    }
+    case TYPE_DECIMAL32: {
+        return ComparisonPredicateBase<TYPE_DECIMAL32, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType*)value.data, opposite);
+    }
+    case TYPE_DECIMAL64: {
+        return ComparisonPredicateBase<TYPE_DECIMAL64, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType*)value.data, opposite);
+    }
+    case TYPE_DECIMAL128I: {
+        return ComparisonPredicateBase<TYPE_DECIMAL128I, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType*)value.data,
+                opposite);
+    }
+    case TYPE_DECIMAL256: {
+        return ComparisonPredicateBase<TYPE_DECIMAL256, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType*)value.data,
+                opposite);
+    }
+    case TYPE_CHAR: {
+        // TODO(gabriel): Use std::string instead of StringRef
+        size_t target = assert_cast<const vectorized::DataTypeString*>(
+                                vectorized::remove_nullable(data_type).get())
+                                ->len();
+        StringRef v = value;
+        if (target > value.size) {
+            char* buffer = arena.alloc(target);
+            memset(buffer, 0, target);
+            memcpy(buffer, value.data, value.size);
+            v = {buffer, target};
+        }
+
+        return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(cid, v, opposite);
+    }
+    case TYPE_VARCHAR: {
+        return ComparisonPredicateBase<TYPE_VARCHAR, PT>::create_shared(cid, value, opposite);
+    }
+    case TYPE_STRING: {
+        return ComparisonPredicateBase<TYPE_STRING, PT>::create_shared(cid, value, opposite);
+    }
+    case TYPE_DATE: {
+        return ComparisonPredicateBase<TYPE_DATE, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_DATE>::CppType*)value.data, opposite);
+    }
+    case TYPE_DATEV2: {
+        return ComparisonPredicateBase<TYPE_DATEV2, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType*)value.data, opposite);
+    }
+    case TYPE_DATETIME: {
+        return ComparisonPredicateBase<TYPE_DATETIME, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType*)value.data, opposite);
+    }
+    case TYPE_DATETIMEV2: {
+        return ComparisonPredicateBase<TYPE_DATETIMEV2, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)value.data,
+                opposite);
+    }
+    case TYPE_BOOLEAN: {
+        return ComparisonPredicateBase<TYPE_BOOLEAN, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType*)value.data, opposite);
+    }
+    case TYPE_IPV4: {
+        return ComparisonPredicateBase<TYPE_IPV4, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_IPV4>::CppType*)value.data, opposite);
+    }
+    case TYPE_IPV6: {
+        return ComparisonPredicateBase<TYPE_IPV6, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_IPV6>::CppType*)value.data, opposite);
+    }
+    default:
+        throw Exception(Status::InternalError("Unsupported type {} for comparison_predicate",
+                                              type_to_string(data_type->get_primitive_type())));
+        return nullptr;
+    }
+}
+
+std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
+        const uint32_t cid, const vectorized::DataTypePtr& data_type,
+        const std::shared_ptr<BloomFilterFuncBase>& filter);
+
+std::shared_ptr<ColumnPredicate> create_bitmap_filter_predicate(
+        const uint32_t cid, const vectorized::DataTypePtr& data_type,
+        const std::shared_ptr<BitmapFilterFuncBase>& filter);
 #include "common/compile_check_end.h"
 } //namespace doris

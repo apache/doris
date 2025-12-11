@@ -23,7 +23,7 @@ suite("test_json_load", "p0,nonConcurrent") {
 
     // define a sql table
     def testTable = "test_json_load"
-    
+
     def create_test_table1 = {testTablex ->
         // multi-line sql
         def result1 = sql """
@@ -34,12 +34,12 @@ suite("test_json_load", "p0,nonConcurrent") {
                         DISTRIBUTED BY RANDOM BUCKETS 10
                         PROPERTIES("replication_num" = "1");
                         """
-        
+
         // DDL/DML return 1 row and 3 column, the only value is update row count
         assertTrue(result1.size() == 1)
         assertTrue(result1[0].size() == 1)
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
-        
+
         // insert 1 row to check whether the table is ok
         def result2 = sql "INSERT INTO ${testTablex} (id, city, code) VALUES (200, 'changsha', 3456789)"
         assertTrue(result2.size() == 1)
@@ -61,7 +61,7 @@ suite("test_json_load", "p0,nonConcurrent") {
         assertTrue(result1.size() == 1)
         assertTrue(result1[0].size() == 1)
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
-        
+
         // insert 1 row to check whether the table is ok
         def result2 = sql "INSERT INTO ${testTablex} (id, code) VALUES (200, 0755)"
         assertTrue(result2.size() == 1)
@@ -80,12 +80,12 @@ suite("test_json_load", "p0,nonConcurrent") {
                         DISTRIBUTED BY RANDOM BUCKETS 10
                         PROPERTIES("replication_num" = "1");
                         """
-        
+
         // DDL/DML return 1 row and 3 column, the only value is update row count
         assertTrue(result1.size() == 1)
         assertTrue(result1[0].size() == 1)
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
-        
+
         // insert 1 row to check whether the table is ok
         def result2 = sql "INSERT INTO ${testTablex} (id, city, code) VALUES (200, 'hangzhou', 12345)"
         assertTrue(result2.size() == 1)
@@ -139,11 +139,11 @@ suite("test_json_load", "p0,nonConcurrent") {
                             ); 
                         """
     }
-    
+
     def load_json_data = {table_name, label, strip_flag, read_flag, format_flag, exprs, json_paths, 
                         json_root, where_expr, fuzzy_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table table_name
@@ -183,7 +183,7 @@ suite("test_json_load", "p0,nonConcurrent") {
             }
         }
     }
-    
+
     def load_from_hdfs1 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
         def result1= sql """
                         LOAD LABEL ${label} (
@@ -194,12 +194,12 @@ suite("test_json_load", "p0,nonConcurrent") {
                         with BROKER "${brokerName}"
                         ("username"="${hdfsUser}", "password"="${hdfsPasswd}");
                         """
-        
+
         assertTrue(result1.size() == 1)
         assertTrue(result1[0].size() == 1)
         assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
     }
-    
+
     def load_from_hdfs2 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
         def result1= sql """
                         LOAD LABEL ${label} (
@@ -211,7 +211,7 @@ suite("test_json_load", "p0,nonConcurrent") {
                         with BROKER "${brokerName}"
                         ("username"="${hdfsUser}", "password"="${hdfsPasswd}");
                         """
-        
+
         assertTrue(result1.size() == 1)
         assertTrue(result1[0].size() == 1)
         assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
@@ -238,7 +238,7 @@ suite("test_json_load", "p0,nonConcurrent") {
     // case1: import simple json
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        
+
         create_test_table1.call(testTable)
 
         load_json_data.call("${testTable}", "${testTable}_case1_2", 'true', '', 'json', '', '', '', '', '', 'simple_json.json')
@@ -268,9 +268,9 @@ suite("test_json_load", "p0,nonConcurrent") {
     // case3: import json and apply jsonpaths
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        
+
         create_test_table2.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case3_2", 'true', '', 'json', '', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'simple_json.json')
 
@@ -280,13 +280,13 @@ suite("test_json_load", "p0,nonConcurrent") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
-    
+
     // case4: import json and apply jsonpaths & exprs
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        
+
         create_test_table2.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case4_2", 'true', '', 'json', 'code = id * 10 + 200', '[\"$.id\"]',
                             '', '', '', 'simple_json.json')
 
@@ -300,12 +300,12 @@ suite("test_json_load", "p0,nonConcurrent") {
     // case5: import json with line reader
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        
+
         create_test_table2.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case5_2", 'true', 'true', 'json', '', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'multi_line_json.json')
-        
+
         sql "sync"
         qt_select5 "select * from ${testTable} order by id"
 
@@ -318,7 +318,7 @@ suite("test_json_load", "p0,nonConcurrent") {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
         create_test_table2.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case6_2", 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'multi_line_json.json')
 
@@ -334,7 +334,7 @@ suite("test_json_load", "p0,nonConcurrent") {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
         create_test_table2.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case7_2", 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', 'id > 50', '', 'multi_line_json.json')
 
@@ -350,7 +350,7 @@ suite("test_json_load", "p0,nonConcurrent") {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
         create_test_table2.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case8_2", 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', 'id > 50', 'true', 'multi_line_json.json')
 
@@ -366,7 +366,7 @@ suite("test_json_load", "p0,nonConcurrent") {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
         create_test_table1.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case9_2", '', 'true', 'json', 'id= id * 10', '',
                             '$.item', '', 'true', 'nest_json.json')
 
@@ -382,7 +382,7 @@ suite("test_json_load", "p0,nonConcurrent") {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
         create_test_table1.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case10_2", '', 'true', 'json', 'id= id * 10', '',
                             '$.item', '', 'false', 'invalid_json.json', false, 4)
 
@@ -396,7 +396,7 @@ suite("test_json_load", "p0,nonConcurrent") {
     // case11: test json file which is unordered and no use json_path
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        
+
         create_test_table1.call(testTable)
 
         load_json_data.call("${testTable}", "${testTable}_case11_2", 'true', '', 'json', '', '', '', '', '', 'simple_json2.json', false, 10)
@@ -411,7 +411,7 @@ suite("test_json_load", "p0,nonConcurrent") {
     // case12: test json file which is unordered and lack one column which is nullable
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        
+
         create_test_table1.call(testTable)
 
         load_json_data.call("${testTable}", "${testTable}_case12_2", 'true', '', 'json', '', '', '', '', '', 'simple_json2_lack_one_column.json')
@@ -430,7 +430,7 @@ suite("test_json_load", "p0,nonConcurrent") {
         // load the json data
         streamLoad {
             table "${testTable}"
-            
+
             // set http request header params
             set 'strip_outer_array', "true"
             set 'format', "json"
@@ -465,7 +465,7 @@ suite("test_json_load", "p0,nonConcurrent") {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
         create_test_table1.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case14_2", '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '$.item', '', 'true', 'nest_json.json')
 
@@ -487,9 +487,9 @@ suite("test_json_load", "p0,nonConcurrent") {
     // case15: apply jsonpaths & exprs & json_root
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        
+
         create_test_table1.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case15_2", '', 'true', 'json', 'id, code, city,id= id * 10',
                             '[\"$.id\", \"$.code\", \"$.city\"]', '$.item', '', 'true', 'nest_json.json')
 
@@ -503,9 +503,9 @@ suite("test_json_load", "p0,nonConcurrent") {
     // case16: apply jsonpaths & exprs & json_root
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        
+
         create_test_table1.call(testTable)
-        
+
         load_json_data.call("${testTable}", "${testTable}_case16_2", 'true', '', 'json', 'id, code, city',
                             '[\"$.id\", \"$.code\", \"$.city[2]\"]', '$.item', '', 'true', 'nest_json_array.json', false, 7)
 
@@ -574,7 +574,7 @@ suite("test_json_load", "p0,nonConcurrent") {
     // case20: import json with BOM file
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        
+
         create_test_table1.call(testTable)
 
         load_json_data.call("${testTable}", "${testTable}_case1_2", 'true', '', 'json', '', '', '', '', '', 'simple_json_bom.json')
@@ -653,13 +653,13 @@ suite("test_json_load", "p0,nonConcurrent") {
         // case23: import json use pre-filter exprs
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
-            
+
             create_test_table1.call(testTable)
-            
+
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
             load_from_hdfs1.call(testTable, test_load_label, hdfs_file_path, format,
                                 brokerName, hdfsUser, hdfsPasswd)
-            
+
             check_load_result.call(test_load_label, testTable)
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -668,28 +668,28 @@ suite("test_json_load", "p0,nonConcurrent") {
         // case24: import json use pre-filter and where exprs
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
-            
-            create_test_table1.call(testTable)
-            
-            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs2.call(testTable, test_load_label, hdfs_file_path, format,
-                                brokerName, hdfsUser, hdfsPasswd)
-            
-            check_load_result.call(test_load_label, testTable)
-        } finally {
-            try_sql("DROP TABLE IF EXISTS ${testTable}")
-        }
-        
-        // case25: import json with enable_simdjson_reader=false
-        try {
-            sql "DROP TABLE IF EXISTS ${testTable}"
-            
+
             create_test_table1.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
             load_from_hdfs2.call(testTable, test_load_label, hdfs_file_path, format,
                                 brokerName, hdfsUser, hdfsPasswd)
-            
+
+            check_load_result.call(test_load_label, testTable)
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
+        // case25: import json with enable_simdjson_reader=false
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table1.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs2.call(testTable, test_load_label, hdfs_file_path, format,
+                                brokerName, hdfsUser, hdfsPasswd)
+
             check_load_result.call(test_load_label, testTable)
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -829,7 +829,7 @@ suite("test_json_load", "p0,nonConcurrent") {
 
         load_json_data.call("${testTable}", "${testTable}_case28_1", 'false', '', 'json', '', '[\"$.tags.\\\"a.b\\\"\",\"$.tags.k2\"]',
                              '', '', '', 'test_special_key_json.json')
-        
+
         sql "sync"
         sleep(1000)
         qt_select28 "select * from ${testTable}"
@@ -855,7 +855,7 @@ suite("test_json_load", "p0,nonConcurrent") {
 
         load_json_data.call("${testTable}", "${testTable}_case29", 'false', 'true', 'json', '', '',
                              '', '', '', 'test_duplicate_json_keys.json', false, 1)
-        
+
         sql "sync"
         qt_select29 "select * from ${testTable}"
 
@@ -882,7 +882,7 @@ suite("test_json_load", "p0,nonConcurrent") {
 
         load_json_data.call("${testTable}", "${testTable}_case30", 'false', 'true', 'json', '', '[\"$.k1\",\"$.\", \"$.\", \"$.k3\"]',
                              '', '', '', 'test_read_root_path.json')
-        
+
         sql "sync"
         qt_select30 "select * from ${testTable} order by k1"
 
@@ -909,7 +909,7 @@ suite("test_json_load", "p0,nonConcurrent") {
 
         load_json_data.call("${testTable}", "${testTable}_case31", 'true', 'false', 'json', '', '[\"$.id\", \"$.city.name\", \"$.city.region\"]',
                              '', '', '', 'test_json_extract_path_invalid_type.json', false, 2)
-        
+
         sql "sync"
         qt_select31 "select * from ${testTable} order by id"
 
@@ -936,7 +936,7 @@ suite("test_json_load", "p0,nonConcurrent") {
 
         load_json_data.call("${testTable}", "${testTable}_case30", 'false', 'true', 'json', '', '[\"$.k1\",\"$.\", \"$.\", \"$.k3\"]',
                              '', '', '', 'test_read_root_path.json')
-        
+
         sql "sync"
         qt_select30 "select * from ${testTable} order by k1"
 
@@ -965,7 +965,7 @@ suite("test_json_load", "p0,nonConcurrent") {
 
         load_json_data.call("${testTable}", "${testTable}_case31", 'true', '', 'json', '', '',
                              '', '', '', 'test_read_boolean_to_int.json')
-        
+
         sql "sync"
         qt_select31 "select * from ${testTable} order by id"
 

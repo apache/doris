@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -349,6 +350,79 @@ struct AddMinuteSecondImpl {
             part1 *= -1;
         }
         return part0 + part1;
+    }
+};
+
+template <PrimitiveType PType>
+struct AddSecondMicrosecondImpl {
+    static constexpr PrimitiveType ArgPType = PType;
+    static constexpr PrimitiveType ReturnType = PType;
+    static constexpr PrimitiveType IntervalPType = PrimitiveType ::TYPE_STRING;
+    using InputNativeType = typename PrimitiveTypeTraits<PType>::DataType ::FieldType;
+    using ReturnNativeType = InputNativeType;
+    using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;
+    using IntervalNativeType = IntervalDataType::FieldType; // string
+    using ConvertedType = typename PrimitiveTypeTraits<TYPE_BIGINT>::DataType::FieldType;
+
+    static constexpr auto name = "second_microsecond_add";
+    static constexpr auto is_nullable = false;
+
+    static inline ReturnNativeType execute(const InputNativeType& t, IntervalNativeType delta) {
+        long microseconds = parse_second_microsecond_string_to_microseconds(delta);
+        return date_time_add<TimeUnit::MICROSECOND, PType, ConvertedType>(t, microseconds);
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std ::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
+                std ::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};
+    }
+
+    static long parse_second_microsecond_string_to_microseconds(IntervalNativeType time_str_ref) {
+        bool is_negative = false;
+        auto time_str = StringRef {time_str_ref.data(), time_str_ref.length()}.trim();
+        // string format: "s.microsecond"
+        size_t colon_pos = time_str.find_first_of('.');
+        if (colon_pos == std::string::npos) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Invalid time format, missing colon in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        // second
+        StringRef seconds_sub = time_str.substring(0, colon_pos).trim();
+        StringParser::ParseResult success;
+        int seconds = StringParser::string_to_int_internal<int32_t, true>(
+                seconds_sub.data, seconds_sub.size, &success);
+        if (success != StringParser::PARSE_SUCCESS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid seconds format in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        if (seconds < 0) {
+            is_negative = true;
+        }
+
+        // microsecond
+        StringRef microsecond_sub = time_str.substring(colon_pos + 1).trim();
+        auto microseconds = StringParser::string_to_int_internal<int64_t, true>(
+                microsecond_sub.data, microsecond_sub.size, &success);
+        if (success != StringParser::PARSE_SUCCESS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid microseconds format in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+
+        long part0 = seconds;
+        // NOTE: Compatible with MySQL
+        int microsecond_len = microsecond_sub.to_string().starts_with("-")
+                                      ? microsecond_sub.size - 1
+                                      : microsecond_sub.size;
+        if (microsecond_len < 6) {
+            microseconds *= pow(10, 6 - microsecond_len);
+        }
+        long part1 = std::abs(microseconds);
+
+        if (is_negative) {
+            part1 *= -1;
+        }
+        return part0 * 1000000 + part1;
     }
 };
 

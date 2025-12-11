@@ -53,7 +53,16 @@ function add_workloadgroup_config()
 {
     echo "" >> ${DORIS_HOME}/conf/be.conf
     if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
-          echo "doris_cgroup_cpu_path=$WORKLOAD_GROUP_PATH" >> ${DORIS_HOME}/conf/be.conf
+          echo "doris_cgroup_cpu_path = $WORKLOAD_GROUP_PATH" >> ${DORIS_HOME}/conf/be.conf
+    fi
+}
+
+# add cpu limit config from environment variable BE_CPU_LIMIT(pod`s cpu limit)
+function add_cpu_limit_config()
+{
+    if [[ -n "${BE_CPU_LIMIT}" ]]; then
+        echo "# num_cores setting"
+        echo "num_cores = ${BE_CPU_LIMIT}" >> ${DORIS_HOME}/conf/be.conf
     fi
 }
 
@@ -337,6 +346,7 @@ fi
 
 update_conf_from_configmap
 add_workloadgroup_config
+add_cpu_limit_config
 mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret

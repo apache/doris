@@ -56,6 +56,8 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -386,6 +388,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public boolean supportInternalPartitionPruned() {
         return getDlaType() == DLAType.HIVE || getDlaType() == DLAType.HUDI;
+    }
+
+    @Override
+    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
+        if (getDlaType() != DLAType.HIVE) {
+            return Optional.empty();
+        }
+        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
+            return Optional.empty();
+        }
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
+        return hivePartitionValues.getSortedPartitionRanges();
     }
 
     public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {
@@ -743,7 +758,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private List<Column> initPartitionColumns(List<Column> schema) {
-        List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
+        // get table from remote, do not use `remoteTable` directly,
+        // because here we need to get schema from latest table info.
+        Table newTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
+        List<String> partitionKeys = newTable.getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
         List<Column> partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (String partitionKey : partitionKeys) {

@@ -366,7 +366,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         Set<AggregateFunction> aggregateFunctions = prunedOutputAgg.getAggregateFunctions();
         ImmutableList.Builder<Expression> newGroupByExprList
                 = ImmutableList.builderWithExpectedSize(newOutputList.size());
-        for (NamedExpression e : newOutputList) {
+        for (Expression e : groupBy) {
             if (!(e instanceof Alias && aggregateFunctions.contains(e.child(0)))) {
                 newGroupByExprList.add(e);
             }

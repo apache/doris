@@ -55,7 +55,8 @@ namespace doris::vectorized {
 struct AggregateFunctionArrayAggTest : public AggregateFunctiontest {};
 
 TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64) {
-    create_agg("array_agg", false, {std::make_shared<DataTypeInt64>()});
+    create_agg("array_agg", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
 
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
@@ -79,7 +80,7 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64) {
 
 TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_nullable) {
     auto data_type = make_nullable(std::make_shared<DataTypeInt64>());
-    create_agg("array_agg", false, {data_type});
+    create_agg("array_agg", false, {data_type}, data_type);
 
     auto array_data_type = std::make_shared<DataTypeArray>(data_type);
 
@@ -102,7 +103,7 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_nullable) {
 
 TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_nullable) {
     auto data_type = make_nullable(std::make_shared<DataTypeString>());
-    create_agg("array_agg", false, {data_type});
+    create_agg("array_agg", false, {data_type}, data_type);
 
     auto array_data_type = std::make_shared<DataTypeArray>(data_type);
 
@@ -126,7 +127,7 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_nullable) {
 TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_foreach) {
     auto data_type = make_nullable(std::make_shared<DataTypeString>());
     auto array_data_type = std::make_shared<DataTypeArray>(data_type);
-    create_agg("array_agg_foreach", false, {array_data_type});
+    create_agg("array_agg_foreach", false, {array_data_type}, array_data_type);
 
     auto off_column = ColumnOffset64::create();
     auto data_column = data_type->create_column();
@@ -161,7 +162,7 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_foreach) {
 TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_foreach) {
     auto data_type = make_nullable(std::make_shared<DataTypeInt64>());
     auto array_data_type = std::make_shared<DataTypeArray>(data_type);
-    create_agg("array_agg_foreach", false, {array_data_type});
+    create_agg("array_agg_foreach", false, {array_data_type}, array_data_type);
 
     auto off_column = ColumnOffset64::create();
     auto data_column = data_type->create_column();

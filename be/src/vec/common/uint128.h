@@ -71,6 +71,25 @@ struct UInt72 {
 #pragma pack()
 
 #pragma pack(1)
+struct UInt96 {
+    UInt32 a;
+    UInt64 b;
+
+    bool operator==(const UInt96& rhs) const { return a == rhs.a && b == rhs.b; }
+};
+#pragma pack()
+
+#pragma pack(1)
+struct UInt104 {
+    UInt8 a;
+    UInt32 b;
+    UInt64 c;
+
+    bool operator==(const UInt104& rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
+};
+#pragma pack()
+
+#pragma pack(1)
 struct UInt136 {
     UInt8 a;
     UInt64 b;

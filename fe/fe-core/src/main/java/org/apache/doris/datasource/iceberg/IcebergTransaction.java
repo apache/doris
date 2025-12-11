@@ -37,20 +37,27 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.OverwriteFiles;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ReplacePartitions;
 import org.apache.iceberg.RewriteFiles;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
+import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class IcebergTransaction implements Transaction {
@@ -258,7 +265,12 @@ public class IcebergTransaction implements Transaction {
         if (updateMode == TUpdateMode.APPEND) {
             commitAppendTxn(pendingResults);
         } else {
-            commitReplaceTxn(pendingResults);
+            // Check if this is a static partition overwrite
+            if (insertCtx != null && insertCtx.isStaticPartitionOverwrite()) {
+                commitStaticPartitionOverwrite(pendingResults);
+            } else {
+                commitReplaceTxn(pendingResults);
+            }
         }
     }
 
@@ -373,4 +385,96 @@ public class IcebergTransaction implements Transaction {
         appendPartitionOp.commit();
     }
 
+    /**
+     * Commit static partition overwrite operation
+     * This method uses OverwriteFiles.overwriteByRowFilter() to overwrite only the specified partitions
+     */
+    private void commitStaticPartitionOverwrite(List<WriteResult> pendingResults) {
+        Table icebergTable = transaction.table();
+        PartitionSpec spec = icebergTable.spec();
+        Schema schema = icebergTable.schema();
+
+        // Build partition filter expression from static partition values
+        Expression partitionFilter = buildPartitionFilter(
+                insertCtx.getStaticPartitionValues(), spec, schema);
+
+        // Create OverwriteFiles operation
+        OverwriteFiles overwriteFiles = transaction.newOverwrite();
+        if (branchName != null) {
+            overwriteFiles = overwriteFiles.toBranch(branchName);
+        }
+        overwriteFiles = overwriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+
+        // Set partition filter to overwrite only matching partitions
+        overwriteFiles = overwriteFiles.overwriteByRowFilter(partitionFilter);
+
+        // Add new data files
+        for (WriteResult result : pendingResults) {
+            Preconditions.checkState(result.referencedDataFiles().length == 0,
+                    "Should have no referenced data files for static partition overwrite.");
+            Arrays.stream(result.dataFiles()).forEach(overwriteFiles::addFile);
+        }
+
+        // Commit the overwrite operation
+        overwriteFiles.commit();
+    }
+
+    /**
+     * Build partition filter expression from static partition key-value pairs
+     *
+     * @param staticPartitions Map of partition column name to partition value (as String)
+     * @param spec PartitionSpec of the table
+     * @param schema Schema of the table
+     * @return Iceberg Expression for partition filtering
+     */
+    private Expression buildPartitionFilter(
+            Map<String, String> staticPartitions,
+            PartitionSpec spec,
+            Schema schema) {
+        if (staticPartitions == null || staticPartitions.isEmpty()) {
+            return Expressions.alwaysTrue();
+        }
+
+        List<Expression> predicates = new ArrayList<>();
+
+        for (PartitionField field : spec.fields()) {
+            String partitionColName = field.name();
+            if (staticPartitions.containsKey(partitionColName)) {
+                String partitionValueStr = staticPartitions.get(partitionColName);
+
+                // Get source field to determine the type
+                Types.NestedField sourceField = schema.findField(field.sourceId());
+                if (sourceField == null) {
+                    throw new RuntimeException(String.format("Source field not found for partition field: %s",
+                        partitionColName));
+                }
+
+                // Convert partition value string to appropriate type
+                Object partitionValue = IcebergUtils.parsePartitionValueFromString(
+                        partitionValueStr, sourceField.type());
+
+                // Build equality expression using source field name (not partition field name)
+                // For identity partitions, Iceberg requires the source column name in expressions
+                String sourceColName = sourceField.name();
+                Expression eqExpr;
+                if (partitionValue == null) {
+                    eqExpr = Expressions.isNull(sourceColName);
+                } else {
+                    eqExpr = Expressions.equal(sourceColName, partitionValue);
+                }
+                predicates.add(eqExpr);
+            }
+        }
+
+        if (predicates.isEmpty()) {
+            return Expressions.alwaysTrue();
+        }
+
+        // Combine all predicates with AND
+        Expression result = predicates.get(0);
+        for (int i = 1; i < predicates.size(); i++) {
+            result = Expressions.and(result, predicates.get(i));
+        }
+        return result;
+    }
 }

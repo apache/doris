@@ -26,6 +26,7 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.statistics.Statistics;
 
@@ -96,11 +98,13 @@ public class MTMVCache {
      * @param needCost the plan from def sql should calc cost or not
      * @param needLock should lock when create mtmv cache
      * @param currentContext current context, after create cache,should setThreadLocalInfo
+     * @param addSessionVarGuard whether to add SessionVarGuardExpr to expressions
      */
     public static MTMVCache from(String defSql,
             ConnectContext createCacheContext,
             boolean needCost, boolean needLock,
-            ConnectContext currentContext) throws AnalysisException {
+            ConnectContext currentContext,
+            boolean addSessionVarGuard) throws AnalysisException {
         StatementContext mvSqlStatementContext = new StatementContext(createCacheContext,
                 new OriginStatement(defSql, 0));
         if (!needLock) {
@@ -126,13 +130,27 @@ public class MTMVCache {
                 planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
             }
             CascadesContext cascadesContext = planner.getCascadesContext();
+            Plan rewritePlan = cascadesContext.getRewritePlan();
+
+            // Only add SessionVarGuardExpr if requested
+            Optional<SessionVarGuardRewriter> exprRewriter = addSessionVarGuard
+                    ? Optional.of(new SessionVarGuardRewriter(
+                    ConnectContextUtil.getAffectQueryResultInPlanVariables(createCacheContext),
+                    cascadesContext))
+                    : Optional.empty();
+            Plan addGuardRewritePlan = exprRewriter
+                    .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, rewritePlan))
+                    .orElse(rewritePlan);
             Pair<Plan, StructInfo> finalPlanStructInfoPair = constructPlanAndStructInfo(
-                    cascadesContext.getRewritePlan(), cascadesContext);
+                    addGuardRewritePlan, cascadesContext);
             List<Pair<Plan, StructInfo>> tmpPlanUsedForRewrite = new ArrayList<>();
             for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
-                tmpPlanUsedForRewrite.add(constructPlanAndStructInfo(plan, cascadesContext));
+                Plan addGuardplan = exprRewriter
+                        .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, plan))
+                        .orElse(plan);
+                tmpPlanUsedForRewrite.add(constructPlanAndStructInfo(addGuardplan, cascadesContext));
             }
-            return new MTMVCache(finalPlanStructInfoPair, cascadesContext.getRewritePlan(), needCost
+            return new MTMVCache(finalPlanStructInfoPair, addGuardRewritePlan, needCost
                     ? cascadesContext.getMemo().getRoot().getStatistics() : null, tmpPlanUsedForRewrite);
         } finally {
             createCacheContext.getStatementContext().setForceRecordTmpPlan(false);

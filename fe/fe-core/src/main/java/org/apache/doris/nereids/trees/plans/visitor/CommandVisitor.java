@@ -86,7 +86,6 @@ import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
@@ -120,7 +119,6 @@ import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
-import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
@@ -192,7 +190,6 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
-import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
@@ -229,7 +226,6 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
-import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
@@ -511,28 +507,12 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showWarnErrorCountCommand, context);
     }
 
-    default R visitCreateProcedureCommand(CreateProcedureCommand createProcedureCommand, C context) {
-        return visitCommand(createProcedureCommand, context);
-    }
-
-    default R visitDropProcedureCommand(DropProcedureCommand dropProcedureCommand, C context) {
-        return visitCommand(dropProcedureCommand, context);
-    }
-
-    default R visitShowProcedureStatusCommand(ShowProcedureStatusCommand showProcedureStatusCommand, C context) {
-        return visitCommand(showProcedureStatusCommand, context);
-    }
-
     default R visitCreateCatalogCommand(CreateCatalogCommand createCatalogCommand, C context) {
         return visitCommand(createCatalogCommand, context);
     }
 
     default R visitShowWarningErrorsCommand(ShowWarningErrorsCommand showWarningErrorsCommand, C context) {
         return visitCommand(showWarningErrorsCommand, context);
-    }
-
-    default R visitShowCreateProcedureCommand(ShowCreateProcedureCommand showCreateProcedureCommand, C context) {
-        return visitCommand(showCreateProcedureCommand, context);
     }
 
     default R visitHelpCommand(HelpCommand helpCommand, C context) {

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -80,8 +81,16 @@ public class StructInfoMap {
         }
         if (groupExpressionMap.containsKey(tableMap)) {
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(tableMap);
-            structInfo = constructStructInfo(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second,
-                    originPlan, cascadesContext);
+            // NOTICE: During the transition from physicalAggregate to logical aggregation,
+            // the original function signature needs to remain unchanged because the constructor of LogicalAggregation
+            // will recalculate the signature of the aggregation function.
+            // When the calculated signature is inconsistent with the original signature
+            // (e.g. due to the influence of the session variable enable_decimal256),
+            // a problem will arise where the output type of the rewritten plan is inconsistent with
+            // the output type of the upper-level operator.
+            structInfo = MoreFieldsThread.keepFunctionSignature(() ->
+                    constructStructInfo(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second,
+                    originPlan, cascadesContext));
             infoMap.put(tableMap, structInfo);
         }
         return structInfo;

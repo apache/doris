@@ -47,6 +47,9 @@ suite("test_group_commit_wal_limit") {
     strBuilder.append(" http://" + context.config.feHttpAddress + "/api/${db}/${tableName}/_stream_load")
 
     String command = strBuilder.toString()
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+    }
     logger.info("command is " + command)
     def process = ['bash','-c',command].execute() 
     def code = process.waitFor()
@@ -66,6 +69,9 @@ suite("test_group_commit_wal_limit") {
     strBuilder.append(" http://" + context.config.feHttpAddress + "/api/_http_stream")
 
     command = strBuilder.toString()
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+    }
     logger.info("command is " + command)
     process = ['bash','-c',command].execute() 
     code = process.waitFor()

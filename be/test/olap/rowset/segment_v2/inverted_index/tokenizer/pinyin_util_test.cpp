@@ -27,6 +27,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/pinyin/pinyin_format.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/pinyin/pinyin_formatter.h"
 #include "unicode/utf8.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -680,6 +681,127 @@ TEST_F(PinyinUtilTest, TestUtf8CharCountVariousInputs) {
     EXPECT_EQ(getUtf8CharCount("中"), 1);
     EXPECT_EQ(getUtf8CharCount("中国"), 2);
     EXPECT_EQ(getUtf8CharCount("中国abc"), 5);
+}
+
+// Test YuCharType::WITH_U_UNICODE - tests PinyinFormatter replaceAll(result, "u:", "ü")
+// Note: "绿" returns "lv" from polyphone dict matching, while "女"/"律" return "u:" format
+TEST_F(PinyinUtilTest, TestYuCharTypeWithUUnicode) {
+    auto& pinyin_util = PinyinUtil::instance();
+
+    // This tests the code path: case YuCharType::WITH_U_UNICODE: result = replaceAll(result, "u:", "ü");
+    PinyinFormat unicode_u_format(YuCharType::WITH_U_UNICODE, ToneType::WITHOUT_TONE,
+                                  CaseType::LOWERCASE);
+
+    // Test character "女" - returns "nu:3" from main dictionary, should become "nü"
+    std::vector<std::string> result1 =
+            pinyin_util.convert(stringToCodepoints("女"), unicode_u_format);
+    EXPECT_EQ(result1.size(), 1);
+    EXPECT_EQ(result1[0], "nü") << "女 should be 'nü' with WITH_U_UNICODE format";
+
+    // Test character "律" - returns "lu:4" from main dictionary, should become "lü"
+    std::vector<std::string> result2 =
+            pinyin_util.convert(stringToCodepoints("律"), unicode_u_format);
+    EXPECT_EQ(result2.size(), 1);
+    EXPECT_EQ(result2[0], "lü") << "律 should be 'lü' with WITH_U_UNICODE format";
+
+    // Test character "绿" - returns "lv" from polyphone dict (no u: to convert)
+    std::vector<std::string> result3 =
+            pinyin_util.convert(stringToCodepoints("绿"), unicode_u_format);
+    EXPECT_EQ(result3.size(), 1);
+    EXPECT_EQ(result3[0], "lv") << "绿 returns 'lv' from polyphone dict";
+
+    // Test character "旅" - check what format it returns
+    std::vector<std::string> result4 =
+            pinyin_util.convert(stringToCodepoints("旅"), unicode_u_format);
+    EXPECT_EQ(result4.size(), 1);
+    EXPECT_TRUE(result4[0] == "lü" || result4[0] == "lv")
+            << "旅 should be 'lü' or 'lv', got: " << result4[0];
+}
+
+// Test YuCharType::WITH_V - tests PinyinFormatter replaceAll(result, "u:", "v")
+TEST_F(PinyinUtilTest, TestYuCharTypeWithV) {
+    auto& pinyin_util = PinyinUtil::instance();
+
+    PinyinFormat v_format(YuCharType::WITH_V, ToneType::WITHOUT_TONE, CaseType::LOWERCASE);
+
+    // Test character "女" - should convert u: to v
+    std::vector<std::string> result1 = pinyin_util.convert(stringToCodepoints("女"), v_format);
+    EXPECT_EQ(result1.size(), 1);
+    EXPECT_EQ(result1[0], "nv") << "女 should be 'nv' with WITH_V format";
+
+    // Test character "绿"
+    std::vector<std::string> result2 = pinyin_util.convert(stringToCodepoints("绿"), v_format);
+    EXPECT_EQ(result2.size(), 1);
+    EXPECT_EQ(result2[0], "lv") << "绿 should be 'lv' with WITH_V format";
+}
+
+// Test YuCharType::WITH_U_AND_COLON (default) - keeps "u:" as is
+TEST_F(PinyinUtilTest, TestYuCharTypeWithUAndColon) {
+    auto& pinyin_util = PinyinUtil::instance();
+
+    PinyinFormat colon_format(YuCharType::WITH_U_AND_COLON, ToneType::WITHOUT_TONE,
+                              CaseType::LOWERCASE);
+
+    // Test character "女" - returns "nu:3" from main dict, should keep "nu:"
+    std::vector<std::string> result1 = pinyin_util.convert(stringToCodepoints("女"), colon_format);
+    EXPECT_EQ(result1.size(), 1);
+    EXPECT_EQ(result1[0], "nu:") << "女 should be 'nu:' with WITH_U_AND_COLON format";
+
+    // Test character "律" - returns "lu:4" from main dict, should keep "lu:"
+    std::vector<std::string> result2 = pinyin_util.convert(stringToCodepoints("律"), colon_format);
+    EXPECT_EQ(result2.size(), 1);
+    EXPECT_EQ(result2[0], "lu:") << "律 should be 'lu:' with WITH_U_AND_COLON format";
+}
+
+// Test YuCharType with different CaseTypes
+TEST_F(PinyinUtilTest, TestYuCharTypeWithCaseTypes) {
+    auto& pinyin_util = PinyinUtil::instance();
+
+    // Test WITH_U_UNICODE + UPPERCASE
+    PinyinFormat unicode_upper(YuCharType::WITH_U_UNICODE, ToneType::WITHOUT_TONE,
+                               CaseType::UPPERCASE);
+    std::vector<std::string> result1 = pinyin_util.convert(stringToCodepoints("女"), unicode_upper);
+    EXPECT_EQ(result1.size(), 1);
+    // Note: ü is a multi-byte UTF-8 character, uppercase might not work as expected
+    // The important thing is that u: was replaced with ü before uppercasing
+
+    // Test WITH_V + UPPERCASE
+    PinyinFormat v_upper(YuCharType::WITH_V, ToneType::WITHOUT_TONE, CaseType::UPPERCASE);
+    std::vector<std::string> result2 = pinyin_util.convert(stringToCodepoints("女"), v_upper);
+    EXPECT_EQ(result2.size(), 1);
+    EXPECT_EQ(result2[0], "NV") << "女 should be 'NV' with WITH_V + UPPERCASE";
+
+    // Test WITH_V + CAPITALIZE
+    PinyinFormat v_capitalize(YuCharType::WITH_V, ToneType::WITHOUT_TONE, CaseType::CAPITALIZE);
+    std::vector<std::string> result3 = pinyin_util.convert(stringToCodepoints("女"), v_capitalize);
+    EXPECT_EQ(result3.size(), 1);
+    EXPECT_EQ(result3[0], "Nv") << "女 should be 'Nv' with WITH_V + CAPITALIZE";
+}
+
+// Test PinyinFormatter directly to ensure u: conversion logic works correctly
+// This tests the code path regardless of dictionary format
+TEST_F(PinyinUtilTest, TestPinyinFormatterUColonConversion) {
+    // Test PinyinFormatter directly to verify u: -> ü conversion
+    PinyinFormat unicode_u_format(YuCharType::WITH_U_UNICODE, ToneType::WITHOUT_TONE,
+                                  CaseType::LOWERCASE);
+
+    // Test with known u: input strings
+    std::string result1 = PinyinFormatter::formatPinyin("nu:3", unicode_u_format);
+    EXPECT_EQ(result1, "nü") << "nu:3 should become 'nü' with WITH_U_UNICODE format";
+
+    std::string result2 = PinyinFormatter::formatPinyin("lu:4", unicode_u_format);
+    EXPECT_EQ(result2, "lü") << "lu:4 should become 'lü' with WITH_U_UNICODE format";
+
+    // Test WITH_V format
+    PinyinFormat v_format(YuCharType::WITH_V, ToneType::WITHOUT_TONE, CaseType::LOWERCASE);
+    std::string result3 = PinyinFormatter::formatPinyin("nu:3", v_format);
+    EXPECT_EQ(result3, "nv") << "nu:3 should become 'nv' with WITH_V format";
+
+    // Test WITH_U_AND_COLON format
+    PinyinFormat colon_format(YuCharType::WITH_U_AND_COLON, ToneType::WITHOUT_TONE,
+                              CaseType::LOWERCASE);
+    std::string result4 = PinyinFormatter::formatPinyin("nu:3", colon_format);
+    EXPECT_EQ(result4, "nu:") << "nu:3 should become 'nu:' with WITH_U_AND_COLON format";
 }
 
 } // namespace doris::segment_v2::inverted_index

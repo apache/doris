@@ -344,11 +344,9 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         // binary: const flag| row num | real saved num| data
         auto content_uncompressed_size =
                 dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
-        } else {
-            EXPECT_EQ(content_uncompressed_size, 4 + expected_data_size);
-        }
+
+        EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -367,11 +365,9 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         col_with_type->insert_many_defaults(count);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
-        } else {
-            EXPECT_EQ(content_uncompressed_size, 4 + expected_data_size);
-        }
+
+        EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -393,18 +389,13 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         col_with_type->insert_many_defaults(count);
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size,
-                      17 + 8 +
-                              std::max(expected_data_size,
-                                       streamvbyte_max_compressedbytes(
-                                               cast_set<UInt32>(upper_int32(expected_data_size)))));
-        } else {
-            EXPECT_EQ(content_uncompressed_size,
-                      12 + std::max(expected_data_size,
-                                    streamvbyte_max_compressedbytes(
-                                            cast_set<UInt32>(upper_int32(expected_data_size)))));
-        }
+
+        EXPECT_EQ(content_uncompressed_size,
+                  17 + 8 +
+                          std::max(expected_data_size,
+                                   streamvbyte_max_compressedbytes(
+                                           cast_set<UInt32>(upper_int32(expected_data_size)))));
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -441,39 +432,20 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         }
     };
     test_func(dt_decimal32_1, *column_decimal32_1, USE_CONST_SERDE);
-    test_func(dt_decimal32_1, *column_decimal32_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_2, *column_decimal32_2, USE_CONST_SERDE);
-    test_func(dt_decimal32_2, *column_decimal32_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_3, *column_decimal32_3, USE_CONST_SERDE);
-    test_func(dt_decimal32_3, *column_decimal32_3, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_4, *column_decimal32_4, USE_CONST_SERDE);
-    test_func(dt_decimal32_4, *column_decimal32_4, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_5, *column_decimal32_5, USE_CONST_SERDE);
-    test_func(dt_decimal32_5, *column_decimal32_5, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal64_1, *column_decimal64_1, USE_CONST_SERDE);
-    test_func(dt_decimal64_1, *column_decimal64_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal64_2, *column_decimal64_2, USE_CONST_SERDE);
-    test_func(dt_decimal64_2, *column_decimal64_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal64_3, *column_decimal64_3, USE_CONST_SERDE);
-    test_func(dt_decimal64_3, *column_decimal64_3, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal128v2, *column_decimal128_v2, USE_CONST_SERDE);
-    test_func(dt_decimal128v2, *column_decimal128_v2, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal128v3_1, *column_decimal128v3_1, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_1, *column_decimal128v3_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal128v3_2, *column_decimal128v3_2, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_2, *column_decimal128v3_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal128v3_3, *column_decimal128v3_3, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_3, *column_decimal128v3_3, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal256_1, *column_decimal256_1, USE_CONST_SERDE);
-    test_func(dt_decimal256_1, *column_decimal256_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal256_2, *column_decimal256_2, USE_CONST_SERDE);
-    test_func(dt_decimal256_2, *column_decimal256_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal256_3, *column_decimal256_3, USE_CONST_SERDE);
-    test_func(dt_decimal256_3, *column_decimal256_3, AGGREGATION_2_1_VERSION);
 }
 TEST_F(DataTypeDecimalTest, to_pb_column_meta) {
     auto test_func = [](auto dt, PGenericType_TypeId expected_type) {

@@ -28,11 +28,14 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.qe.AutoCloseSessionVariable;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -42,16 +45,26 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
     private final UnboundFunction unboundFunction;
     private final List<String> parameters;
     private final List<DataType> argTypes;
+    private final Map<String, String> sessionVariables;
 
     /**
      * constructor
      */
     public AliasUdf(String name, List<DataType> argTypes, UnboundFunction unboundFunction,
             List<String> parameters, Expression... arguments) {
+        this(name, argTypes, unboundFunction, parameters, null, arguments);
+    }
+
+    /**
+     * constructor with session variables
+     */
+    public AliasUdf(String name, List<DataType> argTypes, UnboundFunction unboundFunction,
+            List<String> parameters, Map<String, String> sessionVariables, Expression... arguments) {
         super(name, arguments);
         this.argTypes = argTypes;
         this.unboundFunction = unboundFunction;
         this.parameters = parameters;
+        this.sessionVariables = sessionVariables;
     }
 
     @Override
@@ -71,6 +84,10 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         return argTypes;
     }
 
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
     @Override
     public boolean nullable() {
         return false;
@@ -81,13 +98,18 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
      */
     public static void translateToNereidsFunction(String dbName, AliasFunction function) {
         String functionSql = function.getOriginFunction().toSqlWithoutTbl();
-        Expression parsedFunction = new NereidsParser().parseExpression(functionSql);
-
+        Map<String, String> sessionVariables = function.getSessionVariables();
+        Expression parsedFunction;
+        try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ConnectContext.get(),
+                sessionVariables)) {
+            parsedFunction = new NereidsParser().parseExpression(functionSql);
+        }
         AliasUdf aliasUdf = new AliasUdf(
                 function.functionName(),
                 Arrays.stream(function.getArgs()).map(DataType::fromCatalogType).collect(Collectors.toList()),
                 ((UnboundFunction) parsedFunction),
-                function.getParameters());
+                function.getParameters(),
+                sessionVariables);
 
         AliasUdfBuilder builder = new AliasUdfBuilder(aliasUdf);
         Env.getCurrentEnv().getFunctionRegistry().addUdf(dbName, aliasUdf.getName(), builder);
@@ -100,7 +122,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new AliasUdf(getName(), argTypes, unboundFunction, parameters,
+        return new AliasUdf(getName(), argTypes, unboundFunction, parameters, sessionVariables,
                 children.toArray(new Expression[0]));
     }
 

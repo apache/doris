@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -39,7 +40,7 @@ import java.util.List;
 
 /** MultiDistinctSum0 */
 public class MultiDistinctSum0 extends NotNullableAggregateFunction implements UnaryExpression,
-        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction {
+        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction, NeedSessionVarGuard {
     public MultiDistinctSum0(Expression arg0) {
         this(false, arg0);
     }

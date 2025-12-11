@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -93,5 +94,12 @@ public class ConnectContextUtil {
         }
         ctx.getState().setOk();
         return Optional.empty();
+    }
+
+    public static Map<String, String> getAffectQueryResultInPlanVariables(ConnectContext ctx) {
+        if (ctx == null || ctx.getSessionVariable() == null) {
+            return null;
+        }
+        return ctx.getSessionVariable().getAffectQueryResultInPlanVariables();
     }
 }

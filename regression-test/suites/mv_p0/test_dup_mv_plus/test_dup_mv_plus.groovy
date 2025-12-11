@@ -49,27 +49,9 @@ suite ("test_dup_mv_plus") {
 
     sql "analyze table d_table with sync;"
     sql """alter table d_table modify column k4 set stats ('row_count'='8');"""
-    sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
 
-    mv_rewrite_success_without_check_chosen("select k1,k2+1 from d_table order by k1;", "k12p")
-
-    mv_rewrite_success_without_check_chosen("select k2+1 from d_table order by k1;", "k12p")
-
-    mv_rewrite_success_without_check_chosen("select k2+1 from d_table order by k1+1-1;", "k12p")
-
-    mv_rewrite_success_without_check_chosen("select sum(k2+1) from d_table group by k1 order by k1;", "k12p")
-
-    mv_rewrite_success_without_check_chosen("select sum(k1) from d_table group by k2+1 order by k2+1;", "k12p")
-
-    mv_rewrite_success_without_check_chosen("select sum(k1+1-1) from d_table group by k2+1 order by k2+1;", "k12p")
-
-    mv_rewrite_fail("select sum(k2) from d_table group by k3;", "k12p")
-
-    mv_rewrite_fail("select k1,k2+1 from d_table order by k2;", "k12p")
-
-    sql """set enable_stats=true;"""
     mv_rewrite_success("select k1,k2+1 from d_table order by k1;", "k12p")
     qt_select_mv "select k1,k2+1 from d_table order by k1;"
 

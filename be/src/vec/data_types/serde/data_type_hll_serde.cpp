@@ -149,8 +149,7 @@ Status DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const Null
 
 Status DataTypeHLLSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                       MysqlRowBinaryBuffer& result, int64_t row_idx,
-                                                      bool col_const,
-                                                      const FormatOptions& options) const {
+                                                      bool col_const) const {
     return Status::NotSupported("Bitmap type does not support write to mysql binary format");
 }
 

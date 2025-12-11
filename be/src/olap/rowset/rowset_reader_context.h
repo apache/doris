@@ -58,9 +58,9 @@ struct RowsetReaderContext {
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
-    const std::vector<ColumnPredicate*>* predicates = nullptr;
+    const std::vector<std::shared_ptr<ColumnPredicate>>* predicates = nullptr;
     // value column predicate in UNIQUE table
-    const std::vector<ColumnPredicate*>* value_predicates = nullptr;
+    const std::vector<std::shared_ptr<ColumnPredicate>>* value_predicates = nullptr;
     const std::vector<RowCursor>* lower_bound_keys = nullptr;
     const std::vector<bool>* is_lower_keys_included = nullptr;
     const std::vector<RowCursor>* upper_bound_keys = nullptr;

@@ -360,11 +360,9 @@ TEST_F(DataTypeDateTimeV1Test, ser_deser) {
         // binary: const flag| row num | real saved num| data
         auto content_uncompressed_size =
                 dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
-        } else {
-            EXPECT_EQ(content_uncompressed_size, 4 + expected_data_size);
-        }
+
+        EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -383,11 +381,9 @@ TEST_F(DataTypeDateTimeV1Test, ser_deser) {
         col_with_type->insert_many_vals(1, count);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
-        } else {
-            EXPECT_EQ(content_uncompressed_size, 4 + expected_data_size);
-        }
+
+        EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -409,18 +405,13 @@ TEST_F(DataTypeDateTimeV1Test, ser_deser) {
         col_with_type->insert_many_vals(1, count);
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size,
-                      17 + 8 +
-                              std::max(expected_data_size,
-                                       streamvbyte_max_compressedbytes(
-                                               cast_set<UInt32>(upper_int32(expected_data_size)))));
-        } else {
-            EXPECT_EQ(content_uncompressed_size,
-                      12 + std::max(expected_data_size,
-                                    streamvbyte_max_compressedbytes(
-                                            cast_set<UInt32>(upper_int32(expected_data_size)))));
-        }
+
+        EXPECT_EQ(content_uncompressed_size,
+                  17 + 8 +
+                          std::max(expected_data_size,
+                                   streamvbyte_max_compressedbytes(
+                                           cast_set<UInt32>(upper_int32(expected_data_size)))));
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -457,10 +448,8 @@ TEST_F(DataTypeDateTimeV1Test, ser_deser) {
         }
     };
     test_func(dt_date, *column_date, USE_CONST_SERDE);
-    test_func(dt_date, *column_date, AGGREGATION_2_1_VERSION);
 
     test_func(dt_datetime, *column_datetime, USE_CONST_SERDE);
-    test_func(dt_datetime, *column_datetime, AGGREGATION_2_1_VERSION);
 }
 TEST_F(DataTypeDateTimeV1Test, to_string) {
     auto test_func = [](auto& dt, const auto& source_column) {

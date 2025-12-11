@@ -58,6 +58,7 @@ suite("test_remote_doris_all_types_select", "p0,external,doris,external_docker,e
           `c_array_s` array<text> NULL,
           `c_map` MAP<STRING, INT> NULL,
           `c_struct` STRUCT<f1:INT,f2:FLOAT,f3:STRING>  NULL,
+          `c_json` JSON  NULL,
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
@@ -67,16 +68,16 @@ suite("test_remote_doris_all_types_select", "p0,external,doris,external_docker,e
     """
 
     sql """
-        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 01:00:00.000', true, -128, -32768, -2147483648, -9223372036854775808, -1234567890123456790, -123.456, -123456.789, -123457, -123456789012346, -1234567890123456789012345678, '1970-01-01', '0000-01-01 00:00:00', 'A', 'Hello', 'Hello, Doris!', '["apple", "banana", "orange"]', {"Emily":101,"age":25} , {11, 3.14, "Emily"})
+        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 01:00:00.000', true, -128, -32768, -2147483648, -9223372036854775808, -1234567890123456790, -123.456, -123456.789, -123457, -123456789012346, -1234567890123456789012345678, '1970-01-01', '0000-01-01 00:00:00', 'A', 'Hello', 'Hello, Doris!', '["apple", "banana", "orange"]', {"Emily":101,"age":25} , {11, 3.14, "Emily"}, '{"k1":"v31", "k2": 300, "k3": [123, 456], "k4": [], "k5": {"i1": "iv1"}}')
     """
     sql """
-        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 02:00:00.000', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 02:00:00.000', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
     """
     sql """
-        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 03:00:00.000', false, 127, 32767, 2147483647, 9223372036854775807, 1234567890123456789, 123.456, 123456.789, 123457, 123456789012346, 1234567890123456789012345678, '9999-12-31', '9999-12-31 23:59:59', '', '', '', [], {}, {11, 3.14, "Emily"})
+        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 03:00:00.000', false, 127, 32767, 2147483647, 9223372036854775807, 1234567890123456789, 123.456, 123456.789, 123457, 123456789012346, 1234567890123456789012345678, '9999-12-31', '9999-12-31 23:59:59', '', '', '', [], {}, {11, 3.14, "Emily"}, '{}')
     """
     sql """
-        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 04:00:00.000', true, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '2023-10-01', '2023-10-01 12:34:56', 'A', 'Hello', 'Hello, Doris!', '["apple", "banana", "orange"]', {"Emily":101,"age":25} , {11, 3.14, "Emily"});
+        INSERT INTO `test_remote_doris_all_types_select_db`.`test_remote_doris_all_types_select_t` values('2025-05-18 04:00:00.000', true, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '2023-10-01', '2023-10-01 12:34:56', 'A', 'Hello', 'Hello, Doris!', '["apple", "banana", "orange"]', {"Emily":101,"age":25} , {11, 3.14, "Emily"}, '[]');
     """
 
     sql """

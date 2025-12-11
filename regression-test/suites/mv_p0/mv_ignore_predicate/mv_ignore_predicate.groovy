@@ -48,24 +48,9 @@ suite ("mv_ignore_predicate") {
     sql "insert into d_table select 5,null,null,null;"
 
     sql "analyze table d_table with sync;"
-    sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
 
     mv_rewrite_success("select count(k2) from d_table;", "kign")
     qt_select_mv "select count(k2) from d_table;"
-
-//    explain {
-//         sql("select count(k2) from d_table where k2 is not null;")
-//         contains "(kign)"
-//     }
-//     qt_select_mv "select count(k2) from d_table where k2 is not null;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select count(k2) from d_table;", "kign")
-
-//     explain {
-//         sql("select count(k2) from d_table where k2 is not null;")
-//         contains "(kign)"
-//     }
 }

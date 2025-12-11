@@ -28,6 +28,7 @@ namespace doris::vectorized {
 template <template <PrimitiveType> class StatFunctionTemplate>
 AggregateFunctionPtr create_aggregate_function_regr(const std::string& name,
                                                     const DataTypes& argument_types,
+                                                    const DataTypePtr& result_type,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
     bool y_nullable_input = argument_types[0]->is_nullable();

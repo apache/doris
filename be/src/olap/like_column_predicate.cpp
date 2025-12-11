@@ -28,7 +28,7 @@ namespace doris {
 template <PrimitiveType T>
 LikeColumnPredicate<T>::LikeColumnPredicate(bool opposite, uint32_t column_id,
                                             doris::FunctionContext* fn_ctx, doris::StringRef val)
-        : ColumnPredicate(column_id, opposite), pattern(val) {
+        : ColumnPredicate(column_id, T, opposite), pattern(val) {
     static_assert(T == TYPE_VARCHAR || T == TYPE_CHAR || T == TYPE_STRING,
                   "LikeColumnPredicate only supports the following types: TYPE_VARCHAR, TYPE_CHAR, "
                   "TYPE_STRING");

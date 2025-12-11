@@ -58,6 +58,7 @@ suite("test_remote_doris_all_types_show", "p0,external,doris,external_docker,ext
           `c_array_s` array<text> NULL,
           `c_map` MAP<STRING, INT> NULL,
           `c_struct` STRUCT<f1:INT,f2:FLOAT,f3:STRING>  NULL,
+          `c_json` JSON  NULL,
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1

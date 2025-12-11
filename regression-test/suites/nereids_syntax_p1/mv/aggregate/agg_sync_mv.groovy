@@ -134,7 +134,6 @@ suite("agg_sync_mv") {
     sql """ SET enable_nereids_planner=true """
     sql """ SET enable_fallback_to_original_planner=false """
     sql """ analyze table agg_mv_test with sync"""
-    sql """ set enable_stats=false"""
 
     qt_select_any_value """select id, any_value(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync1 on agg_mv_test;"""

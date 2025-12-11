@@ -61,8 +61,11 @@ PROPERTIES (
         strBuilder.append(""" -H label:""" + label)
         strBuilder.append(""" -T """ + filePath)
         strBuilder.append(""" http://""" + context.config.feHttpAddress + """/api/${thisDb}/${tableName}/_stream_load""")
-
+        
         String command = strBuilder.toString()
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         logger.info("streamload command=" + command)
         def process = command.toString().execute()
         process.waitFor()
@@ -79,6 +82,9 @@ PROPERTIES (
         strBuilder.append(""" http://""" + context.config.feHttpAddress + """/api/${thisDb}/${tableName}/_stream_load_2pc""")
 
         String command = strBuilder.toString()
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         logger.info("streamload command=" + command)
         def processCommit = command.toString().execute()
         processCommit.waitFor()
@@ -95,6 +101,9 @@ PROPERTIES (
         strBuilder.append(""" http://""" + context.config.feHttpAddress + """/api/${thisDb}/${tableName}/_stream_load_2pc""")
 
         String command = strBuilder.toString()
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         logger.info("streamload command=" + command)
         def processAbort = command.toString().execute()
         processAbort.waitFor()

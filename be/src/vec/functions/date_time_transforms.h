@@ -106,6 +106,8 @@ TIME_FUNCTION_IMPL(DayOfWeekImpl, dayofweek, day_of_week());
 TIME_FUNCTION_IMPL(WeekDayImpl, weekday, weekday());
 // TODO: the method should be always not nullable
 TIME_FUNCTION_IMPL(ToDaysImpl, to_days, daynr());
+TIME_FUNCTION_IMPL(ToSecondsImpl, to_seconds,
+                   daynr() * 86400L + date_time_value.time_part_to_seconds());
 
 #define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)                                     \
     template <PrimitiveType PType>                                                            \

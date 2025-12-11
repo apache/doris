@@ -31,7 +31,12 @@ suite("test_outfile_csv_with_names") {
     sql "USE $dbName"
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
+        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
+    } else {
+        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
+    }
 
     String command = strBuilder.toString()
     def process = command.toString().execute()
@@ -150,6 +155,9 @@ suite("test_outfile_csv_with_names") {
         commandBuilder.append("""curl -v --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
         commandBuilder.append(""" -H format:csv_with_names -H column_separator:, -T """ + files[0].getAbsolutePath() + """ http://${context.config.feHttpAddress}/api/""" + dbName + "/" + tableName2 + "/_stream_load")
         command = commandBuilder.toString()
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         process = command.execute()
         code = process.waitFor()
         err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))

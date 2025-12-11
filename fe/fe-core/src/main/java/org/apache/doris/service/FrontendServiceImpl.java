@@ -101,9 +101,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
-import org.apache.doris.plsql.metastore.PlsqlPackage;
-import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
-import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
@@ -133,8 +130,6 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.MetadataGenerator;
 import org.apache.doris.thrift.FrontendService;
-import org.apache.doris.thrift.TAddPlsqlPackageRequest;
-import org.apache.doris.thrift.TAddPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TAutoIncrementRangeRequest;
 import org.apache.doris.thrift.TAutoIncrementRangeResult;
 import org.apache.doris.thrift.TBackend;
@@ -154,8 +149,6 @@ import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
 import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
-import org.apache.doris.thrift.TDropPlsqlPackageRequest;
-import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TEncryptionKey;
 import org.apache.doris.thrift.TFetchLoadJobRequest;
@@ -233,8 +226,6 @@ import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TPartitionMeta;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
-import org.apache.doris.thrift.TPlsqlPackageResult;
-import org.apache.doris.thrift.TPlsqlStoredProcedureResult;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
@@ -3267,97 +3258,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ConnectContext.remove();
         }
 
-        return result;
-    }
-
-    @Override
-    public TPlsqlStoredProcedureResult addPlsqlStoredProcedure(TAddPlsqlStoredProcedureRequest request) {
-        TPlsqlStoredProcedureResult result = new TPlsqlStoredProcedureResult();
-        TStatus status = checkMaster();
-        result.setStatus(status);
-        if (status.getStatusCode() != TStatusCode.OK) {
-            return result;
-        }
-
-        if (!request.isSetPlsqlStoredProcedure()) {
-            status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
-            status.addToErrorMsgs("missing stored procedure.");
-            return result;
-        }
-        try {
-            Env.getCurrentEnv().getPlsqlManager()
-                    .addPlsqlStoredProcedure(PlsqlStoredProcedure.fromThrift(request.getPlsqlStoredProcedure()),
-                            request.isSetIsForce() && request.isIsForce());
-        } catch (RuntimeException e) {
-            status.setStatusCode(TStatusCode.ALREADY_EXIST);
-            status.addToErrorMsgs(e.getMessage());
-            return result;
-        }
-        return result;
-    }
-
-    @Override
-    public TPlsqlStoredProcedureResult dropPlsqlStoredProcedure(TDropPlsqlStoredProcedureRequest request) {
-        TPlsqlStoredProcedureResult result = new TPlsqlStoredProcedureResult();
-        TStatus status = checkMaster();
-        result.setStatus(status);
-        if (status.getStatusCode() != TStatusCode.OK) {
-            return result;
-        }
-
-        if (!request.isSetPlsqlProcedureKey()) {
-            status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
-            status.addToErrorMsgs("missing stored key.");
-            return result;
-        }
-
-        Env.getCurrentEnv().getPlsqlManager().dropPlsqlStoredProcedure(PlsqlProcedureKey.fromThrift(
-                request.getPlsqlProcedureKey()));
-        return result;
-    }
-
-    @Override
-    public TPlsqlPackageResult addPlsqlPackage(TAddPlsqlPackageRequest request) throws TException {
-        TPlsqlPackageResult result = new TPlsqlPackageResult();
-        TStatus status = checkMaster();
-        result.setStatus(status);
-        if (status.getStatusCode() != TStatusCode.OK) {
-            return result;
-        }
-
-        if (!request.isSetPlsqlPackage()) {
-            status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
-            status.addToErrorMsgs("missing plsql package.");
-            return result;
-        }
-
-        try {
-            Env.getCurrentEnv().getPlsqlManager().addPackage(PlsqlPackage.fromThrift(request.getPlsqlPackage()),
-                    request.isSetIsForce() && request.isIsForce());
-        } catch (RuntimeException e) {
-            status.setStatusCode(TStatusCode.ALREADY_EXIST);
-            status.addToErrorMsgs(e.getMessage());
-            return result;
-        }
-        return result;
-    }
-
-    @Override
-    public TPlsqlPackageResult dropPlsqlPackage(TDropPlsqlPackageRequest request) throws TException {
-        TPlsqlPackageResult result = new TPlsqlPackageResult();
-        TStatus status = checkMaster();
-        result.setStatus(status);
-        if (status.getStatusCode() != TStatusCode.OK) {
-            return result;
-        }
-
-        if (!request.isSetPlsqlProcedureKey()) {
-            status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
-            status.addToErrorMsgs("missing stored key.");
-            return result;
-        }
-
-        Env.getCurrentEnv().getPlsqlManager().dropPackage(PlsqlProcedureKey.fromThrift(request.getPlsqlProcedureKey()));
         return result;
     }
 

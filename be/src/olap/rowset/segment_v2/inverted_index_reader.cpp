@@ -295,7 +295,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                   std::shared_ptr<roaring::Roaring>& bit_map) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
-    std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
+    std::string search_str = *reinterpret_cast<const std::string*>(query_value);
     VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
                << search_str << "]";
 
@@ -397,20 +397,18 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                             std::shared_ptr<roaring::Roaring>& bit_map) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
-    const auto* search_query = reinterpret_cast<const StringRef*>(query_value);
-    auto act_len = strnlen(search_query->data, search_query->size);
+    std::string search_str = *reinterpret_cast<const std::string*>(query_value);
 
     // If the written value exceeds ignore_above, it will be written as null.
     // The queried value exceeds ignore_above means the written value cannot be found.
     // The query needs to be downgraded to read from the segment file.
     if (int ignore_above =
                 std::stoi(get_parser_ignore_above_value_from_properties(_index_meta.properties()));
-        act_len > ignore_above) {
+        search_str.size() > ignore_above) {
         return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                 "query value is too long, evaluate skipped.");
     }
 
-    std::string search_str(search_query->data, act_len);
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
     try {

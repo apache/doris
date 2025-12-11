@@ -127,7 +127,8 @@ TEST_F(AggregateFunctionCorrTest, test) {
 
 TEST_F(AggregateFunctionCorrTest, test_corr) {
     create_agg("corr", false,
-               {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>()});
+               {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>()},
+               std::make_shared<DataTypeFloat64>());
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeFloat64>({1, 2, 3, 4, 5}),
                    ColumnHelper::create_column_with_name<DataTypeFloat64>({1, 2, 3, 4, 5})}),
@@ -136,7 +137,8 @@ TEST_F(AggregateFunctionCorrTest, test_corr) {
 
 TEST_F(AggregateFunctionCorrTest, test_corr_welford) {
     create_agg("corr_welford", false,
-               {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>()});
+               {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>()},
+               std::make_shared<DataTypeFloat64>());
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeFloat64>({1, 2, 3, 4, 5}),
                    ColumnHelper::create_column_with_name<DataTypeFloat64>({1, 2, 3, 4, 5})}),

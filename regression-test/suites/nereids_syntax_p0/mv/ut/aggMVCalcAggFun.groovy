@@ -48,15 +48,10 @@ suite ("aggMVCalcAggFun") {
 
     sql "analyze table aggMVCalcAggFun with sync;"
     sql """alter table aggMVCalcAggFun modify column time_col set stats ('row_count'='4');"""
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from aggMVCalcAggFun order by empid;", "aggMVCalcAggFunMv")
     order_qt_select_star "select * from aggMVCalcAggFun order by empid;"
 
     mv_rewrite_fail("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;", "aggMVCalcAggFunMv")
     order_qt_select_mv "select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno order by deptno;"
-
-    mv_rewrite_fail("select * from aggMVCalcAggFun order by empid;", "aggMVCalcAggFunMv")\
-
-    mv_rewrite_fail("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;", "aggMVCalcAggFunMv")
 }

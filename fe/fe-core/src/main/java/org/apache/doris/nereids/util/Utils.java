@@ -465,6 +465,19 @@ public class Utils {
         return false;
     }
 
+    /**
+     * provide a method for generate an array with var arguments.
+     * Notice: java's array is mutable, the method is not intend for an immutable array,
+     *         but just convert var arguments to array without calling like "new XXXType[]".
+     * for example: given a function f(Expression[] a), if we have a NOT,  an AND to pass to it,
+     * the call will be  f(new Expression[]{not, and}), it needs to invoke 'new Expression[]',
+     * if we don't want to invoke the new array operator, we can call with f(Utils.fastArray(not, and))
+     */
+    @SafeVarargs
+    public static <T> T[] fastArray(T... elements) {
+        return elements;
+    }
+
     public static <I, O> List<O> fastMapList(List<I> list, int additionSize, Function<I, O> transformer) {
         List<O> newList = Lists.newArrayListWithCapacity(list.size() + additionSize);
         for (I input : list) {

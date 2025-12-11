@@ -1230,6 +1230,41 @@ TEST(VTimestampFunctionsTest, minute_second_add_v2_test) {
     }
 }
 
+TEST(VTimestampFunctionsTest, second_microsecond_add_v2_test) {
+    std::string func_name = "second_microsecond_add";
+
+    InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                Consted {PrimitiveType::TYPE_STRING}};
+
+    {
+        DataSet data_set = {
+                {{std::string("2020-10-23 00:00:11.123456"), std::string("1.1")},
+                 std::string("2020-10-23 00:00:12.223456")},
+        };
+
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+    }
+    {
+        DataSet data_set = {
+                {{std::string("2020-05-23 00:00:11.123456"), std::string("1.12")},
+                 std::string("2020-05-23 00:00:12.243456")},
+        };
+
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+    }
+    {
+        DataSet data_set = {
+                {{std::string("2020-05-23 00:00:11.123456"), std::string("1.123")},
+                 std::string("2020-05-23 00:00:12.246456")},
+        };
+
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+    }
+}
+
 TEST(VTimestampFunctionsTest, to_days_v2_test) {
     std::string func_name = "to_days";
 

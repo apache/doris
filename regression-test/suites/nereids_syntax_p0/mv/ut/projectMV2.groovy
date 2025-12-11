@@ -48,8 +48,6 @@ suite ("projectMV2") {
     sql "analyze table projectMV2 with sync;"
     sql """alter table projectMV2 modify column time_col set stats ('row_count'='3');"""
 
-    sql """set enable_stats=false;"""
-
     mv_rewrite_fail("select * from projectMV2 order by empid;", "projectMV2_mv")
     order_qt_select_star "select * from projectMV2 order by empid;"
 
@@ -58,12 +56,4 @@ suite ("projectMV2") {
 
     mv_rewrite_fail("select name from projectMV2 where deptno -1 = 0 order by empid;", "projectMV2_mv")
     order_qt_select_base "select name from projectMV2 where deptno -1 = 0 order by empid;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from projectMV2 order by empid;", "projectMV2_mv")
-
-    mv_rewrite_success("select empid + 1 from projectMV2 where deptno = 1 order by empid;", "projectMV2_mv")
-
-    mv_rewrite_fail("select name from projectMV2 where deptno -1 = 0 order by empid;", "projectMV2_mv")
 }

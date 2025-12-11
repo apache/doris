@@ -55,6 +55,7 @@ public class OlapTableFactory {
         public Map<String, String> mvProperties;
         public MTMVPartitionInfo mvPartitionInfo;
         public MTMVRelation relation;
+        public Map<String, String> sessionVariables;
     }
 
     private BuildParams params;
@@ -178,6 +179,14 @@ public class OlapTableFactory {
         return this;
     }
 
+    private OlapTableFactory withSessionVariables(Map<String, String> sessionVariables) {
+        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MTMVParams mtmvParams = (MTMVParams) params;
+        mtmvParams.sessionVariables = sessionVariables;
+        return this;
+    }
+
     public OlapTableFactory withExtraParams(CreateTableInfo createTableInfo) {
         boolean isMaterializedView = createTableInfo instanceof CreateMTMVInfo;
         if (!isMaterializedView) {
@@ -188,6 +197,7 @@ public class OlapTableFactory {
                 .withQuerySql(createMTMVInfo.getQuerySql())
                 .withMvProperties(createMTMVInfo.getMvProperties())
                 .withMvPartitionInfo(createMTMVInfo.getMvPartitionInfo())
+                .withSessionVariables(createMTMVInfo.getSessionVariables())
                 .withMvRelation(createMTMVInfo.getRelation());
         }
     }
