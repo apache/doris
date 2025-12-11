@@ -31,43 +31,41 @@ TEST(function_string_test, function_levenshtein_comprehensive_test) {
 
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
-    DataSet data_set = {
-            {{std::string("kitten"), std::string("sitting")}, (int32_t)3},
-            {{std::string("saturday"), std::string("sunday")}, (int32_t)3},
-            {{std::string("rosettacode"), std::string("raisethysword")}, (int32_t)8},
+    DataSet data_set = {{{std::string("kitten"), std::string("sitting")}, (int32_t)3},
+                        {{std::string("saturday"), std::string("sunday")}, (int32_t)3},
+                        {{std::string("rosettacode"), std::string("raisethysword")}, (int32_t)8},
 
-            {{std::string("test"), std::string("test")}, (int32_t)0},
+                        {{std::string("test"), std::string("test")}, (int32_t)0},
 
-            {{std::string("cat"), std::string("bat")}, (int32_t)1},
-            {{std::string("abc"), std::string("xyz")}, (int32_t)3},
+                        {{std::string("cat"), std::string("bat")}, (int32_t)1},
+                        {{std::string("abc"), std::string("xyz")}, (int32_t)3},
 
-            {{std::string("book"), std::string("books")}, (int32_t)1},
-            {{std::string("test"), std::string("mytest")}, (int32_t)2},
+                        {{std::string("book"), std::string("books")}, (int32_t)1},
+                        {{std::string("test"), std::string("mytest")}, (int32_t)2},
 
-            {{std::string("apple"), std::string("app")}, (int32_t)2},
+                        {{std::string("apple"), std::string("app")}, (int32_t)2},
 
+                        {{std::string(""), std::string("")}, (int32_t)0},
+                        {{std::string("a"), std::string("")}, (int32_t)1},
+                        {{std::string(""), std::string("abc")}, (int32_t)3},
 
-            {{std::string(""), std::string("")}, (int32_t)0},
-            {{std::string("a"), std::string("")}, (int32_t)1},
-            {{std::string(""), std::string("abc")}, (int32_t)3},
+                        {{std::string("A"), std::string("a")}, (int32_t)1},
+                        {{std::string("Doris"), std::string("doris")}, (int32_t)1},
 
-            {{std::string("A"), std::string("a")}, (int32_t)1}, 
-            {{std::string("Doris"), std::string("doris")}, (int32_t)1},
+                        {{std::string("a-b-c"), std::string("a_b_c")}, (int32_t)2},
+                        {{std::string("1234567890"), std::string("1234567890")}, (int32_t)0},
 
-            {{std::string("a-b-c"), std::string("a_b_c")}, (int32_t)2}, 
-            {{std::string("1234567890"), std::string("1234567890")}, (int32_t)0},
+                        {{std::string("中"), std::string("中")}, (int32_t)0},
 
-            {{std::string("中"), std::string("中")}, (int32_t)0},
+                        {{std::string("中国"), std::string("中")}, (int32_t)3},
 
-            {{std::string("中国"), std::string("中")}, (int32_t)3},
+                        {{std::string("你好"), std::string("您好")}, (int32_t)3},
 
-            {{std::string("你好"), std::string("您好")}, (int32_t)3},
+                        {{Null(), std::string("abc")}, Null()},
 
-            {{Null(), std::string("abc")}, Null()},
+                        {{std::string("abc"), Null()}, Null()},
 
-            {{std::string("abc"), Null()}, Null()},
-
-            {{Null(), Null()}, Null()}};
+                        {{Null(), Null()}, Null()}};
 
     check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
 }
