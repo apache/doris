@@ -10,7 +10,7 @@
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
-// "AS BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Cache for Iceberg Manifest files.
- * 
+ *
  * This cache stores DataFile and DeleteFile objects from Manifest files
  * to avoid repeated I/O when querying the same Manifest files.
  */
@@ -67,8 +67,8 @@ public class IcebergManifestCache {
 
         // Initialize DataFile cache
         @SuppressWarnings("unchecked")
-        Caffeine<String, Set<DataFile>> dataFileCacheBuilder = (Caffeine<String, Set<DataFile>>) (Caffeine<?, ?>) Caffeine
-                .newBuilder();
+        Caffeine<String, Set<DataFile>> dataFileCacheBuilder =
+                (Caffeine<String, Set<DataFile>>) (Caffeine<?, ?>) Caffeine.newBuilder();
         this.dataFileCache = dataFileCacheBuilder
                 .executor(executor)
                 .expireAfterWrite(Config.iceberg_manifest_cache_ttl_sec, TimeUnit.SECONDS)
@@ -85,8 +85,8 @@ public class IcebergManifestCache {
 
         // Initialize DeleteFile cache
         @SuppressWarnings("unchecked")
-        Caffeine<String, Set<DeleteFile>> deleteFileCacheBuilder = (Caffeine<String, Set<DeleteFile>>) (Caffeine<?, ?>) Caffeine
-                .newBuilder();
+        Caffeine<String, Set<DeleteFile>> deleteFileCacheBuilder =
+                (Caffeine<String, Set<DeleteFile>>) (Caffeine<?, ?>) Caffeine.newBuilder();
         this.deleteFileCache = deleteFileCacheBuilder
                 .executor(executor)
                 .expireAfterWrite(Config.iceberg_manifest_cache_ttl_sec, TimeUnit.SECONDS)
