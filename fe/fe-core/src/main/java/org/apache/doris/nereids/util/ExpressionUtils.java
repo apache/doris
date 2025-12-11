@@ -342,8 +342,8 @@ public class ExpressionUtils {
         if (expressions.isEmpty()) {
             return ImmutableList.of();
         }
-        ExpressionLineageReplacer.ExpressionReplaceContext replaceContext = new ExpressionLineageReplacer.ExpressionReplaceContext(
-                expressions);
+        ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                new ExpressionLineageReplacer.ExpressionReplaceContext(expressions);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
