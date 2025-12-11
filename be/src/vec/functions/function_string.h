@@ -5418,8 +5418,10 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         //Convert to vectors
-        auto col_left = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto col_right = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto col_left =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_right =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
         const auto* col_left_str = check_and_get_column<ColumnString>(col_left.get());
         const auto* col_right_str = check_and_get_column<ColumnString>(col_right.get());
