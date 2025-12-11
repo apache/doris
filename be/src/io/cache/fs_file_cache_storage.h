@@ -23,6 +23,7 @@
 #include <shared_mutex>
 #include <thread>
 
+#include "io/cache/cache_block_meta_store.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
 #include "io/fs/file_reader.h"
@@ -54,39 +55,42 @@ private:
 
 class FSFileCacheStorage : public FileCacheStorage {
 public:
-    /// use version 2 when USE_CACHE_VERSION2 = true, while use version 1 if false
     /// version 1.0: cache_base_path / key / offset
     /// version 2.0: cache_base_path / key_prefix / key / offset
-    static constexpr bool USE_CACHE_VERSION2 = true;
     static constexpr int KEY_PREFIX_LENGTH = 3;
 
     FSFileCacheStorage() = default;
     ~FSFileCacheStorage() override;
     Status init(BlockFileCache* _mgr) override;
     Status append(const FileCacheKey& key, const Slice& value) override;
-    Status finalize(const FileCacheKey& key) override;
+    Status finalize(const FileCacheKey& key, const size_t size) override;
     Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
     Status remove(const FileCacheKey& key) override;
-    Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) override;
-    Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration) override;
+    Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
+                                const size_t size) override;
+    Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration,
+                                      const size_t size) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
     Status clear(std::string& msg) override;
     std::string get_local_file(const FileCacheKey& key) override;
 
-    [[nodiscard]] static std::string get_path_in_local_cache(const std::string& dir, size_t offset,
-                                                             FileCacheType type,
-                                                             bool is_tmp = false);
+    [[nodiscard]] static std::string get_path_in_local_cache_v3(const std::string& dir,
+                                                                size_t offset, bool is_tmp = false);
 
-    [[nodiscard]] static std::string get_path_in_local_cache_old_ttl_format(const std::string& dir,
-                                                                            size_t offset,
-                                                                            FileCacheType type,
-                                                                            bool is_tmp = false);
+    [[nodiscard]] std::string get_path_in_local_cache_v3(const UInt128Wrapper&) const;
 
-    [[nodiscard]] std::string get_path_in_local_cache(const UInt128Wrapper&,
-                                                      uint64_t expiration_time) const;
+    [[nodiscard]] static std::string get_path_in_local_cache_v2(const std::string& dir,
+                                                                size_t offset, FileCacheType type,
+                                                                bool is_tmp = false);
+
+    [[nodiscard]] std::string get_path_in_local_cache_v2(const UInt128Wrapper&,
+                                                         uint64_t expiration_time) const;
 
     FileCacheStorageType get_type() override { return DISK; }
+
+    // Get the meta store instance (only available for DISK storage type)
+    CacheBlockMetaStore* get_meta_store() { return _meta_store.get(); }
 
 private:
     void remove_old_version_directories();
@@ -109,8 +113,14 @@ private:
 
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
 
-    [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
-            const std::string& dir, size_t offset);
+private:
+    // Helper function to count files in cache directory using statfs
+    size_t estimate_file_count_from_statfs() const;
+    void load_cache_info_into_memory_from_fs(BlockFileCache* _mgr) const;
+    void load_cache_info_into_memory_from_db(BlockFileCache* _mgr) const;
+
+    Status get_file_cache_infos(std::vector<FileCacheInfo>& infos,
+                                std::lock_guard<std::mutex>& cache_lock) const override;
 
     std::string _cache_base_path;
     std::thread _cache_background_load_thread;
@@ -119,6 +129,7 @@ private:
     std::mutex _mtx;
     std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer;
     std::shared_ptr<bvar::LatencyRecorder> _iterator_dir_retry_cnt;
+    std::unique_ptr<CacheBlockMetaStore> _meta_store;
 };
 
 } // namespace doris::io
