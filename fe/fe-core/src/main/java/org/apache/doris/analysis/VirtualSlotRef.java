@@ -17,25 +17,17 @@
 
 package org.apache.doris.analysis;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * It like a SlotRef except that it is not a real column exist in table.
  */
+@Deprecated
 public class VirtualSlotRef extends SlotRef {
-    private List<Expr> realSlots;
 
     protected VirtualSlotRef(VirtualSlotRef other) {
         super(other);
-        if (other.realSlots != null) {
-            realSlots = Expr.cloneList(other.realSlots);
-        }
-    }
-
-    public VirtualSlotRef(SlotDescriptor desc) {
-        super(desc);
     }
 
     @Override
