@@ -336,17 +336,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         return RestoreCommand.STORAGE_MEDIUM_SAME_WITH_UPSTREAM.equals(storageMedium);
     }
 
-    // Get target storage medium (only valid when not same_with_upstream)
-    public TStorageMedium getTargetStorageMedium() {
-        if (RestoreCommand.STORAGE_MEDIUM_HDD.equals(storageMedium)) {
-            return TStorageMedium.HDD;
-        } else if (RestoreCommand.STORAGE_MEDIUM_SSD.equals(storageMedium)) {
-            return TStorageMedium.SSD;
-        }
-        throw new IllegalStateException("getTargetStorageMedium() should not be called "
-                + "when storage_medium is 'same_with_upstream'");
-    }
-
     // Get target allocation mode as enum
     private DataProperty.MediumAllocationMode getTargetAllocationMode() {
         if (RestoreCommand.MEDIUM_ALLOCATION_MODE_STRICT.equals(mediumAllocationMode)) {
