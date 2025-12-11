@@ -803,7 +803,12 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     }
     txn->put(key1, val1);
     LOG(INFO) << "put tablet_idx tablet_id=" << tablet_id << " key=" << hex(key1);
-    if (request->has_db_id() && is_versioned_write) {
+    if (is_versioned_write) {
+        if (!request->has_db_id()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "db_id is required for versioned write, please upgrade your FE version";
+            return;
+        }
         int64_t db_id = request->db_id();
         std::string tablet_idx_key = versioned::tablet_index_key({instance_id, tablet_id});
         std::string tablet_inverted_idx_key = versioned::tablet_inverted_index_key(
@@ -889,6 +894,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+
     RPC_RATE_LIMIT(create_tablets)
     for (; request->has_storage_vault_name();) {
         InstanceInfoPB instance;
@@ -5475,6 +5481,47 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
         }
     }
     return st;
+}
+
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::fix_tablet_db_id(
+        const std::string& instance_id, int64_t tablet_id, int64_t db_id) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return {cast_as<ErrCategory::CREATE>(err), "failed to init txn"};
+    }
+
+    TabletIndexPB tablet_index_pb;
+    std::string key = meta_tablet_idx_key({instance_id, tablet_id});
+    std::string value;
+    err = txn->get(key, &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        std::string msg = fmt::format("tablet index pb not found, key={}", hex(key));
+        return {MetaServiceCode::TABLET_NOT_FOUND, msg};
+    } else if (err != TxnErrorCode::TXN_OK) {
+        std::string msg =
+                fmt::format("failed to get tablet index pb, key={}, err={}", hex(key), err);
+        return {cast_as<ErrCategory::READ>(err), msg};
+    } else if (!tablet_index_pb.ParseFromString(value)) {
+        std::string msg = fmt::format("failed to parse TabletIndexPB, key={}", hex(key));
+        return {MetaServiceCode::PROTOBUF_PARSE_ERR, msg};
+    } else if (tablet_index_pb.db_id() == db_id) {
+        LOG(INFO) << "no need to fix tablet db id, same db id, tablet_id=" << tablet_id
+                  << ", db_id=" << db_id;
+        return {MetaServiceCode::OK, ""};
+    }
+
+    tablet_index_pb.set_db_id(db_id);
+    txn->put(key, tablet_index_pb.SerializeAsString());
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg = fmt::format(
+                "failed to commit txn to fix tablet db id, tablet_id={}, db_id={}, err={}",
+                tablet_id, db_id, err);
+        return {cast_as<ErrCategory::COMMIT>(err), msg};
+    }
+
+    return {MetaServiceCode::OK, ""};
 }
 
 std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset_meta) {
