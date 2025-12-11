@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model.request;
+package org.apache.doris.job.cdc.request;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class WriteRecordReq extends JobBaseRecordReq {
+public class WriteRecordRequest extends JobBaseRecordRequest {
     private long maxInterval;
     private String targetDb;
     private String token;

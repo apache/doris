@@ -15,24 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.cdc;
+package org.apache.doris.job.cdc.request;
 
 import lombok.AllArgsConstructor;
-import lombok.Getter;
+import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
-import java.io.Serializable;
+import java.util.Map;
 
-@Getter
-@Setter
+@Data
 @AllArgsConstructor
 @NoArgsConstructor
-public abstract class AbstractSourceSplit implements Serializable {
-    private static final long serialVersionUID = 1L;
-    protected String splitId;
-
-    public boolean snapshotSplit() {
-        return this instanceof SnapshotSplit;
-    }
+public class JobBaseConfig {
+    private Long jobId;
+    private String dataSource;
+    private Map<String, String> config;
 }

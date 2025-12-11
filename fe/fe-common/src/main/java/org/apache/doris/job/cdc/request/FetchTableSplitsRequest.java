@@ -15,23 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model.request;
+package org.apache.doris.job.cdc.request;
 
-import org.apache.doris.cdcclient.model.JobConfig;
-
-import java.util.Map;
-
+import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
+
+import java.util.Map;
 
 @Getter
 @Setter
 @EqualsAndHashCode(callSuper = true)
-public abstract class JobBaseRecordReq extends JobConfig {
-    protected Map<String, Object> meta;
+@AllArgsConstructor
+@NoArgsConstructor
+public class FetchTableSplitsRequest extends JobBaseConfig {
+    private String snapshotTable;
 
-    public abstract boolean isReload();
-
-    public abstract int getFetchSize();
+    public FetchTableSplitsRequest(Long jobId, String name,
+            Map<String, String> sourceProperties, String snapshotTable) {
+        super(jobId, name, sourceProperties);
+        this.snapshotTable = snapshotTable;
+    }
 }

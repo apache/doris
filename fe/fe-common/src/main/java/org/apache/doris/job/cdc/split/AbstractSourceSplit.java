@@ -15,13 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model.response;
+package org.apache.doris.job.cdc.split;
 
-import java.util.Map;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-import lombok.Data;
+import java.io.Serializable;
 
-@Data
-public class WriteMetaResp {
-    private Map<String, String> meta;
+@Getter
+@Setter
+@AllArgsConstructor
+@NoArgsConstructor
+public abstract class AbstractSourceSplit implements Serializable {
+    private static final long serialVersionUID = 1L;
+    protected String splitId;
+
+    public boolean snapshotSplit() {
+        return this instanceof SnapshotSplit;
+    }
 }

@@ -19,12 +19,12 @@ package org.apache.doris.cdcclient.service;
 
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.exception.StreamLoadException;
-import org.apache.doris.cdcclient.model.request.WriteRecordReq;
 import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
+import org.apache.doris.job.cdc.request.WriteRecordRequest;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
@@ -78,27 +78,27 @@ public class PipelineCoordinator {
                         new ThreadPoolExecutor.AbortPolicy());
     }
 
-    public CompletableFuture<Void> writeRecordsAsync(WriteRecordReq writeRecordReq) {
-        Preconditions.checkNotNull(writeRecordReq.getToken(), "token must not be null");
-        Preconditions.checkNotNull(writeRecordReq.getTaskId(), "taskId must not be null");
-        Preconditions.checkNotNull(writeRecordReq.getTargetDb(), "targetDb must not be null");
+    public CompletableFuture<Void> writeRecordsAsync(WriteRecordRequest writeRecordRequest) {
+        Preconditions.checkNotNull(writeRecordRequest.getToken(), "token must not be null");
+        Preconditions.checkNotNull(writeRecordRequest.getTaskId(), "taskId must not be null");
+        Preconditions.checkNotNull(writeRecordRequest.getTargetDb(), "targetDb must not be null");
         return CompletableFuture.runAsync(
                 () -> {
                     try {
                         LOG.info(
                                 "Start processing async write record, jobId={} taskId={}",
-                                writeRecordReq.getJobId(),
-                                writeRecordReq.getTaskId());
-                        writeRecords(writeRecordReq);
+                                writeRecordRequest.getJobId(),
+                                writeRecordRequest.getTaskId());
+                        writeRecords(writeRecordRequest);
                         LOG.info(
                                 "Successfully processed async write record, jobId={} taskId={}",
-                                writeRecordReq.getJobId(),
-                                writeRecordReq.getTaskId());
+                                writeRecordRequest.getJobId(),
+                                writeRecordRequest.getTaskId());
                     } catch (Exception ex) {
                         LOG.error(
                                 "Failed to process async write record, jobId={} taskId={}",
-                                writeRecordReq.getJobId(),
-                                writeRecordReq.getTaskId(),
+                                writeRecordRequest.getJobId(),
+                                writeRecordRequest.getTaskId(),
                                 ex);
                     }
                 },
@@ -106,8 +106,8 @@ public class PipelineCoordinator {
     }
 
     /** Read data from SourceReader and write it to Doris, while returning meta information. */
-    public void writeRecords(WriteRecordReq writeRecordReq) throws Exception {
-        SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordReq);
+    public void writeRecords(WriteRecordRequest writeRecordRequest) throws Exception {
+        SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
         DorisBatchStreamLoad batchStreamLoad = null;
         Map<String, String> metaResponse = new HashMap<>();
         boolean hasData = false;
@@ -115,26 +115,26 @@ public class PipelineCoordinator {
         long scannedBytes = 0L;
         SplitReadResult readResult = null;
         try {
-            readResult = sourceReader.readSplitRecords(writeRecordReq);
+            readResult = sourceReader.readSplitRecords(writeRecordRequest);
             batchStreamLoad =
                     getOrCreateBatchStreamLoad(
-                            writeRecordReq.getJobId(), writeRecordReq.getTargetDb());
-            batchStreamLoad.setCurrentTaskId(writeRecordReq.getTaskId());
-            batchStreamLoad.setFrontendAddress(writeRecordReq.getFrontendAddress());
-            batchStreamLoad.setToken(writeRecordReq.getToken());
+                            writeRecordRequest.getJobId(), writeRecordRequest.getTargetDb());
+            batchStreamLoad.setCurrentTaskId(writeRecordRequest.getTaskId());
+            batchStreamLoad.setFrontendAddress(writeRecordRequest.getFrontendAddress());
+            batchStreamLoad.setToken(writeRecordRequest.getToken());
 
             // Record start time for maxInterval check
             long startTime = System.currentTimeMillis();
-            long maxIntervalMillis = writeRecordReq.getMaxInterval() * 1000;
+            long maxIntervalMillis = writeRecordRequest.getMaxInterval() * 1000;
 
             // Use iterators to read and write.
             Iterator<SourceRecord> iterator = readResult.getRecordIterator();
             while (iterator != null && iterator.hasNext()) {
                 SourceRecord element = iterator.next();
                 List<String> serializedRecords =
-                        serializer.deserialize(writeRecordReq.getConfig(), element);
+                        serializer.deserialize(writeRecordRequest.getConfig(), element);
                 if (!CollectionUtils.isEmpty(serializedRecords)) {
-                    String database = writeRecordReq.getTargetDb();
+                    String database = writeRecordRequest.getTargetDb();
                     String table = extractTable(element);
                     hasData = true;
                     for (String record : serializedRecords) {
@@ -157,7 +157,7 @@ public class PipelineCoordinator {
                 if (maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis) {
                     LOG.info(
                             "Max interval {} seconds reached, stopping data reading",
-                            writeRecordReq.getMaxInterval());
+                            writeRecordRequest.getMaxInterval());
                     break;
                 }
             }

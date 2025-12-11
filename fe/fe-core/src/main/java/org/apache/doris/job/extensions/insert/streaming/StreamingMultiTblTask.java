@@ -24,8 +24,9 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.httpv2.rest.StreamingJobAction.CommitOffsetRequest;
 import org.apache.doris.job.base.Job;
-import org.apache.doris.job.cdc.BinlogSplit;
-import org.apache.doris.job.cdc.SnapshotSplit;
+import org.apache.doris.job.cdc.request.WriteRecordRequest;
+import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
@@ -109,7 +110,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     private void sendWriteRequest() throws JobException {
         Backend backend = StreamingJobUtils.selectBackend(jobId);
-        Map<String, Object> params = buildRequestParams();
+        WriteRecordRequest params = buildRequestParams();
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/writeRecords")
                 .setParams(new Gson().toJson(params)).build();
@@ -160,21 +161,24 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         return token;
     }
 
-    private Map<String, Object> buildRequestParams() throws JobException {
+    private WriteRecordRequest buildRequestParams() throws JobException {
         JdbcOffset offset = (JdbcOffset) runningOffset;
-        Map<String, Object> params = new HashMap<>();
-        params.put("jobId", getJobId());
-        params.put("labelName", getLabelName());
-        params.put("dataSource", dataSourceType);
-        params.put("meta", offset.getSplit());
-        params.put("config", sourceProperties);
-        params.put("targetDb", targetDb);
-        params.put("token", getToken());
-        params.put("taskId", getTaskId());
-        params.put("frontendAddress",
-                Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort());
-        params.put("maxInterval", jobProperties.getMaxIntervalSecond());
-        return params;
+        WriteRecordRequest request = new WriteRecordRequest();
+        request.setJobId(getJobId());
+        request.setConfig(sourceProperties);
+        request.setDataSource(dataSourceType.name());
+
+        request.setTaskId(getTaskId() + "");
+        request.setToken(getToken());
+        request.setTargetDb(targetDb);
+        Map<String, Object> splitMeta = objectMapper.convertValue(offset.getSplit(),
+                new TypeReference<Map<String, Object>>() {
+                });
+        request.setMeta(splitMeta);
+        String feAddr = Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
+        request.setFrontendAddress(feAddr);
+        request.setMaxInterval(jobProperties.getMaxIntervalSecond());
+        return request;
     }
 
     @Override

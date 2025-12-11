@@ -15,24 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model.request;
+package org.apache.doris.job.cdc.split;
 
-import lombok.Data;
+import com.google.gson.Gson;
 import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.Setter;
 
-@Data
+import java.util.List;
+import java.util.Map;
+
+@Getter
+@Setter
 @EqualsAndHashCode(callSuper = true)
-public class FetchRecordReq extends JobBaseRecordReq {
-    private boolean reload = true;
-    private int fetchSize;
+public class BinlogSplit extends AbstractSourceSplit {
+    private static final long serialVersionUID = 1L;
+    public static final String BINLOG_SPLIT_ID = "binlog-split";
+    private Map<String, String> startingOffset;
+    private Map<String, String> endingOffset;
+    // binlog split meta, first binlog split requires
+    private List<SnapshotSplit> finishedSplits;
 
-    @Override
-    public boolean isReload() {
-        return reload;
+    public BinlogSplit() {
+        this.splitId = BINLOG_SPLIT_ID;
+    }
+
+    public BinlogSplit(Map<String, String> startingOffset) {
+        this.splitId = BINLOG_SPLIT_ID;
+        this.startingOffset = startingOffset;
     }
 
     @Override
-    public int getFetchSize() {
-        return fetchSize;
+    public String toString() {
+        return new Gson().toJson(this);
     }
+
 }

@@ -17,10 +17,10 @@
 
 package org.apache.doris.cdcclient.common;
 
-import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.factory.SourceReaderFactory;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
 
 import java.util.Locale;
 import java.util.Map;
@@ -53,7 +53,7 @@ public class Env {
         return INSTANCE;
     }
 
-    public SourceReader getReader(JobConfig jobConfig) {
+    public SourceReader getReader(JobBaseConfig jobConfig) {
         DataSource ds = resolveDataSource(jobConfig.getDataSource());
         Env manager = Env.getCurrentEnv();
         return manager.getOrCreateReader(jobConfig.getJobId(), ds, jobConfig.getConfig());

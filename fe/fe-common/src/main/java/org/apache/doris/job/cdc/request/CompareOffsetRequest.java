@@ -15,39 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.cdc;
+package org.apache.doris.job.cdc.request;
 
-import com.google.gson.Gson;
-import lombok.EqualsAndHashCode;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.util.List;
 import java.util.Map;
 
 @Getter
 @Setter
-@EqualsAndHashCode(callSuper = true)
-public class BinlogSplit extends AbstractSourceSplit {
-    private static final long serialVersionUID = 1L;
-    public static final String BINLOG_SPLIT_ID = "binlog-split";
-    private Map<String, String> startingOffset;
-    private Map<String, String> endingOffset;
-    // binlog split meta, first binlog split requires
-    private List<SnapshotSplit> finishedSplits;
+@AllArgsConstructor
+@NoArgsConstructor
+public class CompareOffsetRequest extends JobBaseConfig {
+    private Map<String, String> offsetFirst;
+    private Map<String, String> offsetSecond;
 
-    public BinlogSplit() {
-        this.splitId = BINLOG_SPLIT_ID;
+    public CompareOffsetRequest(Long jobId,
+            String sourceType,
+            Map<String, String> sourceProperties,
+            Map<String, String> offsetFirst,
+            Map<String, String> offsetSecond) {
+        super(jobId, sourceType, sourceProperties);
+        this.offsetFirst = offsetFirst;
+        this.offsetSecond = offsetSecond;
     }
-
-    public BinlogSplit(Map<String, String> startingOffset) {
-        this.splitId = BINLOG_SPLIT_ID;
-        this.startingOffset = startingOffset;
-    }
-
-    @Override
-    public String toString() {
-        return new Gson().toJson(this);
-    }
-
 }

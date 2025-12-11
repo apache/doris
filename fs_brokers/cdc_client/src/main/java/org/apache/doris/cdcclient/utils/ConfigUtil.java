@@ -17,8 +17,8 @@
 
 package org.apache.doris.cdcclient.utils;
 
-import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
 
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -48,7 +48,7 @@ public class ConfigUtil {
         return String.valueOf(Math.abs(String.valueOf(jobId).hashCode()));
     }
 
-    public static MySqlSourceConfig generateMySqlConfig(JobConfig config) {
+    public static MySqlSourceConfig generateMySqlConfig(JobBaseConfig config) {
         Map<String, String> cdcConfig = config.getConfig();
         MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
 

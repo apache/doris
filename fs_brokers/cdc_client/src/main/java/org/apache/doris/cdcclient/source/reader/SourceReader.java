@@ -17,13 +17,13 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
-import org.apache.doris.cdcclient.model.JobConfig;
-import org.apache.doris.cdcclient.model.request.CompareOffsetReq;
-import org.apache.doris.cdcclient.model.request.FetchRecordReq;
-import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
-import org.apache.doris.cdcclient.model.request.JobBaseRecordReq;
 import org.apache.doris.cdcclient.model.response.RecordWithMeta;
-import org.apache.doris.job.cdc.AbstractSourceSplit;
+import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchRecordRequest;
+import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
+import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
+import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 
 import org.apache.flink.api.connector.source.SourceSplit;
 
@@ -36,13 +36,13 @@ public interface SourceReader {
     void initialize();
 
     /** Divide the data to be read. For example: split mysql to chunks */
-    List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsReq config);
+    List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
 
     /** Reading Data */
-    RecordWithMeta read(FetchRecordReq meta) throws Exception;
+    RecordWithMeta read(FetchRecordRequest meta) throws Exception;
 
     /** Reading Data for split reader */
-    SplitReadResult readSplitRecords(JobBaseRecordReq baseReq) throws Exception;
+    SplitReadResult readSplitRecords(JobBaseRecordRequest baseReq) throws Exception;
 
     /** Extract offset information from snapshot split state. */
     Map<String, String> extractSnapshotOffset(SourceSplit split, Object splitState);
@@ -60,10 +60,10 @@ public interface SourceReader {
     void finishSplitRecords();
 
     /** Get the end offset for the job */
-    Map<String, String> getEndOffset(JobConfig jobConfig);
+    Map<String, String> getEndOffset(JobBaseConfig jobConfig);
 
     /** Compare the offsets */
-    int compareOffset(CompareOffsetReq compareOffsetReq);
+    int compareOffset(CompareOffsetRequest compareOffsetRequest);
 
     /** Called when closing */
     void close(Long jobId);

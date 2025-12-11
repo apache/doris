@@ -15,18 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model.request;
+package org.apache.doris.job.cdc.request;
 
-import org.apache.doris.cdcclient.model.JobConfig;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 
-import java.util.Map;
+@Data
+@EqualsAndHashCode(callSuper = true)
+public class FetchRecordRequest extends JobBaseRecordRequest {
+    private boolean reload = true;
+    private int fetchSize;
 
-import lombok.Getter;
-import lombok.Setter;
+    @Override
+    public boolean isReload() {
+        return reload;
+    }
 
-@Getter
-@Setter
-public class CompareOffsetReq extends JobConfig {
-    private Map<String, String> offsetFirst;
-    private Map<String, String> offsetSecond;
+    @Override
+    public int getFetchSize() {
+        return fetchSize;
+    }
 }

@@ -17,11 +17,6 @@
 
 package org.apache.doris.cdcclient.source.reader.mysql;
 
-import org.apache.doris.cdcclient.model.JobConfig;
-import org.apache.doris.cdcclient.model.request.CompareOffsetReq;
-import org.apache.doris.cdcclient.model.request.FetchRecordReq;
-import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
-import org.apache.doris.cdcclient.model.request.JobBaseRecordReq;
 import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
@@ -29,10 +24,15 @@ import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.source.reader.SplitRecords;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
-import org.apache.doris.job.cdc.AbstractSourceSplit;
-import org.apache.doris.job.cdc.BinlogSplit;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
-import org.apache.doris.job.cdc.SnapshotSplit;
+import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchRecordRequest;
+import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
+import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
+import org.apache.doris.job.cdc.split.AbstractSourceSplit;
+import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
@@ -114,7 +114,7 @@ public class MySqlSourceReader implements SourceReader {
     public void initialize() {}
 
     @Override
-    public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsReq ftsReq) {
+    public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
         MySqlSourceConfig sourceConfig = getSourceConfig(ftsReq);
         StartupMode startupMode = sourceConfig.getStartupOptions().startupMode;
         List<MySqlSnapshotSplit> remainingSnapshotSplits = new ArrayList<>();
@@ -160,14 +160,14 @@ public class MySqlSourceReader implements SourceReader {
      * reset binlogSplitReader and submit split.
      */
     @Override
-    public RecordWithMeta read(FetchRecordReq fetchRecord) throws Exception {
+    public RecordWithMeta read(FetchRecordRequest fetchRecord) throws Exception {
         SplitReadResult readResult = readSplitRecords(fetchRecord);
         return buildRecordResponse(fetchRecord, readResult);
     }
 
     /** read split records. */
     @Override
-    public SplitReadResult readSplitRecords(JobBaseRecordReq baseReq) throws Exception {
+    public SplitReadResult readSplitRecords(JobBaseRecordRequest baseReq) throws Exception {
         Map<String, Object> offsetMeta = baseReq.getMeta();
         if (offsetMeta == null || offsetMeta.isEmpty()) {
             throw new RuntimeException("miss meta offset");
@@ -225,7 +225,7 @@ public class MySqlSourceReader implements SourceReader {
 
     /** build RecordWithMeta */
     private RecordWithMeta buildRecordResponse(
-            FetchRecordReq fetchRecord, SplitReadResult readResult) throws Exception {
+            FetchRecordRequest fetchRecord, SplitReadResult readResult) throws Exception {
         RecordWithMeta recordResponse = new RecordWithMeta();
         SourceSplit split = readResult.getSplit();
         int count = 0;
@@ -300,7 +300,8 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     private Tuple2<MySqlSplit, Boolean> createMySqlSplit(
-            Map<String, Object> offsetMeta, JobConfig jobConfig) throws JsonProcessingException {
+            Map<String, Object> offsetMeta, JobBaseConfig jobConfig)
+            throws JsonProcessingException {
         Tuple2<MySqlSplit, Boolean> splitRes = null;
         String splitId = String.valueOf(offsetMeta.get(SPLIT_ID));
         if (!BINLOG_SPLIT_ID.equals(splitId)) {
@@ -312,8 +313,8 @@ public class MySqlSourceReader implements SourceReader {
         return splitRes;
     }
 
-    private MySqlSnapshotSplit createSnapshotSplit(Map<String, Object> offset, JobConfig jobConfig)
-            throws JsonProcessingException {
+    private MySqlSnapshotSplit createSnapshotSplit(
+            Map<String, Object> offset, JobBaseConfig jobConfig) throws JsonProcessingException {
         SnapshotSplit snapshotSplit = objectMapper.convertValue(offset, SnapshotSplit.class);
         TableId tableId = TableId.parse(snapshotSplit.getTableId());
         Object[] splitStart = snapshotSplit.getSplitStart();
@@ -340,7 +341,7 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     private Tuple2<MySqlSplit, Boolean> createBinlogSplit(
-            Map<String, Object> meta, JobConfig config) {
+            Map<String, Object> meta, JobBaseConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
         BinlogOffset offsetConfig = null;
         if (sourceConfig.getStartupOptions() != null) {
@@ -445,7 +446,7 @@ public class MySqlSourceReader implements SourceReader {
         return remainingSplits;
     }
 
-    private SplitRecords pollSplitRecordsWithSplit(MySqlSplit split, JobConfig jobConfig)
+    private SplitRecords pollSplitRecordsWithSplit(MySqlSplit split, JobBaseConfig jobConfig)
             throws Exception {
         Preconditions.checkState(split != null, "split is null");
         Iterator<SourceRecords> dataIt = null;
@@ -481,7 +482,7 @@ public class MySqlSourceReader implements SourceReader {
         }
     }
 
-    private SnapshotSplitReader getSnapshotSplitReader(JobConfig config) {
+    private SnapshotSplitReader getSnapshotSplitReader(JobBaseConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
         SnapshotSplitReader snapshotReader = this.getSnapshotReader();
         if (snapshotReader == null) {
@@ -497,7 +498,7 @@ public class MySqlSourceReader implements SourceReader {
         return snapshotReader;
     }
 
-    private BinlogSplitReader getBinlogSplitReader(JobConfig config) {
+    private BinlogSplitReader getBinlogSplitReader(JobBaseConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
         BinlogSplitReader binlogReader = this.getBinlogReader();
         if (binlogReader == null) {
@@ -540,7 +541,7 @@ public class MySqlSourceReader implements SourceReader {
         }
     }
 
-    private MySqlSourceConfig getSourceConfig(JobConfig config) {
+    private MySqlSourceConfig getSourceConfig(JobBaseConfig config) {
         return ConfigUtil.generateMySqlConfig(config);
     }
 
@@ -585,7 +586,7 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     @Override
-    public Map<String, String> getEndOffset(JobConfig jobConfig) {
+    public Map<String, String> getEndOffset(JobBaseConfig jobConfig) {
         MySqlSourceConfig sourceConfig = getSourceConfig(jobConfig);
         try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig)) {
             BinlogOffset binlogOffset = DebeziumUtils.currentBinlogOffset(jdbc);
@@ -596,9 +597,9 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     @Override
-    public int compareOffset(CompareOffsetReq compareOffsetReq) {
-        Map<String, String> offsetFirst = compareOffsetReq.getOffsetFirst();
-        Map<String, String> offsetSecond = compareOffsetReq.getOffsetSecond();
+    public int compareOffset(CompareOffsetRequest compareOffsetRequest) {
+        Map<String, String> offsetFirst = compareOffsetRequest.getOffsetFirst();
+        Map<String, String> offsetSecond = compareOffsetRequest.getOffsetSecond();
         // make server id is equals
         String serverId1 = offsetFirst.get("server_id");
         String serverId2 = offsetSecond.get("server_id");
@@ -614,7 +615,7 @@ public class MySqlSourceReader implements SourceReader {
         return binlogOffset1.compareTo(binlogOffset2);
     }
 
-    private Map<TableId, TableChanges.TableChange> getTableSchemas(JobConfig config) {
+    private Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {
         Map<TableId, TableChanges.TableChange> schemas = this.getTableSchemas();
         if (schemas == null) {
             schemas = discoverTableSchemas(config);
@@ -623,7 +624,7 @@ public class MySqlSourceReader implements SourceReader {
         return schemas;
     }
 
-    private Map<TableId, TableChanges.TableChange> discoverTableSchemas(JobConfig config) {
+    private Map<TableId, TableChanges.TableChange> discoverTableSchemas(JobBaseConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
         try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig)) {
             MySqlPartition partition =

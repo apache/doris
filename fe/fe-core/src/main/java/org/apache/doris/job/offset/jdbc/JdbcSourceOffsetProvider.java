@@ -18,10 +18,13 @@
 package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.httpv2.entity.ResponseBody;
-import org.apache.doris.job.cdc.AbstractSourceSplit;
-import org.apache.doris.job.cdc.BinlogSplit;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
-import org.apache.doris.job.cdc.SnapshotSplit;
+import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
+import org.apache.doris.job.cdc.split.AbstractSourceSplit;
+import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
@@ -119,14 +122,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         if (this.currentOffset != null) {
             AbstractSourceSplit split = this.currentOffset.getSplit();
             if (split.snapshotSplit()) {
-                SnapshotSplit snsplit = (SnapshotSplit) split;
-                Map<String, Object> splitShow = new HashMap<>();
-                splitShow.put("splitId", snsplit.getSplitId());
-                splitShow.put("tableId", snsplit.getTableId());
-                splitShow.put("splitKey", snsplit.getSplitKey());
-                splitShow.put("splitStart", snsplit.getSplitStart());
-                splitShow.put("splitEnd", snsplit.getSplitEnd());
-                return new Gson().toJson(splitShow);
+                return new Gson().toJson(split);
             } else {
                 BinlogSplit binlogSplit = (BinlogSplit) split;
                 HashMap<String, Object> showMap = new HashMap<>();
@@ -187,10 +183,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
         Backend backend = StreamingJobUtils.selectBackend(jobId);
-        Map<String, Object> params = buildBaseParams();
+        JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchEndOffset")
-                .setParams(new Gson().toJson(params)).build();
+                .setParams(new Gson().toJson(requestParams)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
@@ -262,10 +258,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
             throws JobException {
         Backend backend = StreamingJobUtils.selectBackend(jobId);
-        Map<String, Object> params = buildCompareOffsetParams(offsetFirst, offsetSecond);
+        CompareOffsetRequest requestParams =
+                new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties, offsetFirst, offsetSecond);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/compareOffset")
-                .setParams(new Gson().toJson(params)).build();
+                .setParams(new Gson().toJson(requestParams)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
@@ -447,10 +444,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     private List<SnapshotSplit> requestTableSplits(String table) throws JobException {
         Backend backend = StreamingJobUtils.selectBackend(jobId);
-        Map<String, Object> params = buildSplitParams(table);
+        FetchTableSplitsRequest requestParams =
+                new FetchTableSplitsRequest(getJobId(), sourceType.name(), sourceProperties, table);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchSplits")
-                .setParams(new Gson().toJson(params)).build();
+                .setParams(new Gson().toJson(requestParams)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
@@ -481,28 +479,6 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             log.error("Get splits error: ", ex);
             throw new JobException(ex);
         }
-    }
-
-    private Map<String, Object> buildBaseParams() {
-        Map<String, Object> params = new HashMap<>();
-        params.put("jobId", getJobId());
-        params.put("dataSource", sourceType);
-        params.put("config", sourceProperties);
-        return params;
-    }
-
-    private Map<String, Object> buildCompareOffsetParams(Map<String, String> offsetFirst,
-            Map<String, String> offsetSecond) {
-        Map<String, Object> params = buildBaseParams();
-        params.put("offsetFirst", offsetFirst);
-        params.put("offsetSecond", offsetSecond);
-        return params;
-    }
-
-    private Map<String, Object> buildSplitParams(String table) {
-        Map<String, Object> params = buildBaseParams();
-        params.put("snapshotTable", table);
-        return params;
     }
 
     private boolean checkNeedSplitChunks(Map<String, String> sourceProperties) {

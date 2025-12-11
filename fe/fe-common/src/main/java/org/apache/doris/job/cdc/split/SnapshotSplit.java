@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.cdc;
+package org.apache.doris.job.cdc.split;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;

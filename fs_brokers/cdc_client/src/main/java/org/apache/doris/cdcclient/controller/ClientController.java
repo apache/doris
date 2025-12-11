@@ -18,14 +18,14 @@
 package org.apache.doris.cdcclient.controller;
 
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.model.JobConfig;
-import org.apache.doris.cdcclient.model.request.CompareOffsetReq;
-import org.apache.doris.cdcclient.model.request.FetchRecordReq;
-import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
-import org.apache.doris.cdcclient.model.request.WriteRecordReq;
 import org.apache.doris.cdcclient.model.rest.RestResponse;
 import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
+import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchRecordRequest;
+import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
+import org.apache.doris.job.cdc.request.WriteRecordRequest;
 
 import java.util.List;
 
@@ -46,7 +46,7 @@ public class ClientController {
 
     /** Fetch source splits for snapshot */
     @RequestMapping(path = "/api/fetchSplits", method = RequestMethod.POST)
-    public Object fetchSplits(@RequestBody FetchTableSplitsReq ftsReq) {
+    public Object fetchSplits(@RequestBody FetchTableSplitsRequest ftsReq) {
         try {
             SourceReader reader = Env.getCurrentEnv().getReader(ftsReq);
             List splits = reader.getSourceSplits(ftsReq);
@@ -59,7 +59,7 @@ public class ClientController {
 
     /** Fetch records from source reader */
     @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.POST)
-    public Object fetchRecords(@RequestBody FetchRecordReq recordReq) {
+    public Object fetchRecords(@RequestBody FetchRecordRequest recordReq) {
         try {
             SourceReader reader = Env.getCurrentEnv().getReader(recordReq);
             return RestResponse.success(reader.read(recordReq));
@@ -71,7 +71,7 @@ public class ClientController {
 
     /** Fetch records from source reader and Write records to backend */
     @RequestMapping(path = "/api/writeRecords", method = RequestMethod.POST)
-    public Object writeRecord(@RequestBody WriteRecordReq recordReq) {
+    public Object writeRecord(@RequestBody WriteRecordRequest recordReq) {
         LOG.info(
                 "Received write record request for jobId={}, taskId={}, meta={}",
                 recordReq.getJobId(),
@@ -83,16 +83,16 @@ public class ClientController {
 
     /** Fetch lastest end meta */
     @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
-    public Object fetchEndOffset(@RequestBody JobConfig jobConfig) {
+    public Object fetchEndOffset(@RequestBody JobBaseConfig jobConfig) {
         SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
         return RestResponse.success(reader.getEndOffset(jobConfig));
     }
 
     /** compare datasource Binlog Offset */
     @RequestMapping(path = "/api/compareOffset", method = RequestMethod.POST)
-    public Object compareOffset(@RequestBody CompareOffsetReq compareOffsetReq) {
-        SourceReader reader = Env.getCurrentEnv().getReader(compareOffsetReq);
-        return RestResponse.success(reader.compareOffset(compareOffsetReq));
+    public Object compareOffset(@RequestBody CompareOffsetRequest compareOffsetRequest) {
+        SourceReader reader = Env.getCurrentEnv().getReader(compareOffsetRequest);
+        return RestResponse.success(reader.compareOffset(compareOffsetRequest));
     }
 
     /** Close job */

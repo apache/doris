@@ -17,8 +17,8 @@
 
 package org.apache.doris.job.offset.jdbc;
 
-import org.apache.doris.job.cdc.AbstractSourceSplit;
-import org.apache.doris.job.cdc.BinlogSplit;
+import org.apache.doris.job.cdc.split.AbstractSourceSplit;
+import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.offset.Offset;
 
 import com.google.gson.Gson;
