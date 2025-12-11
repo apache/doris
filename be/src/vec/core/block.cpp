@@ -288,6 +288,7 @@ Status Block::check_type_and_column() const {
         const auto& type = elem.type;
         const auto& column = elem.column;
 
+        RETURN_IF_ERROR(column->column_self_check());
         auto st = type->check_column(*column);
         if (!st.ok()) {
             return Status::InternalError(

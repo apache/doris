@@ -6,17 +6,17 @@
 1.0
 
 -- !regr_slope_int --
--0.0
+1.0
 
 -- !regr_slope_bigint --
 \N
 
 -- !regr_slope_largeint --
-17725.127617654194
+0.0
 
 -- !regr_slope_float --
--2.79289213515492
+-2.792892135154929
 
 -- !regr_slope_double --
--0.5501239199999569
+-0.5501239199999999
 

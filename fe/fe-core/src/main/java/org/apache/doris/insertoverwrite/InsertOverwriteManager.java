@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -53,8 +54,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class InsertOverwriteManager extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteManager.class);
 
-    private static final long CLEAN_INTERVAL_SECOND = 10;
-
     @SerializedName(value = "tasks")
     private ConcurrentMap<Long, InsertOverwriteTask> tasks = Maps.newConcurrentMap();
 
@@ -76,7 +75,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     private ReentrantReadWriteLock runningLock = new ReentrantReadWriteLock(true);
 
     public InsertOverwriteManager() {
-        super("InsertOverwriteDropDirtyPartitions", CLEAN_INTERVAL_SECOND * 1000);
+        super("InsertOverwriteDropDirtyPartitions", Config.overwrite_clean_interval_ms);
     }
 
     /**
@@ -369,6 +368,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      */
     @Override
     protected void runAfterCatalogReady() {
+        setInterval(Config.overwrite_clean_interval_ms); // aware of dynamic change
         LOG.info("start clean insert overwrite temp partitions");
         HashMap<Long, InsertOverwriteTask> copyTasks = Maps.newHashMap(tasks);
         for (Entry<Long, InsertOverwriteTask> entry : copyTasks.entrySet()) {

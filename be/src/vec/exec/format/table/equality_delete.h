@@ -56,7 +56,9 @@ public:
         return _build_set();
     }
 
-    virtual Status filter_data_block(Block* data_block) = 0;
+    virtual Status filter_data_block(
+            Block* data_block,
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) = 0;
 
     static std::unique_ptr<EqualityDeleteBase> get_delete_impl(Block* delete_block);
 };
@@ -73,7 +75,9 @@ protected:
 public:
     SimpleEqualityDelete(Block* delete_block) : EqualityDeleteBase(delete_block) {}
 
-    Status filter_data_block(Block* data_block) override;
+    Status filter_data_block(
+            Block* data_block,
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) override;
 };
 
 /**
@@ -100,7 +104,9 @@ protected:
 public:
     MultiEqualityDelete(Block* delete_block) : EqualityDeleteBase(delete_block) {}
 
-    Status filter_data_block(Block* data_block) override;
+    Status filter_data_block(
+            Block* data_block,
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) override;
 };
 
 #include "common/compile_check_end.h"

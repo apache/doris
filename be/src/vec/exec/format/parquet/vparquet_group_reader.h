@@ -179,6 +179,11 @@ public:
         _current_row_group_idx = row_group_idx;
     }
 
+    void set_col_name_to_block_idx(
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        _col_name_to_block_idx = col_name_to_block_idx;
+    }
+
 protected:
     void _collect_profile_before_close() override {
         if (_file_reader != nullptr) {
@@ -260,6 +265,8 @@ private:
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
     std::vector<rowid_t> _current_batch_row_ids;
+
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 };
 #include "common/compile_check_end.h"
 
