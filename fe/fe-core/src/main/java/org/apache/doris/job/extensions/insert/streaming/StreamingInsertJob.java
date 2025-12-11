@@ -507,7 +507,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     "Failed to fetch meta, " + ex.getMessage());
         }
     }
-    
+
     public boolean needScheduleTask() {
         readLock();
         try {
