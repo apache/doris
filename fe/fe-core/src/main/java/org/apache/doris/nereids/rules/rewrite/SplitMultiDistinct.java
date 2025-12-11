@@ -218,12 +218,16 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
         }
         Set<Expression> distinctFunc = new HashSet<>();
         boolean distinctMultiColumns = false;
+        boolean hasNotSupportMultiDistinctFunc = false;
         for (NamedExpression namedExpression : agg.getOutputExpressions()) {
             if (!(namedExpression instanceof Alias) || !(namedExpression.child(0) instanceof AggregateFunction)) {
                 continue;
             }
             AggregateFunction aggFunc = (AggregateFunction) namedExpression.child(0);
-            if (aggFunc instanceof SupportMultiDistinct && aggFunc.isDistinct()) {
+            if (aggFunc.isDistinct()) {
+                if (!(aggFunc instanceof SupportMultiDistinct)) {
+                    hasNotSupportMultiDistinctFunc = true;
+                }
                 aliases.add((Alias) namedExpression);
                 distinctFunc.add(aggFunc);
                 distinctMultiColumns = distinctMultiColumns || isDistinctMultiColumns(aggFunc);
@@ -233,6 +237,9 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
         }
         if (distinctFunc.size() <= 1) {
             return false;
+        }
+        if (hasNotSupportMultiDistinctFunc) {
+            return true;
         }
         // when this aggregate is not distinctMultiColumns, and group by expressions is not empty
         // e.g. sql1: select count(distinct a), count(distinct b) from t1 group by c;
