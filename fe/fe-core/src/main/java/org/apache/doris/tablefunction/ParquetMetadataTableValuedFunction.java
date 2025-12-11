@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
  */
 public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunction {
 
-    public static final String NAME = "parquet_metadata";
+    public static final String NAME = "parquet_meta";
     private static final String PATH = "path";
     private static final String MODE = "mode";
 
