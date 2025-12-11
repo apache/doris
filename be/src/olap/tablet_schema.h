@@ -339,7 +339,8 @@ public:
     void remove_parser_and_analyzer() {
         _properties.erase(INVERTED_INDEX_PARSER_KEY);
         _properties.erase(INVERTED_INDEX_PARSER_KEY_ALIAS);
-        _properties.erase(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
+        _properties.erase(INVERTED_INDEX_ANALYZER_NAME_KEY);
+        _properties.erase(INVERTED_INDEX_NORMALIZER_NAME_KEY);
     }
 
     std::string field_pattern() const {

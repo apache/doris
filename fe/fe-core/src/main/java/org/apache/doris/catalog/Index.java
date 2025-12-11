@@ -79,7 +79,8 @@ public class Index implements Writable {
             if (this.properties != null && !this.properties.isEmpty()) {
                 if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
                         || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY)) {
+                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
+                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY)) {
                     String supportPhraseKey = InvertedIndexUtil
                             .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
                     if (!this.properties.containsKey(supportPhraseKey)) {
@@ -210,8 +211,8 @@ public class Index implements Writable {
                 || (indexType == IndexDef.IndexType.INVERTED) || (indexType == IndexDef.IndexType.ANN);
     }
 
-    public String getInvertedIndexCustomAnalyzer() {
-        return InvertedIndexUtil.getInvertedIndexCustomAnalyzer(properties);
+    public String getInvertedIndexAnalyzerName() {
+        return InvertedIndexUtil.getInvertedIndexAnalyzerName(properties);
     }
 
     public String getComment() {
@@ -380,11 +381,16 @@ public class Index implements Writable {
         }
     }
 
+    /**
+     * Returns whether this index is an analyzed inverted index,
+     * i.e. an inverted index with parser/analyzer/normalizer properties.
+     */
     public boolean isAnalyzedInvertedIndex() {
         return indexType == IndexDef.IndexType.INVERTED
             && properties != null
             && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY));
     }
 }

@@ -15,24 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.indexpolicy;
+#pragma once
 
-import org.apache.doris.thrift.TIndexPolicyType;
+#include <unicode/normalizer2.h>
 
-/**
- * Index policy type enum.
- **/
-public enum IndexPolicyTypeEnum {
-    ANALYZER, TOKENIZER, TOKEN_FILTER, CHAR_FILTER, NORMALIZER;
+#include <memory>
+#include <string>
 
-    public TIndexPolicyType toThrift() {
-        switch (this) {
-            case ANALYZER: return TIndexPolicyType.ANALYZER;
-            case TOKENIZER: return TIndexPolicyType.TOKENIZER;
-            case TOKEN_FILTER: return TIndexPolicyType.TOKEN_FILTER;
-            case CHAR_FILTER: return TIndexPolicyType.CHAR_FILTER;
-            case NORMALIZER: return TIndexPolicyType.NORMALIZER;
-            default: throw new IllegalStateException("Unknown type: " + this);
-        }
-    }
-}
+#include "token_filter.h"
+
+namespace doris::segment_v2::inverted_index {
+
+class ICUNormalizerFilter : public DorisTokenFilter {
+public:
+    ICUNormalizerFilter(TokenStreamPtr in, std::shared_ptr<const icu::Normalizer2> normalizer);
+    ~ICUNormalizerFilter() override = default;
+
+    Token* next(Token* t) override;
+    void reset() override;
+
+private:
+    std::shared_ptr<const icu::Normalizer2> _normalizer;
+    std::string _output_buffer;
+};
+using ICUNormalizerFilterPtr = std::shared_ptr<ICUNormalizerFilter>;
+
+} // namespace doris::segment_v2::inverted_index
