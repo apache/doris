@@ -17,7 +17,6 @@
 
 package org.apache.doris.cdcclient.source.reader.mysql;
 
-import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.cdcclient.model.request.CompareOffsetReq;
 import org.apache.doris.cdcclient.model.request.FetchRecordReq;
@@ -29,23 +28,14 @@ import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.source.reader.SplitRecords;
-import org.apache.doris.cdcclient.source.split.AbstractSourceSplit;
-import org.apache.doris.cdcclient.source.split.BinlogSplit;
-import org.apache.doris.cdcclient.source.split.SnapshotSplit;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.shyiko.mysql.binlog.BinaryLogClient;
-import io.debezium.connector.mysql.MySqlConnection;
-import io.debezium.connector.mysql.MySqlPartition;
-import io.debezium.document.Array;
-import io.debezium.relational.Column;
-import io.debezium.relational.TableId;
-import io.debezium.relational.history.HistoryRecord;
-import io.debezium.relational.history.TableChanges;
-import lombok.Getter;
-import lombok.Setter;
+import org.apache.doris.job.cdc.AbstractSourceSplit;
+import org.apache.doris.job.cdc.BinlogSplit;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.SnapshotSplit;
+
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.common.utils.Preconditions;
@@ -54,7 +44,6 @@ import org.apache.flink.cdc.connectors.mysql.debezium.reader.BinlogSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.DebeziumReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.SnapshotSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.task.context.StatefulTaskContext;
-import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
 import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlSnapshotSplitAssigner;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
@@ -73,8 +62,7 @@ import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.debezium.history.FlinkJsonTableChangeSerializer;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -87,18 +75,39 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitState> {
+import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.shyiko.mysql.binlog.BinaryLogClient;
+import io.debezium.connector.mysql.MySqlConnection;
+import io.debezium.connector.mysql.MySqlPartition;
+import io.debezium.document.Array;
+import io.debezium.relational.Column;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.HistoryRecord;
+import io.debezium.relational.history.TableChanges;
+import lombok.Data;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+@Data
+public class MySqlSourceReader implements SourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(MySqlSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
     private static final String SPLIT_ID = "splitId";
     private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
             new FlinkJsonTableChangeSerializer();
     private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
-    private JobRuntimeContext jobRuntimeContext;
+    private SnapshotSplitReader snapshotReader;
+    private BinlogSplitReader binlogReader;
+    private DebeziumReader<SourceRecords, MySqlSplit> currentReader;
+    private Map<TableId, TableChanges.TableChange> tableSchemas;
+    private SplitRecords currentSplitRecords;
+    private MySqlSplit currentSplit;
 
     public MySqlSourceReader() {
         this.serializer = new DebeziumJsonDeserializer();
-        this.jobRuntimeContext = new JobRuntimeContext();
     }
 
     @Override
@@ -152,14 +161,13 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
      */
     @Override
     public RecordWithMeta read(FetchRecordReq fetchRecord) throws Exception {
-        SplitReadResult<MySqlSplit, MySqlSplitState> readResult = readSplitRecords(fetchRecord);
+        SplitReadResult readResult = readSplitRecords(fetchRecord);
         return buildRecordResponse(fetchRecord, readResult);
     }
 
     /** read split records. */
     @Override
-    public SplitReadResult<MySqlSplit, MySqlSplitState> readSplitRecords(JobBaseRecordReq baseReq)
-            throws Exception {
+    public SplitReadResult readSplitRecords(JobBaseRecordReq baseReq) throws Exception {
         Map<String, Object> offsetMeta = baseReq.getMeta();
         if (offsetMeta == null || offsetMeta.isEmpty()) {
             throw new RuntimeException("miss meta offset");
@@ -169,10 +177,9 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         //  If there is an active split being consumed, reuse it directly;
         //  Otherwise, create a new snapshot/binlog split based on offset and start the reader.
         MySqlSplit split = null;
-        SplitRecords currentSplitRecords = jobRuntimeContext.getCurrentSplitRecords();
+        SplitRecords currentSplitRecords = this.getCurrentSplitRecords();
         if (currentSplitRecords == null) {
-            DebeziumReader<SourceRecords, MySqlSplit> currentReader =
-                    jobRuntimeContext.getCurrentReader();
+            DebeziumReader<SourceRecords, MySqlSplit> currentReader = this.getCurrentReader();
             if (currentReader == null || baseReq.isReload()) {
                 LOG.info(
                         "No current reader or reload {}, create new split reader",
@@ -181,13 +188,13 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
                 Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offsetMeta, baseReq);
                 split = splitFlag.f0;
                 currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
-                jobRuntimeContext.setCurrentSplitRecords(currentSplitRecords);
-                jobRuntimeContext.setCurrentSplit(split);
+                this.setCurrentSplitRecords(currentSplitRecords);
+                this.setCurrentSplit(split);
             } else if (currentReader instanceof BinlogSplitReader) {
                 LOG.info("Continue poll records with current binlog reader");
                 // only for binlog reader
                 currentSplitRecords = pollSplitRecordsWithCurrentReader(currentReader);
-                split = jobRuntimeContext.getCurrentSplit();
+                split = this.getCurrentSplit();
             } else {
                 throw new RuntimeException("Should not happen");
             }
@@ -198,9 +205,9 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         }
 
         // build response with iterator
-        SplitReadResult<MySqlSplit, MySqlSplitState> result = new SplitReadResult<>();
+        SplitReadResult result = new SplitReadResult();
         MySqlSplitState currentSplitState = null;
-        MySqlSplit currentSplit = jobRuntimeContext.getCurrentSplit();
+        MySqlSplit currentSplit = this.getCurrentSplit();
         if (currentSplit.isSnapshotSplit()) {
             currentSplitState = new MySqlSnapshotSplitState(currentSplit.asSnapshotSplit());
         } else {
@@ -218,11 +225,9 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
 
     /** build RecordWithMeta */
     private RecordWithMeta buildRecordResponse(
-            FetchRecordReq fetchRecord, SplitReadResult<MySqlSplit, MySqlSplitState> readResult)
-            throws Exception {
+            FetchRecordReq fetchRecord, SplitReadResult readResult) throws Exception {
         RecordWithMeta recordResponse = new RecordWithMeta();
-        MySqlSplit split = readResult.getSplit();
-        MySqlSplitState currentSplitState = readResult.getSplitState();
+        SourceSplit split = readResult.getSplit();
         int count = 0;
         try {
             // Serialize records and add them to the response (collect from iterator)
@@ -235,8 +240,9 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
                     recordResponse.getRecords().addAll(serializedRecords);
                     count += serializedRecords.size();
                     // update meta
-                    Map<String, String> lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
-                    if (split.isBinlogSplit()) {
+                    Map<String, String> lastMeta =
+                            RecordUtils.getBinlogPosition(element).getOffset();
+                    if (isBinlogSplit(split)) {
                         lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
                         recordResponse.setMeta(lastMeta);
                     }
@@ -250,16 +256,14 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         }
 
         // Set meta information
-        if (split.isSnapshotSplit() && currentSplitState != null) {
-            BinlogOffset highWatermark =
-                    currentSplitState.asSnapshotSplitState().getHighWatermark();
-            Map<String, String> offsetRes = highWatermark.getOffset();
-            offsetRes.put(SPLIT_ID, split.splitId());
+        if (isSnapshotSplit(split) && readResult.getSplitState() != null) {
+            Map<String, String> offsetRes =
+                    extractSnapshotOffset(split, readResult.getSplitState());
             recordResponse.setMeta(offsetRes);
             return recordResponse;
         }
         if (CollectionUtils.isEmpty(recordResponse.getRecords())) {
-            if (split.isBinlogSplit()) {
+            if (isBinlogSplit(split)) {
                 Map<String, String> offsetRes = extractBinlogOffset(readResult.getSplit());
                 recordResponse.setMeta(offsetRes);
             } else {
@@ -285,10 +289,10 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         HistoryRecord historyRecord = RecordUtils.getHistoryRecord(element);
         Array tableChanges = historyRecord.document().getArray(HistoryRecord.Fields.TABLE_CHANGES);
         TableChanges changes = TABLE_CHANGE_SERIALIZER.deserialize(tableChanges, true);
-        Map<TableId, TableChanges.TableChange> tableChangeMap = jobRuntimeContext.getTableSchemas();
+        Map<TableId, TableChanges.TableChange> tableChangeMap = this.getTableSchemas();
         if (tableChangeMap == null) {
             tableChangeMap = new ConcurrentHashMap<>();
-            jobRuntimeContext.setTableSchemas(tableChangeMap);
+            this.setTableSchemas(tableChangeMap);
         }
         for (TableChanges.TableChange tblChange : changes) {
             tableChangeMap.put(tblChange.getTable().id(), tblChange);
@@ -420,7 +424,7 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         List<TableId> remainingTables = new ArrayList<>();
         if (snapshotTable != null) {
             // need add database name
-            String database = config.get(LoadConstants.DATABASE);
+            String database = config.get(DataSourceConfigKeys.DATABASE);
             remainingTables.add(TableId.parse(database + "." + snapshotTable));
         }
         List<MySqlSnapshotSplit> remainingSplits = new ArrayList<>();
@@ -453,7 +457,7 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         } else if (split instanceof MySqlBinlogSplit) {
             currentReader = getBinlogSplitReader(jobConfig);
         }
-        jobRuntimeContext.setCurrentReader(currentReader);
+        this.setCurrentReader(currentReader);
         currentReader.submitSplit(split);
         currentSplitId = split.splitId();
         // make split record available
@@ -479,7 +483,7 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
 
     private SnapshotSplitReader getSnapshotSplitReader(JobConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
-        SnapshotSplitReader snapshotReader = jobRuntimeContext.getSnapshotReader();
+        SnapshotSplitReader snapshotReader = this.getSnapshotReader();
         if (snapshotReader == null) {
             final MySqlConnection jdbcConnection =
                     DebeziumUtils.createMySqlConnection(sourceConfig);
@@ -488,14 +492,14 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
             final StatefulTaskContext statefulTaskContext =
                     new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
             snapshotReader = new SnapshotSplitReader(statefulTaskContext, 0);
-            jobRuntimeContext.setSnapshotReader(snapshotReader);
+            this.setSnapshotReader(snapshotReader);
         }
         return snapshotReader;
     }
 
     private BinlogSplitReader getBinlogSplitReader(JobConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
-        BinlogSplitReader binlogReader = jobRuntimeContext.getBinlogReader();
+        BinlogSplitReader binlogReader = this.getBinlogReader();
         if (binlogReader == null) {
             final MySqlConnection jdbcConnection =
                     DebeziumUtils.createMySqlConnection(sourceConfig);
@@ -504,37 +508,35 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
             final StatefulTaskContext statefulTaskContext =
                     new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
             binlogReader = new BinlogSplitReader(statefulTaskContext, 0);
-            jobRuntimeContext.setBinlogReader(binlogReader);
+            this.setBinlogReader(binlogReader);
         }
         return binlogReader;
     }
 
     private void closeSnapshotReader() {
-        SnapshotSplitReader reusedSnapshotReader = jobRuntimeContext.getSnapshotReader();
+        SnapshotSplitReader reusedSnapshotReader = this.getSnapshotReader();
         if (reusedSnapshotReader != null) {
             LOG.info(
                     "Close snapshot reader {}", reusedSnapshotReader.getClass().getCanonicalName());
             reusedSnapshotReader.close();
-            DebeziumReader<SourceRecords, MySqlSplit> currentReader =
-                    jobRuntimeContext.getCurrentReader();
+            DebeziumReader<SourceRecords, MySqlSplit> currentReader = this.getCurrentReader();
             if (reusedSnapshotReader == currentReader) {
-                jobRuntimeContext.setCurrentReader(null);
+                this.setCurrentReader(null);
             }
-            jobRuntimeContext.setSnapshotReader(null);
+            this.setSnapshotReader(null);
         }
     }
 
     private void closeBinlogReader() {
-        BinlogSplitReader reusedBinlogReader = jobRuntimeContext.getBinlogReader();
+        BinlogSplitReader reusedBinlogReader = this.getBinlogReader();
         if (reusedBinlogReader != null) {
             LOG.info("Close binlog reader {}", reusedBinlogReader.getClass().getCanonicalName());
             reusedBinlogReader.close();
-            DebeziumReader<SourceRecords, MySqlSplit> currentReader =
-                    jobRuntimeContext.getCurrentReader();
+            DebeziumReader<SourceRecords, MySqlSplit> currentReader = this.getCurrentReader();
             if (reusedBinlogReader == currentReader) {
-                jobRuntimeContext.setCurrentReader(null);
+                this.setCurrentReader(null);
             }
-            jobRuntimeContext.setBinlogReader(null);
+            this.setBinlogReader(null);
         }
     }
 
@@ -543,59 +545,43 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
     }
 
     @Override
-    public Map<String, String> extractSnapshotOffset(Object splitState, Object split) {
-        if (splitState == null) {
-            return null;
-        }
+    public Map<String, String> extractSnapshotOffset(SourceSplit split, Object splitState) {
+        Preconditions.checkNotNull(split, "split is null");
+        Preconditions.checkNotNull(splitState, "splitState is null");
         MySqlSplitState mysqlSplitState = (MySqlSplitState) splitState;
         MySqlSplit mysqlSplit = (MySqlSplit) split;
         BinlogOffset highWatermark = mysqlSplitState.asSnapshotSplitState().getHighWatermark();
         Map<String, String> offsetRes = new HashMap<>(highWatermark.getOffset());
-        if (mysqlSplit != null) {
-            offsetRes.put(SPLIT_ID, mysqlSplit.splitId());
-        }
+        offsetRes.put(SPLIT_ID, mysqlSplit.splitId());
         return offsetRes;
     }
 
     @Override
-    public Map<String, String> extractBinlogOffset(Object split) {
-        if (split == null) {
-            return null;
-        }
+    public Map<String, String> extractBinlogOffset(SourceSplit split) {
+        Preconditions.checkNotNull(split, "split is null");
         MySqlSplit mysqlSplit = (MySqlSplit) split;
         Map<String, String> offsetRes = mysqlSplit.asBinlogSplit().getStartingOffset().getOffset();
         offsetRes.put(SPLIT_ID, BINLOG_SPLIT_ID);
-        // offsetRes.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
         return offsetRes;
     }
 
     @Override
-    public String getSplitId(Object split) {
-        if (split == null) {
-            return null;
-        }
-        MySqlSplit mysqlSplit = (MySqlSplit) split;
-        return mysqlSplit.splitId();
-    }
-
-    @Override
-    public boolean isBinlogSplit(Object split) {
-        if (split == null) {
-            return false;
-        }
+    public boolean isBinlogSplit(SourceSplit split) {
+        Preconditions.checkNotNull(split, "split is null");
         MySqlSplit mysqlSplit = (MySqlSplit) split;
         return mysqlSplit.isBinlogSplit();
     }
 
     @Override
-    public void close(Long jobId) {
-        jobRuntimeContext.close();
-        LOG.info("Close source reader for job {}", jobId);
+    public boolean isSnapshotSplit(SourceSplit split) {
+        Preconditions.checkNotNull(split, "split is null");
+        MySqlSplit mysqlSplit = (MySqlSplit) split;
+        return mysqlSplit.isSnapshotSplit();
     }
 
     @Override
     public void finishSplitRecords() {
-        jobRuntimeContext.setCurrentSplitRecords(null);
+        this.setCurrentSplitRecords(null);
     }
 
     @Override
@@ -629,10 +615,10 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
     }
 
     private Map<TableId, TableChanges.TableChange> getTableSchemas(JobConfig config) {
-        Map<TableId, TableChanges.TableChange> schemas = jobRuntimeContext.getTableSchemas();
+        Map<TableId, TableChanges.TableChange> schemas = this.getTableSchemas();
         if (schemas == null) {
             schemas = discoverTableSchemas(config);
-            jobRuntimeContext.setTableSchemas(schemas);
+            this.setTableSchemas(schemas);
         }
         return schemas;
     }
@@ -649,29 +635,20 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         }
     }
 
-    @Getter
-    @Setter
-    private static final class JobRuntimeContext {
-        private SnapshotSplitReader snapshotReader;
-        private BinlogSplitReader binlogReader;
-        private DebeziumReader<SourceRecords, MySqlSplit> currentReader;
-        private Map<TableId, TableChanges.TableChange> tableSchemas;
-        private SplitRecords currentSplitRecords;
-        private MySqlSplit currentSplit;
-
-        private void close() {
-            if (snapshotReader != null) {
-                snapshotReader.close();
-                snapshotReader = null;
-            }
-            if (binlogReader != null) {
-                binlogReader.close();
-                binlogReader = null;
-            }
-            currentReader = null;
-            currentSplitRecords = null;
-            tableSchemas = null;
+    @Override
+    public void close(Long jobId) {
+        LOG.info("Close source reader for job {}", jobId);
+        if (snapshotReader != null) {
+            snapshotReader.close();
+            snapshotReader = null;
         }
+        if (binlogReader != null) {
+            binlogReader.close();
+            binlogReader = null;
+        }
+        currentReader = null;
+        currentSplitRecords = null;
+        tableSchemas = null;
     }
 
     /**

@@ -31,7 +31,7 @@ import org.slf4j.LoggerFactory;
 /** SourceReader register. */
 public final class SourceReaderFactory {
     private static final Logger LOG = LoggerFactory.getLogger(SourceReaderFactory.class);
-    private static final Map<DataSource, Supplier<SourceReader<?, ?>>> REGISTRY =
+    private static final Map<DataSource, Supplier<SourceReader>> REGISTRY =
             new ConcurrentHashMap<>();
 
     static {
@@ -40,15 +40,15 @@ public final class SourceReaderFactory {
 
     private SourceReaderFactory() {}
 
-    public static void register(DataSource source, Supplier<SourceReader<?, ?>> supplier) {
+    public static void register(DataSource source, Supplier<SourceReader> supplier) {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(supplier, "supplier");
         REGISTRY.put(source, supplier);
         LOG.info("Registered SourceReader provider for {}", source);
     }
 
-    public static SourceReader<?, ?> createSourceReader(DataSource source) {
-        Supplier<SourceReader<?, ?>> supplier = REGISTRY.get(source);
+    public static SourceReader createSourceReader(DataSource source) {
+        Supplier<SourceReader> supplier = REGISTRY.get(source);
         if (supplier == null) {
             throw new IllegalArgumentException(
                     "Unsupported SourceReader with datasource : " + source);

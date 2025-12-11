@@ -107,13 +107,13 @@ public class PipelineCoordinator {
 
     /** Read data from SourceReader and write it to Doris, while returning meta information. */
     public void writeRecords(WriteRecordReq writeRecordReq) throws Exception {
-        SourceReader<?, ?> sourceReader = Env.getCurrentEnv().getReader(writeRecordReq);
+        SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordReq);
         DorisBatchStreamLoad batchStreamLoad = null;
         Map<String, String> metaResponse = new HashMap<>();
         boolean hasData = false;
         long scannedRows = 0L;
         long scannedBytes = 0L;
-        SplitReadResult<?, ?> readResult = null;
+        SplitReadResult readResult = null;
         try {
             readResult = sourceReader.readSplitRecords(writeRecordReq);
             batchStreamLoad =
@@ -131,30 +131,26 @@ public class PipelineCoordinator {
             Iterator<SourceRecord> iterator = readResult.getRecordIterator();
             while (iterator != null && iterator.hasNext()) {
                 SourceRecord element = iterator.next();
-                if (RecordUtils.isDataChangeRecord(element)) {
-                    List<String> serializedRecords =
-                            serializer.deserialize(writeRecordReq.getConfig(), element);
-                    if (!CollectionUtils.isEmpty(serializedRecords)) {
-                        String database = writeRecordReq.getTargetDb();
-                        String table = extractTable(element);
-                        hasData = true;
-                        for (String record : serializedRecords) {
-                            scannedRows++;
-                            byte[] dataBytes = record.getBytes();
-                            scannedBytes += dataBytes.length;
-                            batchStreamLoad.writeRecord(database, table, dataBytes);
-                        }
-
-                        Map<String, String> lastMeta =
-                                RecordUtils.getBinlogPosition(element).getOffset();
-                        if (sourceReader.isBinlogSplit(readResult.getSplit())
-                                && sourceReader.getSplitId(readResult.getSplit()) != null) {
-                            lastMeta.put(SPLIT_ID, sourceReader.getSplitId(readResult.getSplit()));
-                        }
-                        metaResponse = lastMeta;
+                List<String> serializedRecords =
+                        serializer.deserialize(writeRecordReq.getConfig(), element);
+                if (!CollectionUtils.isEmpty(serializedRecords)) {
+                    String database = writeRecordReq.getTargetDb();
+                    String table = extractTable(element);
+                    hasData = true;
+                    for (String record : serializedRecords) {
+                        scannedRows++;
+                        byte[] dataBytes = record.getBytes();
+                        scannedBytes += dataBytes.length;
+                        batchStreamLoad.writeRecord(database, table, dataBytes);
                     }
-                } else {
-                    LOG.info("Skip non-data record: {}", element.valueSchema());
+
+                    Map<String, String> lastMeta =
+                            RecordUtils.getBinlogPosition(element).getOffset();
+                    if (sourceReader.isBinlogSplit(readResult.getSplit())
+                            && readResult.getSplit() != null) {
+                        lastMeta.put(SPLIT_ID, readResult.getSplit().splitId());
+                    }
+                    metaResponse = lastMeta;
                 }
                 // Check if maxInterval has been exceeded
                 long elapsedTime = System.currentTimeMillis() - startTime;
@@ -172,7 +168,7 @@ public class PipelineCoordinator {
         try {
             if (!hasData) {
                 // todo: need return the lastest heartbeat offset, means the maximum offset that the
-                // current job can recover.
+                //  current job can recover.
                 if (sourceReader.isBinlogSplit(readResult.getSplit())) {
                     Map<String, String> offsetRes =
                             sourceReader.extractBinlogOffset(readResult.getSplit());
@@ -189,7 +185,7 @@ public class PipelineCoordinator {
             if (!sourceReader.isBinlogSplit(readResult.getSplit())) {
                 Map<String, String> offsetRes =
                         sourceReader.extractSnapshotOffset(
-                                readResult.getSplitState(), readResult.getSplit());
+                                readResult.getSplit(), readResult.getSplitState());
                 if (offsetRes == null) {
                     // should not happen
                     throw new StreamLoadException(

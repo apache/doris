@@ -23,57 +23,48 @@ import org.apache.doris.cdcclient.model.request.FetchRecordReq;
 import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
 import org.apache.doris.cdcclient.model.request.JobBaseRecordReq;
 import org.apache.doris.cdcclient.model.response.RecordWithMeta;
-import org.apache.doris.cdcclient.source.split.SourceSplit;
+import org.apache.doris.job.cdc.AbstractSourceSplit;
+
+import org.apache.flink.api.connector.source.SourceSplit;
 
 import java.util.List;
 import java.util.Map;
 
-/**
- * SourceReader interface
- *
- * @param <Split> Split (MySqlSplit)
- * @param <SplitState> SplitState(MySqlSplitState)
- */
-public interface SourceReader<Split, SplitState> {
+/** Source Reader Interface */
+public interface SourceReader {
     /** Initialization, called when the program starts */
     void initialize();
 
     /** Divide the data to be read. For example: split mysql to chunks */
-    List<? extends SourceSplit> getSourceSplits(FetchTableSplitsReq config);
+    List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsReq config);
 
     /** Reading Data */
     RecordWithMeta read(FetchRecordReq meta) throws Exception;
 
     /** Reading Data for split reader */
-    default SplitReadResult<Split, SplitState> readSplitRecords(JobBaseRecordReq baseReq)
-            throws Exception {
-        throw new UnsupportedOperationException(
-                "readSplitRecords is not supported by " + this.getClass().getName());
-    }
+    SplitReadResult readSplitRecords(JobBaseRecordReq baseReq) throws Exception;
 
     /** Extract offset information from snapshot split state. */
-    Map<String, String> extractSnapshotOffset(Object splitState, Object split);
+    Map<String, String> extractSnapshotOffset(SourceSplit split, Object splitState);
 
     /** Extract offset information from binlog split. */
-    Map<String, String> extractBinlogOffset(Object split);
+    Map<String, String> extractBinlogOffset(SourceSplit split);
 
-    /**
-     * Get split ID from the split. This method should be implemented by each SourceReader to handle
-     * its specific Split type.
-     *
-     * @param split the split
-     * @return split ID, or null if split is null
-     */
-    String getSplitId(Object split);
+    /** Is the split a binlog split */
+    boolean isBinlogSplit(SourceSplit split);
 
-    boolean isBinlogSplit(Object split);
+    /** Is the split a snapshot split */
+    boolean isSnapshotSplit(SourceSplit split);
+
+    /** Finish reading all split records */
+    void finishSplitRecords();
+
+    /** Get the end offset for the job */
+    Map<String, String> getEndOffset(JobConfig jobConfig);
+
+    /** Compare the offsets */
+    int compareOffset(CompareOffsetReq compareOffsetReq);
 
     /** Called when closing */
     void close(Long jobId);
-
-    void finishSplitRecords();
-
-    Map<String, String> getEndOffset(JobConfig jobConfig);
-
-    int compareOffset(CompareOffsetReq compareOffsetReq);
 }

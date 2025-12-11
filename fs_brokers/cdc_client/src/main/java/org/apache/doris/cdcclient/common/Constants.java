@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.offset.jdbc.split;
+package org.apache.doris.cdcclient.common;
 
-public interface SourceSplit {}
+public class Constants {
+    public static final String DORIS_DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+}

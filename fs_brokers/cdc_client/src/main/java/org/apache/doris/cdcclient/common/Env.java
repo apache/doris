@@ -21,11 +21,13 @@ import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.factory.SourceReaderFactory;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
-import lombok.Setter;
+
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+
+import lombok.Setter;
 
 public class Env {
     private static volatile Env INSTANCE;
@@ -51,7 +53,7 @@ public class Env {
         return INSTANCE;
     }
 
-    public SourceReader<?, ?> getReader(JobConfig jobConfig) {
+    public SourceReader getReader(JobConfig jobConfig) {
         DataSource ds = resolveDataSource(jobConfig.getDataSource());
         Env manager = Env.getCurrentEnv();
         return manager.getOrCreateReader(jobConfig.getJobId(), ds, jobConfig.getConfig());
@@ -68,7 +70,7 @@ public class Env {
         }
     }
 
-    private SourceReader<?, ?> getOrCreateReader(
+    private SourceReader getOrCreateReader(
             Long jobId, DataSource dataSource, Map<String, String> config) {
         JobContext context = getOrCreateContext(jobId, dataSource, config);
         return context.getOrCreateReader(dataSource);
@@ -90,7 +92,7 @@ public class Env {
 
     private static final class JobContext {
         private final long jobId;
-        private volatile SourceReader<?, ?> reader;
+        private volatile SourceReader reader;
         private volatile Map<String, String> config;
         private volatile DataSource dataSource;
 
@@ -100,7 +102,7 @@ public class Env {
             this.config = config;
         }
 
-        private synchronized SourceReader<?, ?> getOrCreateReader(DataSource source) {
+        private synchronized SourceReader getOrCreateReader(DataSource source) {
             if (reader == null) {
                 reader = SourceReaderFactory.createSourceReader(source);
                 reader.initialize();

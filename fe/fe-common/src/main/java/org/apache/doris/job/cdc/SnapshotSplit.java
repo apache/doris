@@ -15,16 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.source.split;
-
-import java.util.List;
-import java.util.Map;
+package org.apache.doris.job.cdc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+
+import java.util.List;
+import java.util.Map;
 
 @Getter
 @Setter
@@ -52,5 +53,10 @@ public class SnapshotSplit extends AbstractSourceSplit {
         this.splitStart = splitStart;
         this.splitEnd = splitEnd;
         this.highWatermark = highWatermark;
+    }
+
+    @Override
+    public String toString() {
+        return new Gson().toJson(this);
     }
 }

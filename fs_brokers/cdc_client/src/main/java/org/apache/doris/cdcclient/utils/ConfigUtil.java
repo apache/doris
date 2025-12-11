@@ -17,8 +17,8 @@
 
 package org.apache.doris.cdcclient.utils;
 
-import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -53,25 +53,26 @@ public class ConfigUtil {
         MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
 
         ConnectionUrl cu =
-                ConnectionUrl.getConnectionUrlInstance(cdcConfig.get(LoadConstants.JDBC_URL), null);
+                ConnectionUrl.getConnectionUrlInstance(
+                        cdcConfig.get(DataSourceConfigKeys.JDBC_URL), null);
         configFactory.hostname(cu.getMainHost().getHost());
         configFactory.port(cu.getMainHost().getPort());
-        configFactory.username(cdcConfig.get(LoadConstants.USER));
-        configFactory.password(cdcConfig.get(LoadConstants.PASSWORD));
-        String databaseName = cdcConfig.get(LoadConstants.DATABASE);
+        configFactory.username(cdcConfig.get(DataSourceConfigKeys.USER));
+        configFactory.password(cdcConfig.get(DataSourceConfigKeys.PASSWORD));
+        String databaseName = cdcConfig.get(DataSourceConfigKeys.DATABASE);
         configFactory.databaseList(databaseName);
         configFactory.serverId(getServerId(config.getJobId()));
 
         configFactory.includeSchemaChanges(false);
 
-        String includingTables = cdcConfig.get(LoadConstants.INCLUDE_TABLES);
+        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
         String[] includingTbls =
                 Arrays.stream(includingTables.split(","))
                         .map(t -> databaseName + "." + t.trim())
                         .toArray(String[]::new);
         configFactory.tableList(includingTbls);
 
-        String excludingTables = cdcConfig.get(LoadConstants.EXCLUDE_TABLES);
+        String excludingTables = cdcConfig.get(DataSourceConfigKeys.EXCLUDE_TABLES);
         if (StringUtils.isNotEmpty(excludingTables)) {
             String excludingTbls =
                     Arrays.stream(excludingTables.split(","))
@@ -81,17 +82,17 @@ public class ConfigUtil {
         }
 
         // setting startMode
-        String startupMode = cdcConfig.get(LoadConstants.OFFSET);
-        if (LoadConstants.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
+        String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
+        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
             // do not need set offset when initial
             // configFactory.startupOptions(StartupOptions.initial());
-        } else if (LoadConstants.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
+        } else if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.earliest());
             BinlogOffset binlogOffset =
                     initializeEffectiveOffset(
                             configFactory, StartupOptions.earliest().binlogOffset);
             configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
-        } else if (LoadConstants.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
+        } else if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.latest());
             BinlogOffset binlogOffset =
                     initializeEffectiveOffset(configFactory, StartupOptions.latest().binlogOffset);
@@ -125,8 +126,9 @@ public class ConfigUtil {
         configFactory.jdbcProperties(jdbcProperteis);
 
         // configFactory.heartbeatInterval(Duration.ofMillis(1));
-        if (cdcConfig.containsKey(LoadConstants.SPLIT_SIZE)) {
-            configFactory.splitSize(Integer.parseInt(cdcConfig.get(LoadConstants.SPLIT_SIZE)));
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SPLIT_SIZE)) {
+            configFactory.splitSize(
+                    Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
         }
 
         return configFactory.createConfig(0);
@@ -166,7 +168,7 @@ public class ConfigUtil {
         try {
             return mapper.readValue(json, new TypeReference<Map<String, String>>() {});
         } catch (JsonProcessingException e) {
-            return null; // 或抛异常，按你需要调整
+            return null;
         }
     }
 }

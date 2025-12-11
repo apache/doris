@@ -37,7 +37,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.doris.cdcclient.constants.LoadConstants.DELETE_SIGN_KEY;
+import static org.apache.doris.cdcclient.common.Constants.DORIS_DELETE_SIGN;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -112,7 +112,7 @@ public class DebeziumJsonDeserializer
                                     convert(field.schema(), after.getWithoutDefault(field.name()));
                             record.put(field.name(), valueConverted);
                         });
-        record.put(DELETE_SIGN_KEY, 0);
+        record.put(DORIS_DELETE_SIGN, 0);
         return objectMapper.writeValueAsString(record);
     }
 
@@ -132,7 +132,7 @@ public class DebeziumJsonDeserializer
                                     convert(field.schema(), before.getWithoutDefault(field.name()));
                             record.put(field.name(), valueConverted);
                         });
-        record.put(DELETE_SIGN_KEY, 1);
+        record.put(DORIS_DELETE_SIGN, 1);
         return objectMapper.writeValueAsString(record);
     }
 

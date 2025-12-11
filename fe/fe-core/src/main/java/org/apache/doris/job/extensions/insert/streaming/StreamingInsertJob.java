@@ -37,12 +37,12 @@ import org.apache.doris.httpv2.rest.StreamingJobAction.CommitOffsetRequest;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
-import org.apache.doris.job.common.LoadConstants;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
@@ -219,23 +219,23 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     private void checkRequiredSourceProperties() {
-        Preconditions.checkArgument(sourceProperties.get(LoadConstants.JDBC_URL) != null,
+        Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.JDBC_URL) != null,
                 "jdbc_url is required property");
-        Preconditions.checkArgument(sourceProperties.get(LoadConstants.DRIVER_URL) != null,
+        Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.DRIVER_URL) != null,
                 "driver_url is required property");
-        Preconditions.checkArgument(sourceProperties.get(LoadConstants.DRIVER_CLASS) != null,
+        Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.DRIVER_CLASS) != null,
                 "driver_class is required property");
-        Preconditions.checkArgument(sourceProperties.get(LoadConstants.USER) != null,
+        Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.USER) != null,
                 "user is required property");
-        Preconditions.checkArgument(sourceProperties.get(LoadConstants.PASSWORD) != null,
+        Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.PASSWORD) != null,
                 "password is required property");
-        Preconditions.checkArgument(sourceProperties.get(LoadConstants.DATABASE) != null,
+        Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.DATABASE) != null,
                 "database is required property");
-        Preconditions.checkArgument(sourceProperties.get(LoadConstants.INCLUDE_TABLES) != null
-                        || sourceProperties.get(LoadConstants.EXCLUDE_TABLES) != null,
+        Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES) != null
+                        || sourceProperties.get(DataSourceConfigKeys.EXCLUDE_TABLES) != null,
                 "Either include_tables or exclude_tables must be specified");
-        if (!sourceProperties.containsKey(LoadConstants.OFFSET)) {
-            sourceProperties.put(LoadConstants.OFFSET, LoadConstants.OFFSET_LATEST);
+        if (!sourceProperties.containsKey(DataSourceConfigKeys.OFFSET)) {
+            sourceProperties.put(DataSourceConfigKeys.OFFSET, DataSourceConfigKeys.OFFSET_LATEST);
         }
     }
 

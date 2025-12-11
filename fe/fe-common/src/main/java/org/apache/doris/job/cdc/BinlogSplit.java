@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.offset.jdbc.split;
+package org.apache.doris.job.cdc;
 
 import com.google.gson.Gson;
 import lombok.EqualsAndHashCode;

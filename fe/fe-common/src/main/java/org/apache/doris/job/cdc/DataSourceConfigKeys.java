@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.common;
+package org.apache.doris.job.cdc;
 
-public class LoadConstants {
+public class DataSourceConfigKeys {
     public static final String JDBC_URL = "jdbc_url";
     public static final String DRIVER_URL = "driver_url";
     public static final String DRIVER_CLASS = "driver_class";
@@ -32,6 +32,4 @@ public class LoadConstants {
     public static final String OFFSET_EARLIEST = "earliest";
     public static final String OFFSET_LATEST = "latest";
     public static final String SPLIT_SIZE = "split_size";
-    public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
-
 }

@@ -18,16 +18,16 @@
 package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.httpv2.entity.ResponseBody;
+import org.apache.doris.job.cdc.AbstractSourceSplit;
+import org.apache.doris.job.cdc.BinlogSplit;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
-import org.apache.doris.job.common.LoadConstants;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
-import org.apache.doris.job.offset.jdbc.split.AbstractSourceSplit;
-import org.apache.doris.job.offset.jdbc.split.BinlogSplit;
-import org.apache.doris.job.offset.jdbc.split.SnapshotSplit;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -506,10 +506,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     private boolean checkNeedSplitChunks(Map<String, String> sourceProperties) {
-        String startMode = sourceProperties.get(LoadConstants.OFFSET);
+        String startMode = sourceProperties.get(DataSourceConfigKeys.OFFSET);
         if (startMode == null) {
             return false;
         }
-        return LoadConstants.OFFSET_INITIAL.equalsIgnoreCase(startMode);
+        return DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startMode);
     }
 }

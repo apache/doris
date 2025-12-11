@@ -23,13 +23,12 @@ import org.apache.doris.cdcclient.model.request.CompareOffsetReq;
 import org.apache.doris.cdcclient.model.request.FetchRecordReq;
 import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
 import org.apache.doris.cdcclient.model.request.WriteRecordReq;
-import org.apache.doris.cdcclient.model.rest.ResponseEntityBuilder;
+import org.apache.doris.cdcclient.model.rest.RestResponse;
 import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 
 import java.util.List;
 
-import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,12 +48,12 @@ public class ClientController {
     @RequestMapping(path = "/api/fetchSplits", method = RequestMethod.POST)
     public Object fetchSplits(@RequestBody FetchTableSplitsReq ftsReq) {
         try {
-            SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(ftsReq);
+            SourceReader reader = Env.getCurrentEnv().getReader(ftsReq);
             List splits = reader.getSourceSplits(ftsReq);
-            return ResponseEntityBuilder.ok(splits);
+            return RestResponse.success(splits);
         } catch (IllegalArgumentException ex) {
             LOG.error("Failed to fetch splits, jobId={}", ftsReq.getJobId(), ex);
-            return ResponseEntityBuilder.badRequest(ex.getMessage());
+            return RestResponse.internalError(ex.getMessage());
         }
     }
 
@@ -62,11 +61,11 @@ public class ClientController {
     @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.POST)
     public Object fetchRecords(@RequestBody FetchRecordReq recordReq) {
         try {
-            SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(recordReq);
-            return ResponseEntityBuilder.ok(reader.read(recordReq));
+            SourceReader reader = Env.getCurrentEnv().getReader(recordReq);
+            return RestResponse.success(reader.read(recordReq));
         } catch (Exception ex) {
             LOG.error("Failed fetch record, jobId={}", recordReq.getJobId(), ex);
-            return ResponseEntityBuilder.badRequest(ex.getMessage());
+            return RestResponse.internalError(ex.getMessage());
         }
     }
 
@@ -79,32 +78,29 @@ public class ClientController {
                 recordReq.getTaskId(),
                 recordReq.getMeta());
         pipelineCoordinator.writeRecordsAsync(recordReq);
-        return ResponseEntityBuilder.ok("Request accepted, processing asynchronously");
-    }
-
-    private String parseToken(HttpServletRequest request) {
-        return request.getHeader("token");
+        return RestResponse.success("Request accepted, processing asynchronously");
     }
 
     /** Fetch lastest end meta */
     @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
     public Object fetchEndOffset(@RequestBody JobConfig jobConfig) {
-        SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(jobConfig);
-        return ResponseEntityBuilder.ok(reader.getEndOffset(jobConfig));
+        SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
+        return RestResponse.success(reader.getEndOffset(jobConfig));
     }
 
     /** compare datasource Binlog Offset */
     @RequestMapping(path = "/api/compareOffset", method = RequestMethod.POST)
     public Object compareOffset(@RequestBody CompareOffsetReq compareOffsetReq) {
-        SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(compareOffsetReq);
-        return ResponseEntityBuilder.ok(reader.compareOffset(compareOffsetReq));
+        SourceReader reader = Env.getCurrentEnv().getReader(compareOffsetReq);
+        return RestResponse.success(reader.compareOffset(compareOffsetReq));
     }
 
+    /** Close job */
     @RequestMapping(path = "/api/close/{jobId}", method = RequestMethod.POST)
     public Object close(@PathVariable long jobId) {
         Env env = Env.getCurrentEnv();
         env.close(jobId);
         pipelineCoordinator.closeJob(jobId);
-        return ResponseEntityBuilder.ok(true);
+        return RestResponse.success(true);
     }
 }

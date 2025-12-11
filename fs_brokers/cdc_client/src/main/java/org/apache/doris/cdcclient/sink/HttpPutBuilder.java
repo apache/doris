@@ -17,7 +17,7 @@
 
 package org.apache.doris.cdcclient.sink;
 
-import org.apache.doris.cdcclient.constants.LoadConstants;
+import org.apache.doris.cdcclient.common.Constants;
 
 import org.apache.flink.util.Preconditions;
 import org.apache.http.HttpEntity;
@@ -56,7 +56,7 @@ public class HttpPutBuilder {
 
     public HttpPutBuilder addHiddenColumns(boolean add) {
         if (add) {
-            header.put("hidden_columns", LoadConstants.DELETE_SIGN_KEY);
+            header.put("hidden_columns", Constants.DORIS_DELETE_SIGN);
         }
         return this;
     }

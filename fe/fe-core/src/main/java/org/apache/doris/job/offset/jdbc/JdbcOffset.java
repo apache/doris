@@ -17,9 +17,9 @@
 
 package org.apache.doris.job.offset.jdbc;
 
+import org.apache.doris.job.cdc.AbstractSourceSplit;
+import org.apache.doris.job.cdc.BinlogSplit;
 import org.apache.doris.job.offset.Offset;
-import org.apache.doris.job.offset.jdbc.split.AbstractSourceSplit;
-import org.apache.doris.job.offset.jdbc.split.BinlogSplit;
 
 import com.google.gson.Gson;
 import lombok.AllArgsConstructor;

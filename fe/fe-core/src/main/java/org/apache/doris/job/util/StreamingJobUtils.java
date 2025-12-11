@@ -28,10 +28,10 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.jdbc.client.JdbcMySQLClient;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
-import org.apache.doris.job.common.LoadConstants;
 import org.apache.doris.job.exception.JobException;
-import org.apache.doris.job.offset.jdbc.split.SnapshotSplit;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -66,6 +66,7 @@ import java.util.stream.Collectors;
 
 @Log4j2
 public class StreamingJobUtils {
+    public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
     public static final String INTERNAL_STREAMING_JOB_META_TABLE_NAME = "streaming_job_meta";
     public static final String FULL_QUALIFIED_META_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
             + "." + FeConstants.INTERNAL_DB_NAME + "." + INTERNAL_STREAMING_JOB_META_TABLE_NAME;
@@ -190,11 +191,11 @@ public class StreamingJobUtils {
             throws JobException {
         JdbcClientConfig config = new JdbcClientConfig();
         config.setCatalog(sourceType.name());
-        config.setUser(properties.get(LoadConstants.USER));
-        config.setPassword(properties.get(LoadConstants.PASSWORD));
-        config.setDriverClass(properties.get(LoadConstants.DRIVER_CLASS));
-        config.setDriverUrl(properties.get(LoadConstants.DRIVER_URL));
-        config.setJdbcUrl(properties.get(LoadConstants.JDBC_URL));
+        config.setUser(properties.get(DataSourceConfigKeys.USER));
+        config.setPassword(properties.get(DataSourceConfigKeys.PASSWORD));
+        config.setDriverClass(properties.get(DataSourceConfigKeys.DRIVER_CLASS));
+        config.setDriverUrl(properties.get(DataSourceConfigKeys.DRIVER_URL));
+        config.setJdbcUrl(properties.get(DataSourceConfigKeys.JDBC_URL));
         switch (sourceType) {
             case MYSQL:
                 JdbcClient client = JdbcMySQLClient.createJdbcClient(config);
@@ -229,14 +230,14 @@ public class StreamingJobUtils {
             Map<String, String> properties, Map<String, String> targetProperties)
             throws JobException {
         List<CreateTableCommand> createtblCmds = new ArrayList<>();
-        String includeTables = properties.get(LoadConstants.INCLUDE_TABLES);
-        String excludeTables = properties.get(LoadConstants.EXCLUDE_TABLES);
+        String includeTables = properties.get(DataSourceConfigKeys.INCLUDE_TABLES);
+        String excludeTables = properties.get(DataSourceConfigKeys.EXCLUDE_TABLES);
         List<String> includeTablesList = new ArrayList<>();
         if (includeTables != null) {
             includeTablesList = Arrays.asList(includeTables.split(","));
         }
 
-        String database = properties.get(LoadConstants.DATABASE);
+        String database = properties.get(DataSourceConfigKeys.DATABASE);
         JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
         List<String> tablesNameList = jdbcClient.getTablesNameList(database);
         if (tablesNameList.isEmpty()) {
@@ -307,8 +308,8 @@ public class StreamingJobUtils {
     private static Map<String, String> getTableCreateProperties(Map<String, String> properties) {
         final Map<String, String> tableCreateProps = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(LoadConstants.TABLE_PROPS_PREFIX)) {
-                String subKey = entry.getKey().substring(LoadConstants.TABLE_PROPS_PREFIX.length());
+            if (entry.getKey().startsWith(TABLE_PROPS_PREFIX)) {
+                String subKey = entry.getKey().substring(TABLE_PROPS_PREFIX.length());
                 tableCreateProps.put(subKey, entry.getValue());
             }
         }
