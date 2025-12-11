@@ -146,13 +146,13 @@ public class TVFScanNode extends FileQueryScanNode {
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 
-        determineFileSplitSize(fileStatuses);
+        long targetFileSplitSize = determineTargetFileSplitSize(fileStatuses);
 
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             try {
                 splits.addAll(fileSplitter.splitFile(
                         LocationPath.of(fileStatus.getPath()),
-                        sessionVariable.getFileSplitSize(),
+                        targetFileSplitSize,
                         null,
                         fileStatus.getSize(),
                         fileStatus.getModificationTime(),
@@ -167,7 +167,7 @@ public class TVFScanNode extends FileQueryScanNode {
         return splits;
     }
 
-    private long determineFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
+    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
         if (sessionVariable.getFileSplitSize() > 0) {
             return sessionVariable.getFileSplitSize();
         }
