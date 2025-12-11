@@ -1800,7 +1800,7 @@ public class Config extends ConfigBase {
             "内部表的默认压缩类型。支持的值有：LZ4, LZ4F, LZ4HC, ZLIB, ZSTD, SNAPPY, NONE。",
             "Default compression type for internal tables. Supported values: LZ4, LZ4F, LZ4HC, ZLIB, ZSTD,"
             + " SNAPPY, NONE."})
-    public static String default_compression_type = "LZ4F";
+    public static String default_compression_type = "ZSTD";
 
     /*
      * The job scheduling interval of the schema change handler.
