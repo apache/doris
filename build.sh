@@ -1014,7 +1014,7 @@ fi
 if [[ "${BUILD_BE_CDC_CLIENT}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/be/lib/cdc_client"
     cd "${DORIS_HOME}/fs_brokers/cdc_client"
-     "${MVN_CMD}" package -DskipTests
+    ./build.sh
     rm -rf "${DORIS_OUTPUT}/be/lib/cdc_client"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/cdc_client/target/cdc-client.jar" "${DORIS_OUTPUT}/be/lib/cdc_client/"
     cd "${DORIS_HOME}"
