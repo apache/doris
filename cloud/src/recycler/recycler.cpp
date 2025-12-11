@@ -5338,8 +5338,8 @@ int InstanceRecycler::recycle_expired_txn_label() {
             concurrent_delete_executor.add([&]() {
                 int ret = delete_recycle_txn_kv(k);
                 if (ret == 1) {
-                    constexpr int MAX_RETRY = 10;
-                    for (size_t i = 1; i <= MAX_RETRY; ++i) {
+                    const int max_retry = std::max(1, config::recycle_txn_delete_max_retry_times);
+                    for (int i = 1; i <= max_retry; ++i) {
                         LOG(WARNING) << "txn conflict, retry times=" << i << " key=" << hex(k);
                         ret = delete_recycle_txn_kv(k);
                         // clang-format off
