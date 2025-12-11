@@ -291,7 +291,6 @@ TEST_F(ColumnReaderTest, MapReadByRowidsSkipReadingResizesDestination) {
     auto keys = vectorized::ColumnInt32::create();
     auto values = vectorized::ColumnInt32::create();
     auto offsets = vectorized::ColumnArray::ColumnOffsets::create();
-    offsets->get_data().push_back(0);
     auto column_map =
             vectorized::ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
     vectorized::MutableColumnPtr dst = std::move(column_map);
