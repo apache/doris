@@ -22,8 +22,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TMetaScanRange;
-import org.apache.doris.thrift.TParquetMetadataParams;
 import org.apache.doris.thrift.TMetadataType;
+import org.apache.doris.thrift.TParquetMetadataParams;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
