@@ -418,6 +418,11 @@ public class JoinEstimation {
             updateNumNullsForOuterJoin(crossJoinStats, innerJoinStats, rightStats, leftStats, rowCount);
             updateJoinConditionColumnStatistics(crossJoinStats, join);
             return crossJoinStats.withRowCountAndEnforceValid(rowCount);
+        } else if (joinType == JoinType.ASOF_LEFT_OUTER_JOIN) {
+            double rowCount = leftStats.getRowCount();
+            updateNumNullsForOuterJoin(crossJoinStats, innerJoinStats, leftStats, rightStats, rowCount);
+            updateJoinConditionColumnStatistics(crossJoinStats, join);
+            return crossJoinStats.withRowCountAndEnforceValid(rowCount);
         } else if (joinType == JoinType.CROSS_JOIN) {
             updateJoinConditionColumnStatistics(crossJoinStats, join);
             return crossJoinStats;

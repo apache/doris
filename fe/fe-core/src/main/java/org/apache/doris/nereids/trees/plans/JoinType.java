@@ -39,6 +39,10 @@ public enum JoinType {
     RIGHT_ANTI_JOIN,
     CROSS_JOIN,
     NULL_AWARE_LEFT_ANTI_JOIN,
+    ASOF_LEFT_INNER_JOIN,
+    ASOF_RIGHT_INNER_JOIN,
+    ASOF_LEFT_OUTER_JOIN,
+    ASOF_RIGHT_OUTER_JOIN
     ;
 
     private static final Map<JoinType, JoinType> joinSwapMap = ImmutableMap
@@ -52,6 +56,10 @@ public enum JoinType {
             .put(RIGHT_OUTER_JOIN, LEFT_OUTER_JOIN)
             .put(LEFT_ANTI_JOIN, RIGHT_ANTI_JOIN)
             .put(RIGHT_ANTI_JOIN, LEFT_ANTI_JOIN)
+            .put(ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN)
+            .put(ASOF_RIGHT_INNER_JOIN, ASOF_LEFT_INNER_JOIN)
+            .put(ASOF_LEFT_OUTER_JOIN, ASOF_RIGHT_OUTER_JOIN)
+            .put(ASOF_RIGHT_OUTER_JOIN, ASOF_LEFT_OUTER_JOIN)
             .build();
 
     // TODO: the right-semi/right-anti/right-outer join is not derived in paper. We need to derive them
