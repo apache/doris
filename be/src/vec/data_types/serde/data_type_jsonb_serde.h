@@ -42,7 +42,8 @@ public:
                        const FormatOptions& options) const override;
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
-                                        int64_t row_idx, bool col_const) const override;
+                                        int64_t row_idx, bool col_const,
+                                        const FormatOptions& options) const override;
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
@@ -63,10 +64,11 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               const FormatOptions& options) const override;
 
-    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                     int64_t row_idx) const override;
+    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                     const FormatOptions& options) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                               int64_t end) const override;
@@ -86,7 +88,8 @@ public:
     static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
                                                       FieldInfo& info);
 
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                   const FormatOptions& options) const override;
 };
 
 void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,

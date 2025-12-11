@@ -96,7 +96,13 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                                        size_t input_rows_count) const {
     ColumnPtr& column_ptr = block.get_by_position(arguments[1]).column;
     DataTypePtr& type_ptr = block.get_by_position(arguments[1]).type;
-    auto match_query_str = type_ptr->to_string(*column_ptr, 0);
+
+    auto format_options = DataTypeSerDe::get_default_format_options();
+    auto time_zone = cctz::utc_time_zone();
+    format_options.timezone =
+            (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
+
+    auto match_query_str = type_ptr->to_string(*column_ptr, 0, format_options);
     std::string column_name = block.get_by_position(arguments[0]).name;
     VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
                << ", match_query_str=" << match_query_str;

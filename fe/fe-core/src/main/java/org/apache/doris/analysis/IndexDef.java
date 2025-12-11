@@ -231,7 +231,7 @@ public class IndexDef {
             return isSupportIdxType(itemType);
         }
         PrimitiveType primitiveType = colType.getPrimitiveType();
-        return primitiveType.isDateType() || primitiveType.isDecimalV2Type() || primitiveType.isDecimalV3Type()
+        return primitiveType.isDateLikeType() || primitiveType.isDecimalV2Type() || primitiveType.isDecimalV3Type()
                 || primitiveType.isFixedPointType() || primitiveType.isStringType()
                 || primitiveType == PrimitiveType.BOOLEAN
                 || primitiveType.isVariantType() || primitiveType.isIPType();

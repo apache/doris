@@ -253,7 +253,8 @@ Status DataTypeDateSerDe<T>::read_column_from_arrow(IColumn& column,
 template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
                                                           MysqlRowBinaryBuffer& result,
-                                                          int64_t row_idx, bool col_const) const {
+                                                          int64_t row_idx, bool col_const,
+                                                          const FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnVector<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     auto time_num = data[col_index];
@@ -269,7 +270,8 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, co
                                                  const NullMap* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end,
-                                                 vectorized::Arena& arena) const {
+                                                 vectorized::Arena& arena,
+                                                 const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 

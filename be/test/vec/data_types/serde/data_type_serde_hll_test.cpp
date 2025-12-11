@@ -36,8 +36,11 @@ TEST(HLLSerdeTest, writeOneCellToJsonb) {
     ASSERT_EQ(column_hll->size(), 1);
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     jsonb_writer.writeStartObject();
-    hll_serde->write_one_cell_to_jsonb(*column_hll, jsonb_writer, pool, 0, 0);
+    hll_serde->write_one_cell_to_jsonb(*column_hll, jsonb_writer, pool, 0, 0, options);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
