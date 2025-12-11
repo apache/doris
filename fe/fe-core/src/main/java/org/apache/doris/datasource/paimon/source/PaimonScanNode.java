@@ -323,7 +323,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
                 }
-                long fileSplitSize = determineFileSplitSize(dataSplits, isBatchMode());
+                long targetFileSplitSize = determineTargetFileSplitSize(dataSplits, isBatchMode());
                 splitStat.setType(SplitReadType.NATIVE);
                 splitStat.setRawFileConvertable(true);
                 List<RawFile> rawFiles = optRawFiles.get();
@@ -333,7 +333,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                     try {
                         List<Split> dorisSplits = fileSplitter.splitFile(
                                 locationPath,
-                                fileSplitSize,
+                                targetFileSplitSize,
                                 null,
                                 file.length(),
                                 -1,
@@ -389,7 +389,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         return splits;
     }
 
-    private long determineFileSplitSize(List<DataSplit> dataSplits,
+    private long determineTargetFileSplitSize(List<DataSplit> dataSplits,
             boolean isBatchMode) {
         if (sessionVariable.getFileSplitSize() > 0) {
             return sessionVariable.getFileSplitSize();

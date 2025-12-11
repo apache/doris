@@ -296,10 +296,10 @@ public class HiveScanNode extends FileQueryScanNode {
                     directoryLister, hmsTable);
         }
 
-        long fileSplitSize = determineFileSplitSize(fileCaches, isBatchMode);
+        long targetFileSplitSize = determineTargetFileSplitSize(fileCaches, isBatchMode);
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
-            splitAllFiles(allFiles, hiveFileStatuses, fileSplitSize);
+            splitAllFiles(allFiles, hiveFileStatuses, targetFileSplitSize);
             return;
         }
 
@@ -344,7 +344,7 @@ public class HiveScanNode extends FileQueryScanNode {
         }
     }
 
-    private long determineFileSplitSize(List<FileCacheValue> fileCaches,
+    private long determineTargetFileSplitSize(List<FileCacheValue> fileCaches,
             boolean isBatchMode) {
         if (sessionVariable.getFileSplitSize() > 0) {
             return sessionVariable.getFileSplitSize();
