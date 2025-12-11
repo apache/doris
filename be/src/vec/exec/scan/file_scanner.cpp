@@ -1768,8 +1768,6 @@ void FileScanner::update_realtime_counters() {
 
     _file_reader_stats->read_bytes = 0;
     _file_reader_stats->read_rows = 0;
-    _file_cache_statistics->bytes_read_from_local = 0;
-    _file_cache_statistics->bytes_read_from_remote = 0;
 }
 
 void FileScanner::_collect_profile_before_close() {
