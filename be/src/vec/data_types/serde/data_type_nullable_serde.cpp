@@ -36,9 +36,7 @@
 #include "vec/functions/cast/cast_base.h"
 #include "vec/runtime/vcsv_transformer.h"
 
-namespace doris {
-
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
 Status DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -489,10 +487,10 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
 Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                       const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    RETURN_IF_ERROR(nested_serde->from_string(str, null_column.get_nested_column(), options));
+    RETURN_IF_ERROR(
+            nested_serde->from_string_strict_mode(str, null_column.get_nested_column(), options));
     // fill not null if success
     null_column.get_null_map_data().push_back(0);
     return Status::OK();
 }
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
