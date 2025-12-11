@@ -50,6 +50,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -143,6 +144,8 @@ Status VMysqlResultWriter::_write_one_block(RuntimeState* state, Block& block) {
             DataTypeSerDeSPtr serde;
             PrimitiveType type;
         };
+        auto options = DataTypeSerDe::get_default_format_options();
+        options.timezone = &state->timezone_obj();
 
         const size_t num_cols = _output_vexpr_ctxs.size();
         std::vector<Arguments> arguments;
@@ -190,13 +193,17 @@ Status VMysqlResultWriter::_write_one_block(RuntimeState* state, Block& block) {
         if (!_is_binary_format) {
             const auto& serde_dialect = state->query_options().serde_dialect;
             auto write_to_text = [serde_dialect](DataTypeSerDeSPtr& serde, const IColumn* column,
-                                                 BufferWriter& write_buffer, size_t col_index) {
+                                                 BufferWriter& write_buffer, size_t col_index,
+                                                 const DataTypeSerDe::FormatOptions& options) {
                 if (serde_dialect == TSerdeDialect::DORIS) {
-                    return serde->write_column_to_mysql_text(*column, write_buffer, col_index);
+                    return serde->write_column_to_mysql_text(*column, write_buffer, col_index,
+                                                             options);
                 } else if (serde_dialect == TSerdeDialect::PRESTO) {
-                    return serde->write_column_to_presto_text(*column, write_buffer, col_index);
+                    return serde->write_column_to_presto_text(*column, write_buffer, col_index,
+                                                              options);
                 } else if (serde_dialect == TSerdeDialect::HIVE) {
-                    return serde->write_column_to_hive_text(*column, write_buffer, col_index);
+                    return serde->write_column_to_hive_text(*column, write_buffer, col_index,
+                                                            options);
                 } else {
                     return false;
                 }
@@ -207,7 +214,8 @@ Status VMysqlResultWriter::_write_one_block(RuntimeState* state, Block& block) {
                 for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                     const auto col_index = index_check_const(row_idx, arguments[col_idx].is_const);
                     const auto* column = arguments[col_idx].column;
-                    if (write_to_text(arguments[col_idx].serde, column, write_buffer, col_index)) {
+                    if (write_to_text(arguments[col_idx].serde, column, write_buffer, col_index,
+                                      options)) {
                         write_buffer.commit();
                         auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
                         direct_write_to_mysql_result_string(mysql_rows, str.data, str.size);
@@ -236,7 +244,7 @@ Status VMysqlResultWriter::_write_one_block(RuntimeState* state, Block& block) {
                                 index_check_const(row_idx, arguments[col_idx].is_const);
                         const auto* column = arguments[col_idx].column;
                         if (arguments[col_idx].serde->write_column_to_mysql_text(
-                                    *column, write_buffer, col_index)) {
+                                    *column, write_buffer, col_index, options)) {
                             write_buffer.commit();
                             auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
                             row_buffer.push_string(str.data, str.size);
@@ -248,7 +256,7 @@ Status VMysqlResultWriter::_write_one_block(RuntimeState* state, Block& block) {
                     } else {
                         RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql_binary(
                                 *(arguments[col_idx].column), row_buffer, row_idx,
-                                arguments[col_idx].is_const));
+                                arguments[col_idx].is_const, options));
                     }
                 }
 

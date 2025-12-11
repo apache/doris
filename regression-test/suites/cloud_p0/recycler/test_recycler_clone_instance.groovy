@@ -71,10 +71,10 @@ suite("test_recycler_clone_instance") {
     def masterFeHost = masterFe[1]
     logger.info("Master FE host: ${masterFeHost}")
     
-    def dorisHome = System.getenv("DORIS_HOME")
-    logger.info("DORIS_HOME: ${dorisHome}")
+    def dorisHome = System.getenv("DORIS_INSTALL_PATH")
+    logger.info("DORIS_INSTALL_PATH: ${dorisHome}")
 
-    assert dorisHome != null, "DORIS_HOME is not set"
+    assert dorisHome != null, "DORIS_INSTALL_PATH is not set"
 
     def executeCommand = { String cmd, Boolean mustSuc ->
         try {

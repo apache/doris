@@ -50,6 +50,9 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
     auto num_rows = block.rows();
     Arena arena;
     assert(num_cols <= block.columns());
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     for (int i = 0; i < num_rows; ++i) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         jsonb_writer.writeStartObject();
@@ -63,7 +66,7 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
             // TODO improve performance for checking column in group
             if (row_store_cids.empty() || row_store_cids.contains(tablet_column.unique_id())) {
                 serdes[j]->write_one_cell_to_jsonb(*column, jsonb_writer, arena,
-                                                   tablet_column.unique_id(), i);
+                                                   tablet_column.unique_id(), i, options);
             }
         }
         jsonb_writer.writeEndObject();
