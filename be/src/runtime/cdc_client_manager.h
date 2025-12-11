@@ -19,6 +19,8 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include <atomic>
+#include <mutex>
 #include <string>
 
 #include "common/status.h"
@@ -30,10 +32,10 @@ class RpcController;
 
 namespace doris {
 
-class CdcClientManager {
+class CdcClientMgr {
 public:
-    CdcClientManager();
-    ~CdcClientManager();
+    CdcClientMgr();
+    ~CdcClientMgr();
 
     void stop();
 
@@ -44,6 +46,11 @@ public:
 private:
     Status send_request_to_cdc_client(const std::string& api, const std::string& params_body,
                                       std::string* response);
+
+    Status start_cdc_client(PRequestCdcClientResult* result);
+
+    std::mutex _start_mutex;
+    std::atomic<pid_t> _child_pid {0};
 };
 
 } // namespace doris

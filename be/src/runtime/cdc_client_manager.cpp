@@ -28,7 +28,11 @@
 #include <sys/prctl.h>
 #endif
 
+#include <atomic>
+#include <chrono>
+#include <mutex>
 #include <string>
+#include <thread>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -75,11 +79,79 @@ Status check_cdc_client_health(int retry_times, int sleep_time, std::string& hea
     return Status::OK();
 }
 
-// Start CDC client process
-Status start_cdc_client(PRequestCdcClientResult* result) {
+} // anonymous namespace
+
+CdcClientMgr::CdcClientMgr() = default;
+
+CdcClientMgr::~CdcClientMgr() {
+    stop();
+    LOG(INFO) << "CdcClientMgr is destroyed";
+}
+
+void CdcClientMgr::stop() {
+    pid_t pid = _child_pid.load();
+    if (pid > 0) {
+        // Check if process is still alive
+        if (kill(pid, 0) == 0) {
+            LOG(INFO) << "Stopping CDC client process, pid=" << pid;
+
+            // Send SIGTERM for graceful shutdown
+            if (kill(pid, SIGTERM) == 0) {
+                // Wait up to 10 seconds for graceful shutdown
+                for (int i = 0; i < 10; ++i) {
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    if (kill(pid, 0) != 0) {
+                        // Process has exited
+                        _child_pid.store(0);
+                        LOG(INFO) << "CDC client process stopped gracefully";
+                        return;
+                    }
+                }
+            }
+
+            // Force kill if still alive
+            if (kill(pid, 0) == 0) {
+                LOG(WARNING) << "Force killing CDC client process, pid=" << pid;
+                kill(pid, SIGKILL);
+                // Wait for process to exit
+                int status = 0;
+                waitpid(pid, &status, 0);
+            }
+            _child_pid.store(0);
+        } else {
+            // Process already dead
+            _child_pid.store(0);
+        }
+    }
+
+    LOG(INFO) << "CdcClientMgr is stopped";
+}
+
+Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
+    std::lock_guard<std::mutex> lock(_start_mutex);
+
+    pid_t existing_pid = _child_pid.load();
+    if (existing_pid > 0) {
+        // Check if process is still alive
+        if (kill(existing_pid, 0) == 0) {
+            std::string check_response;
+            auto check_st = check_cdc_client_health(1, 0, check_response);
+            if (check_st.ok()) {
+                LOG(INFO) << "cdc client already started, pid=" << existing_pid;
+                return Status::OK();
+            } else {
+                // Process exists but not healthy, reset PID
+                LOG(WARNING) << "CDC client process exists but unhealthy, pid=" << existing_pid;
+                _child_pid.store(0);
+            }
+        } else {
+            // Process is dead, reset PID
+            _child_pid.store(0);
+        }
+    }
+
     Status st = Status::OK();
 
-    // Check DORIS_HOME environment variable
     const char* doris_home = getenv("DORIS_HOME");
     if (!doris_home) {
         st = Status::InternalError("DORIS_HOME environment variable is not set");
@@ -89,7 +161,6 @@ Status start_cdc_client(PRequestCdcClientResult* result) {
         return st;
     }
 
-    // Check LOG_DIR environment variable
     const char* log_dir = getenv("LOG_DIR");
     if (!log_dir) {
         st = Status::InternalError("LOG_DIR environment variable is not set");
@@ -143,7 +214,6 @@ Status start_cdc_client(PRequestCdcClientResult* result) {
     sigaction(SIGCHLD, &act, NULL);
     LOG(INFO) << "Start to fork cdc client process with " << path;
 
-    // If has a forked process, the child process fails to start and will automatically exit
     pid_t pid = ::fork();
     if (pid < 0) {
         // Fork failed
@@ -153,13 +223,13 @@ Status start_cdc_client(PRequestCdcClientResult* result) {
         }
         return st;
     } else if (pid == 0) {
+        // Child process
         // When the parent process is killed, the child process also needs to exit
 #ifndef __APPLE__
         prctl(PR_SET_PDEATHSIG, SIGKILL);
 #endif
 
-        LOG(INFO) << "Cdc client child process ready to start, " << pid
-                  << ", response=" << std::endl;
+        LOG(INFO) << "Cdc client child process ready to start";
         std::cout << "Cdc client child process ready to start." << std::endl;
         std::string java_bin = path + "/bin/java";
         // java -jar -Dlog.path=xx cdc-client.jar --server.port=9096 --backend.http.port=8040
@@ -168,40 +238,30 @@ Status start_cdc_client(PRequestCdcClientResult* result) {
         std::cerr << "Cdc client child process error." << std::endl;
         exit(1);
     } else {
+        // Parent process: save PID and wait for startup
+        _child_pid.store(pid);
+
         // Waiting for cdc to start, failed after more than 30 seconds
         std::string health_response;
         Status status = check_cdc_client_health(5, 6, health_response);
         if (!status.ok()) {
-            LOG(ERROR) << "Failed to start cdc client process, status=" << status.to_string()
-                       << ", response=" << health_response;
+            // Reset PID if startup failed
+            _child_pid.store(0);
             st = Status::InternalError("Start cdc client failed.");
             if (result) {
                 st.to_protobuf(result->mutable_status());
             }
         } else {
-            LOG(INFO) << "Start cdc client success, status=" << status.to_string()
-                      << ", response=" << health_response;
+            LOG(INFO) << "Start cdc client success, pid=" << pid
+                      << ", status=" << status.to_string() << ", response=" << health_response;
         }
     }
     return st;
 }
 
-} // anonymous namespace
-
-CdcClientManager::CdcClientManager() = default;
-
-CdcClientManager::~CdcClientManager() {
-    stop();
-    LOG(INFO) << "CdcClientManager is destroyed";
-}
-
-void CdcClientManager::stop() {
-    LOG(INFO) << "CdcClientManager is stopped";
-}
-
-void CdcClientManager::request_cdc_client_impl(const PRequestCdcClientRequest* request,
-                                               PRequestCdcClientResult* result,
-                                               google::protobuf::Closure* done) {
+void CdcClientMgr::request_cdc_client_impl(const PRequestCdcClientRequest* request,
+                                           PRequestCdcClientResult* result,
+                                           google::protobuf::Closure* done) {
     VLOG_RPC << "request to cdc client, api " << request->api();
     brpc::ClosureGuard closure_guard(done);
 
@@ -219,9 +279,9 @@ void CdcClientManager::request_cdc_client_impl(const PRequestCdcClientRequest* r
     st.to_protobuf(result->mutable_status());
 }
 
-Status CdcClientManager::send_request_to_cdc_client(const std::string& api,
-                                                    const std::string& params_body,
-                                                    std::string* response) {
+Status CdcClientMgr::send_request_to_cdc_client(const std::string& api,
+                                                const std::string& params_body,
+                                                std::string* response) {
     std::string remote_url_prefix =
             fmt::format("http://127.0.0.1:{}{}", doris::config::cdc_client_port, api);
 
