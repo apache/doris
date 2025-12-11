@@ -71,7 +71,7 @@ struct FileDescription {
     // because for a hive table, differenet partitions may have different
     // locations(or fs), so different files may have different fs.
     std::string fs_name;
-    bool file_cache_admission = false;
+    bool file_cache_admission = true;
 };
 
 } // namespace io
