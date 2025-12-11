@@ -25,6 +25,7 @@
 #include "jni.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_array.h"
@@ -65,6 +66,7 @@ namespace doris::vectorized {
     M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)            \
     M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)         \
     M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)    \
+    M(PrimitiveType::TYPE_TIMESTAMPTZ, ColumnTimeStampTz, UInt64)  \
     M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
     M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
 
@@ -313,10 +315,9 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
     SCOPED_RAW_TIMER(&_fill_block_watcher);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    // todo: maybe do not need to build name to index map every time
-    auto name_to_pos_map = block->get_name_to_pos_map();
     for (int i = 0; i < _column_names.size(); ++i) {
-        auto& column_with_type_and_name = block->get_by_position(name_to_pos_map[_column_names[i]]);
+        auto& column_with_type_and_name =
+                block->get_by_position(_col_name_to_block_idx->at(_column_names[i]));
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         RETURN_IF_ERROR(_fill_column(_table_meta, column_ptr, column_type, num_rows));
@@ -474,7 +475,7 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
     RETURN_IF_ERROR(_fill_column(address, value_column, value_type,
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
-    return map.deduplicate_keys();
+    return Status::OK();
 }
 
 Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,

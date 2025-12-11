@@ -387,7 +387,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
 
     auto add_rowsets_directly = [=, this](std::vector<RowsetSharedPtr>& rowsets) {
         for (auto& rs : rowsets) {
-            if (version_overlap || warmup_delta_data) {
+            if (warmup_delta_data) {
 #ifndef BE_TEST
                 bool warm_up_state_updated = false;
                 // Warmup rowset data in background
@@ -942,6 +942,8 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
+    // TODO(liaoxin) enable packed file for transient rowset
+    context.allow_packed_file = false;
 
     auto storage_resource = rowset.rowset_meta()->remote_storage_resource();
     if (!storage_resource) {

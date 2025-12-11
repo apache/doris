@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -60,11 +58,6 @@ public class ModifyColumnCommentOp extends AlterTableOp {
         if (Strings.isNullOrEmpty(colName)) {
             throw new AnalysisException("Empty column name");
         }
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyColumnCommentClause(colName, comment);
     }
 
     @Override

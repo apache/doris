@@ -30,6 +30,7 @@
 
 namespace doris {
 class RowsetMetaPB;
+class TabletSchemaPB;
 class TSnapshotRequest;
 struct RowsetId;
 class StorageEngine;
@@ -132,6 +133,9 @@ private:
     Status _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const std::string& new_tablet_path,
                              TabletSchemaSPtr tablet_schema, const RowsetId& next_id,
                              RowsetMetaPB* new_rs_meta_pb);
+
+    Status _rename_index_ids(TabletSchemaPB& schema_pb,
+                             const TabletSchemaSPtr& tablet_schema) const;
 
     StorageEngine& _engine;
     std::atomic<uint64_t> _snapshot_base_id {0};

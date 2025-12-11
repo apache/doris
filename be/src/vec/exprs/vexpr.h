@@ -53,6 +53,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/functions/function.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris {
 class BitmapFilterFuncBase;
@@ -133,14 +134,19 @@ public:
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const {
         ColumnPtr result_column;
-        RETURN_IF_ERROR(execute_column(context, block, result_column));
+        RETURN_IF_ERROR(execute_column(context, block, block->rows(), result_column));
         *result_column_id = block->columns();
         block->insert({result_column, execute_type(block), expr_name()});
         return Status::OK();
     }
 
-    // execute current expr and return result column
-    virtual Status execute_column(VExprContext* context, const Block* block,
+    // Execute the current expression and return the result column.
+    // Note: the block will not be modified during execution.
+    // We allow columns in the block to have different numbers of rows.
+    // 'count' indicates the number of rows in the result column returned by this expression.
+    // In the future this interface will add an additional parameter, Selector, which specifies
+    // which rows in the block should be evaluated.
+    virtual Status execute_column(VExprContext* context, const Block* block, size_t count,
                                   ColumnPtr& result_column) const = 0;
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
@@ -165,9 +171,9 @@ public:
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
-    virtual Status execute_runtime_filter(VExprContext* context, const Block* block,
+    virtual Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
                                           ColumnPtr& result_column, ColumnPtr* arg_column) const {
-        return execute_column(context, block, result_column);
+        return execute_column(context, block, count, result_column);
     };
 
     /// Subclasses overriding this function should call VExpr::Close().
@@ -365,7 +371,7 @@ protected:
         return (is_constant() && (_constant_col != nullptr));
     }
 
-    ColumnPtr get_result_from_const(const Block* block) const;
+    ColumnPtr get_result_from_const(size_t count) const;
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 
@@ -499,6 +505,15 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_date_literal(date_literal);
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2, precision, scale));
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        const auto* origin_value = reinterpret_cast<const TimestampTzValue*>(data);
+        TDateLiteral date_literal;
+        auto tz = cctz::utc_time_zone();
+        auto tz_str = origin_value->to_string(tz, scale);
+        date_literal.__set_value(tz_str);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMESTAMPTZ, precision, scale));
     } else if constexpr (T == TYPE_DECIMALV2) {
         const auto* origin_value = reinterpret_cast<const DecimalV2Value*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);

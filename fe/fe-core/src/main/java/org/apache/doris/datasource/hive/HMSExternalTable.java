@@ -56,6 +56,8 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -388,6 +390,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return getDlaType() == DLAType.HIVE || getDlaType() == DLAType.HUDI;
     }
 
+    @Override
+    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
+        if (getDlaType() != DLAType.HIVE) {
+            return Optional.empty();
+        }
+        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
+            return Optional.empty();
+        }
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
+        return hivePartitionValues.getSortedPartitionRanges();
+    }
+
     public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {
         if (getDlaType() != DLAType.HUDI) {
             return SelectedPartitions.NOT_PRUNED;
@@ -711,7 +726,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             String fieldName = field.getName().toLowerCase(Locale.ROOT);
             String defaultValue = colDefaultValues.getOrDefault(fieldName, null);
             columns.add(new Column(fieldName,
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(), catalog.getEnableMappingVarbinary()),
+                    true, null,
                     true, defaultValue, field.getComment(), true, -1));
         }
         List<Column> partitionColumns = initPartitionColumns(columns);
@@ -742,7 +758,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private List<Column> initPartitionColumns(List<Column> schema) {
-        List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
+        // get table from remote, do not use `remoteTable` directly,
+        // because here we need to get schema from latest table info.
+        Table newTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
+        List<String> partitionKeys = newTable.getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
         List<Column> partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (String partitionKey : partitionKeys) {

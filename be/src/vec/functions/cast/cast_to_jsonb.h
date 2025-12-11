@@ -17,6 +17,7 @@
 
 #include "cast_base.h"
 #include "runtime/jsonb_value.h"
+#include "runtime/primitive_type.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 #include "vec/common/assert_cast.h"
@@ -56,7 +57,7 @@ struct ConvertImplGenericFromJsonb {
             const bool is_dst_string = is_string_type(data_type_to->get_primitive_type());
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
                 if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                     (*vec_null_map_to)[i] = 1;
@@ -65,7 +66,7 @@ struct ConvertImplGenericFromJsonb {
                 }
 
                 // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-                JsonbValue* value = doc->getValue();
+                const JsonbValue* value = doc->getValue();
                 if (UNLIKELY(!value)) {
                     (*vec_null_map_to)[i] = 1;
                     col_to->insert_default();
@@ -172,12 +173,13 @@ struct ParseJsonbFromString {
     static Status execute_non_strict(const ColumnString& col_from, size_t size,
                                      ColumnPtr& column_result) {
         auto col_to = ColumnString::create();
-        auto col_null = ColumnUInt8::create(size, 0);
+        auto col_null = ColumnBool::create(size, 0);
         auto& vec_null_map_to = col_null->get_data();
+
         for (size_t i = 0; i < size; ++i) {
             Status st = parse_json(col_from.get_data_at(i), *col_to);
             vec_null_map_to[i] = !st.ok();
-            if (!st.ok()) {
+            if (!st.ok()) [[unlikely]] {
                 col_to->insert_default();
             }
         }
@@ -185,6 +187,7 @@ struct ParseJsonbFromString {
         return Status::OK();
     }
 
+    // in both strict or non-strict mode, the return type is nullable column
     static Status execute_strict(const ColumnString& col_from, const NullMap::value_type* null_map,
                                  size_t size, ColumnPtr& column_result) {
         auto col_to = ColumnString::create();
@@ -195,7 +198,7 @@ struct ParseJsonbFromString {
             }
             RETURN_IF_ERROR(parse_json(col_from.get_data_at(i), *col_to));
         }
-        column_result = std::move(col_to);
+        column_result = ColumnNullable::create(std::move(col_to), ColumnBool::create(size, 0));
         return Status::OK();
     }
 

@@ -149,7 +149,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         while (true) {
             try {
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .dropMaterializedIndex(tableId, idxList, false);
+                    .dropMaterializedIndex(dbId, tableId, idxList, false);
                 break;
             } catch (Exception e) {
                 LOG.warn("drop index failed, retry times {}, dbId: {}, tableId: {}, jobId: {}, idxList: {}:",
@@ -239,7 +239,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getPartitionInfo().getTabletType(partitionId),
                                             shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
                                             bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(),
-                                            tbl.getCompressionType(),
+                                            tbl.getCompressionType(), tbl.getStorageFormat(),
                                             tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                             tbl.getName(), tbl.getTTLSeconds(),
                                             tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),

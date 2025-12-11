@@ -54,11 +54,7 @@ suite ("routine_load_hll") {
 
     sql "analyze table test with sync;"
     sql """alter table test modify column mv_event_id set stats ('row_count'='2');"""
-    sql """set enable_stats=false;"""
 
     mv_rewrite_success("select mv_time_stamp, hll_union_agg(mv_device_id) from test group by mv_time_stamp order by 1;", "m_view")
     qt_select_mv "select mv_time_stamp, hll_union_agg(mv_device_id) from test group by mv_time_stamp order by 1;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select mv_time_stamp, hll_union_agg(mv_device_id) from test group by mv_time_stamp order by 1;", "m_view")
 }

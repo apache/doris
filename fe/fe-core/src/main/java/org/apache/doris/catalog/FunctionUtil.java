@@ -167,22 +167,37 @@ public class FunctionUtil {
 
     public static boolean translateToNereids(String dbName, Function function) {
         try {
-            if (function instanceof AliasFunction) {
-                AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
-            } else if (function instanceof ScalarFunction) {
-                if (function.isUDTFunction()) {
-                    JavaUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                } else {
-                    JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                }
-            } else if (function instanceof AggregateFunction) {
-                JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
-            }
+            translateToNereidsImpl(dbName, function);
         } catch (Exception e) {
             LOG.warn("Nereids create function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
                     function.getFunctionName().getFunction(), e);
         }
         return true;
+    }
+
+    public static boolean translateToNereidsThrows(String dbName, Function function) {
+        try {
+            translateToNereidsImpl(dbName, function);
+        } catch (Exception e) {
+            LOG.warn("Nereids create function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
+                    function.getFunctionName().getFunction(), e);
+            throw e;
+        }
+        return true;
+    }
+
+    private static void translateToNereidsImpl(String dbName, Function function) {
+        if (function instanceof AliasFunction) {
+            AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
+        } else if (function instanceof ScalarFunction) {
+            if (function.isUDTFunction()) {
+                JavaUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+            } else {
+                JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+            }
+        } else if (function instanceof AggregateFunction) {
+            JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
+        }
     }
 
     public static boolean dropFromNereids(String dbName, FunctionSearchDesc function) {

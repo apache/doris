@@ -66,7 +66,9 @@ using HashTableVariants = std::variant<
         DirectPrimaryTypeHashTableContext<vectorized::UInt32>,
         DirectPrimaryTypeHashTableContext<vectorized::UInt64>,
         DirectPrimaryTypeHashTableContext<vectorized::UInt128>,
-        FixedKeyHashTableContext<vectorized::UInt64>, FixedKeyHashTableContext<vectorized::UInt128>,
+        FixedKeyHashTableContext<vectorized::UInt64>, FixedKeyHashTableContext<vectorized::UInt72>,
+        FixedKeyHashTableContext<vectorized::UInt96>, FixedKeyHashTableContext<vectorized::UInt104>,
+        FixedKeyHashTableContext<vectorized::UInt128>,
         FixedKeyHashTableContext<vectorized::UInt136>,
         FixedKeyHashTableContext<vectorized::UInt256>, MethodOneString>;
 
@@ -101,6 +103,18 @@ struct JoinDataVariants {
             break;
         case HashKeyType::fixed64:
             method_variant.emplace<FixedKeyHashTableContext<vectorized::UInt64>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed72:
+            method_variant.emplace<FixedKeyHashTableContext<vectorized::UInt72>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed96:
+            method_variant.emplace<FixedKeyHashTableContext<vectorized::UInt96>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed104:
+            method_variant.emplace<FixedKeyHashTableContext<vectorized::UInt104>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:

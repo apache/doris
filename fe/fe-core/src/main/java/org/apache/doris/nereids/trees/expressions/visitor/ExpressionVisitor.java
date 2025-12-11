@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
+import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
@@ -72,6 +73,7 @@ import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -82,7 +84,6 @@ import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.VariableDesc;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
@@ -118,6 +119,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -171,6 +173,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitAggregateExpression(AggregateExpression aggregateExpression, C context) {
         return visit(aggregateExpression, context);
+    }
+
+    public R visitSessionVarGuardExpr(SessionVarGuardExpr sessionVarGuardExpr, C context) {
+        return visit(sessionVarGuardExpr, context);
     }
 
     public R visitAlias(Alias alias, C context) {
@@ -325,6 +331,10 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(dateTimeV2Literal, context);
     }
 
+    public R visitTimestampTzLiteral(TimestampTzLiteral timestampTzLiteral, C context) {
+        return visitLiteral(timestampTzLiteral, context);
+    }
+
     public R visitIPv4Literal(IPv4Literal ipv4Literal, C context) {
         return visitLiteral(ipv4Literal, context);
     }
@@ -458,10 +468,6 @@ public abstract class ExpressionVisitor<R, C>
         return visit(groupingScalarFunction, context);
     }
 
-    public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
-        return visitSlotReference(virtualSlotReference, context);
-    }
-
     public R visitArrayItemReference(ArrayItemReference arrayItemReference, C context) {
         return visit(arrayItemReference, context);
     }
@@ -556,5 +562,9 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitUnboundVariable(UnboundVariable unboundVariable, C context) {
         return visit(unboundVariable, context);
+    }
+
+    public R visitDereferenceExpression(DereferenceExpression dereferenceExpression, C context) {
+        return visit(dereferenceExpression, context);
     }
 }

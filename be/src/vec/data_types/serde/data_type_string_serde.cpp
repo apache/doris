@@ -197,10 +197,9 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_pb(IColumn& column,
 }
 
 template <typename ColumnType>
-void DataTypeStringSerDeBase<ColumnType>::write_one_cell_to_jsonb(const IColumn& column,
-                                                                  JsonbWriter& result,
-                                                                  Arena& mem_pool, int32_t col_id,
-                                                                  int64_t row_num) const {
+void DataTypeStringSerDeBase<ColumnType>::write_one_cell_to_jsonb(
+        const IColumn& column, JsonbWriter& result, Arena& mem_pool, int32_t col_id,
+        int64_t row_num, const FormatOptions& options) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const auto& data_ref = column.get_data_at(row_num);
     result.writeStartBinary();
@@ -316,23 +315,10 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_mysql_binary(
-        const IColumn& column, MysqlRowBinaryBuffer& row_buffer, int64_t row_idx, bool col_const,
-        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_mysql_text(
-        const IColumn& column, MysqlRowTextBuffer& row_buffer, int64_t row_idx, bool col_const,
-        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
         const std::string& timezone, const IColumn& column, const NullMap* null_map,
-        orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end,
-        vectorized::Arena& arena) const {
+        orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end, vectorized::Arena& arena,
+        const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
     for (auto row_id = start; row_id < end; row_id++) {
@@ -436,7 +422,8 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb_vector
 
 template <typename ColumnType>
 void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_t row_num,
-                                                    BufferWritable& bw) const {
+                                                    BufferWritable& bw,
+                                                    const FormatOptions& options) const {
     if (_nesting_level > 1) {
         bw.write('"');
     }
@@ -447,6 +434,17 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
     if (_nesting_level > 1) {
         bw.write('"');
     }
+}
+
+template <typename ColumnType>
+bool DataTypeStringSerDeBase<ColumnType>::write_column_to_presto_text(
+        const IColumn& column, BufferWritable& bw, int64_t row_idx,
+        const FormatOptions& options) const {
+    const auto& value =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_idx);
+    bw.write(value.data, value.size);
+    return true;
 }
 
 template <typename ColumnType>

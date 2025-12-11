@@ -59,10 +59,6 @@ public class ESCatalogAction extends RestBaseController {
             return redirectToHttps(request);
         }
 
-        if (checkForwardToMaster(request)) {
-            return forwardToMaster(request);
-        }
-
         Map<String, Object> resultMap = Maps.newHashMap();
         Env env = Env.getCurrentEnv();
         String catalogName = request.getParameter(CATALOG);

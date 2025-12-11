@@ -301,21 +301,10 @@ DEFINE_mInt32(pipeline_task_exec_time_slice, "100");
 DEFINE_Int32(task_executor_min_concurrency_per_task, "1");
 // task executor max concurrency per task
 DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
-DEFINE_Validator(task_executor_max_concurrency_per_task, [](const int config) -> bool {
-    if (config == -1) {
-        task_executor_max_concurrency_per_task = std::numeric_limits<int>::max();
-    }
-    return true;
-});
+
 // task task executor inital split max concurrency per task, later concurrency may be adjusted dynamically
 DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
-DEFINE_Validator(task_executor_initial_max_concurrency_per_task, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        task_executor_initial_max_concurrency_per_task = std::max(48, CpuInfo::num_cores() * 2);
-    }
-    return true;
-});
+
 // Enable task executor in internal table scan.
 DEFINE_Bool(enable_task_executor_in_internal_table, "false");
 // Enable task executor in external table scan.
@@ -324,13 +313,7 @@ DEFINE_Bool(enable_task_executor_in_external_table, "true");
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
-DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 2);
-    }
-    return true;
-});
+
 DEFINE_Int32(doris_scanner_min_thread_pool_thread_num, "8");
 DEFINE_Int32(remote_split_source_batch_size, "1000");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
@@ -369,6 +352,8 @@ DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_mInt32(quering_rowsets_evict_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_mString(broken_storage_path, "");
+DEFINE_Int32(min_active_scan_threads, "-1");
+DEFINE_Int32(min_active_file_scan_threads, "-1");
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -1160,6 +1145,7 @@ DEFINE_mBool(enable_file_cache_adaptive_write, "true");
 DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
 // if difference below this threshold, we consider cache's progressive upgrading (2.0->3.0) successful
 DEFINE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold, "0.3");
+DEFINE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio, "0.7");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
@@ -1609,14 +1595,15 @@ DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 // -1 means auto: use 80% of the available CPU cores.
 DEFINE_Int32(omp_threads_limit, "-1");
 DEFINE_Validator(omp_threads_limit, [](const int config) -> bool {
+    if (config > 0) {
+        omp_threads_limit = config;
+        return true;
+    }
     CpuInfo::init();
     int core_cap = config::num_cores > 0 ? config::num_cores : CpuInfo::num_cores();
     core_cap = std::max(1, core_cap);
-    int limit = config;
-    if (limit < 0) {
-        limit = std::max(1, core_cap * 4 / 5);
-    }
-    omp_threads_limit = std::max(1, std::min(limit, core_cap));
+    // Use at most 80% of the available CPU cores.
+    omp_threads_limit = std::max(1, core_cap * 4 / 5);
     return true;
 });
 // The capacity of segment partial column cache, used to cache column readers for each segment.
@@ -1624,6 +1611,12 @@ DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+// Chunk size for ANN/vector index building per training/adding batch
+// 1M By default.
+DEFINE_mInt64(ann_index_build_chunk_size, "1000000");
+DEFINE_Validator(ann_index_build_chunk_size,
+                 [](const int64_t config) -> bool { return config > 0; });
 
 DEFINE_mBool(enable_wal_tde, "false");
 

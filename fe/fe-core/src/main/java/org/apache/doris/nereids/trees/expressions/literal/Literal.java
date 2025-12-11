@@ -43,6 +43,7 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -345,6 +346,15 @@ public abstract class Literal extends Expression implements LeafExpression {
                         dateLiteral.getMicrosecond()
                 );
             }
+            case TIMESTAMPTZ: {
+                org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
+                return new TimestampTzLiteral(
+                        (TimeStampTzType) DateType.fromCatalogType(type),
+                        dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
+                        dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond(),
+                        dateLiteral.getMicrosecond()
+                );
+            }
             case BOOLEAN: {
                 return ((BoolLiteral) literalExpr).getValue() ? BooleanLiteral.TRUE : BooleanLiteral.FALSE;
             }
@@ -577,7 +587,7 @@ public abstract class Literal extends Expression implements LeafExpression {
             String value = new String(bytes);
             BigDecimal v = new BigDecimal(value);
             if (Config.enable_decimal_conversion) {
-                return new DecimalV3Literal(v);
+                return DecimalV3Literal.createWithCheck256(v);
             }
             return new DecimalLiteral(v);
         } catch (NumberFormatException e) {

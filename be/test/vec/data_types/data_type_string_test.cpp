@@ -113,7 +113,6 @@ TEST_F(DataTypeStringTest, ser_deser) {
 
         // const flag | row num | read saved num
         int64_t prefix_size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
-        int64_t prefix_size2 = sizeof(uint32_t) + sizeof(uint64_t);
 
         {
             auto tmp_col = dt.create_column();
@@ -123,19 +122,14 @@ TEST_F(DataTypeStringTest, ser_deser) {
 
             auto content_uncompressed_size =
                     dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-            if (be_exec_version >= USE_CONST_SERDE) {
-                auto expected_data_size = prefix_size;
-                expected_data_size += offsets_size;
-                // chars size
-                expected_data_size += sizeof(size_t);
-                expected_data_size += data_size;
-                EXPECT_EQ(content_uncompressed_size, expected_data_size);
-            } else {
-                auto expected_data_size = prefix_size2;
-                expected_data_size += offsets_size;
-                expected_data_size += data_size;
-                EXPECT_EQ(content_uncompressed_size, expected_data_size);
-            }
+
+            auto expected_data_size = prefix_size;
+            expected_data_size += offsets_size;
+            // chars size
+            expected_data_size += sizeof(size_t);
+            expected_data_size += data_size;
+            EXPECT_EQ(content_uncompressed_size, expected_data_size);
+
             std::string column_values;
             column_values.resize(content_uncompressed_size);
             char* buf = column_values.data();
@@ -158,19 +152,14 @@ TEST_F(DataTypeStringTest, ser_deser) {
 
             auto content_uncompressed_size =
                     dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-            if (be_exec_version >= USE_CONST_SERDE) {
-                auto expected_data_size = prefix_size;
-                expected_data_size += offsets_size;
-                // chars size
-                expected_data_size += sizeof(size_t);
-                expected_data_size += data_size;
-                EXPECT_EQ(content_uncompressed_size, expected_data_size);
-            } else {
-                auto expected_data_size = prefix_size2;
-                expected_data_size += offsets_size;
-                expected_data_size += data_size;
-                EXPECT_EQ(content_uncompressed_size, expected_data_size);
-            }
+
+            auto expected_data_size = prefix_size;
+            expected_data_size += offsets_size;
+            // chars size
+            expected_data_size += sizeof(size_t);
+            expected_data_size += data_size;
+            EXPECT_EQ(content_uncompressed_size, expected_data_size);
+
             std::string column_values;
             column_values.resize(content_uncompressed_size);
             char* buf = column_values.data();
@@ -198,28 +187,18 @@ TEST_F(DataTypeStringTest, ser_deser) {
 
             auto content_uncompressed_size =
                     dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-            if (be_exec_version >= USE_CONST_SERDE) {
-                auto expected_data_size = prefix_size;
-                expected_data_size +=
-                        sizeof(size_t) +
-                        std::max(offsets_size, streamvbyte_max_compressedbytes(cast_set<UInt32>(
-                                                       upper_int32(offsets_size))));
-                expected_data_size += sizeof(size_t);
-                expected_data_size +=
-                        sizeof(size_t) +
-                        std::max(data_size, (size_t)LZ4_compressBound(cast_set<UInt32>(data_size)));
-                EXPECT_EQ(content_uncompressed_size, expected_data_size);
-            } else {
-                auto expected_data_size = prefix_size2;
-                expected_data_size +=
-                        sizeof(size_t) +
-                        std::max(offsets_size, streamvbyte_max_compressedbytes(cast_set<UInt32>(
-                                                       upper_int32(offsets_size))));
-                expected_data_size +=
-                        sizeof(size_t) +
-                        std::max(data_size, (size_t)LZ4_compressBound(cast_set<UInt32>(data_size)));
-                EXPECT_EQ(content_uncompressed_size, expected_data_size);
-            }
+
+            auto expected_data_size = prefix_size;
+            expected_data_size +=
+                    sizeof(size_t) +
+                    std::max(offsets_size, streamvbyte_max_compressedbytes(
+                                                   cast_set<UInt32>(upper_int32(offsets_size))));
+            expected_data_size += sizeof(size_t);
+            expected_data_size +=
+                    sizeof(size_t) +
+                    std::max(data_size, (size_t)LZ4_compressBound(cast_set<UInt32>(data_size)));
+            EXPECT_EQ(content_uncompressed_size, expected_data_size);
+
             std::string column_values;
             column_values.resize(content_uncompressed_size);
             char* buf = column_values.data();
@@ -255,7 +234,6 @@ TEST_F(DataTypeStringTest, ser_deser) {
         }
     };
     test_func(dt_str, *column_str32, USE_CONST_SERDE);
-    test_func(dt_str, *column_str32, AGGREGATION_2_1_VERSION);
 }
 TEST_F(DataTypeStringTest, simple_func_test) {
     auto test_func = [](auto& dt) {

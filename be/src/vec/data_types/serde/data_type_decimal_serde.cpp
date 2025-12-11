@@ -356,11 +356,10 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
 }
 
 template <PrimitiveType T>
-template <bool is_binary_format>
-Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
-                                                       MysqlRowBuffer<is_binary_format>& result,
-                                                       int64_t row_idx, bool col_const,
-                                                       const FormatOptions& options) const {
+Status DataTypeDecimalSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
+                                                             MysqlRowBinaryBuffer& result,
+                                                             int64_t row_idx, bool col_const,
+                                                             const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     if constexpr (T == TYPE_DECIMALV2) {
@@ -380,27 +379,12 @@ Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
-                                                             MysqlRowBinaryBuffer& row_buffer,
-                                                             int64_t row_idx, bool col_const,
-                                                             const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::write_column_to_mysql_text(const IColumn& column,
-                                                           MysqlRowTextBuffer& row_buffer,
-                                                           int64_t row_idx, bool col_const,
-                                                           const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end,
-                                                    vectorized::Arena& arena) const {
+                                                    vectorized::Arena& arena,
+                                                    const FormatOptions& options) const {
     if constexpr (T == TYPE_DECIMAL256) {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
     } else {
@@ -463,7 +447,8 @@ void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& c
 template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                       Arena& mem_pool, int32_t col_id,
-                                                      int64_t row_num) const {
+                                                      int64_t row_num,
+                                                      const FormatOptions& options) const {
     StringRef data_ref = column.get_data_at(row_num);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     if constexpr (T == TYPE_DECIMALV2) {
@@ -492,16 +477,16 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
 }
 
 template <PrimitiveType T>
-void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num,
-                                        BufferWritable& bw) const {
+void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                        const FormatOptions& options) const {
     auto& data =
             assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column).get_data();
     CastToString::push_decimal(data[row_num], scale, bw);
 }
 
 template <PrimitiveType T>
-void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column,
-                                              ColumnString& column_to) const {
+void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to,
+                                              const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
     const size_t size = column.size();
     const auto maybe_reserve_size = CastToString::string_length<T>;

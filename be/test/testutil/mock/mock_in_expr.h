@@ -30,7 +30,7 @@ class VExprContext;
 // use to mock a slot ref expr
 class MockInExpr final : public VInPredicate {
 public:
-    MockInExpr() = default;
+    MockInExpr() { _node_type = TExprNodeType::IN_PRED; }
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         return Status::OK();

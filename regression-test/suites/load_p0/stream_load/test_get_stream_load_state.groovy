@@ -58,6 +58,9 @@ suite("test_get_stream_load_state", "p0") {
     }
 
     def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} http://${context.config.feHttpAddress}/api/${db}/get_load_state?label=${label}"
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+    }
     log.info("test_get_stream_load_state: ${command}")
     def process = command.execute()
     def code = process.waitFor()
@@ -69,6 +72,9 @@ suite("test_get_stream_load_state", "p0") {
 
     def label1 = UUID.randomUUID().toString().replaceAll("-", "")
     command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} http://${context.config.feHttpAddress}/api/${db}/get_load_state?label=${label1}"
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+    }
     log.info("test_get_stream_load_state: ${command}")
     process = command.execute()
     code = process.waitFor()

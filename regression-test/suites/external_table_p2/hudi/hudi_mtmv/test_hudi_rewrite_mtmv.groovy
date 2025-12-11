@@ -62,9 +62,7 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
 
-    def explainOnePartition = sql """ explain  ${mvSql} """
-    logger.info("explainOnePartition: " + explainOnePartition.toString())
-    assertTrue(explainOnePartition.toString().contains("VUNION"))
+    mv_rewrite_success(mvSql, mvName)
     order_qt_refresh_one_partition_rewrite "${mvSql}"
 
     mv_rewrite_success("${mvSql}", "${mvName}")
@@ -79,9 +77,7 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_auto "SELECT * FROM ${mvName} "
 
-    def explainAllPartition = sql """ explain  ${mvSql}; """
-    logger.info("explainAllPartition: " + explainAllPartition.toString())
-    assertTrue(explainAllPartition.toString().contains("VOlapScanNode"))
+    mv_rewrite_success(mvSql, mvName)
     order_qt_refresh_all_partition_rewrite "${mvSql}"
 
     mv_rewrite_success("${mvSql}", "${mvName}")

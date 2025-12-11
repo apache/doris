@@ -27,17 +27,32 @@
 
 namespace doris {
 template <PrimitiveType T>
-class BitmapFilterColumnPredicate : public ColumnPredicate {
+class BitmapFilterColumnPredicate final : public ColumnPredicate {
 public:
+    ENABLE_FACTORY_CREATOR(BitmapFilterColumnPredicate);
     using CppType = typename PrimitiveTypeTraits<T>::CppType;
     using SpecificFilter = BitmapFilterFunc<T>;
 
     BitmapFilterColumnPredicate(uint32_t column_id,
                                 const std::shared_ptr<BitmapFilterFuncBase>& filter)
-            : ColumnPredicate(column_id),
+            : ColumnPredicate(column_id, T),
               _filter(filter),
               _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
     ~BitmapFilterColumnPredicate() override = default;
+    BitmapFilterColumnPredicate(const BitmapFilterColumnPredicate& other, uint32_t col_id)
+            : ColumnPredicate(other, col_id),
+              _filter(other._filter),
+              _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
+    BitmapFilterColumnPredicate(const BitmapFilterColumnPredicate& other) = delete;
+    std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
+        return BitmapFilterColumnPredicate<T>::create_shared(*this, col_id);
+    }
+    std::string debug_string() const override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "BitmapFilterColumnPredicate({})",
+                       ColumnPredicate::debug_string());
+        return fmt::to_string(debug_string_buffer);
+    }
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
 
@@ -62,10 +77,6 @@ public:
 
     using ColumnPredicate::evaluate;
 
-    Status evaluate(BitmapIndexIterator*, uint32_t, roaring::Roaring*) const override {
-        return Status::OK();
-    }
-
 private:
     bool _can_ignore() const override { return false; }
 
@@ -89,10 +100,6 @@ private:
         return new_size;
     }
 
-    std::string _debug_string() const override {
-        return "BitmapFilterColumnPredicate(" + type_to_string(T) + ")";
-    }
-
     std::shared_ptr<BitmapFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
 
@@ -111,7 +118,7 @@ uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColu
     } else {
         new_size = evaluate<false>(column, nullptr, sel, size);
     }
-    update_filter_info(size - new_size, size);
+    update_filter_info(size - new_size, size, 0);
     return new_size;
 }
 } //namespace doris

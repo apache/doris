@@ -67,9 +67,8 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     argument_template.reserve(2);
     argument_template.emplace_back(nullptr, child->data_type(), child_name);
     argument_template.emplace_back(nullptr, _cast_param_data_type, _target_data_type_name);
-    _function = SimpleFunctionFactory::instance().get_function(
-            function_name, argument_template, _data_type,
-            {.enable_decimal256 = state->enable_decimal256()});
+    _function = SimpleFunctionFactory::instance().get_function(function_name, argument_template,
+                                                               _data_type, {});
 
     if (_function == nullptr) {
         return Status::NotSupported("Cast from {} to {} is not implemented",
@@ -105,26 +104,27 @@ void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
     VExpr::close(context, scope);
 }
 
-Status VCastExpr::execute_column(VExprContext* context, const Block* block,
+Status VCastExpr::execute_column(VExprContext* context, const Block* block, size_t count,
                                  ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
-        result_column = get_result_from_const(block);
+        result_column = get_result_from_const(count);
         return Status::OK();
     }
     // for each child call execute
 
     ColumnPtr from_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, from_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, from_column));
 
     Block temp_block;
     temp_block.insert({from_column, _children[0]->execute_type(block), _children[0]->expr_name()});
     temp_block.insert({nullptr, _data_type, _expr_name});
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block, {0}, 1,
-                                       block->rows()));
+                                       temp_block.rows()));
 
     result_column = temp_block.get_by_position(1).column;
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 
@@ -145,12 +145,12 @@ DataTypePtr TryCastExpr::original_cast_return_type() const {
     }
 }
 
-Status TryCastExpr::execute_column(VExprContext* context, const Block* block,
+Status TryCastExpr::execute_column(VExprContext* context, const Block* block, size_t count,
                                    ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
-        result_column = get_result_from_const(block);
+        result_column = get_result_from_const(count);
         return Status::OK();
     }
 
@@ -159,7 +159,7 @@ Status TryCastExpr::execute_column(VExprContext* context, const Block* block,
     // execute child first
 
     ColumnPtr from_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, from_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, from_column));
     auto from_type = _children[0]->execute_type(block);
 
     // prepare block
@@ -170,7 +170,7 @@ Status TryCastExpr::execute_column(VExprContext* context, const Block* block,
 
     // batch execute
     auto batch_exec_status = _function->execute(context->fn_context(_fn_context_index), temp_block,
-                                                {0}, 1, block->rows());
+                                                {0}, 1, temp_block.rows());
     // If batch is executed successfully,
     // it means that there is no error and it will be returned directly.
     if (batch_exec_status.ok()) {
@@ -195,6 +195,7 @@ Status TryCastExpr::execute_column(VExprContext* context, const Block* block,
     }
     // wrap nullable
     result_column = make_nullable(result_column);
+    DCHECK_EQ(result_column->size(), count);
 
     return Status::OK();
 }

@@ -702,10 +702,10 @@ public class NereidsPlanner extends Planner {
         }
 
         boolean notNeedBackend = false;
-        // if the query can compute without backend, we can skip check cluster privileges
-        if (Config.isCloudMode()
-                && cascadesContext.getConnectContext().supportHandleByFe()
-                && physicalPlan instanceof ComputeResultSet) {
+        // the internal query not support process Resultset, so must process by backend
+        if (cascadesContext.getConnectContext().supportHandleByFe()
+                && physicalPlan instanceof ComputeResultSet
+                && !cascadesContext.getConnectContext().getState().isInternal()) {
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan).computeResultInFe(
                     cascadesContext, Optional.empty(), physicalPlan.getOutput());
             if (resultSet.isPresent()) {
@@ -928,7 +928,7 @@ public class NereidsPlanner extends Planner {
                 plan += "\n\n\n========== STATISTICS ==========\n";
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
-                        plan += "planed with unknown column statistics\n";
+                        plan += "planned with unknown column statistics\n";
                     }
                 }
         }

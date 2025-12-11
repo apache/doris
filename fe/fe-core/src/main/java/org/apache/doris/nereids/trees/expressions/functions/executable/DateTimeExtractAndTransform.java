@@ -202,11 +202,27 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * Executable time extract second
+     */
+    @ExecFunction(name = "second")
+    public static Expression second(TimeV2Literal time) {
+        return new TinyIntLiteral(((byte) time.getSecond()));
+    }
+
+    /**
      * Executable datetime extract microsecond
      */
     @ExecFunction(name = "microsecond")
     public static Expression microsecond(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) date.getMicroSecond()));
+    }
+
+    /**
+     * Executable time extract microsecond
+     */
+    @ExecFunction(name = "microsecond")
+    public static Expression microsecond(TimeV2Literal time) {
+        return new IntegerLiteral(((int) time.getMicroSecond()));
     }
 
     /**
@@ -556,14 +572,52 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateV2Literal date) {
-        return new IntegerLiteral(((int) Duration.between(
-                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
+        return new IntegerLiteral((int) calcDayNumber(date.getYear(), date.getMonth(), date.getDay()));
     }
 
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) Duration.between(
-                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
+        return new IntegerLiteral((int) calcDayNumber(date.getYear(), date.getMonth(), date.getDay()));
+    }
+
+    /**
+     * date transformation function: to_seconds
+     */
+    @ExecFunction(name = "to_seconds")
+    public static Expression toSeconds(DateV2Literal date) {
+        return new BigIntLiteral(calcDayNumber(date.getYear(), date.getMonth(), date.getDay()) * 86400L);
+    }
+
+    @ExecFunction(name = "to_seconds")
+    public static Expression toSeconds(DateTimeV2Literal date) {
+        return new BigIntLiteral(calcDayNumber(date.getYear(), date.getMonth(), date.getDay()) * 86400L
+                                    + date.getHour() * 3600L + date.getMinute() * 60L + date.getSecond());
+    }
+
+    // Java Duration cannot represent days before 0000-01-01, so using it would turn
+    // TO_DAYS('0000-01-01') into the diff between that date and itself (0).
+    // We use BE's arithmetic instead so 0000-01-01 returns 1 as expected.
+    // Previous FE logic often matched BE only because Java treats year 0 as leap
+    // making TO_DAYS('0000-02-29') fold to 59.
+    // While BE/MySQL consider year 0 common, so:
+    // TO_DAYS('0000-02-28') == 59 and TO_DAYS('0000-02-29') == NULL. After
+    // 0000-03-01 the two implementations naturally align again.
+    private static long calcDayNumber(long year, long month, long day) {
+        if (year == 0 && month == 0) {
+            return 0;
+        }
+        if (year == 0 && month == 1 && day == 1) {
+            return 1;
+        }
+
+        long y = year;
+        long delsum = 365L * y + 31L * (month - 1) + day;
+        if (month <= 2) {
+            y -= 1;
+        } else {
+            delsum -= (month * 4 + 23) / 10;
+        }
+        return delsum + y / 4 - y / 100 + y / 400;
     }
 
     /**

@@ -31,7 +31,6 @@ import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -79,18 +78,6 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public boolean nullable() {
-        if (SessionVariable.enableStrictCast()) {
-            DataType childDataType = child().getDataType();
-            if (childDataType.isJsonType() && !targetType.isJsonType()) {
-                return true;
-            }
-            return child().nullable();
-        } else {
-            return unStrictCastNullable();
-        }
-    }
-
-    protected boolean unStrictCastNullable() {
         if (child().nullable()) {
             return true;
         }
@@ -101,9 +88,16 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
-        } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type())
+        } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type()
+                || childDataType.isTimeStampTzType())
                 && (targetType.isDateTimeType() || targetType.isDateTimeV2Type())) {
             // datetime to datetime is always nullable
+            return true;
+        } else if (childDataType.isDateTimeV2Type() && targetType.isTimeStampTzType()) {
+            // Datetime to timestamptz is always nullable
+            return true;
+        } else if (childDataType.isTimeStampTzType() && targetType.isTimeStampTzType()) {
+            // timestamptz to timestamptz is always nullable
             return true;
         } else if (childDataType.isTimeType()) {
             // time to tinyint, smallint, int and time is always nullable.

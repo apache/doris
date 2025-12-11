@@ -65,6 +65,7 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
@@ -171,7 +172,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
-                        tbl.getCompressionType(), storagePolicy, isInMemory, false, tbl.getName(), tbl.getTTLSeconds(),
+                        tbl.getCompressionType(), tbl.getStorageFormat(), storagePolicy, isInMemory, false,
+                        tbl.getName(), tbl.getTTLSeconds(),
                         tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
                         tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
@@ -208,7 +210,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
             short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
-            String storagePolicy, boolean isInMemory, boolean isShadow,
+            TStorageFormat storageFormat, String storagePolicy, boolean isInMemory, boolean isShadow,
             String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
             boolean storeRowColumn, int schemaVersion, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
@@ -316,6 +318,15 @@ public class CloudInternalCatalog extends InternalCatalog {
                 break;
             default:
                 schemaBuilder.setCompressionType(SegmentV2.CompressionTypePB.LZ4F);
+                break;
+        }
+
+        // Enable external column meta layout when storage_format is V3 (Cloud mode).
+        switch (storageFormat) {
+            case V3:
+                schemaBuilder.setIsExternalSegmentColumnMetaUsed(true);
+                break;
+            default:
                 break;
         }
 
@@ -737,7 +748,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     // BEGIN DROP TABLE
 
     @Override
-    public void eraseTableDropBackendReplicas(OlapTable olapTable, boolean isReplay) {
+    public void eraseTableDropBackendReplicas(long dbId, OlapTable olapTable, boolean isReplay) {
         if (!Env.getCurrentEnv().isMaster()) {
             return;
         }
@@ -763,7 +774,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 if (indexs.isEmpty()) {
                     break;
                 }
-                dropMaterializedIndex(olapTable.getId(), indexs, true);
+                dropMaterializedIndex(dbId, olapTable.getId(), indexs, true);
             } catch (Exception e) {
                 LOG.warn("failed to drop index {} of table {}, try cnt {}, execption {}",
                         indexs, olapTable.getId(), tryCnt, e);
@@ -932,7 +943,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void dropMaterializedIndex(long tableId, List<Long> indexIds, boolean dropTable) throws DdlException {
+    public void dropMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean dropTable)
+            throws DdlException {
         if (Config.enable_check_compatibility_mode) {
             LOG.info("skip dropping materialized index in compatibility checking mode");
             return;
@@ -942,6 +954,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
         indexRequestBuilder.setTableId(tableId);
+        indexRequestBuilder.setDbId(dbId);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
         Cloud.IndexResponse response = null;
@@ -972,7 +985,7 @@ public class CloudInternalCatalog extends InternalCatalog {
      * @param tableId
      * @param indexIdList
      */
-    public void eraseDroppedIndex(long tableId, List<Long> indexIdList) {
+    public void eraseDroppedIndex(long dbId, long tableId, List<Long> indexIdList) {
         if (indexIdList == null || indexIdList.size() == 0) {
             LOG.warn("indexIdList is empty");
             return;
@@ -986,7 +999,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
 
             try {
-                dropMaterializedIndex(tableId, indexIdList, false);
+                dropMaterializedIndex(dbId, tableId, indexIdList, false);
                 break;
             } catch (Exception e) {
                 LOG.warn("tryCnt:{}, eraseDroppedIndex exception:", tryCnt, e);

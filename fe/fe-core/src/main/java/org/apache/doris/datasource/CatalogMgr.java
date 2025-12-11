@@ -65,6 +65,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -85,7 +86,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
-    private Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog
+            = Maps.newConcurrentMap();
     // this map will be regenerated from idToCatalog, so not need to persist.
     private Map<String, CatalogIf> nameToCatalog = Maps.newConcurrentMap();
 
@@ -777,16 +779,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        // After deserializing from Gson, the concurrent map may become a normal map.
-        // So here we reconstruct the concurrent map.
-        Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> newIdToCatalog = Maps.newConcurrentMap();
         Map<String, CatalogIf> newNameToCatalog = Maps.newConcurrentMap();
         for (CatalogIf catalog : idToCatalog.values()) {
             newNameToCatalog.put(catalog.getName(), catalog);
-            newIdToCatalog.put(catalog.getId(), catalog);
             // ATTN: can not call catalog.getProperties() here, because ResourceMgr is not replayed yet.
         }
-        this.idToCatalog = newIdToCatalog;
         this.nameToCatalog = newNameToCatalog;
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
     }

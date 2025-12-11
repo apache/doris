@@ -24,30 +24,23 @@ import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.nereids.rules.expression.rules.MultiColumnBound;
-import org.apache.doris.nereids.rules.expression.rules.PartitionItemToRange;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
-import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndId;
-import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndRange;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Range;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import org.apache.hadoop.util.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -80,6 +73,7 @@ public class NereidsSortedPartitionsCacheManager {
             return Optional.empty();
         }
 
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
         DatabaseIf<?> database = table.getDatabase();
         if (database == null) {
             return Optional.empty();
@@ -94,13 +88,13 @@ public class NereidsSortedPartitionsCacheManager {
 
         try {
             if (partitionCacheContext == null) {
-                return Optional.ofNullable(loadCache(key, table, scan));
+                return Optional.ofNullable(loadCache(key, table, scan, sessionVariable));
             }
             if (table.getId() != partitionCacheContext.tableId
                     || !Objects.equals(table.getPartitionMetaVersion(scan),
                     partitionCacheContext.partitionMetaVersion)) {
                 partitionCaches.invalidate(key);
-                return Optional.ofNullable(loadCache(key, table, scan));
+                return Optional.ofNullable(loadCache(key, table, scan, sessionVariable));
             }
         } catch (Throwable t) {
             LOG.warn("Failed to load cache for table {}, key {}.", table.getName(), key, t);
@@ -116,46 +110,26 @@ public class NereidsSortedPartitionsCacheManager {
     }
 
     private SortedPartitionRanges<?> loadCache(
-            TableIdentifier key, SupportBinarySearchFilteringPartitions table, CatalogRelation scan)
+            TableIdentifier key, SupportBinarySearchFilteringPartitions table, CatalogRelation scan,
+            SessionVariable sessionVariable)
             throws RpcException {
         long now = System.currentTimeMillis();
         long partitionMetaLoadTime = table.getPartitionMetaLoadTimeMillis(scan);
 
+        long cacheSortedPartitionIntervalSecond = sessionVariable.cacheSortedPartitionIntervalSecond;
+
         // if insert too frequently, we will skip sort partitions
-        if (now <= partitionMetaLoadTime || (now - partitionMetaLoadTime) <= (10 * 1000)) {
+        if (cacheSortedPartitionIntervalSecond >= 0
+                && (now <= partitionMetaLoadTime
+                    || (now - partitionMetaLoadTime) <= (cacheSortedPartitionIntervalSecond * 1000))) {
             return null;
         }
 
         Map<?, PartitionItem> unsortedMap = table.getOriginPartitions(scan);
-        List<Entry<?, PartitionItem>> unsortedList = Lists.newArrayList(unsortedMap.entrySet());
-        List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(unsortedMap.size());
-        List<PartitionItemAndId<?>> defaultPartitions = Lists.newArrayList();
-        for (Entry<?, PartitionItem> entry : unsortedList) {
-            PartitionItem partitionItem = entry.getValue();
-            Object id = entry.getKey();
-            if (!partitionItem.isDefaultPartition()) {
-                List<Range<MultiColumnBound>> ranges = PartitionItemToRange.toRanges(partitionItem);
-                for (Range<MultiColumnBound> range : ranges) {
-                    sortedRanges.add(new PartitionItemAndRange<>(id, partitionItem, range));
-                }
-            } else {
-                defaultPartitions.add(new PartitionItemAndId<>(id, partitionItem));
-            }
+        SortedPartitionRanges<?> sortedPartitionRanges = SortedPartitionRanges.build(unsortedMap);
+        if (sortedPartitionRanges == null) {
+            return null;
         }
-
-        sortedRanges.sort((o1, o2) -> {
-            Range<MultiColumnBound> span1 = o1.range;
-            Range<MultiColumnBound> span2 = o2.range;
-            int result = span1.lowerEndpoint().compareTo(span2.lowerEndpoint());
-            if (result != 0) {
-                return result;
-            }
-            result = span1.upperEndpoint().compareTo(span2.upperEndpoint());
-            return result;
-        });
-        SortedPartitionRanges<?> sortedPartitionRanges = new SortedPartitionRanges(
-                sortedRanges, defaultPartitions
-        );
         PartitionCacheContext context = new PartitionCacheContext(
                 table.getId(), table.getPartitionMetaVersion(scan), sortedPartitionRanges);
         partitionCaches.put(key, context);

@@ -53,7 +53,7 @@ public:
     VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
                           bool null_aware, int filter_id);
     ~VRuntimeFilterWrapper() override = default;
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
@@ -123,6 +123,9 @@ public:
     }
     std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter() const {
         return _rf_input_rows;
+    }
+    std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter() const {
+        return _always_true_filter_rows;
     }
 
 private:

@@ -65,6 +65,12 @@ message SplitSchemaPB {
     optional uint64 num_split_keys = 2; // The num of split keys, used to limit the scan range.
 }
 
+message PackedSliceLocationPB {
+    optional string packed_file_path = 1;
+    optional int64 offset = 2;
+    optional int64 size = 3;
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -151,6 +157,7 @@ message RowsetMetaPB {
 
     optional int64 visible_ts_ms = 1010;
     optional string reference_instance_id = 1011;  // For cluster snapshot
+    map<string, PackedSliceLocationPB> packed_slice_locations = 1012;
 }
 
 message SchemaDictKeyList {
@@ -249,6 +256,7 @@ message RowsetMetaCloudPB {
 
     optional int64 visible_ts_ms = 109;
     optional string reference_instance_id = 110;  // For cluster snapshot
+    map<string, PackedSliceLocationPB> packed_slice_locations = 111;
 }
 
 message SegmentStatisticsPB {
@@ -342,7 +350,7 @@ message ColumnPB {
     optional bool is_bf_column = 12; // ColumnMessage.is_bf_column
     optional int32 referenced_column_id = 13; // deprecated
     optional string referenced_column = 14; // deprecated
-    optional bool has_bitmap_index = 15 [default=false]; // ColumnMessage.has_bitmap_index
+    optional bool has_bitmap_index = 15 [default=false]; // deprecated
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
@@ -448,6 +456,9 @@ message TabletSchemaPB {
     optional int64 storage_page_size = 30 [default=65536];
     optional int64 storage_dict_page_size = 31 [default=262144];
 
+    // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
+    optional bool is_external_segment_column_meta_used = 32 [default = false];
+
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
@@ -483,6 +494,9 @@ message TabletSchemaCloudPB {
     optional int32 skip_bitmap_col_idx = 30 [default = -1];
     optional int64 storage_page_size = 31 [default=65536];
     optional int64 storage_dict_page_size = 32 [default=262144];
+
+    // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
+    optional bool is_external_segment_column_meta_used = 33 [default = false];
 
     optional bool is_dynamic_schema = 100 [default=false];
 

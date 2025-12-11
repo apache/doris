@@ -106,12 +106,16 @@ TabletMetaSharedPtr TabletMeta::create(
             break;
         }
     }
+    // Decide storage format for this tablet. DEFAULT / not-set fall back to V2 on BE side.
+    TStorageFormat::type storage_format =
+            request.__isset.storage_format ? request.storage_format : TStorageFormat::V2;
     return std::make_shared<TabletMeta>(
             request.table_id, request.partition_id, request.tablet_id, request.replica_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
             request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
-            request.compression_type, request.storage_policy_id,
+            request.__isset.compression_type ? request.compression_type : TCompressionType::LZ4F,
+            request.__isset.storage_policy_id ? request.storage_policy_id : -1,
             request.__isset.enable_unique_key_merge_on_write
                     ? request.enable_unique_key_merge_on_write
                     : false,
@@ -121,7 +125,7 @@ TabletMetaSharedPtr TabletMeta::create(
             request.time_series_compaction_time_threshold_seconds,
             request.time_series_compaction_empty_rowsets_threshold,
             request.time_series_compaction_level_threshold, inverted_index_file_storage_format,
-            request.tde_algorithm);
+            request.tde_algorithm, storage_format);
 }
 
 TabletMeta::~TabletMeta() {
@@ -149,10 +153,12 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        int64_t time_series_compaction_empty_rowsets_threshold,
                        int64_t time_series_compaction_level_threshold,
                        TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format,
-                       TEncryptionAlgorithm::type tde_algorithm)
+                       TEncryptionAlgorithm::type tde_algorithm,
+                       TStorageFormat::type storage_format)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
-          _delete_bitmap(new DeleteBitmap(tablet_id)) {
+          _delete_bitmap(new DeleteBitmap(tablet_id)),
+          _storage_format(storage_format) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
     tablet_meta_pb.set_partition_id(partition_id);
@@ -275,14 +281,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 
         if (tablet_schema.__isset.indexes) {
             for (auto& index : tablet_schema.indexes) {
-                if (index.index_type == TIndexType::type::BITMAP) {
-                    DCHECK_EQ(index.columns.size(), 1);
-                    if (iequal(tcolumn.column_name, index.columns[0])) {
-                        column->set_has_bitmap_index(true);
-                        break;
-                    }
-                } else if (index.index_type == TIndexType::type::BLOOMFILTER ||
-                           index.index_type == TIndexType::type::NGRAM_BF) {
+                if (index.index_type == TIndexType::type::BLOOMFILTER ||
+                    index.index_type == TIndexType::type::NGRAM_BF) {
                     DCHECK_EQ(index.columns.size(), 1);
                     if (iequal(tcolumn.column_name, index.columns[0])) {
                         column->set_is_bf_column(true);
@@ -396,6 +396,22 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::PLAINTEXT);
     }
 
+    // Initialize default external ColumnMeta usage according to storage format.
+    // V2: legacy behavior, inline ColumnMetaPB only.
+    // V3: V2 + external ColumnMetaPB (CMO) enabled by default.
+    switch (_storage_format) {
+    case TStorageFormat::V2:
+    case TStorageFormat::DEFAULT:
+    case TStorageFormat::V1:
+        break;
+    case TStorageFormat::V3:
+        schema->set_is_external_segment_column_meta_used(true);
+        _schema->set_external_segment_meta_used_default(true);
+        break;
+    default:
+        break;
+    }
+
     init_from_pb(tablet_meta_pb);
 }
 
@@ -437,7 +453,6 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
                                           ColumnPB* column) {
     column->set_unique_id(unique_id);
     column->set_name(tcolumn.column_name);
-    column->set_has_bitmap_index(tcolumn.has_bitmap_index);
     column->set_is_auto_increment(tcolumn.is_auto_increment);
     if (tcolumn.__isset.is_on_update_current_timestamp) {
         column->set_is_on_update_current_timestamp(tcolumn.is_on_update_current_timestamp);

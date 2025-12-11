@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DeleteHandler implements Writable {
@@ -64,7 +65,7 @@ public class DeleteHandler implements Writable {
 
     // Db -> DeleteInfo list
     @SerializedName(value = "dbToDeleteInfos")
-    private final Map<Long, List<DeleteInfo>> dbToDeleteInfos;
+    private final ConcurrentMap<Long, List<DeleteInfo>> dbToDeleteInfos;
 
     private final ReentrantReadWriteLock lock;
 

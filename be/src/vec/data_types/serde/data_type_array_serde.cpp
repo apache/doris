@@ -277,8 +277,8 @@ Status DataTypeArraySerDe::deserialize_column_from_jsonb(IColumn& column,
 }
 
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                 Arena& arena, int32_t col_id,
-                                                 int64_t row_num) const {
+                                                 Arena& arena, int32_t col_id, int64_t row_num,
+                                                 const FormatOptions& options) const {
     // JsonbKeyValue::keyid_type is uint16_t and col_id is int32_t, need a cast
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
@@ -347,76 +347,18 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
             arrow_nested_end_offset, ctz);
 }
 
-template <bool is_binary_format>
-Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<is_binary_format>& result,
-                                                  int64_t row_idx_of_mysql, bool col_const,
-                                                  const FormatOptions& options) const {
-    const auto& column_array = assert_cast<const ColumnArray&>(column);
-    const auto& offsets = column_array.get_offsets();
-    const auto& data = column_array.get_data();
-    bool is_nested_string = data.is_column_string();
-    const auto row_idx_of_col_arr = index_check_const(row_idx_of_mysql, col_const);
-    result.open_dynamic_mode();
-
-    if (0 != result.push_string("[", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-
-    const auto begin_arr_element = offsets[row_idx_of_col_arr - 1];
-    const auto end_arr_element = offsets[row_idx_of_col_arr];
-    for (auto j = begin_arr_element; j < end_arr_element; ++j) {
-        if (j != begin_arr_element) {
-            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
-                                        options.mysql_collection_delim.size())) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        }
-        if (data.is_null_at(j)) {
-            if (0 != result.push_string(options.null_format, options.null_len)) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        } else {
-            if (is_nested_string && options.wrapper_len > 0) {
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-                RETURN_IF_ERROR(
-                        nested_serde->write_column_to_mysql(data, result, j, false, options));
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                RETURN_IF_ERROR(
-                        nested_serde->write_column_to_mysql(data, result, j, false, options));
-            }
-        }
-    }
-    if (0 != result.push_string("]", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-    result.close_dynamic_mode();
-    return Status::OK();
-}
-
 Status DataTypeArraySerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                        MysqlRowBinaryBuffer& row_buffer,
-                                                        int64_t row_idx, bool col_const,
+                                                        MysqlRowBinaryBuffer& result,
+                                                        int64_t row_idx_of_mysql, bool col_const,
                                                         const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeArraySerDe::write_column_to_mysql_text(const IColumn& column,
-                                                      MysqlRowTextBuffer& row_buffer,
-                                                      int64_t row_idx, bool col_const,
-                                                      const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
+    return Status::NotSupported("Array type does not support write to mysql binary format");
 }
 
 Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                               int64_t end, vectorized::Arena& arena) const {
+                                               int64_t end, vectorized::Arena& arena,
+                                               const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -428,7 +370,7 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
         size_t next_offset = offsets[row_id];
         RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
                                                           cur_batch->elements.get(), offset,
-                                                          next_offset, arena));
+                                                          next_offset, arena, options));
         cur_batch->offsets[row_id + 1] = next_offset;
     }
     cur_batch->elements->numElements = nested_column.size();
@@ -577,8 +519,8 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* da
     return data;
 }
 
-void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
-                                   BufferWritable& bw) const {
+void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                   const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnArray&>(column);
     const auto& offsets = data_column.get_offsets();
 
@@ -591,9 +533,51 @@ void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
         if (i != offset) {
             bw.write(", ", 2);
         }
-        nested_serde->to_string(nested_column, i, bw);
+        nested_serde->to_string(nested_column, i, bw, options);
     }
     bw.write("]", 1);
+}
+
+bool DataTypeArraySerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                     int64_t row_idx,
+                                                     const FormatOptions& options) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_idx - 1];
+    size_t next_offset = offsets[row_idx];
+
+    const IColumn& nested_column = data_column.get_data();
+    bw.write("[", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(", ", 2);
+        }
+        nested_serde->write_column_to_presto_text(nested_column, bw, i, options);
+    }
+    bw.write("]", 1);
+    return true;
+}
+
+bool DataTypeArraySerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                   int64_t row_idx,
+                                                   const FormatOptions& options) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_idx - 1];
+    size_t next_offset = offsets[row_idx];
+
+    const IColumn& nested_column = data_column.get_data();
+    bw.write("[", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(",", 1);
+        }
+        nested_serde->write_column_to_hive_text(nested_column, bw, i, options);
+    }
+    bw.write("]", 1);
+    return true;
 }
 
 } // namespace doris::vectorized

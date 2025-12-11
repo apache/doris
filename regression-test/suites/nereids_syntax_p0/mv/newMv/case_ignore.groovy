@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("case_ignore") {
+
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
     sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS case_ignore; """
@@ -38,9 +41,7 @@ suite ("case_ignore") {
     sql "insert into case_ignore select 2,2,2,'b';"
     sql "insert into case_ignore select 3,-3,null,'c';"
 
-
-    createMV ("create materialized view k12a as select K1 as a1,abs(K2) from case_ignore;")
-    sleep(3000)
+    create_sync_mv(db, "case_ignore", "k12a", "select K1 as a1,abs(K2) from case_ignore;")
 
     sql "insert into case_ignore select -4,-4,-4,'d';"
     sql "SET experimental_enable_nereids_planner=true"
@@ -49,7 +50,6 @@ suite ("case_ignore") {
     sql "analyze table case_ignore with sync;"
     sql """alter table case_ignore modify column k1 set stats ('row_count'='4');"""
 
-    sql """set enable_stats=false;"""
 
     qt_select_star "select * from case_ignore order by k1;"
 
@@ -58,10 +58,4 @@ suite ("case_ignore") {
 
     mv_rewrite_success("select K1,abs(K2) from case_ignore order by K1;", "k12a")
     order_qt_select_mv "select K1,abs(K2) from case_ignore order by K1;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select k1,abs(k2) from case_ignore order by k1;", "k12a")
-
-    mv_rewrite_success("select K1,abs(K2) from case_ignore order by K1;", "k12a")
-
 }

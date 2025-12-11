@@ -76,6 +76,8 @@ class ParquetReader : public GenericReader, public ExprPushDownHelper {
 public:
     struct Statistics {
         int32_t filtered_row_groups = 0;
+        int32_t filtered_row_groups_by_min_max = 0;
+        int32_t filtered_row_groups_by_bloom_filter = 0;
         int32_t read_row_groups = 0;
         int64_t filtered_group_rows = 0;
         int64_t filtered_page_rows = 0;
@@ -96,6 +98,7 @@ public:
         int64_t parse_page_index_time = 0;
         int64_t predicate_filter_time = 0;
         int64_t dict_filter_rewrite_time = 0;
+        int64_t bloom_filter_read_time = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -114,8 +117,10 @@ public:
 #endif
 
     Status init_reader(
-            const std::vector<std::string>& all_column_names, const VExprContextSPtrs& conjuncts,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+            const std::vector<std::string>& all_column_names,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
@@ -166,6 +171,8 @@ protected:
 private:
     struct ParquetProfile {
         RuntimeProfile::Counter* filtered_row_groups = nullptr;
+        RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
+        RuntimeProfile::Counter* filtered_row_groups_by_bloom_filter = nullptr;
         RuntimeProfile::Counter* to_read_row_groups = nullptr;
         RuntimeProfile::Counter* filtered_group_rows = nullptr;
         RuntimeProfile::Counter* filtered_page_rows = nullptr;
@@ -196,6 +203,7 @@ private:
         RuntimeProfile::Counter* parse_page_header_num = nullptr;
         RuntimeProfile::Counter* predicate_filter_time = nullptr;
         RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
+        RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
     };
 
     Status _open_file();
@@ -222,11 +230,7 @@ private:
     Status _process_column_stat_filter(
             const tparquet::RowGroup& row_group,
             const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
-            bool* filter_group);
-    void _init_chunk_dicts();
-    Status _process_dict_filter(bool* filter_group);
-    void _init_bloom_filter();
-    Status _process_bloom_filter(bool* filter_group);
+            bool* filter_group, bool* filtered_by_min_max, bool* filtered_by_bloom_filter);
 
     /*
      * 1. row group min-max filter
@@ -290,7 +294,8 @@ private:
     //sequence in file, need to read
     std::vector<std::string> _read_table_columns;
     std::vector<std::string> _read_file_columns;
-
+    // The set of file columns to be read; only columns within this set will be filtered using the min-max predicate.
+    std::set<std::string> _read_table_columns_set;
     // Deleted rows will be marked by Iceberg/Paimon. So we should filter deleted rows when reading it.
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
@@ -318,6 +323,7 @@ private:
     RuntimeState* _state = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
+    bool _enable_filter_by_bloom_filter = true;
     const TupleDescriptor* _tuple_descriptor = nullptr;
     const RowDescriptor* _row_descriptor = nullptr;
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;
@@ -332,10 +338,12 @@ private:
     std::set<uint64_t> _column_ids;
     std::set<uint64_t> _filter_column_ids;
 
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
+
     // Since the filtering conditions for topn are dynamic, the filtering is delayed until create next row group reader.
     VExprSPtrs _top_runtime_vexprs;
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
-    std::vector<std::unique_ptr<ColumnPredicate>> _useless_predicates;
+    std::vector<std::shared_ptr<ColumnPredicate>> _useless_predicates;
     Arena _arena;
 };
 #include "common/compile_check_end.h"

@@ -60,12 +60,23 @@ public class Lambda extends Expression {
 
     /**
      * make slot according array expression
+     * @param functionName function name
      * @param arrays array expression
      * @return item slots of array expression
      */
-    public ImmutableList<ArrayItemReference> makeArguments(List<Expression> arrays) {
+    public ImmutableList<ArrayItemReference> makeArguments(String functionName, List<Expression> arrays) {
         Builder<ArrayItemReference> builder = new ImmutableList.Builder<>();
         if (arrays.size() != argumentNames.size()) {
+            // In the lambda expression of array_sort, x and y point to the same slot.
+            if (functionName.equalsIgnoreCase("array_sort") && arrays.size() == 1 && argumentNames.size() == 2) {
+                Expression array = arrays.get(0);
+                if (!(array.getDataType() instanceof ArrayType)) {
+                    throw new AnalysisException(String.format("lambda argument must be array but is %s", array));
+                }
+                builder.add(new ArrayItemReference(argumentNames.get(0), array));
+                builder.add(new ArrayItemReference(argumentNames.get(1), array));
+                return builder.build();
+            }
             throw new AnalysisException(String.format("lambda %s arguments' size is not equal parameters' size",
                     toSql()));
         }

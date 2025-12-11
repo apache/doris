@@ -95,6 +95,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -182,10 +183,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private PartitionInfo partitionInfo;
     @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
-    private ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
+    protected ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
     // handled in postgsonprocess
     @Getter
-    private Map<String, Partition> nameToPartition = Maps.newTreeMap();
+    protected Map<String, Partition> nameToPartition = Maps.newTreeMap();
 
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo defaultDistributionInfo;
@@ -470,27 +471,27 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
-                null, null); // indexes is null by default
+                null, null, null); // indexes is null by default
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, List<Index> indexes) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
-                null, indexes);
+                null, indexes, null);
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
-                keysType, origStmt, null); // indexes is null by default
+                keysType, origStmt, null, null); // indexes is null by default
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt,
-            List<Index> indexes) {
+            List<Index> indexes, Map<String, String> sessionVariables) {
         // Nullable when meta comes from schema change log replay.
         // The replay log only save the index id, so we need to get name by id.
         if (indexName == null) {
@@ -513,7 +514,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion, schemaHash,
-                shortKeyColumnCount, storageType, keysType, origStmt, indexes, getQualifiedDbName());
+                shortKeyColumnCount, storageType, keysType, origStmt, indexes, getQualifiedDbName(), sessionVariables);
         try {
             indexMeta.parseStmt();
         } catch (Exception e) {
@@ -3697,5 +3698,49 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                                         : invertedIndexesWithFieldPattern.stream()
                                         .filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
+    }
+
+    /**
+     * caller should acquire the read lock and should not modify any field of the return obj
+     */
+    public OlapTable copyTableMeta() {
+        OlapTable table = new OlapTable();
+        // metaobj
+        table.signature = signature;
+        table.lastCheckTime =  lastCheckTime;
+        // abstract table
+        table.id = id;
+        table.name = name;
+        table.qualifiedDbName = qualifiedDbName;
+        table.type = type;
+        table.createTime = createTime;
+        table.fullSchema = fullSchema;
+        table.comment = comment;
+        table.tableAttributes = tableAttributes;
+        // olap table
+        // NOTE: currently do not need temp partitions, colocateGroup, autoIncrementGenerator
+        table.idToPartition = new ConcurrentHashMap<>();
+        table.tempPartitions = new TempPartitions();
+
+        table.state = state;
+        table.indexIdToMeta = ImmutableMap.copyOf(indexIdToMeta);
+        table.indexNameToId = ImmutableMap.copyOf(indexNameToId);
+        table.keysType = keysType;
+        table.partitionInfo = partitionInfo;
+        table.defaultDistributionInfo = defaultDistributionInfo;
+        table.bfColumns = bfColumns;
+        table.bfFpp = bfFpp;
+        table.indexes = indexes;
+        table.baseIndexId = baseIndexId;
+        table.tableProperty = tableProperty;
+        return table;
+    }
+
+    public long getCatalogId() {
+        return Env.getCurrentInternalCatalog().getId();
+    }
+
+    public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
+        return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
     }
 }

@@ -126,6 +126,7 @@ std::string FieldSchema::debug_string() const {
         ss << "]";
     } else {
         ss << ", physical_type=" << physical_type;
+        ss << " , doris_type=" << data_type->get_name();
     }
     ss << ")";
     return ss.str();
@@ -135,7 +136,7 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     if (t_schemas.size() == 0 || !is_group_node(t_schemas[0])) {
         return Status::InvalidArgument("Wrong parquet root schema element");
     }
-    auto& root_schema = t_schemas[0];
+    const auto& root_schema = t_schemas[0];
     _fields.resize(root_schema.num_children);
     _next_schema_pos = 1;
 
@@ -216,7 +217,8 @@ std::pair<DataTypePtr, bool> FieldDescriptor::get_doris_type(
             ans = convert_to_doris_type(physical_schema, nullable);
         }
     } catch (...) {
-        // ignore
+        // now the Not supported exception are ignored
+        // so those byte_array maybe be treated as varbinary(now) : string(before)
     }
     if (ans.first->get_primitive_type() == PrimitiveType::INVALID_TYPE) {
         switch (physical_schema.type) {
@@ -241,7 +243,14 @@ std::pair<DataTypePtr, bool> FieldDescriptor::get_doris_type(
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, nullable);
             break;
         case tparquet::Type::BYTE_ARRAY:
-            [[fallthrough]];
+            if (_enable_mapping_varbinary) {
+                // if physical_schema not set logicalType and converted_type,
+                // we treat BYTE_ARRAY as VARBINARY by default, so that we can read all data directly.
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable);
+            } else {
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
+            }
+            break;
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
             break;
@@ -294,6 +303,13 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
     } else if (logicalType.__isset.TIMESTAMP) {
         ans.first = DataTypeFactory::instance().create_data_type(
                 TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
+    } else if (logicalType.__isset.JSON) {
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
+    } else if (logicalType.__isset.UUID) {
+        ans.first =
+                DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable, -1, -1, 16);
+    } else if (logicalType.__isset.FLOAT16) {
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
     } else {
         throw Exception(Status::InternalError("Not supported parquet logicalType"));
     }
@@ -350,6 +366,9 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
     case tparquet::ConvertedType::type::UINT_64:
         is_type_compatibility = true;
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_LARGEINT, nullable);
+        break;
+    case tparquet::ConvertedType::type::JSON:
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
         break;
     default:
         throw Exception(Status::InternalError("Not supported parquet ConvertedType: {}",

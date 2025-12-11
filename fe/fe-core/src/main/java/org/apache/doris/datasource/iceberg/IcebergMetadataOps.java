@@ -35,12 +35,15 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -52,6 +55,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -59,7 +63,9 @@ import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
+import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.view.View;
@@ -139,6 +145,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try {
             return executionAuthenticator.execute(() -> listNestedNamespaces(getNamespace()));
         } catch (Exception e) {
+            LOG.warn("failed to list database names in catalog {}, root cause: {}",
+                    dorisCatalog.getName(), Util.getRootCauseMessage(e), e);
             throw new RuntimeException("Failed to list database names, error message is:" + e.getMessage(), e);
         }
     }
@@ -765,6 +773,139 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public ExecutionAuthenticator getExecutionAuthenticator() {
         return executionAuthenticator;
+    }
+
+    private Term getTransform(String transformName, String columnName, Integer transformArg) throws UserException {
+        if (columnName == null) {
+            throw new UserException("Column name is required for partition transform");
+        }
+        if (transformName == null) {
+            // identity transform
+            return Expressions.ref(columnName);
+        }
+        switch (transformName.toLowerCase()) {
+            case "bucket":
+                if (transformArg == null) {
+                    throw new UserException("Bucket transform requires a bucket count argument");
+                }
+                return Expressions.bucket(columnName, transformArg);
+            case "truncate":
+                if (transformArg == null) {
+                    throw new UserException("Truncate transform requires a width argument");
+                }
+                return Expressions.truncate(columnName, transformArg);
+            case "year":
+                return Expressions.year(columnName);
+            case "month":
+                return Expressions.month(columnName);
+            case "day":
+                return Expressions.day(columnName);
+            case "hour":
+                return Expressions.hour(columnName);
+            default:
+                throw new UserException("Unsupported partition transform: " + transformName);
+        }
+    }
+
+    /**
+     * Add partition field to Iceberg table for partition evolution
+     */
+    public void addPartitionField(ExternalTable dorisTable, AddPartitionFieldOp op) throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
+
+        String transformName = op.getTransformName();
+        Integer transformArg = op.getTransformArg();
+        String columnName = op.getColumnName();
+        String partitionFieldName = op.getPartitionFieldName();
+        Term transform = getTransform(transformName, columnName, transformArg);
+
+        if (partitionFieldName != null) {
+            updateSpec.addField(partitionFieldName, transform);
+        } else {
+            updateSpec.addField(transform);
+        }
+
+        try {
+            executionAuthenticator.execute(() -> updateSpec.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to add partition field to table: " + icebergTable.name()
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+        refreshTable(dorisTable);
+        // Reset cached isValidRelatedTable flag after partition evolution
+        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
+    }
+
+    /**
+     * Drop partition field from Iceberg table for partition evolution
+     */
+    public void dropPartitionField(ExternalTable dorisTable, DropPartitionFieldOp op) throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
+
+        if (op.getPartitionFieldName() != null) {
+            updateSpec.removeField(op.getPartitionFieldName());
+        } else {
+            String transformName = op.getTransformName();
+            Integer transformArg = op.getTransformArg();
+            String columnName = op.getColumnName();
+            Term transform = getTransform(transformName, columnName, transformArg);
+            updateSpec.removeField(transform);
+        }
+
+        try {
+            executionAuthenticator.execute(() -> updateSpec.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to drop partition field from table: " + icebergTable.name()
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+        refreshTable(dorisTable);
+        // Reset cached isValidRelatedTable flag after partition evolution
+        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
+    }
+
+    /**
+     * Replace partition field in Iceberg table for partition evolution
+     */
+    public void replacePartitionField(ExternalTable dorisTable, ReplacePartitionFieldOp op)
+            throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
+
+        // remove old partition field
+        if (op.getOldPartitionFieldName() != null) {
+            updateSpec.removeField(op.getOldPartitionFieldName());
+        } else {
+            String oldTransformName = op.getOldTransformName();
+            Integer oldTransformArg = op.getOldTransformArg();
+            String oldColumnName = op.getOldColumnName();
+            Term oldTransform = getTransform(oldTransformName, oldColumnName, oldTransformArg);
+            updateSpec.removeField(oldTransform);
+        }
+
+        // add new partition field
+        String newPartitionFieldName = op.getNewPartitionFieldName();
+        String newTransformName = op.getNewTransformName();
+        Integer newTransformArg = op.getNewTransformArg();
+        String newColumnName = op.getNewColumnName();
+        Term newTransform = getTransform(newTransformName, newColumnName, newTransformArg);
+
+        if (newPartitionFieldName != null) {
+            updateSpec.addField(newPartitionFieldName, newTransform);
+        } else {
+            updateSpec.addField(newTransform);
+        }
+
+        try {
+            executionAuthenticator.execute(() -> updateSpec.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to replace partition field in table: " + icebergTable.name()
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+        refreshTable(dorisTable);
+        // Reset cached isValidRelatedTable flag after partition evolution
+        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }
 
     @Override

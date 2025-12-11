@@ -321,8 +321,8 @@ void DataTypeMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValu
 }
 
 void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                               Arena& arena, int32_t col_id,
-                                               int64_t row_num) const {
+                                               Arena& arena, int32_t col_id, int64_t row_num,
+                                               const FormatOptions& options) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
@@ -419,97 +419,18 @@ Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
     return Status::OK();
 }
 
-template <bool is_binary_format>
-Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
-                                                MysqlRowBuffer<is_binary_format>& result,
-                                                int64_t row_idx, bool col_const,
-                                                const FormatOptions& options) const {
-    const auto& map_column = assert_cast<const ColumnMap&>(column);
-    const IColumn& nested_keys_column = map_column.get_keys();
-    const IColumn& nested_values_column = map_column.get_values();
-    bool is_key_string = remove_nullable(nested_keys_column.get_ptr())->is_column_string();
-    bool is_val_string = remove_nullable(nested_values_column.get_ptr())->is_column_string();
-
-    const auto col_index = index_check_const(row_idx, col_const);
-    result.open_dynamic_mode();
-    if (0 != result.push_string("{", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-    const auto& offsets = map_column.get_offsets();
-    for (auto j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
-        if (j != offsets[col_index - 1]) {
-            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
-                                        options.mysql_collection_delim.size())) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        }
-        if (nested_keys_column.is_null_at(j)) {
-            if (0 != result.push_string(options.null_format, options.null_len)) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        } else {
-            if (is_key_string && options.wrapper_len > 0) {
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-                RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result, j,
-                                                                 false, options));
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result, j,
-                                                                 false, options));
-            }
-        }
-        if (0 != result.push_string(&options.map_key_delim, 1)) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-        if (nested_values_column.is_null_at(j)) {
-            if (0 != result.push_string(options.null_format, options.null_len)) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        } else {
-            if (is_val_string && options.wrapper_len > 0) {
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-                RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
-                                                                   false, options));
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
-                                                                   false, options));
-            }
-        }
-    }
-    if (0 != result.push_string("}", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-    result.close_dynamic_mode();
-    return Status::OK();
-}
-
 Status DataTypeMapSerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                      MysqlRowBinaryBuffer& row_buffer,
-                                                      int64_t row_idx, bool col_const,
+                                                      MysqlRowBinaryBuffer& result, int64_t row_idx,
+                                                      bool col_const,
                                                       const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeMapSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                    MysqlRowTextBuffer& row_buffer, int64_t row_idx,
-                                                    bool col_const,
-                                                    const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
+    return Status::NotSupported("Map type does not support write to mysql binary format");
 }
 
 Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                              const NullMap* null_map,
                                              orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                             int64_t end, vectorized::Arena& arena) const {
+                                             int64_t end, vectorized::Arena& arena,
+                                             const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -523,10 +444,10 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
 
         RETURN_IF_ERROR(key_serde->write_column_to_orc(timezone, nested_keys_column, nullptr,
                                                        cur_batch->keys.get(), offset, next_offset,
-                                                       arena));
+                                                       arena, options));
         RETURN_IF_ERROR(value_serde->write_column_to_orc(timezone, nested_values_column, nullptr,
                                                          cur_batch->elements.get(), offset,
-                                                         next_offset, arena));
+                                                         next_offset, arena, options));
 
         cur_batch->offsets[row_id + 1] = next_offset;
     }
@@ -694,7 +615,8 @@ Status DataTypeMapSerDe::serialize_column_to_jsonb(const IColumn& from_column, i
     }
     return Status::OK();
 }
-void DataTypeMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const {
+void DataTypeMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                 const FormatOptions& options) const {
     const auto& map_column = assert_cast<const ColumnMap&>(column);
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();
 
@@ -708,11 +630,61 @@ void DataTypeMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWr
         if (i != offset) {
             bw.write(", ", 2);
         }
-        key_serde->to_string(nested_keys_column, i, bw);
+        key_serde->to_string(nested_keys_column, i, bw, options);
         bw.write(":", 1);
-        value_serde->to_string(nested_values_column, i, bw);
+        value_serde->to_string(nested_values_column, i, bw, options);
     }
     bw.write("}", 1);
+}
+
+bool DataTypeMapSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                   int64_t row_idx,
+                                                   const FormatOptions& options) const {
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
+    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+
+    size_t offset = offsets[row_idx - 1];
+    size_t next_offset = offsets[row_idx];
+
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+    bw.write("{", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(", ", 2);
+        }
+        key_serde->write_column_to_presto_text(nested_keys_column, bw, i, options);
+        bw.write("=", 1);
+        value_serde->write_column_to_presto_text(nested_values_column, bw, i, options);
+    }
+    bw.write("}", 1);
+
+    return true;
+}
+
+bool DataTypeMapSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                 int64_t row_idx,
+                                                 const FormatOptions& options) const {
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
+    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+
+    size_t offset = offsets[row_idx - 1];
+    size_t next_offset = offsets[row_idx];
+
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+    bw.write("{", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(",", 1);
+        }
+        key_serde->write_column_to_hive_text(nested_keys_column, bw, i, options);
+        bw.write(":", 1);
+        value_serde->write_column_to_hive_text(nested_values_column, bw, i, options);
+    }
+    bw.write("}", 1);
+
+    return true;
 }
 
 } // namespace vectorized
