@@ -29,7 +29,6 @@
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
-#include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
@@ -73,11 +72,6 @@ public:
 
     // Return the current size of the buffer in bytes
     virtual uint64_t size() = 0;
-
-    EncodingTypePB encoding() const { return _encoding_type; }
-
-protected:
-    EncodingTypePB _encoding_type = RLE;
 };
 
 class NullBitmapBuilder : public NullBitmapBuilderBase {
@@ -120,9 +114,11 @@ private:
 // Each uint8_t represents a single null value: 0 = non-null, 1 = null
 class PlainNullBitmapBuilder : public NullBitmapBuilderBase {
 public:
-    PlainNullBitmapBuilder(EncodingTypePB encoding_type) : _has_null(false), _bitmap_buf() {
-        _encoding_type = encoding_type;
-    }
+    PlainNullBitmapBuilder() : _has_null(false), _bitmap_buf() {}
+
+    explicit PlainNullBitmapBuilder(size_t reserve_bits)
+            : _has_null(false),
+              _bitmap_buf(reserve_bits, 0) {} // Reserve enough bytes for the given number of bits
 
     void add_run(bool value, size_t run) override {
         _has_null |= value;
@@ -146,40 +142,32 @@ public:
         RETURN_IF_CATCH_EXCEPTION({
             // Check if we should compress the data
             if (!_bitmap_buf.empty()) {
-                if (_encoding_type == EncodingTypePB::BIT_SHUFFLE) {
+                // Get LZ4 compression codec
+                BlockCompressionCodec* codec = nullptr;
+                RETURN_IF_ERROR(
+                        get_block_compression_codec(segment_v2::CompressionTypePB::LZ4, &codec));
+                if (codec != nullptr) {
+                    // Compress the data
                     faststring compressed_buf;
-                    compressed_buf.resize(
-                            bitshuffle::compress_lz4_bound(_bitmap_buf.size(), sizeof(uint8_t), 0));
-                    int64_t r = bitshuffle::compress_lz4(_bitmap_buf.data(), compressed_buf.data(),
-                                                         _bitmap_buf.size(), sizeof(uint8_t), 0);
-                    if (UNLIKELY(r < 0)) {
-                        return Status::InternalError("bitshuffle compress failed");
+                    Slice raw_slice(_bitmap_buf.data(), _bitmap_buf.size());
+                    Status status = codec->compress(raw_slice, &compressed_buf);
+                    if (status.ok()) {
+                        // Use compressed data if compression is successful and reduces size
+                        // if (compressed_buf.size() < _bitmap_buf.size()) {
+                        // Directly build OwnedSlice from compressed_buf to avoid memory copy
+                        *slice = compressed_buf.build();
+                        return Status::OK();
+                        // }
+                    } else {
+                        return status;
                     }
-                    // before build(), update buffer length to the actual compressed size
-                    compressed_buf.resize(r);
-                    *slice = compressed_buf.build();
-                    return Status::OK();
-                } else if (_encoding_type == EncodingTypePB::PLAIN_ENCODING) {
-                    // Get LZ4 compression codec
-                    BlockCompressionCodec* codec = nullptr;
-                    RETURN_IF_ERROR(get_block_compression_codec(segment_v2::CompressionTypePB::LZ4,
-                                                                &codec));
-                    if (codec != nullptr) {
-                        // Compress the data
-                        faststring compressed_buf;
-                        Slice raw_slice(_bitmap_buf.data(), _bitmap_buf.size());
-                        Status status = codec->compress(raw_slice, &compressed_buf);
-                        if (status.ok()) {
-                            *slice = compressed_buf.build();
-                            return Status::OK();
-                        } else {
-                            return status;
-                        }
-                    }
-                } else {
-                    return Status::Corruption("unsupported null map encoding");
                 }
             }
+            // // Fallback to uncompressed data if compression fails or doesn't reduce size
+            // // Create OwnedSlice directly from _bitmap_buf data
+            // OwnedSlice result(_bitmap_buf.size());
+            // memcpy(result.data(), _bitmap_buf.data(), _bitmap_buf.size());
+            // *slice = std::move(result);
         });
         return Status::OK();
     }
@@ -566,15 +554,7 @@ Status ScalarColumnWriter::init() {
     _ordinal_index_builder = std::make_unique<OrdinalIndexWriter>();
     // create null bitmap builder
     if (is_nullable()) {
-        if (_opts.meta->has_null_map_encoding()) {
-            if (config::cooldown_thread_num < 10) {
-                _null_bitmap_builder = std::make_unique<PlainNullBitmapBuilder>(BIT_SHUFFLE);
-            } else {
-                _null_bitmap_builder = std::make_unique<PlainNullBitmapBuilder>(PLAIN_ENCODING);
-            }
-        } else {
-            _null_bitmap_builder = std::make_unique<NullBitmapBuilder>();
-        }
+        _null_bitmap_builder = std::make_unique<PlainNullBitmapBuilder>();
     }
     if (_opts.need_zone_map) {
         RETURN_IF_ERROR(ZoneMapIndexWriter::create(get_field(), _zone_map_index_builder));
@@ -859,7 +839,7 @@ Status ScalarColumnWriter::finish_current_page() {
     data_page_footer->set_first_ordinal(_first_rowid);
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
     data_page_footer->set_nullmap_size(cast_set<uint32_t>(nullmap.slice().size));
-    data_page_footer->set_null_map_encoding(_null_bitmap_builder->encoding());
+    data_page_footer->set_new_null_map(true);
     if (_new_page_callback != nullptr) {
         _new_page_callback->put_extra_info_in_page(data_page_footer);
     }
