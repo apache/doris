@@ -109,45 +109,45 @@ Status ExprPushDownHelper::convert_predicates(
             switch (expr->op()) {
             case TExprOpcode::FILTER_IN: {
                 std::shared_ptr<HybridSetBase> set;
-                switch (data_type->get_primitive_type()) {
+                RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, false, parsed));
+                if (parsed) {
+                    switch (data_type->get_primitive_type()) {
 #define BUILD_SET_CASE(PType)     \
     case PType: {                 \
         set = build_set<PType>(); \
         break;                    \
     }
-                    BUILD_SET_CASE(TYPE_TINYINT);
-                    BUILD_SET_CASE(TYPE_SMALLINT);
-                    BUILD_SET_CASE(TYPE_INT);
-                    BUILD_SET_CASE(TYPE_BIGINT);
-                    BUILD_SET_CASE(TYPE_LARGEINT);
-                    BUILD_SET_CASE(TYPE_FLOAT);
-                    BUILD_SET_CASE(TYPE_DOUBLE);
-                    BUILD_SET_CASE(TYPE_CHAR);
-                    BUILD_SET_CASE(TYPE_STRING);
-                    BUILD_SET_CASE(TYPE_DATE);
-                    BUILD_SET_CASE(TYPE_DATETIME);
-                    BUILD_SET_CASE(TYPE_DATEV2);
-                    BUILD_SET_CASE(TYPE_DATETIMEV2);
-                    BUILD_SET_CASE(TYPE_BOOLEAN);
-                    BUILD_SET_CASE(TYPE_IPV4);
-                    BUILD_SET_CASE(TYPE_IPV6);
-                    BUILD_SET_CASE(TYPE_DECIMALV2);
-                    BUILD_SET_CASE(TYPE_DECIMAL32);
-                    BUILD_SET_CASE(TYPE_DECIMAL64);
-                    BUILD_SET_CASE(TYPE_DECIMAL128I);
-                    BUILD_SET_CASE(TYPE_DECIMAL256);
-                case TYPE_VARCHAR: {
-                    set = build_set<TYPE_STRING>();
-                    break;
-                }
+                        BUILD_SET_CASE(TYPE_TINYINT);
+                        BUILD_SET_CASE(TYPE_SMALLINT);
+                        BUILD_SET_CASE(TYPE_INT);
+                        BUILD_SET_CASE(TYPE_BIGINT);
+                        BUILD_SET_CASE(TYPE_LARGEINT);
+                        BUILD_SET_CASE(TYPE_FLOAT);
+                        BUILD_SET_CASE(TYPE_DOUBLE);
+                        BUILD_SET_CASE(TYPE_CHAR);
+                        BUILD_SET_CASE(TYPE_STRING);
+                        BUILD_SET_CASE(TYPE_DATE);
+                        BUILD_SET_CASE(TYPE_DATETIME);
+                        BUILD_SET_CASE(TYPE_DATEV2);
+                        BUILD_SET_CASE(TYPE_DATETIMEV2);
+                        BUILD_SET_CASE(TYPE_BOOLEAN);
+                        BUILD_SET_CASE(TYPE_IPV4);
+                        BUILD_SET_CASE(TYPE_IPV6);
+                        BUILD_SET_CASE(TYPE_DECIMALV2);
+                        BUILD_SET_CASE(TYPE_DECIMAL32);
+                        BUILD_SET_CASE(TYPE_DECIMAL64);
+                        BUILD_SET_CASE(TYPE_DECIMAL128I);
+                        BUILD_SET_CASE(TYPE_DECIMAL256);
+                    case TYPE_VARCHAR: {
+                        set = build_set<TYPE_STRING>();
+                        break;
+                    }
 #undef BUILD_SET_CASE
-                default:
-                    throw Exception(Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                            "unsupported data type in delete handler. type={}",
-                            type_to_string(data_type->get_primitive_type())));
-                }
-                RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, false, parsed));
-                if (parsed) {
+                    default:
+                        throw Exception(Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                                "unsupported data type in delete handler. type={}",
+                                type_to_string(data_type->get_primitive_type())));
+                    }
                     if (is_string_type(data_type->get_primitive_type())) {
                         for (size_t i = 0; i < values.size(); i++) {
                             set->insert(reinterpret_cast<const void*>(&values[i]));
