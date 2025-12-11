@@ -213,4 +213,10 @@ suite("distinct_split") {
     sql "create table test_distinct_multi_null_hash(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1');"
     sql "insert into test_distinct_multi_null_hash values(1,null,null,null,'2024-12-08');"
     qt_null_hash "SELECT a, b, count(distinct c,e), count(distinct concat(d,e))/count(distinct e) FROM test_distinct_multi_null_hash where e = '2024-12-08' GROUP BY a, b;"
+
+    // test agg function not support multi_distinct
+    sql "select array_agg(distinct b), array_agg(distinct a) from test_distinct_multi"
+    qt_array_agg_nogby "select array_agg(distinct b), array_agg(distinct a) from test_distinct_multi where a=1 and b=2"
+    qt_array_agg_gby "select array_agg(distinct b), array_agg(distinct a) from test_distinct_multi where a=1 and b=2 group by c"
+    qt_array_agg_and_other "select array_agg(distinct b), count(distinct a) from test_distinct_multi where b=2"
 }
