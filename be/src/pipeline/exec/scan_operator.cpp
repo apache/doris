@@ -532,7 +532,6 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
     if (is_complex_type(slot_ref->data_type()->get_primitive_type())) {
         return false;
     }
-    auto& p = _parent->cast<typename Derived::Parent>();
     auto sid_to_range = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
