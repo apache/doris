@@ -2301,12 +2301,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             List<Expr> exprList = Lists.newArrayList();
             Preconditions.checkState(resultExpressionList.size() == outputSlotDescs.size());
             for (int j = 0; j < resultExpressionList.size(); ++j) {
-                if (outputSlotDescs.get(j).isMaterialized()) {
-                    exprList.add(ExpressionTranslator.translate(resultExpressionList.get(j), context));
-                    // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
-                    outputSlotDescs.get(j)
-                            .setIsNullable(outputSlotDescs.get(j).getIsNullable() || exprList.get(j).isNullable());
-                }
+                exprList.add(ExpressionTranslator.translate(resultExpressionList.get(j), context));
+                // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
+                outputSlotDescs.get(j)
+                        .setIsNullable(outputSlotDescs.get(j).getIsNullable() || exprList.get(j).isNullable());
             }
             materializedResultExprLists.add(exprList);
         }

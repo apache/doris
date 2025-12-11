@@ -21,7 +21,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -42,7 +41,7 @@ public class RecursiveCteScanNode extends ScanNode {
     private final String recursiveCteName;
 
     public RecursiveCteScanNode(String recursiveCteName, PlanNodeId id, TupleDescriptor desc) {
-        super(id, desc, "RECURSIVE_CTE_SCAN", StatisticalType.CTE_SCAN_NODE);
+        super(id, desc, "RECURSIVE_CTE_SCAN");
         this.recursiveCteName = recursiveCteName;
     }
 

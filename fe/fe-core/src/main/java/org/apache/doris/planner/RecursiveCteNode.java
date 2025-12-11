@@ -19,7 +19,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -37,7 +36,7 @@ public class RecursiveCteNode extends PlanNode {
     private TRecCTENode tRecCTENode;
 
     public RecursiveCteNode(PlanNodeId id, TupleId tupleId, String cteName, boolean isUnionAll) {
-        super(id, tupleId.asList(), "RECURSIVE_CTE", StatisticalType.RECURSIVE_CTE_NODE);
+        super(id, tupleId.asList(), "RECURSIVE_CTE");
         this.cteName = cteName;
         this.isUnionAll = isUnionAll;
     }

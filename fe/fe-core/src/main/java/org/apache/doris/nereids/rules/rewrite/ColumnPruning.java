@@ -217,7 +217,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     @Override
     public Plan visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, PruneContext context) {
         // keep LogicalRecursiveCte's output unchanged
-        return skipPruneThisAndFirstLevelChildren(recursiveCte);
+        return skipPruneThis(recursiveCte);
     }
 
     // union can not prune children by the common logic, we must override visit method to write special code.
