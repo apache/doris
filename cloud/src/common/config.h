@@ -120,6 +120,7 @@ CONF_mInt32(packed_file_txn_retry_times, "10");
 // randomized interval to reduce conflict storms in FoundationDB, default 5-50ms
 CONF_mInt64(packed_file_txn_retry_sleep_min_ms, "5");
 CONF_mInt64(packed_file_txn_retry_sleep_max_ms, "50");
+CONF_mInt32(recycle_txn_delete_max_retry_times, "10");
 
 // force recycler to recycle all useless object.
 // **just for TEST**
