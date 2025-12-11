@@ -937,7 +937,8 @@ TEST(HttpGetValueTest, process_http_get_value_versioned_key_test) {
 
     // Test VersionedTabletIndexKey (non-versioned value)
     std::string tablet_index_key =
-            unhex("0310696e646578000110676176696e2d696e7374616e63650001107461626c65740001120000000000002766");
+            unhex("0310696e646578000110676176696e2d696e7374616e63650001107461626c657400011200000000"
+                  "00002766");
     TabletIndexPB tablet_index_pb;
     tablet_index_pb.set_table_id(20000);
     tablet_index_pb.set_index_id(30000);
