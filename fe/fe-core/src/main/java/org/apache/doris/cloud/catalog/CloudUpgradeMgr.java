@@ -120,7 +120,7 @@ public class CloudUpgradeMgr extends MasterDaemon {
             txnIds.offer(new DbWithWaterTxn(dbid, nextTransactionId));
         }
         txnBePairList.offer(new DbWithWaterTxnInBe(txnIds, be));
-        LOG.info("register watershedtxnid {} for BE {}", txnIds.stream()
+        LOG.debug("register watershedtxnid {} for BE {}", txnIds.stream()
                 .map(dbWithWaterTxn -> "(" + dbWithWaterTxn.dbId + ":" + dbWithWaterTxn.txnId + ")")
                 .collect((Collectors.joining(", ", "{", "}"))), be);
     }

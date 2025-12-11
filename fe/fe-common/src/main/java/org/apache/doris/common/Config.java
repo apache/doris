@@ -3391,9 +3391,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static double cloud_balance_tablet_percent_per_run = 0.05;
 
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cloud_min_balance_tablet_num_per_run = 2;
-
     @ConfField(mutable = true, masterOnly = true, description = {"指定存算分离模式下所有 Compute group 的扩缩容预热方式。"
             + "without_warmup: 直接修改 tablet 分片映射，首次读从 S3 拉取，均衡最快但性能波动最大；"
             + "async_warmup: 异步预热，尽力而为拉取 cache，均衡较快但可能 cache miss；"
@@ -3414,6 +3411,20 @@ public class Config extends ConfigBase {
             + "to set balance type at compute group level, compute group level configuration has higher priority"},
             options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
     public static String cloud_warm_up_for_rebalance_type = "async_warmup";
+
+    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡时，"
+            + "同一个host内预热批次的最大tablet个数，默认10", "The max number of tablets per host "
+            + "when batching warm-up requests during cloud tablet rebalancing, default 10"})
+    public static int cloud_warm_up_batch_size = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡时，"
+            + "预热批次最长等待时间，单位毫秒，默认50ms", "Maximum wait time in milliseconds before a "
+            + "pending warm-up batch is flushed, default 50ms"})
+    public static int cloud_warm_up_batch_flush_interval_ms = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡预热rpc异步线程池大小，默认4",
+        "Thread pool size for asynchronous warm-up RPC dispatch during cloud tablet rebalancing, default 4"})
+    public static int cloud_warm_up_rpc_async_pool_size = 4;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
