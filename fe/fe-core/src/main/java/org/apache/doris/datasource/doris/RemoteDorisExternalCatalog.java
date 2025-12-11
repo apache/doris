@@ -17,17 +17,20 @@
 
 package org.apache.doris.datasource.doris;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.constants.RemoteDorisProperties;
+import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -36,11 +39,14 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisExternalCatalog.class);
 
     private RemoteDorisRestClient dorisRestClient;
+    private FeServiceClient client;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
+            RemoteDorisProperties.FE_THRIFT_HOSTS,
             RemoteDorisProperties.FE_HTTP_HOSTS,
             RemoteDorisProperties.FE_ARROW_HOSTS,
             RemoteDorisProperties.USER,
-            RemoteDorisProperties.PASSWORD
+            RemoteDorisProperties.PASSWORD,
+            RemoteDorisProperties.USE_ARROW_FLIGHT
     );
 
     /**
@@ -61,6 +67,11 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
+        if (!useArrowFlight() && Config.isCloudMode()) {
+            // TODO we not validate it in cloud mode, so currently not support it
+            throw new DdlException("Cloud mode is not supported when "
+                    + RemoteDorisProperties.USE_ARROW_FLIGHT + " is false");
+        }
     }
 
     public List<String> getFeNodes() {
@@ -69,6 +80,19 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
 
     public List<String> getFeArrowNodes() {
         return parseArrowHosts(catalogProperty.getOrDefault(RemoteDorisProperties.FE_ARROW_HOSTS, ""));
+    }
+
+    public List<TNetworkAddress> getFeThriftNodes() {
+        String addresses = catalogProperty.getOrDefault(RemoteDorisProperties.FE_THRIFT_HOSTS, "");
+        List<TNetworkAddress> tAddresses = new ArrayList<>();
+        for (String address : addresses.split(",")) {
+            int index = address.lastIndexOf(":");
+            String host = address.substring(0, index);
+            int port = Integer.parseInt(address.substring(index + 1));
+            TNetworkAddress thriftAddress = new TNetworkAddress(host, port);
+            tAddresses.add(thriftAddress);
+        }
+        return tAddresses;
     }
 
     public String getUsername() {
@@ -139,6 +163,11 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
             "0"));
     }
 
+    public boolean useArrowFlight() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(RemoteDorisProperties.USE_ARROW_FLIGHT,
+                "true"));
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
         if (isCompatible()) {
@@ -158,6 +187,8 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
             throw new RuntimeException("Failed to connect to Doris cluster,"
                 + " please check your Doris cluster or your Doris catalog configuration.");
         }
+        client = new FeServiceClient(name, getFeThriftNodes(), getUsername(), getPassword(),
+                getMetadataSyncRetryCount(), getMetadataReadTimeoutSec());
     }
 
     protected List<String> listDatabaseNames() {
@@ -179,6 +210,10 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
 
     public RemoteDorisRestClient getDorisRestClient() {
         return dorisRestClient;
+    }
+
+    public FeServiceClient getFeServiceClient() {
+        return client;
     }
 
     private List<String> parseHttpHosts(String hosts) {

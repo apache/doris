@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
@@ -34,7 +35,7 @@ import java.util.Set;
 /** SelectedWorkers */
 public class SelectedWorkers {
     private final DistributedPlanWorkerManager workerManager;
-    private final Map<TNetworkAddress, Long> usedWorkersAddressToBackendID;
+    private final Map<Long, Map<TNetworkAddress, Long>> usedWorkersAddressToBackendID;
     private final Set<DistributedPlanWorker> usedWorkers;
 
     public SelectedWorkers(DistributedPlanWorkerManager workerManager) {
@@ -48,7 +49,8 @@ public class SelectedWorkers {
         BackendWorker worker = (BackendWorker) assignedJob.getAssignedWorker();
         if (usedWorkers.add(worker)) {
             Backend backend = worker.getBackend();
-            usedWorkersAddressToBackendID.put(
+            usedWorkersAddressToBackendID.computeIfAbsent(worker.getCatalogId(), k -> Maps.newLinkedHashMap());
+            usedWorkersAddressToBackendID.get(worker.getCatalogId()).put(
                     new TNetworkAddress(backend.getHost(), backend.getBePort()), backend.getId()
             );
         }
@@ -56,11 +58,19 @@ public class SelectedWorkers {
 
     /** tryToSelectRandomUsedWorker */
     public DistributedPlanWorker tryToSelectRandomUsedWorker() {
+        long catalogId = Env.getCurrentInternalCatalog().getId();
         if (usedWorkers.isEmpty()) {
-            return workerManager.randomAvailableWorker();
+            return workerManager.randomAvailableWorker(catalogId);
         } else {
-            long id = workerManager.randomAvailableWorker(usedWorkersAddressToBackendID);
-            return workerManager.getWorker(id);
+            Map<TNetworkAddress, Long> backendIDs;
+            if (usedWorkersAddressToBackendID.containsKey(catalogId)) {
+                backendIDs = usedWorkersAddressToBackendID.get(catalogId);
+            } else {
+                catalogId = usedWorkers.iterator().next().getCatalogId();
+                backendIDs = usedWorkersAddressToBackendID.get(catalogId);
+            }
+            long id = workerManager.randomAvailableWorker(backendIDs);
+            return workerManager.getWorker(catalogId, id);
         }
     }
 }
