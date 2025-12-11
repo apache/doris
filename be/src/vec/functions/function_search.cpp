@@ -585,7 +585,8 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 }
             } else {
                 if (QueryHelper::is_simple_phrase(phrase_term_infos)) {
-                    *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr, phrase_term_infos);
+                    *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr,
+                                                                   phrase_term_infos);
                 } else {
                     *out = std::make_shared<query_v2::MultiPhraseQuery>(context, field_wstr,
                                                                         phrase_term_infos);
