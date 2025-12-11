@@ -385,7 +385,7 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
         _mode = MODE_METADATA;
     }
     std::string lower_mode = _mode;
-    std::transform(lower_mode.begin(), lower_mode.end(), lower_mode.begin(),
+    std::ranges::transform(lower_mode, lower_mode.begin(),
                    [](unsigned char c) { return std::tolower(c); });
     if (lower_mode == MODE_SCHEMA) {
         _mode_type = Mode::SCHEMA;
@@ -407,6 +407,7 @@ Status ParquetMetadataReader::get_next_block(Block* block, size_t* read_rows, bo
     bool mem_reuse = block->mem_reuse();
     std::vector<MutableColumnPtr> columns(_slots.size());
     if (mem_reuse) {
+        block->clear_column_data();
         for (size_t i = 0; i < _slots.size(); ++i) {
             columns[i] = block->get_by_position(i).column->assume_mutable();
         }
@@ -429,9 +430,10 @@ Status ParquetMetadataReader::get_next_block(Block* block, size_t* read_rows, bo
         columns.clear();
     }
 
+    size_t produced = block->rows() - rows_before;
+    *read_rows = produced;
     _eof = true;
-    *eof = true;
-    *read_rows = block->rows() - rows_before;
+    *eof = (produced == 0);
     return Status::OK();
 }
 
