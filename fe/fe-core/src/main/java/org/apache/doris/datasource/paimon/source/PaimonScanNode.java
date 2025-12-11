@@ -287,8 +287,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             dataSplits.add((DataSplit) split);
         }
 
-        long fileSplitSize = determineFileSplitSize(dataSplits, isBatchMode());
-
         boolean applyCountPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
         // Used to avoid repeatedly calculating partition info map for the same
         // partition data.
@@ -326,6 +324,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
                 }
+                long fileSplitSize = determineFileSplitSize(dataSplits, isBatchMode());
                 splitStat.setType(SplitReadType.NATIVE);
                 splitStat.setRawFileConvertable(true);
                 List<RawFile> rawFiles = optRawFiles.get();
@@ -393,19 +392,25 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private long determineFileSplitSize(List<DataSplit> dataSplits,
             boolean isBatchMode) {
-        long result = sessionVariable.getFileSplitSize();
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        /** Paimon batch split mode will return 0. and <code>FileSplitter</code>
+         *  will determine file split size.
+         */
+        if (isBatchMode) {
+            return 0;
+        }
+        long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
-        if (sessionVariable.getFileSplitSize() <= 0 && !isBatchMode) {
-            result = sessionVariable.getMaxInitialSplitSize();
-            for (DataSplit dataSplit : dataSplits) {
-                List<RawFile> rawFiles = dataSplit.convertToRawFiles().get();
-                for (RawFile rawFile : rawFiles) {
-                    totalFileSize += rawFile.fileSize();
-                    if (totalFileSize
-                            >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                        result = sessionVariable.getMaxSplitSize();
-                        break;
-                    }
+        for (DataSplit dataSplit : dataSplits) {
+            List<RawFile> rawFiles = dataSplit.convertToRawFiles().get();
+            for (RawFile rawFile : rawFiles) {
+                totalFileSize += rawFile.fileSize();
+                if (totalFileSize
+                        >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                    result = sessionVariable.getMaxSplitSize();
+                    break;
                 }
             }
         }

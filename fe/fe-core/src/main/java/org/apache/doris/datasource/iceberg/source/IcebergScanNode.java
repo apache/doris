@@ -364,17 +364,22 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private long determineFileSplitSize(CloseableIterable<FileScanTask> tasks,
             boolean isBatchMode) {
-        long result = sessionVariable.getFileSplitSize();
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        // Currently iceberg batch split mode will use max split size.
+        // TODO: dynamic split size in batch split mode need to customize iceberg splitter.
+        if (isBatchMode) {
+            return sessionVariable.getMaxSplitSize();
+        }
+        long result = sessionVariable.getMaxInitialSplitSize();
         long accumulatedTotalFileSize = 0;
-        if (sessionVariable.getFileSplitSize() <= 0 && !isBatchMode) {
-            result = sessionVariable.getMaxInitialSplitSize();
-            for (FileScanTask task : tasks) {
-                accumulatedTotalFileSize += ScanTaskUtil.contentSizeInBytes(task.file());
-                if (accumulatedTotalFileSize
-                        >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                    result = sessionVariable.getMaxSplitSize();
-                    break;
-                }
+        for (FileScanTask task : tasks) {
+            accumulatedTotalFileSize += ScanTaskUtil.contentSizeInBytes(task.file());
+            if (accumulatedTotalFileSize
+                    >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                result = sessionVariable.getMaxSplitSize();
+                break;
             }
         }
         return result;
