@@ -259,6 +259,10 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(
         return std::make_unique<CustomPredicateCreator<TYPE_DATETIMEV2, PT, ConditionType>>(
                 timestamp_from_datetime_v2);
     }
+    case TYPE_TIMESTAMPTZ: {
+        return std::make_unique<CustomPredicateCreator<TYPE_TIMESTAMPTZ, PT, ConditionType>>(
+                timestamptz_from_string);
+    }
     case TYPE_BOOLEAN: {
         return std::make_unique<CustomPredicateCreator<TYPE_BOOLEAN, PT, ConditionType>>(
                 [](const std::string& condition) {
@@ -461,6 +465,9 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
     case TYPE_DATETIMEV2: {
         return create_in_list_predicate<TYPE_DATETIMEV2, PT>(cid, set, is_opposite);
     }
+    case TYPE_TIMESTAMPTZ: {
+        return create_in_list_predicate<TYPE_TIMESTAMPTZ, PT>(cid, set, is_opposite);
+    }
     case TYPE_BOOLEAN: {
         return create_in_list_predicate<TYPE_BOOLEAN, PT>(cid, set, is_opposite);
     }
@@ -568,6 +575,11 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate0(
     case TYPE_DATETIMEV2: {
         return ComparisonPredicateBase<TYPE_DATETIMEV2, PT>::create_shared(
                 cid, *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)value.data,
+                opposite);
+    }
+    case TYPE_TIMESTAMPTZ: {
+        return ComparisonPredicateBase<TYPE_TIMESTAMPTZ, PT>::create_shared(
+                cid, *(typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType*)value.data,
                 opposite);
     }
     case TYPE_BOOLEAN: {
