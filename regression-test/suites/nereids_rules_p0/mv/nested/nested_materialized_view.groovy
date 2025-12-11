@@ -1529,8 +1529,571 @@ select * from (
 ) t order by 1,2,3,4,5,6,7,8,9;
    """
 
+
+    sql '''
+alter table mv1_b modify column lo_orderkey set stats (
+  'ndv'='69',
+  'num_nulls'='0',
+  'min_value'='16070',
+  'max_value'='572579',
+  'row_count'='276'
+);
+'''
+
+    sql '''
+alter table mv1_b modify column sum_value1 set stats (
+  'ndv'='252',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='85274100',
+  'row_count'='276'
+);
+'''
+
+    sql '''
+alter table mv1_b modify column lo_partkey set stats (
+  'ndv'='273',
+  'num_nulls'='0',
+  'min_value'='210',
+  'max_value'='19939',
+  'row_count'='276'
+);
+'''
+
+    sql '''
+alter table mv1_b modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920604',
+  'max_value'='19920604',
+  'row_count'='276'
+);
+'''
+
+
+    sql '''
+alter table mv2_a modify column sum_value2 set stats (
+  'ndv'='66',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='185206423',
+  'row_count'='66'
+);
+'''
+
+    sql '''
+alter table mv2_a modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920529',
+  'max_value'='19920529',
+  'row_count'='66'
+);
+'''
+
+    sql '''
+alter table mv1_a modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920529',
+  'max_value'='19920529',
+  'row_count'='269'
+);
+'''
+
+    sql '''
+alter table mv1_a modify column sum_value1 set stats (
+  'ndv'='246',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='81053280',
+  'row_count'='269'
+);
+'''
+
+    sql '''
+alter table mv1_a modify column lo_orderkey set stats (
+  'ndv'='67',
+  'num_nulls'='0',
+  'min_value'='8291',
+  'max_value'='596935',
+  'row_count'='269'
+);
+'''
+
+    sql '''
+alter table mv1_a modify column lo_partkey set stats (
+  'ndv'='267',
+  'num_nulls'='0',
+  'min_value'='323',
+  'max_value'='19957',
+  'row_count'='269'
+);
+'''
+
+    sql '''
+alter table mv1_d modify column lo_partkey set stats (
+  'ndv'='242',
+  'num_nulls'='0',
+  'min_value'='253',
+  'max_value'='19861',
+  'row_count'='245'
+);
+'''
+
+    sql '''
+alter table mv1_d modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920530',
+  'max_value'='19920530',
+  'row_count'='245'
+);
+'''
+
+    sql '''
+alter table mv1_d modify column sum_value1 set stats (
+  'ndv'='225',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='86919140',
+  'row_count'='245'
+);
+'''
+
+    sql '''
+alter table mv1_d modify column lo_orderkey set stats (
+  'ndv'='64',
+  'num_nulls'='0',
+  'min_value'='16486',
+  'max_value'='575302',
+  'row_count'='245'
+);
+'''
+
+    sql '''
+alter table mv2_c modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920828',
+  'max_value'='19920828',
+  'row_count'='54'
+);
+'''
+
+    sql '''
+alter table mv2_c modify column sum_value2 set stats (
+  'ndv'='54',
+  'num_nulls'='0',
+  'min_value'='2195164',
+  'max_value'='158761143',
+  'row_count'='54'
+);
+'''
+
+    sql '''
+alter table mv4_a modify column sum_value4 set stats (
+  'ndv'='245',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='81053280',
+  'row_count'='268'
+);
+'''
+
+    sql '''
+alter table mv4_a modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920529',
+  'max_value'='19920529',
+  'row_count'='268'
+);
+'''
+
+    sql '''
+alter table mv2_b modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920604',
+  'max_value'='19920604',
+  'row_count'='67'
+);
+'''
+
+    sql '''
+alter table mv2_b modify column sum_value2 set stats (
+  'ndv'='67',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='176373155',
+  'row_count'='67'
+);
+'''
+
+    sql '''
+alter table mv1_c modify column sum_value1 set stats (
+  'ndv'='189',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='83203120',
+  'row_count'='213'
+);
+'''
+
+    sql '''
+alter table mv1_c modify column lo_partkey set stats (
+  'ndv'='212',
+  'num_nulls'='0',
+  'min_value'='131',
+  'max_value'='19923',
+  'row_count'='213'
+);
+'''
+
+    sql '''
+alter table mv1_c modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920828',
+  'max_value'='19920828',
+  'row_count'='213'
+);
+'''
+
+    sql '''
+alter table mv1_c modify column lo_orderkey set stats (
+  'ndv'='54',
+  'num_nulls'='0',
+  'min_value'='1504',
+  'max_value'='587201',
+  'row_count'='213'
+);
+'''
+
+    sql '''
+alter table mv4_c modify column sum_value4 set stats (
+  'ndv'='188',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='83203120',
+  'row_count'='212'
+);
+'''
+
+    sql '''
+alter table mv4_c modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920828',
+  'max_value'='19920828',
+  'row_count'='212'
+);
+'''
+
+    sql '''
+alter table mv4_b modify column sum_value4 set stats (
+  'ndv'='251',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='85274100',
+  'row_count'='275'
+);
+'''
+
+    sql '''
+alter table mv4_b modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920604',
+  'max_value'='19920604',
+  'row_count'='275'
+);
+'''
+
+    sql '''
+alter table mv2_d modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920530',
+  'max_value'='19920530',
+  'row_count'='62'
+);
+'''
+
+    sql '''
+alter table mv2_d modify column sum_value2 set stats (
+  'ndv'='61',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='207242262',
+  'row_count'='62'
+);
+'''
+
+    sql '''
+alter table mv4_d modify column sum_value4 set stats (
+  'ndv'='224',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='86919140',
+  'row_count'='243'
+);
+'''
+
+    sql '''
+alter table mv4_d modify column lo_orderdate set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='19920530',
+  'max_value'='19920530',
+  'row_count'='243'
+);
+'''
+
+    sql '''
+alter table mv_all_6_a modify column __subtract_5 set stats (
+  'ndv'='3',
+  'num_nulls'='0',
+  'min_value'='-28304424',
+  'max_value'='0',
+  'row_count'='269'
+);
+'''
+
+    sql '''
+alter table mv_all_6_a modify column __subtract_4 set stats (
+  'ndv'='3',
+  'num_nulls'='0',
+  'min_value'='-28304424',
+  'max_value'='0',
+  'row_count'='269'
+);
+'''
+
+    sql '''
+alter table mv_all_6_a modify column nm set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='测试1',
+  'max_value'='测试1',
+  'row_count'='269'
+);
+'''
+
+    sql '''
+alter table mv_all_6_a modify column sum_value1 set stats (
+  'ndv'='246',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='81053280',
+  'row_count'='269'
+);
+'''
+
+    sql '''
+alter table mv_all_6_a modify column t_nm set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='测试2',
+  'max_value'='测试2',
+  'row_count'='269'
+);
+'''
+
+    sql '''
+alter table mv_all_6_a modify column __subtract_3 set stats (
+  'ndv'='262',
+  'num_nulls'='0',
+  'min_value'='-183330928',
+  'max_value'='2785088',
+  'row_count'='269'
+);
+'''
+
+    sql '''
+alter table mv_all_6_b modify column t_nm set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='测试2',
+  'max_value'='测试2',
+  'row_count'='276'
+);
+'''
+
+    sql '''
+alter table mv_all_6_b modify column nm set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='测试1',
+  'max_value'='测试1',
+  'row_count'='276'
+);
+'''
+
+    sql '''
+alter table mv_all_6_b modify column __subtract_4 set stats (
+  'ndv'='3',
+  'num_nulls'='0',
+  'min_value'='-4352247',
+  'max_value'='0',
+  'row_count'='276'
+);
+'''
+
+    sql '''
+alter table mv_all_6_b modify column sum_value1 set stats (
+  'ndv'='252',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='85274100',
+  'row_count'='276'
+);
+'''
+
+    sql '''
+alter table mv_all_6_b modify column __subtract_3 set stats (
+  'ndv'='275',
+  'num_nulls'='0',
+  'min_value'='-176373155',
+  'max_value'='2401722',
+  'row_count'='276'
+);
+'''
+
+    sql '''
+alter table mv_all_6_b modify column __subtract_5 set stats (
+  'ndv'='3',
+  'num_nulls'='0',
+  'min_value'='-4352247',
+  'max_value'='0',
+  'row_count'='276'
+);
+'''
+
+    sql '''
+alter table mv_all_6_c modify column __subtract_3 set stats (
+  'ndv'='209',
+  'num_nulls'='0',
+  'min_value'='-155357379',
+  'max_value'='7833780',
+  'row_count'='213'
+);
+'''
+
+    sql '''
+alter table mv_all_6_c modify column t_nm set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='测试2',
+  'max_value'='测试2',
+  'row_count'='213'
+);
+'''
+
+    sql '''
+alter table mv_all_6_c modify column __subtract_4 set stats (
+  'ndv'='3',
+  'num_nulls'='0',
+  'min_value'='-22727760',
+  'max_value'='0',
+  'row_count'='213'
+);
+'''
+
+    sql '''
+alter table mv_all_6_c modify column nm set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='测试1',
+  'max_value'='测试1',
+  'row_count'='213'
+);
+'''
+
+    sql '''
+alter table mv_all_6_c modify column sum_value1 set stats (
+  'ndv'='189',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='83203120',
+  'row_count'='213'
+);
+'''
+
+    sql '''
+alter table mv_all_6_c modify column __subtract_5 set stats (
+  'ndv'='3',
+  'num_nulls'='0',
+  'min_value'='-22727760',
+  'max_value'='0',
+  'row_count'='213'
+);
+'''
+
+    sql '''
+alter table mv_all_6_d modify column __subtract_3 set stats (
+  'ndv'='240',
+  'num_nulls'='0',
+  'min_value'='-207242262',
+  'max_value'='7835790',
+  'row_count'='245'
+);
+'''
+
+    sql '''
+alter table mv_all_6_d modify column nm set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='测试1',
+  'max_value'='测试1',
+  'row_count'='245'
+);
+'''
+
+    sql '''
+alter table mv_all_6_d modify column __subtract_5 set stats (
+  'ndv'='4',
+  'num_nulls'='0',
+  'min_value'='-64365462',
+  'max_value'='0',
+  'row_count'='245'
+);
+'''
+
+    sql '''
+alter table mv_all_6_d modify column sum_value1 set stats (
+  'ndv'='225',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='86919140',
+  'row_count'='245'
+);
+'''
+
+    sql '''
+alter table mv_all_6_d modify column __subtract_4 set stats (
+  'ndv'='4',
+  'num_nulls'='0',
+  'min_value'='-64365462',
+  'max_value'='0',
+  'row_count'='245'
+);
+'''
+
+    sql '''
+alter table mv_all_6_d modify column t_nm set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='测试2',
+  'max_value'='测试2',
+  'row_count'='245'
+);
+'''
+
     sql "SET enable_materialized_view_rewrite= true"
     sql "SET enable_materialized_view_nest_rewrite = true"
+    sql "SET materialized_view_rewrite_duration_threshold_ms = 60000"
     // DP Hyper can not use pre materialized view rewrite
     sql """SET enable_dphyp_optimizer = false"""
     mv_rewrite_all_success_without_check_chosen(query2_0, ["mv_all_6_a", "mv_all_6_b", "mv_all_6_c", "mv_all_6_d"],
