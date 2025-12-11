@@ -175,43 +175,43 @@ public class FileCacheAdmissionManager {
 
             String catalogTable = catalog + "." + database;
 
-            if (excludeGlobal.get()) {
-                reason.set(reasons.get(0));
+            if (containsKeyValue(excludeTableRules, table, catalogTable)) {
+                reason.set(reasons.get(3));
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
-            if (excludeCatalogRules.contains(catalog)) {
-                reason.set(reasons.get(1));
-                logAdmission(false, userIdentity, catalog, database, table, reason.get());
-                return false;
+            if (containsKeyValue(includeTableRules, table, catalogTable)) {
+                reason.set(reasons.get(3));
+                logAdmission(true, userIdentity, catalog, database, table, reason.get());
+                return true;
             }
             if (containsKeyValue(excludeDatabaseRules, database, catalog)) {
                 reason.set(reasons.get(2));
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
-            if (containsKeyValue(excludeTableRules, table, catalogTable)) {
-                reason.set(reasons.get(3));
-                logAdmission(false, userIdentity, catalog, database, table, reason.get());
-                return false;
-            }
-            if (includeGlobal.get()) {
-                reason.set(reasons.get(0));
+            if (containsKeyValue(includeDatabaseRules, database, catalog)) {
+                reason.set(reasons.get(2));
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
+            }
+            if (excludeCatalogRules.contains(catalog)) {
+                reason.set(reasons.get(1));
+                logAdmission(false, userIdentity, catalog, database, table, reason.get());
+                return false;
             }
             if (includeCatalogRules.contains(catalog)) {
                 reason.set(reasons.get(1));
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
-            if (containsKeyValue(includeDatabaseRules, database, catalog)) {
-                reason.set(reasons.get(2));
-                logAdmission(true, userIdentity, catalog, database, table, reason.get());
-                return true;
+            if (excludeGlobal.get()) {
+                reason.set(reasons.get(0));
+                logAdmission(false, userIdentity, catalog, database, table, reason.get());
+                return false;
             }
-            if (containsKeyValue(includeTableRules, table, catalogTable)) {
-                reason.set(reasons.get(3));
+            if (includeGlobal.get()) {
+                reason.set(reasons.get(0));
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
