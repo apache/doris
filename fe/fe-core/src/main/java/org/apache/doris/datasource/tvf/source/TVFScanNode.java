@@ -168,17 +168,17 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     private long determineFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
-        long result = sessionVariable.getFileSplitSize();
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
-        if (sessionVariable.getFileSplitSize() <= 0) {
-            result = sessionVariable.getMaxInitialSplitSize();
-            for (TBrokerFileStatus fileStatus : fileStatuses) {
-                totalFileSize += fileStatus.getSize();
-                if (totalFileSize
-                        >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                    result = sessionVariable.getMaxSplitSize();
-                    break;
-                }
+        for (TBrokerFileStatus fileStatus : fileStatuses) {
+            totalFileSize += fileStatus.getSize();
+            if (totalFileSize
+                    >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                result = sessionVariable.getMaxSplitSize();
+                break;
             }
         }
         return result;

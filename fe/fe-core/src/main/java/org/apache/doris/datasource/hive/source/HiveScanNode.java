@@ -346,20 +346,26 @@ public class HiveScanNode extends FileQueryScanNode {
 
     private long determineFileSplitSize(List<FileCacheValue> fileCaches,
             boolean isBatchMode) {
-        long result = sessionVariable.getFileSplitSize();
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        /** Hive batch split mode will return 0. and <code>FileSplitter</code>
+         *  will determine file split size.
+         */
+        if (isBatchMode) {
+            return 0;
+        }
+        long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
-        if (sessionVariable.getFileSplitSize() <= 0 && !isBatchMode) {
-            result = sessionVariable.getMaxInitialSplitSize();
-            for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
-                if (fileCacheValue.getFiles() == null) {
-                    continue;
-                }
-                for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                    totalFileSize += status.getLength();
-                    if (totalFileSize >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                        result = sessionVariable.getMaxSplitSize();
-                        break;
-                    }
+        for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
+            if (fileCacheValue.getFiles() == null) {
+                continue;
+            }
+            for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                totalFileSize += status.getLength();
+                if (totalFileSize >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                    result = sessionVariable.getMaxSplitSize();
+                    break;
                 }
             }
         }
