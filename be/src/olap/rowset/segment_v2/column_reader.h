@@ -383,6 +383,8 @@ public:
 
     virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
 
+    virtual void collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) {}
+
 protected:
     ColumnIteratorOptions _opts;
 };
@@ -431,6 +433,8 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+
+    void collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) override;
 
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
@@ -517,6 +521,10 @@ public:
         return _offset_iterator->init_prefetcher(params);
     }
 
+    void collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) override {
+        return _offset_iterator->collect_prefetchers(prefetchers);
+    }
+
 private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
     // reuse a tiny column for peek to avoid frequent allocations
@@ -561,6 +569,12 @@ public:
         RETURN_IF_ERROR(_val_iterator->init_prefetcher(params));
         RETURN_IF_ERROR(_offsets_iterator->init_prefetcher(params));
         return Status::OK();
+    }
+
+    void collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) override {
+        _key_iterator->collect_prefetchers(prefetchers);
+        _val_iterator->collect_prefetchers(prefetchers);
+        _offsets_iterator->collect_prefetchers(prefetchers);
     }
 
 private:
@@ -609,6 +623,12 @@ public:
         return Status::OK();
     }
 
+    void collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) override {
+        for (auto& column_iterator : _sub_column_iterators) {
+            column_iterator->collect_prefetchers(prefetchers);
+        }
+    }
+
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -650,6 +670,11 @@ public:
         RETURN_IF_ERROR(_offset_iterator->init_prefetcher(params));
         RETURN_IF_ERROR(_item_iterator->init_prefetcher(params));
         return Status::OK();
+    }
+
+    void collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) override {
+        _offset_iterator->collect_prefetchers(prefetchers);
+        _item_iterator->collect_prefetchers(prefetchers);
     }
 
 private:

@@ -59,6 +59,7 @@
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/segment_prefetcher.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/schema.h"
 #include "olap/short_key_index.h"
@@ -408,6 +409,7 @@ Status SegmentIterator::_lazy_init() {
 }
 
 void SegmentIterator::_init_segment_prefetchers() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_segment_prefetchers_timer_ns);
     if (!config::is_cloud_mode()) {
         return;
     }
@@ -463,6 +465,31 @@ void SegmentIterator::_init_segment_prefetchers() {
                             cid, _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
                             st.to_string());
                 }
+            }
+
+            std::vector<SegmentPrefetcher*> prefetchers;
+            for (const auto& column_iter : _column_iterators) {
+                if (column_iter != nullptr) {
+                    column_iter->collect_prefetchers(prefetchers);
+                }
+            }
+
+            int batch_size = config::segment_file_cache_consume_rowids_batch_size;
+            std::vector<rowid_t> rowids(batch_size);
+            roaring::api::roaring_uint32_iterator_t iter;
+            roaring::api::roaring_init_iterator(&_row_bitmap.roaring, &iter);
+            uint32_t num =
+                    roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size);
+
+            for (; num > 0; num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(),
+                                                                             batch_size)) {
+                for (auto* prefetcher : prefetchers) {
+                    prefetcher->add_rowids(rowids.data(), num);
+                }
+            }
+
+            for (auto* prefetcher : prefetchers) {
+                prefetcher->finish_build_blocks();
             }
         }
     }

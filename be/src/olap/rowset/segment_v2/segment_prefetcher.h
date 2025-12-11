@@ -120,6 +120,9 @@ public:
     // Returns true if prefetch is needed, false otherwise
     bool need_prefetch(rowid_t current_rowid, std::vector<BlockRange>* out_ranges);
 
+    void add_rowids(const rowid_t* rowids, uint32_t num);
+    void finish_build_blocks();
+
 private:
     // Parameters:
     //   row_bitmap: The complete bitmap of rowids to scan
@@ -157,6 +160,16 @@ private:
 
     int _prefetched_index = -1;
     int _current_block_index = 0;
+
+    int page_idx = 0;
+    // For each page, track the first rowid we need to read
+    // For forward: the smallest rowid in this page
+    // For backward: the largest rowid in this page (first one we'll encounter when reading backwards)
+    size_t last_block_id = static_cast<size_t>(-1);
+    rowid_t current_block_first_rowid = 0;
+
+    OrdinalIndexReader* ordinal_index = nullptr;
+    std::vector<ordinal_t>* ordinals = nullptr;
 };
 
 } // namespace segment_v2

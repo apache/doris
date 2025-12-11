@@ -246,8 +246,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .build(&_buffered_reader_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SegmentPrefetchThreadPool")
-                              .set_min_threads(config::segment_prefetch_thread_pool_thread_num)
-                              .set_max_threads(config::segment_prefetch_thread_pool_thread_num)
+                              .set_min_threads(config::segment_prefetch_thread_pool_thread_num_min)
+                              .set_max_threads(config::segment_prefetch_thread_pool_thread_num_max)
                               .build(&_segment_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")

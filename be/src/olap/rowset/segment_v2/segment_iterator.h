@@ -42,7 +42,6 @@
 #include "olap/row_cursor_cell.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/rowset/segment_v2/segment_prefetcher.h"
 #include "olap/schema.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"

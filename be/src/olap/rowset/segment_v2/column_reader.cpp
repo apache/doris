@@ -1650,6 +1650,12 @@ Status FileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) 
     return Status::OK();
 }
 
+void FileColumnIterator::collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) {
+    if (_prefetcher) {
+        prefetchers.emplace_back(_prefetcher.get());
+    }
+}
+
 Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
     // be consistent with segment v1

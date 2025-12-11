@@ -28,75 +28,57 @@
 
 namespace doris::segment_v2 {
 
-void SegmentPrefetcher::_build_block_sequence_from_bitmap(const roaring::Roaring& row_bitmap,
-                                                          OrdinalIndexReader* ordinal_index) {
-    // Access internal data of OrdinalIndexReader directly (as friend)
+void SegmentPrefetcher::add_rowids(const rowid_t* rowids, uint32_t num) {
+    if (ordinal_index == nullptr) {
+        return;
+    }
     const auto& ordinals = ordinal_index->_ordinals; // ordinals[i] = first ordinal of page i
     const auto& pages = ordinal_index->_pages;       // pages[i] = page pointer of page i
     const int num_pages = ordinal_index->_num_pages;
+    for (uint32_t i = 0; i < num; ++i) {
+        rowid_t rowid = rowids[i];
 
-    if (num_pages == 0) {
-        return;
-    }
+        if (_is_forward) {
+            // Forward reading: iterate bitmap in ascending order using batch by batch
+            while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
+                page_idx++;
+            }
 
-    // Current page index we're examining
-    int page_idx = 0;
+            size_t block_id = _offset_to_block_id(pages[page_idx].offset);
 
-    // For each page, track the first rowid we need to read
-    // For forward: the smallest rowid in this page
-    // For backward: the largest rowid in this page (first one we'll encounter when reading backwards)
-    size_t last_block_id = static_cast<size_t>(-1);
-    rowid_t current_block_first_rowid = 0;
-
-    int batch_size = config::segment_file_cache_consume_rowids_batch_size;
-    std::vector<rowid_t> rowids(batch_size);
-    roaring::api::roaring_uint32_iterator_t iter;
-    roaring::api::roaring_init_iterator(&row_bitmap.roaring, &iter);
-    uint32_t num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size);
-
-    for (; num > 0;
-         num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size)) {
-        for (uint32_t i = 0; i < num; ++i) {
-            rowid_t rowid = rowids[i];
-
-            if (_is_forward) {
-                // Forward reading: iterate bitmap in ascending order using batch by batch
-                while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
-                    page_idx++;
+            if (block_id != last_block_id) {
+                if (last_block_id != static_cast<size_t>(-1)) {
+                    _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
                 }
-
-                size_t block_id = _offset_to_block_id(pages[page_idx].offset);
-
-                if (block_id != last_block_id) {
-                    if (last_block_id != static_cast<size_t>(-1)) {
-                        _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
-                    }
-                    last_block_id = block_id;
-                    current_block_first_rowid = rowid;
-                }
-            } else {
-                // Backward reading: we need the last rowid in each block as the "first" rowid
-                // (because when reading backwards, we encounter the largest rowid first)
-                //
-                // Strategy: iterate forward through bitmap, but for each block,
-                // keep updating current_block_first_rowid to the latest (largest) rowid in that block
-
-                while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
-                    page_idx++;
-                }
-                size_t block_id = _offset_to_block_id(pages[page_idx].offset);
-
-                if (block_id != last_block_id) {
-                    if (last_block_id != static_cast<size_t>(-1)) {
-                        _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
-                    }
-                    last_block_id = block_id;
-                }
+                last_block_id = block_id;
                 current_block_first_rowid = rowid;
             }
+        } else {
+            // Backward reading: we need the last rowid in each block as the "first" rowid
+            // (because when reading backwards, we encounter the largest rowid first)
+            //
+            // Strategy: iterate forward through bitmap, but for each block,
+            // keep updating current_block_first_rowid to the latest (largest) rowid in that block
+            while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
+                page_idx++;
+            }
+            size_t block_id = _offset_to_block_id(pages[page_idx].offset);
+
+            if (block_id != last_block_id) {
+                if (last_block_id != static_cast<size_t>(-1)) {
+                    _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+                }
+                last_block_id = block_id;
+            }
+            current_block_first_rowid = rowid;
         }
     }
+}
 
+void SegmentPrefetcher::finish_build_blocks() {
+    if (ordinal_index == nullptr) {
+        return;
+    }
     if (last_block_id != static_cast<size_t>(-1)) {
         _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
     }
@@ -108,7 +90,7 @@ void SegmentPrefetcher::_build_block_sequence_from_bitmap(const roaring::Roaring
     LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
             "[verbose] SegmentPrefetcher initialized with block count={}, is_forward={}, "
             "num_pages={}, path={}, blocks: (block_id, first_rowid)=[{}]",
-            _block_sequence.size(), _is_forward, num_pages, _path,
+            _block_sequence.size(), _is_forward, ordinal_index->_num_pages, _path,
             fmt::join(_block_sequence | std::views::transform([](const auto& b) {
                           return fmt::format("({}, {})", b.block_id, b.first_rowid);
                       }),
@@ -130,14 +112,12 @@ Status SegmentPrefetcher::init(const roaring::Roaring& row_bitmap,
         return Status::OK();
     }
 
-    OrdinalIndexReader* ordinal_index = nullptr;
     RETURN_IF_ERROR(column_reader->get_ordinal_index_reader(ordinal_index, read_options.stats));
 
     if (ordinal_index == nullptr) {
         return Status::OK();
     }
 
-    _build_block_sequence_from_bitmap(row_bitmap, ordinal_index);
     return Status::OK();
 }
 
@@ -169,7 +149,7 @@ bool SegmentPrefetcher::need_prefetch(rowid_t current_rowid, std::vector<BlockRa
     }
 
     out_ranges->clear();
-    // for non-predicate column, some rowids in row_bitmap may be filtered out after vec evaluation,
+    // for non-predicate column, some rowids in row_bitmap may be filtered out after vec evaluation of predicate columns,
     // so we should not prefetch for these rows
     _prefetched_index = std::max(_prefetched_index, _current_block_index - 1);
     while (_prefetched_index + 1 < _block_sequence.size() &&
