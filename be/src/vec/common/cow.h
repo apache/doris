@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <atomic>
 #include <initializer_list>
 #include <type_traits>
@@ -314,9 +316,15 @@ protected:
 public:
     MutablePtr mutate() const&& { return shallow_mutate(); }
 
-    MutablePtr assume_mutable() const { return const_cast<COW*>(this)->get_ptr(); }
+    MutablePtr assume_mutable() const {
+        DCHECK_EQ(this->use_count(), 1);
+        return const_cast<COW*>(this)->get_ptr();
+    }
 
-    Derived& assume_mutable_ref() const { return const_cast<Derived&>(*derived()); }
+    Derived& assume_mutable_ref() const {
+        DCHECK_EQ(this->use_count(), 1);
+        return const_cast<Derived&>(*derived());
+    }
 
 protected:
     /// It works as immutable_ptr if it is const and as mutable_ptr if it is non const.
