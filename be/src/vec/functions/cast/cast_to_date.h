@@ -51,6 +51,11 @@ public:
                         const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
 
         auto to_type = block.get_by_position(result).type;
         auto serde = remove_nullable(to_type)->get_serde();
@@ -86,6 +91,11 @@ public:
                         const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
 
         auto to_type = block.get_by_position(result).type;
         auto concrete_serde = std::dynamic_pointer_cast<typename ToDataType::SerDeType>(
@@ -148,6 +158,11 @@ public:
 
         const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         ColumnUInt8::MutablePtr col_nullmap;
 

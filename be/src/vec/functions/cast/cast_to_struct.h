@@ -57,13 +57,18 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
     auto element_wrappers = get_element_wrappers(context, from_element_types, to_element_types);
     return [element_wrappers, from_element_types, to_element_types](
                    FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t /*input_rows_count*/,
+                   uint32_t result, size_t input_rows_count,
                    const NullMap::value_type* null_map = nullptr) -> Status {
         auto& from_column = block.get_by_position(arguments.front()).column;
         const auto* from_col_struct = check_and_get_column<ColumnStruct>(from_column.get());
         if (!from_col_struct) {
             return Status::RuntimeError("Illegal column {} for function CAST AS Struct",
                                         from_column->get_name());
+        }
+        if (from_col_struct->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                from_col_struct->size()));
         }
 
         size_t elements_num = to_element_types.size();

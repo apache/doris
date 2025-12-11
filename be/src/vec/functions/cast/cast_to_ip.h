@@ -56,6 +56,11 @@ public:
                         const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
 
         auto to_type = block.get_by_position(result).type;
         auto serde = remove_nullable(to_type)->get_serde();
@@ -92,6 +97,11 @@ public:
                         const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<DataTypeIPv4::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
         const auto size = col_from->size();
         auto col_to = DataTypeIPv6::ColumnType::create(size);
         auto& to_data = col_to->get_data();

@@ -513,6 +513,11 @@ public:
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IDataType& type = *col_with_type_and_name.type;
         const IColumn& col_from = *col_with_type_and_name.column;
+        if (col_from.size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from.size()));
+        }
 
         auto col_to = ColumnString::create();
 
