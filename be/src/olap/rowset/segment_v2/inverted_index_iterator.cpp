@@ -32,7 +32,8 @@ void InvertedIndexIterator::add_reader(InvertedIndexReaderType type,
     _readers[type] = reader;
 }
 
-Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
+Status InvertedIndexIterator::read_from_index(const IndexParam& param,
+                                              const InvertedIndexCtx* inverted_index_ctx) {
     auto* i_param = std::get<InvertedIndexParam*>(param);
     if (i_param == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("i_param is null");
@@ -67,7 +68,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 
     auto execute_query = [&]() {
         return reader->query(_context, i_param->column_name, i_param->query_value,
-                             i_param->query_type, i_param->roaring);
+                             i_param->query_type, i_param->roaring, inverted_index_ctx);
     };
 
     if (runtime_state->query_options().enable_profile) {

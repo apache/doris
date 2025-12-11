@@ -42,14 +42,19 @@
 namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
 
-ReaderPtr InvertedIndexAnalyzer::create_reader(CharFilterMap& char_filter_map) {
+ReaderPtr InvertedIndexAnalyzer::create_reader(const CharFilterMap& char_filter_map) {
     ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
     if (!char_filter_map.empty()) {
-        if (char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE] ==
-            INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
-            reader = std::make_shared<CharReplaceCharFilter>(
-                    reader, char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
-                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]);
+        auto it_type = char_filter_map.find(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
+        if (it_type != char_filter_map.end() &&
+            it_type->second == INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
+            auto it_pattern = char_filter_map.find(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
+            auto it_replacement =
+                    char_filter_map.find(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT);
+            if (it_pattern != char_filter_map.end() && it_replacement != char_filter_map.end()) {
+                reader = std::make_shared<CharReplaceCharFilter>(reader, it_pattern->second,
+                                                                 it_replacement->second);
+            }
         }
     }
     return reader;

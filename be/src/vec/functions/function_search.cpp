@@ -187,7 +187,7 @@ Status FunctionSearch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<IndexIterator*> iterators, uint32_t num_rows,
-        InvertedIndexResultBitmap& bitmap_result) const {
+        InvertedIndexCtx* /*inverted_index_ctx*/, InvertedIndexResultBitmap& bitmap_result) const {
     return Status::OK();
 }
 

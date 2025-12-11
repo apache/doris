@@ -39,7 +39,8 @@ public:
 
     void add_reader(InvertedIndexReaderType type, const InvertedIndexReaderPtr& reader);
 
-    Status read_from_index(const IndexParam& param) override;
+    Status read_from_index(const IndexParam& param,
+                           const InvertedIndexCtx* inverted_index_ctx = nullptr) override;
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override;
 

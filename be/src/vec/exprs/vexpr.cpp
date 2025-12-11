@@ -33,6 +33,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "pipeline/pipeline_task.h"
@@ -962,9 +963,23 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return Status::OK(); // Nothing to evaluate or no literals to compare against
     }
 
+    InvertedIndexCtx* inverted_index_ctx = nullptr;
+    if (_fn_context_index != -1) {
+        auto* fn_ctx = context->fn_context(_fn_context_index);
+        if (fn_ctx != nullptr) {
+            inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
+                    fn_ctx->get_function_state(FunctionContext::THREAD_LOCAL));
+            if (inverted_index_ctx == nullptr) {
+                inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
+                        fn_ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+            }
+        }
+    }
+
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
-    auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
-                                                 segment_num_rows, result_bitmap);
+    auto res =
+            function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
+                                              segment_num_rows, inverted_index_ctx, result_bitmap);
     if (!res.ok()) {
         return res;
     }
