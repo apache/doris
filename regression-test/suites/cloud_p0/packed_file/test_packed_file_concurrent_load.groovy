@@ -36,36 +36,36 @@ suite("test_packed_file_concurrent_load", "p0, nonConcurrent") {
         }
     }
 
-    // Get merge file total small file count metric from all backends
-    def get_merge_file_total_small_file_count = {
+    // Get packed file total small file count metric from all backends
+    def get_packed_file_total_small_file_count = {
         long total_count = 0
         for (String backend_id: backendId_to_backendIP.keySet()) {
             def ip = backendId_to_backendIP.get(backend_id)
             def brpc_port = backendId_to_backendBrpcPort.get(backend_id)
             try {
-                def count = getBrpcMetrics(ip, brpc_port, "merge_file_total_small_file_num")
+                def count = getBrpcMetrics(ip, brpc_port, "packed_file_total_small_file_num")
                 if (count > 0) {
                     total_count += count
-                    logger.info("BE ${ip}:${brpc_port} merge_file_total_small_file_num = ${count}")
+                    logger.info("BE ${ip}:${brpc_port} packed_file_total_small_file_num = ${count}")
                 }
             } catch (Exception e) {
                 logger.warn("Failed to get metrics from BE ${ip}:${brpc_port}: ${e.getMessage()}")
             }
         }
-        logger.info("Total merge_file_total_small_file_num across all backends: ${total_count}")
+        logger.info("Total packed_file_total_small_file_num across all backends: ${total_count}")
         return total_count
     }
 
 
-    // Enable merge file feature and set small file threshold using framework's temporary config function
+    // Enable packed file feature and set small file threshold using framework's temporary config function
     // This will automatically restore configs after test completes
     setBeConfigTemporary([
-        "enable_merge_file": "true",
+        "enable_packed_file": "true",
         "small_file_threshold_bytes": "102400"
     ]) {
-        // Get initial merge file count
-        def initial_merge_file_count = get_merge_file_total_small_file_count()
-        logger.info("Initial merge_file_total_small_file_count: ${initial_merge_file_count}")
+        // Get initial packed file count
+        def initial_packed_file_count = get_packed_file_total_small_file_count()
+        logger.info("Initial packed_file_total_small_file_count: ${initial_packed_file_count}")
 
         // Test case 1: Multiple small concurrent loads to the same tablet
         def tableName1 = "test_merge_file_same_tablet"
@@ -132,12 +132,12 @@ suite("test_packed_file_concurrent_load", "p0, nonConcurrent") {
         assertEquals(expected_rows1, result1[0][0] as int, 
                     "Expected exactly ${expected_rows1} rows for DUPLICATE KEY table, got ${result1[0][0]}")
 
-        def count_after_test1 = get_merge_file_total_small_file_count()
-        logger.info("merge_file_total_small_file_count after test case 1: ${count_after_test1} (initial: ${initial_merge_file_count})")
+        def count_after_test1 = get_packed_file_total_small_file_count()
+        logger.info("packed_file_total_small_file_count after test case 1: ${count_after_test1} (initial: ${initial_packed_file_count})")
         // The count must increase after test case 1
-        assertTrue(count_after_test1 > initial_merge_file_count,
-                   "merge_file_total_small_file_count must increase after test case 1. " +
-                   "Initial: ${initial_merge_file_count}, After test1: ${count_after_test1}")
+        assertTrue(count_after_test1 > initial_packed_file_count,
+                   "packed_file_total_small_file_count must increase after test case 1. " +
+                   "Initial: ${initial_packed_file_count}, After test1: ${count_after_test1}")
 
         // Test case 2: Multiple small concurrent loads to different partitions
         def tableName2 = "test_merge_file_different_partitions"
@@ -234,11 +234,11 @@ suite("test_packed_file_concurrent_load", "p0, nonConcurrent") {
                     "Some rows may have been filtered if they were out of partition range.")
         logger.info("Loaded ${actual_rows2} rows out of expected ${expected_rows2} rows")
 
-        def count_after_test2 = get_merge_file_total_small_file_count()
-        logger.info("merge_file_total_small_file_count after test case 2: ${count_after_test2} (after test1: ${count_after_test1})")
+        def count_after_test2 = get_packed_file_total_small_file_count()
+        logger.info("packed_file_total_small_file_count after test case 2: ${count_after_test2} (after test1: ${count_after_test1})")
         // The count must increase after test case 2
         assertTrue(count_after_test2 > count_after_test1,
-                   "merge_file_total_small_file_count must increase after test case 2. " +
+                   "packed_file_total_small_file_count must increase after test case 2. " +
                    "After test1: ${count_after_test1}, After test2: ${count_after_test2}")
 
         // Test case 3: Multiple small concurrent loads to different tables
@@ -313,12 +313,12 @@ suite("test_packed_file_concurrent_load", "p0, nonConcurrent") {
                          "Expected exactly ${expected_rows_per_table} rows for DUPLICATE KEY table ${table_name}, got ${result[0][0]}")
         }
 
-        def count_after_test3 = get_merge_file_total_small_file_count()
-        logger.info("merge_file_total_small_file_count after test case 3: ${count_after_test3} (after test2: ${count_after_test2}, initial: ${initial_merge_file_count})")
+        def count_after_test3 = get_packed_file_total_small_file_count()
+        logger.info("packed_file_total_small_file_count after test case 3: ${count_after_test3} (after test2: ${count_after_test2}, initial: ${initial_packed_file_count})")
         
         // The count must increase after test case 3
         assertTrue(count_after_test3 > count_after_test2,
-                   "merge_file_total_small_file_count must increase after test case 3. " +
+                   "packed_file_total_small_file_count must increase after test case 3. " +
                    "After test2: ${count_after_test2}, After test3: ${count_after_test3}")
     }
 }
