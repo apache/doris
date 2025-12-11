@@ -22,6 +22,7 @@
 #include <memory>
 #include <vector>
 
+#include "bitshuffle_wrapper.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/common.h"
@@ -52,24 +53,31 @@ struct ParsedPage {
         auto null_bitmap = Slice(body.data + body.size - null_size, null_size);
 
         if (null_size > 0) {
-            if (footer.has_new_null_map() && footer.new_null_map()) {
-                // Get LZ4 compression codec
-                BlockCompressionCodec* codec = nullptr;
-                RETURN_IF_ERROR(
-                        get_block_compression_codec(segment_v2::CompressionTypePB::LZ4, &codec));
-                if (codec != nullptr) {
-                    // Compress the data
-                    faststring compressed_buf;
-                    page->null_maps.resize(footer.num_values());
-                    auto tmp_slice = Slice(page->null_maps.data(), page->null_maps.size());
-                    RETURN_IF_ERROR(codec->decompress(null_bitmap, &tmp_slice));
+            page->null_maps.resize(footer.num_values());
+            if (footer.has_null_map_encoding()) {
+                if (footer.null_map_encoding() == BIT_SHUFFLE) {
+                    int64_t r = bitshuffle::decompress_lz4(null_bitmap.data, page->null_maps.data(),
+                                                           null_size, sizeof(uint8_t), 0);
+                    if (UNLIKELY(r < 0)) {
+                        return Status::Corruption("bitshuffle decompress failed");
+                    }
+                } else if (footer.null_map_encoding() == PLAIN_ENCODING) {
+                    // Get LZ4 compression codec
+                    BlockCompressionCodec* codec = nullptr;
+                    RETURN_IF_ERROR(get_block_compression_codec(segment_v2::CompressionTypePB::LZ4,
+                                                                &codec));
+                    if (codec != nullptr) {
+                        // Compress the data
+                        faststring compressed_buf;
+                        auto tmp_slice = Slice(page->null_maps.data(), page->null_maps.size());
+                        RETURN_IF_ERROR(codec->decompress(null_bitmap, &tmp_slice));
+                    }
                 }
             } else {
                 auto null_decoder =
                         RleDecoder<bool>((const uint8_t*)null_bitmap.data, null_size, 1);
                 // Decode all null values into null_maps in advance
                 auto num_rows = footer.num_values();
-                page->null_maps.resize(num_rows);
                 null_decoder.get_values((bool*)page->null_maps.data(), num_rows);
             }
         }
