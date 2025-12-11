@@ -21,9 +21,12 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
@@ -31,6 +34,7 @@ import org.apache.doris.nereids.types.StructType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -38,13 +42,14 @@ import java.util.List;
  * pose column: 0, 1, 2
  * value column: 'a', 'b', 'c'
  */
-public class PosExplodeOuter extends TableGeneratingFunction implements UnaryExpression, AlwaysNullable {
+public class PosExplodeOuter extends TableGeneratingFunction implements
+        CustomSignature, ComputePrecision, AlwaysNullable {
 
     /**
-     * constructor with 1 argument.
+     * constructor with one or more arguments.
      */
-    public PosExplodeOuter(Expression arg) {
-        super("posexplode_outer", arg);
+    public PosExplodeOuter(Expression[] args) {
+        super("posexplode_outer", args);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -63,23 +68,54 @@ public class PosExplodeOuter extends TableGeneratingFunction implements UnaryExp
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child().getDataType() instanceof ArrayType)) {
-            throw new AnalysisException("only support array type for posexplode_outer function but got "
-                    + child().getDataType());
+        for (Expression c : children) {
+            if (!(c.getDataType() instanceof ArrayType)) {
+                throw new AnalysisException("only support array type for posexplode_outer function but got "
+                        + c.getDataType());
+            }
         }
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
-        return ImmutableList.of(
-                FunctionSignature.ret(new StructType(ImmutableList.of(
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
+    }
+
+    @Override
+    public FunctionSignature customSignature() {
+        if (1 == children.size()) {
+            if (!children.get(0).getDataType().isArrayType()) {
+                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+            }
+            return FunctionSignature.ret(new StructType(ImmutableList.of(
                         new StructField("pos", IntegerType.INSTANCE, false, ""),
-                        new StructField("col", ((ArrayType) child().getDataType()).getItemType(), true, ""))))
-                        .args(child().getDataType()));
+                        new StructField("col", ((ArrayType) children.get(0).getDataType()).getItemType(), true, ""))))
+                        .args(children.get(0).getDataType());
+        }
+        List<DataType> arguments = new ArrayList<>();
+        ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
+        structFields.add(new StructField("pos", IntegerType.INSTANCE, false, ""));
+        for (int i = 0; i < children.size(); i++) {
+            if (children.get(i).getDataType().isArrayType()) {
+                structFields.add(
+                    new StructField("col" + (i + 1),
+                        ((ArrayType) (children.get(i)).getDataType()).getItemType(), true, ""));
+                arguments.add(children.get(i).getDataType());
+            } else {
+                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+            }
+        }
+        StructType structType = new StructType(structFields.build());
+        return FunctionSignature.of(structType, arguments);
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitPosExplodeOuter(this, context);
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        return super.searchSignature(signatures);
     }
 }
