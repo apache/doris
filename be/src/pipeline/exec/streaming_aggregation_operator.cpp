@@ -620,7 +620,7 @@ StreamingAggOperatorX::StreamingAggOperatorX(ObjectPool* pool, int operator_id,
           _is_merge(false),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
-          _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+          _agg_fn_output_row_descriptor(descs, tnode.row_tuples),
           _partition_exprs(
                   tnode.__isset.distribute_expr_lists &&
                                   (require_bucket_distribution ||

@@ -36,7 +36,6 @@ public class SelectNode extends PlanNode {
     public SelectNode(PlanNodeId id, PlanNode child) {
         super(id, new ArrayList<>(child.getOutputTupleIds()), "SELECT");
         addChild(child);
-        this.nullableTupleIds = child.nullableTupleIds;
     }
 
     @Override

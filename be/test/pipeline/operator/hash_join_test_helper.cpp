@@ -172,8 +172,6 @@ TPlanNode HashJoinTestHelper::create_test_plan_node(
 
     tnode.row_tuples.push_back(0);
     tnode.row_tuples.push_back(1);
-    tnode.nullable_tuples.push_back(false);
-    tnode.nullable_tuples.push_back(false);
     tnode.__isset.hash_join_node = true;
 
     tnode.hash_join_node.vintermediate_tuple_id_list.emplace_back(2);

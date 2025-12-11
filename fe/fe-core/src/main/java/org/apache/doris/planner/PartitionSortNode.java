@@ -62,7 +62,6 @@ public class PartitionSortNode extends PlanNode {
         this.partitionLimit = partitionLimit;
         this.phase = phase;
         this.tupleIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
-        this.nullableTupleIds.addAll(input.getNullableTupleIds());
         this.children.add(input);
     }
 

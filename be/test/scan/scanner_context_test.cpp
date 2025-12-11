@@ -49,8 +49,6 @@ public:
         // First one is input tuple, second one is output tuple.
         tnode.row_tuples.push_back(TTupleId(0));
         tnode.row_tuples.push_back(TTupleId(1));
-        std::vector<bool> null_map {false, false};
-        tnode.nullable_tuples = null_map;
         tbl_desc.tableType = TTableType::OLAP_TABLE;
 
         tuple_desc.id = 0;

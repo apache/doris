@@ -225,7 +225,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
             _schema->is_fixed_partial_update() && !_schema->auto_increment_coulumn().empty(),
             _schema->auto_increment_column_unique_id());
-    _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
+    _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc));
 
     // add all counter
     _input_rows_counter = ADD_COUNTER(_operator_profile, "RowsRead", TUnit::UNIT);

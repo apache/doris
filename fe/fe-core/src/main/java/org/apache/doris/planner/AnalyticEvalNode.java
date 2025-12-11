@@ -32,7 +32,6 @@ import org.apache.doris.thrift.TPlanNodeType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 
@@ -70,7 +69,6 @@ public class AnalyticEvalNode extends PlanNode {
         this.analyticWindow = analyticWindow;
         this.outputTupleDesc = outputTupleDesc;
         children.add(input);
-        nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
     }
 
     public void setColocate(boolean colocate) {

@@ -73,7 +73,6 @@ public class SortNode extends PlanNode {
         this.info = info;
         this.useTopN = useTopN;
         this.tupleIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
-        this.nullableTupleIds.addAll(input.getNullableTupleIds());
         this.children.add(input);
         this.offset = 0;
         Preconditions.checkArgument(info.getOrderingExprs().size() == info.getIsAscOrder().size());

@@ -175,8 +175,7 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
 
     if (_is_load) {
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
-                                              std::vector<TupleId>({_input_tuple_desc->id()}),
-                                              std::vector<bool>({false})));
+                                              std::vector<TupleId>({_input_tuple_desc->id()})));
         // prepare pre filters
         if (_params->__isset.pre_filter_exprs_list) {
             RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_trees(
@@ -194,13 +193,11 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
         }
 
         _dest_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
-                                               std::vector<TupleId>({_output_tuple_desc->id()}),
-                                               std::vector<bool>({false})));
+                                               std::vector<TupleId>({_output_tuple_desc->id()})));
     }
 
-    _default_val_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
-                                                  std::vector<TupleId>({_real_tuple_desc->id()}),
-                                                  std::vector<bool>({false})));
+    _default_val_row_desc.reset(
+            new RowDescriptor(_state->desc_tbl(), std::vector<TupleId>({_real_tuple_desc->id()})));
 
     return Status::OK();
 }
@@ -1488,7 +1485,7 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(_init_io_ctx());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
-    _default_val_row_desc.reset(new RowDescriptor((TupleDescriptor*)_real_tuple_desc, false));
+    _default_val_row_desc.reset(new RowDescriptor((TupleDescriptor*)_real_tuple_desc));
     RETURN_IF_ERROR(_init_expr_ctxes());
 
     // Since only one column is read from the file, there is no need to filter, so set these variables to empty.

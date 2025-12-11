@@ -118,13 +118,11 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
                                                 !_is_mark_join) {
     if (tnode.__isset.hash_join_node) {
         _intermediate_row_desc = std::make_unique<RowDescriptor>(
-                descs, tnode.hash_join_node.vintermediate_tuple_id_list,
-                std::vector<bool>(tnode.hash_join_node.vintermediate_tuple_id_list.size()));
+                descs, tnode.hash_join_node.vintermediate_tuple_id_list);
         DCHECK_NE(Base::_output_row_descriptor, nullptr);
     } else if (tnode.__isset.nested_loop_join_node) {
         _intermediate_row_desc = std::make_unique<RowDescriptor>(
-                descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list,
-                std::vector<bool>(tnode.nested_loop_join_node.vintermediate_tuple_id_list.size()));
+                descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list);
         DCHECK_NE(Base::_output_row_descriptor, nullptr);
     } else {
         // Iff BE has been upgraded and FE has not yet, we should keep origin logics for CROSS JOIN.

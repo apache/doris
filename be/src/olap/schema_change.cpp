@@ -321,7 +321,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     _state->set_desc_tbl(&_desc_tbl);
     _state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =
-            RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]), false);
+            RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]));
 
     if (_where_expr != nullptr) {
         vectorized::VExprContextSPtr ctx = nullptr;

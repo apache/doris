@@ -42,7 +42,6 @@ TPlanNode SpillSortTestHelper::create_test_plan_node() {
     tnode.num_children = 0;
     tnode.node_type = TPlanNodeType::SORT_NODE;
     tnode.row_tuples.emplace_back(1);
-    tnode.nullable_tuples.emplace_back(false);
     tnode.limit = -1;
 
     tnode.sort_node.sort_info.is_asc_order.emplace_back(true);
