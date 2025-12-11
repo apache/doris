@@ -238,7 +238,7 @@ int Network::init() {
             {FDB_NET_OPTION_TLS_CA_PATH, config::tls_ca_certificate_path},
             {FDB_NET_OPTION_TLS_VERIFY_PEERS, config::tls_fdb_verify_peers},
             {FDB_NET_OPTION_TLS_PASSWORD, config::tls_private_key_password},
-            {FDB_NET_OPTION_KNOB, fmt::format("TLS_CERT_REFRESH_DELAY_SECONDS={}",
+            {FDB_NET_OPTION_KNOB, fmt::format("tls_cert_refresh_delay_seconds={}",
                                               config::tls_cert_refresh_interval_seconds)},
     };
     for (auto& [o, v] : net_opts) {
