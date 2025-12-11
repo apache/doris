@@ -543,7 +543,6 @@ Status PipelineTask::execute(bool* done) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();
-            COUNTER_UPDATE(_memory_reserve_times, 1);
             if (_state->get_query_ctx()
                         ->resource_ctx()
                         ->task_controller()
