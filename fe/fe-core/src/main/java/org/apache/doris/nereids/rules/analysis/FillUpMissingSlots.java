@@ -170,6 +170,9 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         );
     }
 
+    /**
+     * The type of plan to resolve.
+     */
     public enum ResolvePlanType {
         PROJECT,
         HAVING,
@@ -409,8 +412,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             oldHaving = Optional.of((LogicalHaving<Plan>) plan);
             plan = plan.child(0);
         }
-        if (!(plan instanceof LogicalProject)
-            || !oldSort.isPresent() && !oldHaving.isPresent()) {
+        if (!(plan instanceof LogicalProject) || !oldSort.isPresent() && !oldHaving.isPresent()) {
             return null;
         }
 
