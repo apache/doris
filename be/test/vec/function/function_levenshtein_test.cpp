@@ -11,7 +11,6 @@ using namespace doris::vectorized;
 TEST(function_string_test, function_levenshtein_comprehensive_test) {
     std::string func_name = "levenshtein";
     
-    // 照抄 substr 的写法，使用 PrimitiveType::TYPE_VARCHAR
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
@@ -65,7 +64,5 @@ TEST(function_string_test, function_levenshtein_comprehensive_test) {
         {{Null(), Null()}, Null()}
     };
     
-    // Levenshtein 返回的是 Int32，所以检查器用 DataTypeInt32
-    check_function_all_arg_comb<DataTypeInt32>(func_name, input_types, data_set);
     check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
 }
