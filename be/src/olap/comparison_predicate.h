@@ -385,7 +385,8 @@ public:
     }
 
     template <bool is_and>
-    void __attribute__((flatten)) _evaluate_vec_internal(const vectorized::IColumn& column,
+    void __attribute__((flatten))
+    _evaluate_vec_internal(const vectorized::IColumn& column,
                                                          uint16_t size, bool* flags) const {
         uint16_t current_evaluated_rows = 0;
         uint16_t current_passed_rows = 0;
@@ -568,7 +569,8 @@ private:
     }
 
     template <bool is_nullable, bool is_and, typename TArray, typename TValue>
-    void __attribute__((flatten)) _base_loop_vec(uint16_t size, bool* __restrict bflags,
+    void __attribute__((flatten))
+    _base_loop_vec(uint16_t size, bool* __restrict bflags,
                                                  const uint8_t* __restrict null_map,
                                                  const TArray* __restrict data_array,
                                                  const TValue& value) const {
@@ -686,7 +688,8 @@ private:
         }
     }
 
-    int32_t __attribute__((flatten)) _find_code_from_dictionary_column(
+    int32_t __attribute__((flatten))
+    _find_code_from_dictionary_column(
             const vectorized::ColumnDictI32& column) const {
         int32_t code = 0;
         if (_segment_id_to_cached_code.if_contains(
