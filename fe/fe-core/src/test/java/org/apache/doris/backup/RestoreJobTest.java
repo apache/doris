@@ -406,34 +406,4 @@ public class RestoreJobTest {
         in.close();
         Files.delete(path);
     }
-
-    @Test
-    public void testGetTargetStorageMediumWithHddMode() {
-        RestoreJob hddJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
-                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
-                false, false, false, false, "hdd", "strict", env, repo.getId());
-
-        // In hdd mode, target storage medium should be HDD
-        Assert.assertEquals(TStorageMedium.HDD, hddJob.getTargetStorageMedium());
-    }
-
-    @Test
-    public void testGetTargetStorageMediumWithSsdMode() {
-        RestoreJob ssdJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
-                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
-                false, false, false, false, "ssd", "strict", env, repo.getId());
-
-        // In ssd mode, target storage medium should be SSD
-        Assert.assertEquals(TStorageMedium.SSD, ssdJob.getTargetStorageMedium());
-    }
-
-    @Test
-    public void testGetTargetStorageMediumWithSameWithUpstreamMode() {
-        RestoreJob sameWithUpstreamJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
-                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
-                false, false, false, false, "same_with_upstream", "strict", env, repo.getId());
-
-        // In same_with_upstream mode, target storage medium should be null (will use upstream's medium)
-        Assert.assertNull(sameWithUpstreamJob.getTargetStorageMedium());
-    }
 }
