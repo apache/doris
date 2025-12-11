@@ -154,6 +154,10 @@ suite ("multiple_ssb") {
 
     sql """analyze table lineorder_flat with sync;"""
     sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
+    sql """alter table lineorder_flat modify column a1 set stats ('row_count'='1');"""
+    sql """alter table lineorder_flat modify column a4 set stats ('row_count'='1');"""
+    sql """alter table lineorder_flat modify column a6 set stats ('row_count'='1');"""
+    sql """alter table lineorder_flat modify column x2 set stats ('row_count'='1');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
