@@ -54,6 +54,9 @@ public:
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }
     std::string name_suffix() const override;
+    int max_scanners_concurrency(RuntimeState* state) const override;
+    int min_scanners_concurrency(RuntimeState* state) const override;
+    vectorized::ScannerScheduler* scan_scheduler(RuntimeState* state) const override;
 
 private:
     friend class vectorized::FileScanner;
@@ -83,8 +86,8 @@ public:
     bool is_file_scan_operator() const override { return true; }
 
     // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
-    int query_parallel_instance_num() const override {
-        return _batch_split_mode ? 1 : _query_parallel_instance_num;
+    int parallelism(RuntimeState* state) const override {
+        return _batch_split_mode ? 1 : ScanOperatorX<FileScanLocalState>::parallelism(state);
     }
 
 private:
