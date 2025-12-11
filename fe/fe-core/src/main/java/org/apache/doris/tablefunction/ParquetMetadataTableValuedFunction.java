@@ -109,13 +109,14 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         if (Strings.isNullOrEmpty(rawPath)) {
             throw new AnalysisException("Property 'path' is required for parquet_metadata");
         }
-        paths = Arrays.stream(rawPath.split(","))
+        List<String> parsedPaths = Arrays.stream(rawPath.split(","))
                 .map(String::trim)
                 .filter(token -> !token.isEmpty())
                 .collect(Collectors.toList());
-        if (paths.isEmpty()) {
+        if (parsedPaths.isEmpty()) {
             throw new AnalysisException("Property 'path' must contain at least one location");
         }
+        this.paths = ImmutableList.copyOf(parsedPaths);
 
         String rawMode = normalizedParams.getOrDefault(MODE, MODE_METADATA);
         mode = rawMode.toLowerCase();
