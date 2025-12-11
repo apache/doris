@@ -75,7 +75,7 @@ message DataPageFooterPB {
     // Save the offset of next page 
     optional uint64 next_array_item_ordinal = 4;
 
-    optional bool new_null_map = 5;
+    optional EncodingTypePB null_map_encoding = 5;
 }
 
 message IndexPageFooterPB {
@@ -220,6 +220,8 @@ message ColumnMetaPB {
     optional uint64 compressed_data_bytes = 24;
     optional uint64 uncompressed_data_bytes = 25;
     optional uint64 raw_data_bytes = 26;
+
+    optional EncodingTypePB null_map_encoding = 27;
 }
 
 message PrimaryKeyIndexMetaPB {
