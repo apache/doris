@@ -120,6 +120,44 @@ inline std::string type_to_string(PredicateType type) {
     return "";
 }
 
+inline std::string type_to_op_str(PredicateType type) {
+    switch (type) {
+    case PredicateType::EQ:
+        return "=";
+
+    case PredicateType::NE:
+        return "!=";
+
+    case PredicateType::LT:
+        return "<<";
+
+    case PredicateType::LE:
+        return "<=";
+
+    case PredicateType::GT:
+        return ">>";
+
+    case PredicateType::GE:
+        return ">=";
+
+    case PredicateType::IN_LIST:
+        return "*=";
+
+    case PredicateType::NOT_IN_LIST:
+        return "!*=";
+
+    case PredicateType::IS_NULL:
+    case PredicateType::IS_NOT_NULL:
+        return "is";
+
+    default:
+        throw Exception(Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "invalid condition operator. operator={}", type_to_string(type)));
+    };
+
+    return "";
+}
+
 struct PredicateTypeTraits {
     static constexpr bool is_range(PredicateType type) {
         return (type == PredicateType::LT || type == PredicateType::LE ||

@@ -25,6 +25,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "olap/column_predicate.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
 #include "vec/common/arena.h"
@@ -55,8 +56,14 @@ struct DeleteConditions {
 //    * In the first step, before calling delete_handler.init(), you should lock the tablet's header file.
 class DeleteHandler {
     ENABLE_FACTORY_CREATOR(DeleteHandler);
-    // These static method is used to generate delete predicate pb during write or push handler
+
 public:
+    struct ConditionParseResult {
+        int32_t col_unique_id;
+        std::string column_name;
+        PredicateType condition_op;
+        std::list<std::string> value_str;
+    };
     // generated DeletePredicatePB by TCondition
     static Status generate_delete_predicate(const TabletSchema& schema,
                                             const std::vector<TCondition>& conditions,
@@ -71,7 +78,10 @@ public:
      * @param condition output param
      * @return OK if matched and extracted correctly otherwise DELETE_INVALID_PARAMETERS
      */
-    static Status parse_condition(const std::string& condition_str, TCondition* condition);
+    static ConditionParseResult parse_condition(const std::string& condition_str);
+    static ConditionParseResult parse_condition(const DeleteSubPredicatePB& sub_cond);
+    static PredicateType parse_condition_op(const std::string& op_str,
+                                            const std::list<std::string>& cond_values);
 
 private:
     // Validate the condition on the schema.
@@ -85,9 +95,6 @@ private:
     static bool is_condition_value_valid(const TabletColumn& column,
                                          const std::string& condition_op,
                                          const std::string& value_str);
-
-    // extract 'column_name', 'op' and 'operands' to condition
-    static Status parse_condition(const DeleteSubPredicatePB& sub_cond, TCondition* condition);
 
 public:
     DeleteHandler() = default;

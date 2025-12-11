@@ -25,8 +25,6 @@
 #include <memory>
 
 #include "common/global_types.h"
-#include "olap/bloom_filter_predicate.h"
-#include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/predicate_creator.h"
 #include "pipeline/exec/es_scan_operator.h"
