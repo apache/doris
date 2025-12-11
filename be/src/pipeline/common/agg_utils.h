@@ -82,6 +82,8 @@ using AggregatedMethodVariants = std::variant<
                 vectorized::MethodStringNoCache<AggregatedDataWithNullableShortStringKey>>,
         vectorized::MethodKeysFixed<AggData<vectorized::UInt64>>,
         vectorized::MethodKeysFixed<AggData<vectorized::UInt72>>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt96>>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt104>>,
         vectorized::MethodKeysFixed<AggData<vectorized::UInt128>>,
         vectorized::MethodKeysFixed<AggData<vectorized::UInt136>>,
         vectorized::MethodKeysFixed<AggData<vectorized::UInt256>>>;
@@ -140,6 +142,14 @@ struct AggregatedDataVariants
             break;
         case HashKeyType::fixed72:
             method_variant.emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt72>>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed96:
+            method_variant.emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt96>>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed104:
+            method_variant.emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt104>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
