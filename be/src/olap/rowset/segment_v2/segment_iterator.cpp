@@ -420,8 +420,8 @@ void SegmentIterator::_init_segment_prefetchers() {
     }
     // Initialize segment prefetcher for predicate and non-predicate columns
     bool is_query = (_opts.io_ctx.reader_type == ReaderType::READER_QUERY);
-    bool enable_prefetch = is_query ? config::enable_query_segment_cache_prefetch
-                                    : config::enable_compaction_segment_cache_prefetch;
+    bool enable_prefetch = is_query ? config::enable_query_segment_file_cache_prefetch
+                                    : config::enable_compaction_segment_file_cache_prefetch;
     LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
             "[verbose] SegmentIterator _init_segment_prefetchers, is_query={}, enable_prefetch={}, "
             "_row_bitmap.isEmpty()={}, row_bitmap.cardinality()={}, tablet={}, rowset={}, "
@@ -430,8 +430,9 @@ void SegmentIterator::_init_segment_prefetchers() {
             _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
             fmt::join(_predicate_column_ids, ","), fmt::join(_non_predicate_column_ids, ","));
     if (enable_prefetch && !_row_bitmap.isEmpty()) {
-        int window_size = is_query ? config::query_segment_cache_prefetch_window_size
-                                   : config::compaction_segment_cache_prefetch_window_size;
+        int window_size =
+                1 + (is_query ? config::query_segment_file_cache_prefetch_block_size
+                              : config::compaction_segment_file_cache_prefetch_block_size);
         LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
                 "[verbose] SegmentIterator prefetch config: window_size={}", window_size);
         if (window_size > 0 &&

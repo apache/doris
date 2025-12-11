@@ -1459,18 +1459,20 @@ DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread, "16");
 // The max thread num for BufferedReaderPrefetchThreadPool
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
 
-DEFINE_mInt32(segment_prefetch_strategy, "1");
 DEFINE_mBool(enable_segment_prefetch_verbose_log, "false");
 // The thread num for SegmentPrefetchThreadPool
-DEFINE_Int64(segment_prefetch_thread_pool_thread_num, "20000");
+DEFINE_Int64(segment_prefetch_thread_pool_thread_num_min, "32");
+DEFINE_Int64(segment_prefetch_thread_pool_thread_num_max, "20000");
+
+DEFINE_mInt32(segment_file_cache_consume_rowids_batch_size, "8000");
 // Enable segment file cache block prefetch for query
-DEFINE_mBool(enable_query_segment_cache_prefetch, "false");
+DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for query
-DEFINE_mInt32(query_segment_cache_prefetch_window_size, "4");
+DEFINE_mInt32(query_segment_file_cache_prefetch_block_size, "2");
 // Enable segment file cache block prefetch for compaction
-DEFINE_mBool(enable_compaction_segment_cache_prefetch, "false");
+DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for compaction
-DEFINE_mInt32(compaction_segment_cache_prefetch_window_size, "8");
+DEFINE_mInt32(compaction_segment_file_cache_prefetch_block_size, "2");
 // The min thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool

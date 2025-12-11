@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <ranges>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/column_reader.h"
@@ -47,8 +48,8 @@ void SegmentPrefetcher::_build_block_sequence_from_bitmap(const roaring::Roaring
     size_t last_block_id = static_cast<size_t>(-1);
     rowid_t current_block_first_rowid = 0;
 
-    int batch_size = 8000;
-    std::vector<rowid_t> rowids(8000);
+    int batch_size = config::segment_file_cache_consume_rowids_batch_size;
+    std::vector<rowid_t> rowids(batch_size);
     roaring::api::roaring_uint32_iterator_t iter;
     roaring::api::roaring_init_iterator(&row_bitmap.roaring, &iter);
     uint32_t num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size);
