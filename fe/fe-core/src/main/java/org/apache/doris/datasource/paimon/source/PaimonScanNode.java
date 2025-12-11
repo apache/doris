@@ -293,6 +293,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
         // if applyCountPushdown is true, we can't split the DataSplit
+        boolean hasDeterminedTargetFileSplitSize = false;
+        long targetFileSplitSize = 0;
         for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(dataSplit.rowCount());
@@ -324,7 +326,10 @@ public class PaimonScanNode extends FileQueryScanNode {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
                 }
-                long targetFileSplitSize = determineTargetFileSplitSize(dataSplits, isBatchMode());
+                if (!hasDeterminedTargetFileSplitSize) {
+                    targetFileSplitSize = determineTargetFileSplitSize(dataSplits, isBatchMode());
+                    hasDeterminedTargetFileSplitSize = true;
+                }
                 splitStat.setType(SplitReadType.NATIVE);
                 splitStat.setRawFileConvertable(true);
                 List<RawFile> rawFiles = optRawFiles.get();
@@ -404,8 +409,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
         for (DataSplit dataSplit : dataSplits) {
-            List<RawFile> rawFiles = dataSplit.convertToRawFiles().get();
-            for (RawFile rawFile : rawFiles) {
+            Optional<List<RawFile>> rawFiles = dataSplit.convertToRawFiles();
+            if (!supportNativeReader(rawFiles)) {
+                continue;
+            }
+            for (RawFile rawFile : rawFiles.get()) {
                 totalFileSize += rawFile.fileSize();
                 if (totalFileSize
                         >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
