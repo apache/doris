@@ -266,10 +266,10 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
     }
 
-    protected void addFileCacheAdmissionLog(String userIdentity, Boolean admitted, String reason) {
+    protected void addFileCacheAdmissionLog(String userIdentity, Boolean admitted, String reason, long duration) {
         String admissionStatus = admitted ? "ADMITTED" : "DENIED";
-        String admissionLog = String.format("file cache request %s: user_identity:%s, reason:%s",
-                admissionStatus, userIdentity, reason);
+        String admissionLog = String.format("file cache request %s: user_identity:%s, reason:%s, cost:%s ns",
+                admissionStatus, userIdentity, reason, duration);
         fileCacheAdmissionLogs.add(admissionLog);
     }
 }

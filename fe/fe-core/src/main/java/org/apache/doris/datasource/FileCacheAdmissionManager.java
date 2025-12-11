@@ -237,7 +237,7 @@ public class FileCacheAdmissionManager {
                         + "catalog: %s, database: %s, table: %s",
                     status, reason, userIdentity, catalog, database, table);
 
-            LOG.info(logMessage);
+            LOG.debug(logMessage);
         }
 
         public RuleLevel getRuleLevel(RulePattern rulePattern) {
@@ -491,7 +491,7 @@ public class FileCacheAdmissionManager {
                     + "user_identity: %s, catalog: %s, database: %s, table: %s, reason: %s",
                     decision, userIdentity, catalog, database, table, reason);
 
-            LOG.info(logMessage);
+            LOG.debug(logMessage);
         }
     }
 
