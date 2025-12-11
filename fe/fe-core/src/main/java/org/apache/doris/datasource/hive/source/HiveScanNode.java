@@ -333,7 +333,7 @@ public class HiveScanNode extends FileQueryScanNode {
             for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                 allFiles.addAll(fileSplitter.splitFile(
                         status.getPath(),
-                        fileSplitSize,
+                        targetFileSplitSize,
                         status.getBlockLocations(),
                         status.getLength(),
                         status.getModificationTime(),
