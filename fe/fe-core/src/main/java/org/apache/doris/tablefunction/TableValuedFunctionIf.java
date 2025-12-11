@@ -78,6 +78,8 @@ public abstract class TableValuedFunctionIf {
                 return new JobsTableValuedFunction(params);
             case TasksTableValuedFunction.NAME:
                 return new TasksTableValuedFunction(params);
+            case ParquetMetadataTableValuedFunction.NAME:
+                return new ParquetMetadataTableValuedFunction(params);
             case GroupCommitTableValuedFunction.NAME:
                 return new GroupCommitTableValuedFunction(params);
             case QueryTableValueFunction.NAME:

@@ -631,6 +631,11 @@ struct TQueriesMetadataParams {
 struct TMetaCacheStatsParams {
 }
 
+struct TParquetMetadataParams {
+  1: optional list<string> paths
+  2: optional string mode
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -650,6 +655,7 @@ struct TMetaScanRange {
   14: optional map<string, string> hadoop_props
   15: optional string serialized_table;
   16: optional list<string> serialized_splits;
+  17: optional TParquetMetadataParams parquet_params;
 }
 
 // Specification of an individual data range which is held in its entirety
