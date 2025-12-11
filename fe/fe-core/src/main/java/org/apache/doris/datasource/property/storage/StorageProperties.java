@@ -54,7 +54,7 @@ public abstract class StorageProperties extends ConnectionProperties {
 
     public static final String FS_PROVIDER_KEY = "provider";
 
-    protected  final String userFsPropsPrefix = "fs.";
+    protected final String userFsPropsPrefix = "fs.";
 
     public enum Type {
         HDFS,

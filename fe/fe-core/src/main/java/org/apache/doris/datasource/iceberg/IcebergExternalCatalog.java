@@ -28,7 +28,6 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.iceberg.catalog.Catalog;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
@@ -54,8 +53,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initCatalog() {
         try {
             msProperties = (AbstractIcebergProperties) catalogProperty.getMetastoreProperties();
-            this.catalog = msProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
-                    .getStoragePropertiesMap().values()));
+            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty
+                    .getOrderedStoragePropertiesList());
 
             this.icebergCatalogType = msProperties.getIcebergCatalogType();
         } catch (ClassCastException e) {

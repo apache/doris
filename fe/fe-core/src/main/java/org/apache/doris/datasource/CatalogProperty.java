@@ -56,6 +56,21 @@ public class CatalogProperty implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
+    /**
+     * An ordered list of all initialized {@link StorageProperties} instances.
+     * <p>
+     * The order of this list is significant:
+     * <ul>
+     *   <li>The default HDFSProperties (if auto-created) is always inserted at index 0.</li>
+     *   <li>Explicitly configured storage providers follow in the order they are detected.</li>
+     *   <li>Callers rely on this deterministic ordering for selecting or iterating through
+     *       storage backends.</li>
+     * </ul>
+     * <p>
+     * Declared as {@code volatile} to ensure visibility across threads once initialized.
+     */
+    private volatile List<StorageProperties> orderedStoragePropertiesList;
+
     // Lazy-loaded storage properties map, using volatile to ensure visibility
     private volatile Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
@@ -125,13 +140,13 @@ public class CatalogProperty implements Writable {
     /**
      * Get storage properties map with lazy loading, using double-check locking to ensure thread safety
      */
-    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+    private void initStorageProperties() {
         if (storagePropertiesMap == null) {
             synchronized (this) {
                 if (storagePropertiesMap == null) {
                     try {
-                        List<StorageProperties> storageProperties = StorageProperties.createAll(getProperties());
-                        this.storagePropertiesMap = storageProperties.stream()
+                        this.orderedStoragePropertiesList = StorageProperties.createAll(getProperties());
+                        this.storagePropertiesMap = orderedStoragePropertiesList.stream()
                                 .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
                     } catch (UserException e) {
                         LOG.warn("Failed to initialize catalog storage properties", e);
@@ -141,7 +156,16 @@ public class CatalogProperty implements Writable {
                 }
             }
         }
+    }
+
+    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+        initStorageProperties();
         return storagePropertiesMap;
+    }
+
+    public List<StorageProperties> getOrderedStoragePropertiesList() {
+        initStorageProperties();
+        return orderedStoragePropertiesList;
     }
 
     public void checkMetaStoreAndStorageProperties(Class msClass) {
