@@ -37,7 +37,7 @@ namespace doris {
 bvar::Adder<int64_t> g_loadchannel_cnt("loadchannel_cnt");
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
-                         std::string sender_ip, int64_t sender_id, int64_t backend_id, bool enable_profile,
+                         std::string sender_ip, int64_t backend_id, bool enable_profile,
                          int64_t wg_id)
         : _load_id(load_id),
           _timeout_s(timeout_s),
@@ -72,7 +72,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
     _last_updated_time.store(time(nullptr));
-    _init_profile(sender_id);
+    _init_profile();
 }
 
 LoadChannel::~LoadChannel() {
@@ -87,13 +87,13 @@ LoadChannel::~LoadChannel() {
               << ", sender_ip=" << _sender_ip << rows_str.str();
 }
 
-void LoadChannel::_init_profile(int64_t sender_id) {
+void LoadChannel::_init_profile() {
     _profile = std::make_unique<RuntimeProfile>("LoadChannels");
     _mgr_add_batch_timer = ADD_TIMER(_profile, "LoadChannelMgrAddBatchTime");
     _handle_mem_limit_timer = ADD_TIMER(_profile, "HandleMemLimitTime");
     _self_profile =
-            _profile->create_child(fmt::format("LoadChannel load_id={} (sender_ip={}/id={}, backend_id={})",
-                                               _load_id.to_string(), _sender_ip, sender_id, _backend_id),
+            _profile->create_child(fmt::format("LoadChannel load_id={} (host={}, backend_id={})",
+                                               _load_id.to_string(), _sender_ip, _backend_id),
                                    true, true);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
     _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
@@ -159,7 +159,7 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<BaseTabletsChannel>& ch
     std::lock_guard<std::mutex> l(_lock);
     auto it = _tablets_channels.find(index_id);
     if (it == _tablets_channels.end()) {
-        if (_finished_channel_ids.contains(index_id)) {
+        if (_finished_channel_ids.find(index_id) != _finished_channel_ids.end()) {
             // this channel is already finished, just return OK
             is_finished = true;
             return Status::OK();

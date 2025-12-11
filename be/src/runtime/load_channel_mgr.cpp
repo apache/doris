@@ -98,9 +98,9 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             if (params.has_workload_group_id()) {
                 wg_id = params.workload_group_id();
             }
-            channel = std::make_shared<LoadChannel>(load_id, channel_timeout_s, is_high_priority,
-                                                     params.sender_ip(), params.sender_id(),params.backend_id(),
-                                                     params.enable_profile(), wg_id);
+            channel.reset(new LoadChannel(load_id, channel_timeout_s, is_high_priority,
+                                          params.sender_ip(), params.backend_id(),
+                                          params.enable_profile(), wg_id));
             _load_channels.insert({load_id, channel});
         }
     }

@@ -295,22 +295,22 @@ Status MemTableWriter::_do_close_wait() {
 void MemTableWriter::_update_profile(RuntimeProfile* profile) {
     // NOTE: MemTableWriter may be accessed when profile is out of scope, in MemTableMemoryLimiter.
     // To avoid accessing dangling pointers, we cannot make profile as a member of MemTableWriter.
-    auto *child =
-            profile->create_child(fmt::format("MemTableWriter"), true, true);
-    auto *lock_timer = ADD_TIMER(child, "LockTime");
-    auto *sort_timer = ADD_TIMER(child, "MemTableSortTime");
-    auto *agg_timer = ADD_TIMER(child, "MemTableAggTime");
-    auto *memtable_duration_timer = ADD_TIMER(child, "MemTableDurationTime");
-    auto *segment_writer_timer = ADD_TIMER(child, "SegmentWriterTime");
-    auto *wait_flush_timer = ADD_TIMER(child, "MemTableWaitFlushTime");
-    auto *put_into_output_timer = ADD_TIMER(child, "MemTablePutIntoOutputTime");
-    auto *delete_bitmap_timer = ADD_TIMER(child, "DeleteBitmapTime");
-    auto *close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
-    auto *sort_times = ADD_COUNTER(child, "MemTableSortTimes", TUnit::UNIT);
-    auto *agg_times = ADD_COUNTER(child, "MemTableAggTimes", TUnit::UNIT);
-    auto *segment_num = ADD_COUNTER(child, "SegmentNum", TUnit::UNIT);
-    auto *raw_rows_num = ADD_COUNTER(child, "RawRowNum", TUnit::UNIT);
-    auto *merged_rows_num = ADD_COUNTER(child, "MergedRowNum", TUnit::UNIT);
+    auto child =
+            profile->create_child(fmt::format("MemTableWriter {}", _req.tablet_id), true, true);
+    auto lock_timer = ADD_TIMER(child, "LockTime");
+    auto sort_timer = ADD_TIMER(child, "MemTableSortTime");
+    auto agg_timer = ADD_TIMER(child, "MemTableAggTime");
+    auto memtable_duration_timer = ADD_TIMER(child, "MemTableDurationTime");
+    auto segment_writer_timer = ADD_TIMER(child, "SegmentWriterTime");
+    auto wait_flush_timer = ADD_TIMER(child, "MemTableWaitFlushTime");
+    auto put_into_output_timer = ADD_TIMER(child, "MemTablePutIntoOutputTime");
+    auto delete_bitmap_timer = ADD_TIMER(child, "DeleteBitmapTime");
+    auto close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
+    auto sort_times = ADD_COUNTER(child, "MemTableSortTimes", TUnit::UNIT);
+    auto agg_times = ADD_COUNTER(child, "MemTableAggTimes", TUnit::UNIT);
+    auto segment_num = ADD_COUNTER(child, "SegmentNum", TUnit::UNIT);
+    auto raw_rows_num = ADD_COUNTER(child, "RawRowNum", TUnit::UNIT);
+    auto merged_rows_num = ADD_COUNTER(child, "MergedRowNum", TUnit::UNIT);
 
     COUNTER_UPDATE(lock_timer, _lock_watch.elapsed_time());
     COUNTER_SET(delete_bitmap_timer, _rowset_writer->delete_bitmap_ns());
