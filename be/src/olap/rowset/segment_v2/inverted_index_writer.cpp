@@ -72,7 +72,7 @@ Status InvertedIndexColumnWriter<field_type>::init() {
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "Inverted index writer init error occurred: " << e.what();
         return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "Inverted index writer init error occurred: " + e.what());
+                "Inverted index writer init error occurred: {}", e.what());
     }
 }
 
