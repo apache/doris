@@ -105,7 +105,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
-import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -333,18 +332,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment upstreamFragment = upstream.accept(this, context);
         List<List<Expr>> upstreamDistributeExprs = getDistributeExprs(upstream);
 
-        DistributionSpec targetDistribution = distribute.getDistributionSpec();
-
-        // TODO: why need set streaming here? should remove this.
-        if (upstreamFragment.getPlanRoot() instanceof AggregationNode && upstream instanceof PhysicalHashAggregate) {
-            PhysicalHashAggregate<?> hashAggregate = (PhysicalHashAggregate<?>) upstream;
-            if (hashAggregate.getAggPhase() == AggPhase.LOCAL
-                    && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER
-                    && hashAggregate.getTopnPushInfo() == null) {
-                AggregationNode aggregationNode = (AggregationNode) upstreamFragment.getPlanRoot();
-                aggregationNode.setUseStreamingPreagg(hashAggregate.isMaybeUsingStream());
-            }
-        }
         // all PhysicalDistribute translate to ExchangeNode. upstream as input.
         ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), upstreamFragment.getPlanRoot());
         updateLegacyPlanIdToPhysicalPlan(exchangeNode, distribute);
@@ -361,7 +348,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             validOutputIds = keys;
         }
         if (upstreamFragment instanceof MultiCastPlanFragment) {
-            // TODO: remove this logic when we split to multi-window in logical window to physical window conversion
             MultiCastDataSink multiCastDataSink = (MultiCastDataSink) upstreamFragment.getSink();
             DataStreamSink dataStreamSink = multiCastDataSink.getDataStreamSinks().get(
                     multiCastDataSink.getDataStreamSinks().size() - 1);
@@ -378,6 +364,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         // target data partition
+        DistributionSpec targetDistribution = distribute.getDistributionSpec();
         DataPartition targetDataPartition = toDataPartition(targetDistribution, validOutputIds, context);
         exchangeNode.setPartitionType(targetDataPartition.getType());
         exchangeNode.setChildrenDistributeExprLists(upstreamDistributeExprs);
@@ -1202,10 +1189,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions,
                 aggFunOutputIds, isPartial, outputTupleDesc, aggregate.getAggPhase().toExec());
         AggregationNode aggregationNode = new AggregationNode(context.nextPlanNodeId(),
-                inputPlanFragment.getPlanRoot(), aggInfo);
+                inputPlanFragment.getPlanRoot(), aggInfo,
+                aggregate.isMaybeUsingStream() && aggregate.getTopnPushInfo() == null);
 
         aggregationNode.setChildrenDistributeExprLists(distributeExprLists);
-
         aggregationNode.setNereidsId(aggregate.getId());
         context.getNereidsIdToPlanNodeIdMap().put(aggregate.getId(), aggregationNode.getId());
         if (isPartial || aggregate.getAggregateParam().aggPhase.isLocal()) {
@@ -3119,16 +3106,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return true;
-    }
-
-    private List<Expr> translateToLegacyConjuncts(Set<Expression> conjuncts) {
-        List<Expr> outputExprs = Lists.newArrayList();
-        if (conjuncts != null) {
-            conjuncts.stream()
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .forEach(outputExprs::add);
-        }
-        return outputExprs;
     }
 
     private boolean isComplexDataType(DataType dataType) {
