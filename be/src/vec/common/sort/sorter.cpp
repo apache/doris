@@ -144,7 +144,7 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) 
         SCOPED_TIMER(_partial_sort_timer);
         uint64_t limit = reversed ? 0 : (_offset + _limit);
         sort_block(_materialize_sort_exprs ? dest_block : src_block, dest_block, _sort_description,
-                   limit);
+                   _hybrid_sorter, limit);
     }
 
     src_block.clear_column_data(num_cols);

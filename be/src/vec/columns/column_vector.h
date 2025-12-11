@@ -259,7 +259,7 @@ public:
                 data[n], assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_).data[m]);
     }
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
 
     void reserve(size_t n) override { data.reserve(n); }

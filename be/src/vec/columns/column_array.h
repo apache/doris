@@ -165,7 +165,7 @@ public:
     size_t allocated_bytes() const override;
     bool has_enough_capacity(const IColumn& src) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

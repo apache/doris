@@ -32,6 +32,7 @@
 #include "vec/common/sort/vsort_exec_exprs.h"
 #include "vec/core/block.h"
 #include "vec/core/field.h"
+#include "vec/core/hybrid_sorter.h"
 #include "vec/core/sort_cursor.h"
 #include "vec/core/sort_description.h"
 #include "vec/runtime/vsorted_run_merger.h"
@@ -169,6 +170,9 @@ protected:
 
     std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
     bool _materialize_sort_exprs;
+
+        HybridSorter _hybrid_sorter {SortAlgo::kAuto};
+
 };
 
 class FullSorter final : public Sorter {

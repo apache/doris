@@ -481,7 +481,7 @@ public:
                                              rhs.chars.data() + rhs.offset_at(m), rhs.size_at(m));
     }
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
 
     void reserve(size_t n) override;

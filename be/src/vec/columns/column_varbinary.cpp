@@ -197,7 +197,7 @@ struct ColumnVarbinary::less {
 };
 
 void ColumnVarbinary::get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
-                                      IColumn::Permutation& res) const {
+                                      HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = _data.size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -205,9 +205,9 @@ void ColumnVarbinary::get_permutation(bool reverse, size_t limit, int /*nan_dire
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), less<false>(*this));
+        sorter.sort(res.begin(), res.end(), less<false>(*this));
     } else {
-        pdqsort(res.begin(), res.end(), less<true>(*this));
+        sorter.sort(res.begin(), res.end(), less<true>(*this));
     }
 }
 

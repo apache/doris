@@ -225,7 +225,7 @@ public:
 
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          Permutation& res) const override;
 
     size_t byte_size() const override { return s > 0 ? data->byte_size() + sizeof(s) : 0; }

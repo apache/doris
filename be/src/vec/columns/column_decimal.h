@@ -179,7 +179,7 @@ public:
                                const uint8_t* __restrict null_data) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
 
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -256,7 +256,8 @@ protected:
     Container data;
     UInt32 scale;
     template <typename U>
-    void permutation(bool reverse, size_t limit, PaddedPODArray<U>& res) const {
+    void permutation(bool reverse, size_t limit, HybridSorter& sorter,
+                     PaddedPODArray<U>& res) const {
         size_t s = data.size();
         res.resize(s);
         for (U i = 0; i < s; ++i) res[i] = i;
@@ -272,11 +273,11 @@ protected:
                                   [this](size_t a, size_t b) { return data[a] < data[b]; });
         } else {
             if (reverse)
-                pdqsort(res.begin(), res.end(),
-                        [this](size_t a, size_t b) { return data[a] > data[b]; });
+                sorter.sort(res.begin(), res.end(),
+                            [this](size_t a, size_t b) { return data[a] > data[b]; });
             else
-                pdqsort(res.begin(), res.end(),
-                        [this](size_t a, size_t b) { return data[a] < data[b]; });
+                sorter.sort(res.begin(), res.end(),
+                            [this](size_t a, size_t b) { return data[a] < data[b]; });
         }
     }
 

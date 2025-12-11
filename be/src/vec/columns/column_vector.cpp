@@ -260,7 +260,7 @@ struct ColumnVector<T>::greater {
 
 template <PrimitiveType T>
 void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                      IColumn::Permutation& res) const {
+                                      HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = data.size();
     res.resize(s);
 
@@ -283,9 +283,9 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
         for (size_t i = 0; i < s; ++i) res[i] = i;
 
         if (reverse)
-            pdqsort(res.begin(), res.end(), greater(*this, nan_direction_hint));
+            sorter.sort(res.begin(), res.end(), greater(*this, nan_direction_hint));
         else
-            pdqsort(res.begin(), res.end(), less(*this, nan_direction_hint));
+            sorter.sort(res.begin(), res.end(), less(*this, nan_direction_hint));
     }
 }
 
