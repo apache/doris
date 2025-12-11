@@ -358,7 +358,10 @@ void build_path_map(const FieldSchema& field, const std::string& prefix,
 ParquetMetadataReader::ParquetMetadataReader(const std::vector<SlotDescriptor*>& slots,
                                              RuntimeState* state, RuntimeProfile* profile,
                                              const TMetaScanRange& scan_range)
-        : _slots(slots), _state(state), _profile(profile), _scan_range(scan_range) {}
+        : _slots(slots), _scan_range(scan_range) {
+    (void)state;
+    (void)profile;
+}
 
 Status ParquetMetadataReader::init_reader() {
     RETURN_IF_ERROR(_init_from_scan_range(_scan_range));
@@ -506,7 +509,7 @@ Status ParquetMetadataReader::_append_metadata_rows(const std::string& path,
                                                     FileMetaData* metadata,
                                                     std::vector<MutableColumnPtr>& columns) {
     const tparquet::FileMetaData& thrift_meta = metadata->to_thrift();
-    if (!thrift_meta.__isset.row_groups) {
+    if (thrift_meta.row_groups.empty()) {
         return Status::OK();
     }
 

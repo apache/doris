@@ -69,8 +69,6 @@ private:
     enum class Mode { SCHEMA, METADATA };
 
     std::vector<SlotDescriptor*> _slots;
-    RuntimeState* _state = nullptr;
-    RuntimeProfile* _profile = nullptr;
     TMetaScanRange _scan_range;
     std::vector<std::string> _paths;
     std::string _mode;
