@@ -1006,6 +1006,18 @@ struct ArrayVal : public ContainerVal {
 inline Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
                                                     const JsonbDocument** doc) {
     *doc = nullptr;
+    if (!pb || size == 0) {
+        // Treat empty input as a valid JSONB null document.
+#pragma pack(push, 1)
+        struct StaticNullJsonbDocument {
+            uint8_t ver;
+            JsonbType type;
+        };
+#pragma pack(pop)
+        static const StaticNullJsonbDocument kNullDoc {JSONB_VER, JsonbType::T_Null};
+        *doc = reinterpret_cast<const JsonbDocument*>(&kNullDoc);
+        return Status::OK();
+    }
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return Status::InvalidArgument("Invalid JSONB document: too small size({}) or null pointer",
                                        size);
