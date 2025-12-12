@@ -56,9 +56,6 @@ under the License.
 
 ---
 
-
-
-
 <p align="center">
 
   <a href="https://trendshift.io/repositories/1156" target="_blank"><img src="https://trendshift.io/api/badge/repositories/1156" alt="apache%2Fdoris | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -68,17 +65,17 @@ under the License.
 
 
 
- is an easy-to-use, high-performance and real-time analytical database based on MPP architecture, known for its extreme speed and ease of use. It only requires a sub-second response time to return query results under massive data and can support not only high-concurrency point query scenarios but also high-throughput complex analysis scenarios.
+Apache Doris adalah database analitik yang mudah digunakan, berkinerja tinggi, dan real-time berbasis arsitektur MPP, dikenal karena kecepatan ekstrem dan kemudahan penggunaannya. Hanya memerlukan waktu respons sub-detik untuk mengembalikan hasil kueri di bawah data masif dan dapat mendukung tidak hanya skenario kueri titik konkurensi tinggi tetapi juga skenario analisis kompleks throughput tinggi.
 
-All this makes Apache Doris an ideal tool for scenarios including report analysis, ad-hoc query, unified data warehouse, and data lake query acceleration. On Apache Doris, users can build various applications, such as user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, and order analysis.
+Semua ini menjadikan Apache Doris sebagai alat ideal untuk skenario termasuk analisis laporan, kueri ad-hoc, gudang data terpadu, dan percepatan kueri data lake. Di Apache Doris, pengguna dapat membangun berbagai aplikasi, seperti analisis perilaku pengguna, platform uji AB, analisis pengambilan log, analisis profil pengguna, dan analisis pesanan.
 
-🎉 Check out the 🔗[All releases](https://doris.apache.org/docs/releasenotes/all-release), where you'll find a chronological summary of Apache Doris versions released over the past year.
+🎉 Lihat 🔗[Semua rilis](https://doris.apache.org/docs/releasenotes/all-release), di mana Anda akan menemukan ringkasan kronologis versi Apache Doris yang dirilis selama setahun terakhir.
 
-👀 Explore the 🔗[Official Website](https://doris.apache.org/) to discover Apache Doris's core features, blogs, and user cases in detail.
+👀 Jelajahi 🔗[Situs Web Resmi](https://doris.apache.org/) untuk menemukan fitur inti, blog, dan kasus penggunaan Apache Doris secara detail.
 
-## 📈 Usage Scenarios
+## 📈 Skenario Penggunaan
 
-As shown in the figure below, after various data integration and processing, the data sources are usually stored in the real-time data warehouse Apache Doris and the offline data lake or data warehouse (in Apache Hive, Apache Iceberg or Apache Hudi).
+Seperti yang ditunjukkan pada gambar di bawah ini, setelah berbagai integrasi dan pemrosesan data, sumber data biasanya disimpan di gudang data real-time Apache Doris dan data lake offline atau gudang data (di Apache Hive, Apache Iceberg atau Apache Hudi).
 
 <br />
 
@@ -87,103 +84,103 @@ As shown in the figure below, after various data integration and processing, the
 <br />
 
 
-Apache Doris is widely used in the following scenarios:
+Apache Doris banyak digunakan dalam skenario berikut:
 
-- **Real-time Data Analysis**:
+- **Analisis Data Real-time**:
 
-  - **Real-time Reporting and Decision-making**: Doris provides real-time updated reports and dashboards for both internal and external enterprise use, supporting real-time decision-making in automated processes.
+  - **Pelaporan dan Pengambilan Keputusan Real-time**: Doris menyediakan laporan dan dashboard yang diperbarui secara real-time untuk penggunaan perusahaan internal dan eksternal, mendukung pengambilan keputusan real-time dalam proses yang terotomatisasi.
   
-  - **Ad Hoc Analysis**: Doris offers multidimensional data analysis capabilities, enabling rapid business intelligence analysis and ad hoc queries to help users quickly uncover insights from complex data.
+  - **Analisis Ad Hoc**: Doris menawarkan kemampuan analisis data multidimensi, memungkinkan analisis intelijen bisnis yang cepat dan kueri ad-hoc untuk membantu pengguna dengan cepat menemukan wawasan dari data kompleks.
   
-  - **User Profiling and Behavior Analysis**: Doris can analyze user behaviors such as participation, retention, and conversion, while also supporting scenarios like population insights and crowd selection for behavior analysis.
+  - **Profil Pengguna dan Analisis Perilaku**: Doris dapat menganalisis perilaku pengguna seperti partisipasi, retensi, dan konversi, sambil juga mendukung skenario seperti wawasan populasi dan pemilihan kelompok untuk analisis perilaku.
 
-- **Lakehouse Analytics**:
+- **Analitik Data Lake**:
 
-  - **Lakehouse Query Acceleration**: Doris accelerates lakehouse data queries with its efficient query engine.
+  - **Percepatan Kueri Data Lake**: Doris mempercepat kueri data data lake dengan mesin kueri yang efisien.
   
-  - **Federated Analytics**: Doris supports federated queries across multiple data sources, simplifying architecture and eliminating data silos.
+  - **Analitik Federasi**: Doris mendukung kueri federasi di beberapa sumber data, menyederhanakan arsitektur dan menghilangkan silo data.
   
-  - **Real-time Data Processing**: Doris combines real-time data streams and batch data processing capabilities to meet the needs of high concurrency and low-latency complex business requirements.
+  - **Pemrosesan Data Real-time**: Doris menggabungkan kemampuan pemrosesan aliran data real-time dan batch untuk memenuhi kebutuhan konkurensi tinggi dan latensi rendah dari persyaratan bisnis yang kompleks.
 
-- **SQL-based Observability**:
+- **Observabilitas Berbasis SQL**:
 
-  - **Log and Event Analysis**: Doris enables real-time or batch analysis of logs and events in distributed systems, helping to identify issues and optimize performance.
+  - **Analisis Log dan Acara**: Doris memungkinkan analisis real-time atau batch dari log dan acara dalam sistem terdistribusi, membantu mengidentifikasi masalah dan mengoptimalkan kinerja.
 
 
-## Overall Architecture
+## Arsitektur Keseluruhan
 
-Apache Doris uses the MySQL protocol, is highly compatible with MySQL syntax, and supports standard SQL. Users can access Apache Doris through various client tools, and it seamlessly integrates with BI tools.
+Apache Doris menggunakan protokol MySQL, sangat kompatibel dengan sintaks MySQL, dan mendukung SQL standar. Pengguna dapat mengakses Apache Doris melalui berbagai alat klien, dan terintegrasi dengan mulus dengan alat BI.
 
-### Storage-Compute Integrated Architecture
+### Arsitektur Terintegrasi Penyimpanan-Komputasi
 
-The storage-compute integrated architecture of Apache Doris is streamlined and easy to maintain. As shown in the figure below, it consists of only two types of processes:
+Arsitektur terintegrasi penyimpanan-komputasi Apache Doris disederhanakan dan mudah dirawat. Seperti yang ditunjukkan pada gambar di bawah ini, hanya terdiri dari dua jenis proses:
 
-- **Frontend (FE):** Primarily responsible for handling user requests, query parsing and planning, metadata management, and node management tasks.
+- **Frontend (FE):** Terutama bertanggung jawab untuk menangani permintaan pengguna, penguraian dan perencanaan kueri, manajemen metadata, dan tugas manajemen node.
 
-- **Backend (BE):** Primarily responsible for data storage and query execution. Data is partitioned into shards and stored with multiple replicas across BE nodes.
+- **Backend (BE):** Terutama bertanggung jawab untuk penyimpanan data dan eksekusi kueri. Data dipartisi menjadi pecahan dan disimpan dengan beberapa replika di seluruh node BE.
 
-![The overall architecture of Apache Doris](https://cdn.selectdb.com/static/What_is_Apache_Doris_adb26397e2.png)
+![Arsitektur keseluruhan Apache Doris](https://cdn.selectdb.com/static/What_is_Apache_Doris_adb26397e2.png)
 
 <br />
 
-In a production environment, multiple FE nodes can be deployed for disaster recovery. Each FE node maintains a full copy of the metadata. The FE nodes are divided into three roles:
+Dalam lingkungan produksi, beberapa node FE dapat dikerahkan untuk pemulihan bencana. Setiap node FE mempertahankan salinan lengkap metadata. Node FE dibagi menjadi tiga peran:
 
-| Role      | Function                                                     |
+| Peran      | Fungsi                                                     |
 | --------- | ------------------------------------------------------------ |
-| Master    | The FE Master node is responsible for metadata read and write operations. When metadata changes occur in the Master, they are synchronized to Follower or Observer nodes via the BDB JE protocol. |
-| Follower  | The Follower node is responsible for reading metadata. If the Master node fails, a Follower node can be selected as the new Master. |
-| Observer  | The Observer node is responsible for reading metadata and is mainly used to increase query concurrency. It does not participate in cluster leadership elections. |
+| Master    | Node FE Master bertanggung jawab untuk operasi baca dan tulis metadata. Ketika perubahan metadata terjadi di Master, mereka disinkronkan ke node Follower atau Observer melalui protokol BDB JE. |
+| Follower  | Node Follower bertanggung jawab untuk membaca metadata. Jika node Master gagal, node Follower dapat dipilih sebagai Master baru. |
+| Observer  | Node Observer bertanggung jawab untuk membaca metadata dan terutama digunakan untuk meningkatkan konkurensi kueri. Ini tidak berpartisipasi dalam pemilihan kepemimpinan cluster. |
 
-Both FE and BE processes are horizontally scalable, enabling a single cluster to support hundreds of machines and tens of petabytes of storage capacity. The FE and BE processes use a consistency protocol to ensure high availability of services and high reliability of data. The storage-compute integrated architecture is highly integrated, significantly reducing the operational complexity of distributed systems.
+Baik proses FE maupun BE dapat diskalakan secara horizontal, memungkinkan satu cluster untuk mendukung ratusan mesin dan puluhan petabita kapasitas penyimpanan. Proses FE dan BE menggunakan protokol konsistensi untuk memastikan ketersediaan tinggi layanan dan keandalan tinggi data. Arsitektur terintegrasi penyimpanan-komputasi sangat terintegrasi, secara signifikan mengurangi kompleksitas operasional sistem terdistribusi.
 
 
-## Core Features of Apache Doris
+## Fitur Inti Apache Doris
 
-- **High Availability**: In Apache Doris, both metadata and data are stored with multiple replicas, synchronizing data logs via the quorum protocol. Data write is considered successful once a majority of replicas have completed the write, ensuring that the cluster remains available even if a few nodes fail. Apache Doris supports both same-city and cross-region disaster recovery, enabling dual-cluster master-slave modes. When some nodes experience failures, the cluster can automatically isolate the faulty nodes, preventing the overall cluster availability from being affected.
+- **Ketersediaan Tinggi**: Di Apache Doris, baik metadata maupun data disimpan dengan beberapa replika, menyinkronkan log data melalui protokol quorum. Penulisan data dianggap berhasil setelah mayoritas replika menyelesaikan penulisan, memastikan bahwa cluster tetap tersedia bahkan jika beberapa node gagal. Apache Doris mendukung pemulihan bencana dalam kota yang sama dan lintas wilayah, memungkinkan mode master-slave cluster ganda. Ketika beberapa node mengalami kegagalan, cluster dapat secara otomatis mengisolasi node yang rusak, mencegah ketersediaan cluster keseluruhan terpengaruh.
 
-- **High Compatibility**: Apache Doris is highly compatible with the MySQL protocol and supports standard SQL syntax, covering most MySQL and Hive functions. This high compatibility allows users to seamlessly migrate and integrate existing applications and tools. Apache Doris supports the MySQL ecosystem, enabling users to connect Doris using MySQL Client tools for more convenient operations and maintenance. It also supports MySQL protocol compatibility for BI reporting tools and data transmission tools, ensuring efficiency and stability in data analysis and data transmission processes.
+- **Kompatibilitas Tinggi**: Apache Doris sangat kompatibel dengan protokol MySQL dan mendukung sintaks SQL standar, mencakup sebagian besar fungsi MySQL dan Hive. Kompatibilitas tinggi ini memungkinkan pengguna untuk bermigrasi dan mengintegrasikan aplikasi dan alat yang ada dengan mulus. Apache Doris mendukung ekosistem MySQL, memungkinkan pengguna untuk menghubungkan Doris menggunakan alat MySQL Client untuk operasi dan pemeliharaan yang lebih nyaman. Ini juga mendukung kompatibilitas protokol MySQL untuk alat pelaporan BI dan alat transmisi data, memastikan efisiensi dan stabilitas dalam proses analisis data dan transmisi data.
 
-- **Real-Time Data Warehouse**: Based on Apache Doris, a real-time data warehouse service can be built. Apache Doris offers second-level data ingestion capabilities, capturing incremental changes from upstream online transactional databases into Doris within seconds. Leveraging vectorized engines, MPP architecture, and Pipeline execution engines, Doris provides sub-second data query capabilities, thereby constructing a high-performance, low-latency real-time data warehouse platform.
+- **Gudang Data Real-time**: Berdasarkan Apache Doris, layanan gudang data real-time dapat dibangun. Apache Doris menawarkan kemampuan pengambilan data tingkat detik, menangkap perubahan inkremental dari database transaksional online upstream ke Doris dalam hitungan detik. Memanfaatkan mesin tervektorisasi, arsitektur MPP, dan mesin eksekusi Pipeline, Doris menyediakan kemampuan kueri data sub-detik, sehingga membangun platform gudang data real-time berkinerja tinggi dan latensi rendah.
 
-- **Unified Lakehouse**: Apache Doris can build a unified lakehouse architecture based on external data sources such as data lakes or relational databases. The Doris unified lakehouse solution enables seamless integration and free data flow between data lakes and data warehouses, helping users directly utilize data warehouse capabilities to solve data analysis problems in data lakes while fully leveraging data lake data management capabilities to enhance data value.
+- **Data Lake Terpadu**: Apache Doris dapat membangun arsitektur data lake terpadu berdasarkan sumber data eksternal seperti data lake atau database relasional. Solusi data lake terpadu Doris memungkinkan integrasi yang mulus dan aliran data bebas antara data lake dan gudang data, membantu pengguna memanfaatkan langsung kemampuan gudang data untuk menyelesaikan masalah analisis data di data lake sambil memanfaatkan sepenuhnya kemampuan manajemen data data lake untuk meningkatkan nilai data.
 
-- **Flexible Modeling**: Apache Doris offers various modeling approaches, such as wide table models, pre-aggregation models, star/snowflake schemas, etc. During data import, data can be flattened into wide tables and written into Doris through compute engines like Flink or Spark, or data can be directly imported into Doris, performing data modeling operations through views, materialized views, or real-time multi-table joins.
+- **Pemodelan Fleksibel**: Apache Doris menawarkan berbagai pendekatan pemodelan, seperti model tabel lebar, model pra-agregasi, skema bintang/salju, dll. Selama impor data, data dapat diratakan menjadi tabel lebar dan ditulis ke Doris melalui mesin komputasi seperti Flink atau Spark, atau data dapat langsung diimpor ke Doris, melakukan operasi pemodelan data melalui tampilan, tampilan materialisasi, atau gabungan multi-tabel real-time.
 
-## Technical overview
+## Ikhtisar Teknis
 
-Doris provides an efficient SQL interface and is fully compatible with the MySQL protocol. Its query engine is based on an MPP (Massively Parallel Processing) architecture, capable of efficiently executing complex analytical queries and achieving low-latency real-time queries. Through columnar storage technology for data encoding and compression, it significantly optimizes query performance and storage compression ratio.
+Doris menyediakan antarmuka SQL yang efisien dan sepenuhnya kompatibel dengan protokol MySQL. Mesin kuerinya didasarkan pada arsitektur MPP (Pemrosesan Paralel Massal), mampu mengeksekusi kueri analitik kompleks secara efisien dan mencapai kueri real-time latensi rendah. Melalui teknologi penyimpanan kolom untuk pengkodean dan kompresi data, ini secara signifikan mengoptimalkan kinerja kueri dan rasio kompresi penyimpanan.
 
-### Interface
+### Antarmuka
 
-Apache Doris adopts the MySQL protocol, supports standard SQL, and is highly compatible with MySQL syntax. Users can access Apache Doris through various client tools and seamlessly integrate it with BI tools, including but not limited to Smartbi, DataEase, FineBI, Tableau, Power BI, and Apache Superset. Apache Doris can work as the data source for any BI tools that support the MySQL protocol.
+Apache Doris mengadopsi protokol MySQL, mendukung SQL standar, dan sangat kompatibel dengan sintaks MySQL. Pengguna dapat mengakses Apache Doris melalui berbagai alat klien dan mengintegrasikannya dengan mulus dengan alat BI, termasuk tetapi tidak terbatas pada Smartbi, DataEase, FineBI, Tableau, Power BI, dan Apache Superset. Apache Doris dapat berfungsi sebagai sumber data untuk alat BI apa pun yang mendukung protokol MySQL.
 
-### Storage engine
+### Mesin Penyimpanan
 
-Apache Doris has a columnar storage engine, which encodes, compresses, and reads data by column. This enables a very high data compression ratio and largely reduces unnecessary data scanning, thus making more efficient use of IO and CPU resources.
+Apache Doris memiliki mesin penyimpanan kolom, yang mengkodekan, mengompresi, dan membaca data berdasarkan kolom. Ini memungkinkan rasio kompresi data yang sangat tinggi dan sebagian besar mengurangi pemindaian data yang tidak perlu, sehingga membuat penggunaan sumber daya IO dan CPU lebih efisien.
 
-Apache Doris supports various index structures to minimize data scans:
+Apache Doris mendukung berbagai struktur indeks untuk meminimalkan pemindaian data:
 
-- **Sorted Compound Key Index**: Users can specify three columns at most to form a compound sort key. This can effectively prune data to better support highly concurrent reporting scenarios.
+- **Indeks Kunci Gabungan yang Diurutkan**: Pengguna dapat menentukan paling banyak tiga kolom untuk membentuk kunci pengurutan gabungan. Ini dapat secara efektif memangkas data untuk lebih mendukung skenario pelaporan yang sangat konkuren.
 
-- **Min/Max Index**: This enables effective data filtering in equivalence and range queries of numeric types.
+- **Indeks Min/Max**: Ini memungkinkan penyaringan data yang efektif dalam kueri kesetaraan dan rentang tipe numerik.
 
-- **BloomFilter Index**: This is very effective in equivalence filtering and pruning of high-cardinality columns.
+- **Indeks BloomFilter**: Ini sangat efektif dalam penyaringan kesetaraan dan pemangkasan kolom kardinalitas tinggi.
 
-- **Inverted Index**: This enables fast searching for any field.
+- **Indeks Terbalik**: Ini memungkinkan pencarian cepat untuk bidang apa pun.
 
-Apache Doris supports a variety of data models and has optimized them for different scenarios:
+Apache Doris mendukung berbagai model data dan telah mengoptimalkannya untuk skenario yang berbeda:
 
-- **Detail Model (Duplicate Key Model):** A detail data model designed to meet the detailed storage requirements of fact tables.
+- **Model Detail (Model Kunci Duplikat):** Model data detail yang dirancang untuk memenuhi persyaratan penyimpanan detail tabel fakta.
 
-- **Primary Key Model (Unique Key Model):** Ensures unique keys; data with the same key is overwritten, enabling row-level data updates.
+- **Model Kunci Primer (Model Kunci Unik):** Memastikan kunci unik; data dengan kunci yang sama ditimpa, memungkinkan pembaruan data tingkat baris.
 
-- **Aggregate Model (Aggregate Key Model):** Merges value columns with the same key, significantly improving performance through pre-aggregation.
+- **Model Agregasi (Model Kunci Agregasi):** Menggabungkan kolom nilai dengan kunci yang sama, secara signifikan meningkatkan kinerja melalui pra-agregasi.
 
-Apache Doris also supports strongly consistent single-table materialized views and asynchronously refreshed multi-table materialized views. Single-table materialized views are automatically refreshed and maintained by the system, requiring no manual intervention from users. Multi-table materialized views can be refreshed periodically using in-cluster scheduling or external scheduling tools, reducing the complexity of data modeling.
+Apache Doris juga mendukung tampilan materialisasi tabel tunggal yang sangat konsisten dan tampilan materialisasi multi-tabel yang diperbarui secara asinkron. Tampilan materialisasi tabel tunggal secara otomatis diperbarui dan dipelihara oleh sistem, tidak memerlukan intervensi manual dari pengguna. Tampilan materialisasi multi-tabel dapat diperbarui secara berkala menggunakan penjadwalan dalam cluster atau alat penjadwalan eksternal, mengurangi kompleksitas pemodelan data.
 
-### 🔍 Query Engine
+### 🔍 Mesin Kueri
 
-Apache Doris has an MPP-based query engine for parallel execution between and within nodes. It supports distributed shuffle join for large tables to better handle complicated queries.
+Apache Doris memiliki mesin kueri berbasis MPP untuk eksekusi paralel antar node dan dalam node. Ini mendukung gabungan shuffle terdistribusi untuk tabel besar untuk menangani kueri yang rumit dengan lebih baik.
 
 <br />
 
@@ -191,7 +188,7 @@ Apache Doris has an MPP-based query engine for parallel execution between and wi
 
 <br />
 
-The query engine of Apache Doris is fully vectorized, with all memory structures laid out in a columnar format. This can largely reduce virtual function calls, increase cache hit rates, and make efficient use of SIMD instructions. Apache Doris delivers a 5~10 times higher performance in wide table aggregation scenarios than non-vectorized engines.
+Mesin kueri Apache Doris sepenuhnya tervektorisasi, dengan semua struktur memori diletakkan dalam format kolom. Ini dapat secara signifikan mengurangi panggilan fungsi virtual, meningkatkan tingkat hit cache, dan membuat penggunaan instruksi SIMD yang efisien. Apache Doris memberikan kinerja 5-10 kali lebih tinggi dalam skenario agregasi tabel lebar daripada mesin yang tidak tervektorisasi.
 
 <br />
 
@@ -199,116 +196,115 @@ The query engine of Apache Doris is fully vectorized, with all memory structures
 
 <br />
 
-Apache Doris uses adaptive query execution technology to dynamically adjust the execution plan based on runtime statistics. For example, it can generate a runtime filter and push it to the probe side. Specifically, it pushes the filters to the lowest-level scan node on the probe side, which largely reduces the data amount to be processed and increases join performance. The runtime filter of Apache Doris supports In/Min/Max/Bloom Filter.
+Apache Doris menggunakan teknologi eksekusi kueri adaptif untuk secara dinamis menyesuaikan rencana eksekusi berdasarkan statistik waktu proses. Misalnya, ini dapat menghasilkan filter waktu proses dan mendorongnya ke sisi probe. Secara khusus, ini mendorong filter ke node pemindaian tingkat terendah di sisi probe, yang secara signifikan mengurangi jumlah data yang akan diproses dan meningkatkan kinerja gabungan. Filter waktu proses Apache Doris mendukung In/Min/Max/Bloom Filter.
 
-Apache Doris uses a Pipeline execution engine that breaks down queries into multiple sub-tasks for parallel execution, fully leveraging multi-core CPU capabilities. It simultaneously addresses the thread explosion problem by limiting the number of query threads. The Pipeline execution engine reduces data copying and sharing, optimizes sorting and aggregation operations, thereby significantly improving query efficiency and throughput.
+Apache Doris menggunakan mesin eksekusi Pipeline yang memecah kueri menjadi beberapa sub-tugas untuk eksekusi paralel, memanfaatkan sepenuhnya kemampuan CPU multi-core. Ini secara bersamaan mengatasi masalah ledakan thread dengan membatasi jumlah thread kueri. Mesin eksekusi Pipeline mengurangi penyalinan dan berbagi data, mengoptimalkan operasi pengurutan dan agregasi, sehingga secara signifikan meningkatkan efisiensi dan throughput kueri.
 
-In terms of the optimizer, Apache Doris employs a combined optimization strategy of CBO (Cost-Based Optimizer), RBO (Rule-Based Optimizer), and HBO (History-Based Optimizer). RBO supports constant folding, subquery rewriting, predicate pushdown, and more. CBO supports join reordering and other optimizations. HBO recommends the optimal execution plan based on historical query information. These multiple optimization measures ensure that Doris can enumerate high-performance query plans across various types of queries.
+Dalam hal pengoptimal, Apache Doris menggunakan strategi pengoptimalan gabungan dari CBO (Pengoptimal Berbasis Biaya), RBO (Pengoptimal Berbasis Aturan), dan HBO (Pengoptimal Berbasis Sejarah). RBO mendukung pelipatan konstanta, penulisan ulang subkueri, penurunan predikat, dan lainnya. CBO mendukung pengurutan ulang gabungan dan pengoptimalan lainnya. HBO merekomendasikan rencana eksekusi optimal berdasarkan informasi kueri historis. Langkah-langkah pengoptimalan ganda ini memastikan bahwa Doris dapat menghitung rencana kueri berkinerja tinggi untuk berbagai jenis kueri.
 
 
-## 🎆 Why choose Apache Doris?
+## 🎆 Mengapa memilih Apache Doris?
 
-- 🎯 **Easy to Use:** Two processes, no other dependencies; online cluster scaling, automatic replica recovery; compatible with MySQL protocol, and using standard SQL.
+- 🎯 **Mudah Digunakan**: Dua proses, tidak ada dependensi lain; penskalaan cluster online, pemulihan replika otomatis; kompatibel dengan protokol MySQL, dan menggunakan SQL standar.
 
-- 🚀 **High Performance:** Extremely fast performance for low-latency and high-throughput queries with columnar storage engine, modern MPP architecture, vectorized query engine, pre-aggregated materialized view and data index.
+- 🚀 **Kinerja Tinggi**: Kinerja yang sangat cepat untuk kueri latensi rendah dan throughput tinggi dengan mesin penyimpanan kolom, arsitektur MPP modern, mesin kueri tervektorisasi, tampilan materialisasi pra-agregasi dan indeks data.
 
-- 🖥️ **Single Unified:** A single system can support real-time data serving, interactive data analysis and offline data processing scenarios.
+- 🖥️ **Terpadu Tunggal**: Satu sistem dapat mendukung skenario penyajian data real-time, analisis data interaktif dan pemrosesan data offline.
 
-- ⚛️ **Federated Querying:** Supports federated querying of data lakes such as Hive, Iceberg, Hudi, and databases such as MySQL and Elasticsearch.
+- ⚛️ **Kueri Federasi**: Mendukung kueri federasi dari data lake seperti Hive, Iceberg, Hudi, dan database seperti MySQL dan Elasticsearch.
 
-- ⏩ **Various Data Import Methods:** Supports batch import from HDFS/S3 and stream import from MySQL Binlog/Kafka; supports micro-batch writing through HTTP interface and real-time writing using Insert in JDBC.
+- ⏩ **Berbagai Metode Impor Data**: Mendukung impor batch dari HDFS/S3 dan impor aliran dari MySQL Binlog/Kafka; mendukung penulisan mikro-batch melalui antarmuka HTTP dan penulisan real-time menggunakan Insert di JDBC.
 
-- 🚙 **Rich Ecology:** Spark uses Spark-Doris-Connector to read and write Doris; Flink-Doris-Connector enables Flink CDC to implement exactly-once data writing to Doris; DBT Doris Adapter is provided to transform data in Doris with DBT.
+- 🚙 **Ekologi Kaya**: Spark menggunakan Spark-Doris-Connector untuk membaca dan menulis Doris; Flink-Doris-Connector memungkinkan Flink CDC mengimplementasikan penulisan data tepat satu kali ke Doris; DBT Doris Adapter disediakan untuk mengubah data di Doris dengan DBT.
 
-## 🙌 Contributors
+## 🙌 Kontributor
 
-**Apache Doris has graduated from Apache incubator successfully and become a Top-Level Project in June 2022**. 
+**Apache Doris telah lulus dengan sukses dari inkubator Apache dan menjadi Proyek Tingkat Atas pada Juni 2022**.
 
-We deeply appreciate 🔗[community contributors](https://github.com/apache/doris/graphs/contributors) for their contribution to Apache Doris.
+Kami sangat menghargai 🔗[kontributor komunitas](https://github.com/apache/doris/graphs/contributors) atas kontribusi mereka terhadap Apache Doris.
 
 [![contrib graph](https://contrib.rocks/image?repo=apache/doris)](https://github.com/apache/doris/graphs/contributors)
 
-## 👨‍👩‍👧‍👦 Users
+## 👨‍👩‍👧‍👦 Pengguna
 
-Apache Doris now has a wide user base in China and around the world, and as of today, **Apache Doris is used in production environments in thousands of companies worldwide.** More than 80% of the top 50 Internet companies in China in terms of market capitalization or valuation have been using Apache Doris for a long time, including Baidu, Meituan, Xiaomi, Jingdong, Bytedance, Tencent, NetEase, Kwai, Sina, 360, Mihoyo, and Ke Holdings. It is also widely used in some traditional industries such as finance, energy, manufacturing, and telecommunications.
+Apache Doris sekarang memiliki basis pengguna yang luas di China dan di seluruh dunia, dan hingga saat ini, **Apache Doris digunakan dalam lingkungan produksi di ribuan perusahaan di seluruh dunia.** Lebih dari 80% dari 50 perusahaan Internet teratas di China dalam hal kapitalisasi pasar atau valuasi telah menggunakan Apache Doris untuk waktu yang lama, termasuk Baidu, Meituan, Xiaomi, Jingdong, Bytedance, Tencent, NetEase, Kwai, Sina, 360, Mihoyo, dan Ke Holdings. Ini juga banyak digunakan di beberapa industri tradisional seperti keuangan, energi, manufaktur, dan telekomunikasi.
 
-The users of Apache Doris: 🔗[Users](https://doris.apache.org/users)
+Pengguna Apache Doris: 🔗[Pengguna](https://doris.apache.org/users)
 
-Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://github.com/apache/doris/discussions/27683)
+Tambahkan logo perusahaan Anda di Situs Web Apache Doris: 🔗[Tambahkan Perusahaan Anda](https://github.com/apache/doris/discussions/27683)
  
-## 👣 Get Started
+## 👣 Memulai
 
-### 📚 Docs
+### 📚 Dokumentasi
 
-All Documentation   🔗[Docs](https://doris.apache.org/docs/gettingStarted/what-is-apache-doris)  
+Semua Dokumentasi   🔗[Dokumentasi](https://doris.apache.org/docs/gettingStarted/what-is-apache-doris)  
 
-### ⬇️ Download 
+### ⬇️ Unduh 
 
-All release and binary version 🔗[Download](https://doris.apache.org/download) 
+Semua versi rilis dan biner 🔗[Unduh](https://doris.apache.org/download) 
 
-### 🗄️ Compile
+### 🗄️ Kompilasi
 
-See how to compile  🔗[Compilation](https://doris.apache.org/community/source-install/compilation-with-docker))
+Lihat cara mengompilasi  🔗[Kompilasi](https://doris.apache.org/community/source-install/compilation-with-docker))
 
-### 📮 Install
+### 📮 Instalasi
 
-See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/install/preparation/env-checking) 
+Lihat cara menginstal dan menyebarkan 🔗[Instalasi dan penyebaran](https://doris.apache.org/docs/install/preparation/env-checking) 
 
-## 🧩 Components
+## 🧩 Komponen
 
 ### 📝 Doris Connector
 
-Doris provides support for Spark/Flink to read data stored in Doris through Connector, and also supports to write data to Doris through Connector.
+Doris menyediakan dukungan untuk Spark/Flink untuk membaca data yang disimpan di Doris melalui Connector, dan juga mendukung menulis data ke Doris melalui Connector.
 
 🔗[apache/doris-flink-connector](https://github.com/apache/doris-flink-connector)
 
 🔗[apache/doris-spark-connector](https://github.com/apache/doris-spark-connector)
 
 
-## 🌈 Community and Support
+## 🌈 Komunitas dan Dukungan
 
-### 📤 Subscribe Mailing Lists
+### 📤 Berlangganan Daftar Surat
 
-Mail List is the most recognized form of communication in Apache community. See how to 🔗[Subscribe Mailing Lists](https://doris.apache.org/community/subscribe-mail-list)
+Daftar Surat adalah bentuk komunikasi yang paling diakui dalam komunitas Apache. Lihat cara 🔗[Berlangganan Daftar Surat](https://doris.apache.org/community/subscribe-mail-list)
 
-### 🙋 Report Issues or Submit Pull Request
+### 🙋 Laporkan Masalah atau Kirim Pull Request
 
-If you meet any questions, feel free to file a 🔗[GitHub Issue](https://github.com/apache/doris/issues) or post it in 🔗[GitHub Discussion](https://github.com/apache/doris/discussions) and fix it by submitting a 🔗[Pull Request](https://github.com/apache/doris/pulls) 
+Jika Anda memiliki pertanyaan, jangan ragu untuk mengajukan 🔗[GitHub Issue](https://github.com/apache/doris/issues) atau mempostingnya di 🔗[GitHub Discussion](https://github.com/apache/doris/discussions) dan memperbaikinya dengan mengirimkan 🔗[Pull Request](https://github.com/apache/doris/pulls) 
 
-### 🍻 How to Contribute
+### 🍻 Cara Berkontribusi
 
-We welcome your suggestions, comments (including criticisms), comments and contributions. See 🔗[How to Contribute](https://doris.apache.org/community/how-to-contribute/) and 🔗[Code Submission Guide](https://doris.apache.org/community/how-to-contribute/pull-request/)
+Kami menyambut saran, komentar (termasuk kritik), komentar dan kontribusi Anda. Lihat 🔗[Cara Berkontribusi](https://doris.apache.org/community/how-to-contribute/) dan 🔗[Panduan Pengiriman Kode](https://doris.apache.org/community/how-to-contribute/pull-request/)
 
-### ⌨️ Doris Improvement Proposals (DSIP)
+### ⌨️ Proposal Peningkatan Doris (DSIP)
 
-🔗[Doris Improvement Proposal (DSIP)](https://cwiki.apache.org/confluence/display/DORIS/Doris+Improvement+Proposals) can be thought of as **A Collection of Design Documents for all Major Feature Updates or Improvements**.
+🔗[Proposal Peningkatan Doris (DSIP)](https://cwiki.apache.org/confluence/display/DORIS/Doris+Improvement+Proposals) dapat dianggap sebagai **Koleksi Dokumen Desain untuk semua Pembaruan atau Peningkatan Fitur Utama**.
 
-### 🔑 Backend C++ Coding Specification
-🔗 [Backend C++ Coding Specification](https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=240883637) should be strictly followed, which will help us achieve better code quality.
+### 🔑 Spesifikasi Pengkodean Backend C++
+🔗 [Spesifikasi Pengkodean Backend C++](https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=240883637) harus diikuti dengan ketat, yang akan membantu kami mencapai kualitas kode yang lebih baik.
 
-## 💬 Contact Us
+## 💬 Hubungi Kami
 
-Contact us through the following mailing list.
+Hubungi kami melalui daftar surat berikut.
 
-| Name                                                                          | Scope                           |                                                                 |                                                                     |                                                                              |
+| Nama                                                                          | Cakupan                           |                                                                 |                                                                     |                                                                              |
 |:------------------------------------------------------------------------------|:--------------------------------|:----------------------------------------------------------------|:--------------------------------------------------------------------|:-----------------------------------------------------------------------------|
-| [dev@doris.apache.org](mailto:dev@doris.apache.org)     | Development-related discussions | [Subscribe](mailto:dev-subscribe@doris.apache.org)   | [Unsubscribe](mailto:dev-unsubscribe@doris.apache.org)   | [Archives](http://mail-archives.apache.org/mod_mbox/doris-dev/)   |
+| [dev@doris.apache.org](mailto:dev@doris.apache.org)     | Diskusi terkait pengembangan | [Berlangganan](mailto:dev-subscribe@doris.apache.org)   | [Berhenti berlangganan](mailto:dev-unsubscribe@doris.apache.org)   | [Arsip](http://mail-archives.apache.org/mod_mbox/doris-dev/)   |
 
-## 🧰 Links
+## 🧰 Tautan
 
-* Apache Doris Official Website - [Site](https://doris.apache.org)
-* Developer Mailing list - <dev@doris.apache.org>. Mail to <dev-subscribe@doris.apache.org>, follow the reply to subscribe the mail list.
-* Slack channel - [Join the Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
-* Twitter - [Follow @doris_apache](https://twitter.com/doris_apache)
+* Situs Web Resmi Apache Doris - [Situs](https://doris.apache.org)
+* Daftar surat pengembang - <dev@doris.apache.org>. Kirim email ke <dev-subscribe@doris.apache.org>, ikuti balasan untuk berlangganan daftar surat.
+* Saluran Slack - [Bergabung dengan Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Twitter - [Ikuti @doris_apache](https://twitter.com/doris_apache)
 
 
-## 📜 License
+## 📜 Lisensi
 
 [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 
-> **Note**
-> Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
-some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
-
+> **Catatan**
+> Beberapa lisensi dari dependensi pihak ketiga tidak kompatibel dengan Lisensi Apache 2.0. Jadi Anda perlu menonaktifkan
+beberapa fitur Doris agar sesuai dengan Lisensi Apache 2.0. Untuk detailnya, lihat file `thirdparty/LICENSE.txt`
 
 

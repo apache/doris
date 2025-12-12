@@ -56,9 +56,6 @@ under the License.
 
 ---
 
-
-
-
 <p align="center">
 
   <a href="https://trendshift.io/repositories/1156" target="_blank"><img src="https://trendshift.io/api/badge/repositories/1156" alt="apache%2Fdoris | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -68,17 +65,17 @@ under the License.
 
 
 
- is an easy-to-use, high-performance and real-time analytical database based on MPP architecture, known for its extreme speed and ease of use. It only requires a sub-second response time to return query results under massive data and can support not only high-concurrency point query scenarios but also high-throughput complex analysis scenarios.
+Apache Doris là một cơ sở dữ liệu phân tích dễ sử dụng, hiệu suất cao và thời gian thực dựa trên kiến trúc MPP, được biết đến với tốc độ cực nhanh và dễ sử dụng. Nó chỉ cần thời gian phản hồi dưới một giây để trả về kết quả truy vấn dưới dữ liệu khổng lồ và có thể hỗ trợ không chỉ các kịch bản truy vấn điểm đồng thời cao mà còn cả các kịch bản phân tích phức tạp thông lượng cao.
 
-All this makes Apache Doris an ideal tool for scenarios including report analysis, ad-hoc query, unified data warehouse, and data lake query acceleration. On Apache Doris, users can build various applications, such as user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, and order analysis.
+Tất cả điều này làm cho Apache Doris trở thành một công cụ lý tưởng cho các kịch bản bao gồm phân tích báo cáo, truy vấn ad-hoc, kho dữ liệu thống nhất và tăng tốc truy vấn hồ dữ liệu. Trên Apache Doris, người dùng có thể xây dựng các ứng dụng khác nhau, chẳng hạn như phân tích hành vi người dùng, nền tảng thử nghiệm AB, phân tích truy xuất nhật ký, phân tích hồ sơ người dùng và phân tích đơn hàng.
 
-🎉 Check out the 🔗[All releases](https://doris.apache.org/docs/releasenotes/all-release), where you'll find a chronological summary of Apache Doris versions released over the past year.
+🎉 Xem 🔗[Tất cả các phiên bản](https://doris.apache.org/docs/releasenotes/all-release), nơi bạn sẽ tìm thấy tóm tắt theo thời gian của các phiên bản Apache Doris được phát hành trong năm qua.
 
-👀 Explore the 🔗[Official Website](https://doris.apache.org/) to discover Apache Doris's core features, blogs, and user cases in detail.
+👀 Khám phá 🔗[Trang web chính thức](https://doris.apache.org/) để khám phá chi tiết các tính năng cốt lõi, blog và trường hợp sử dụng của Apache Doris.
 
-## 📈 Usage Scenarios
+## 📈 Kịch bản sử dụng
 
-As shown in the figure below, after various data integration and processing, the data sources are usually stored in the real-time data warehouse Apache Doris and the offline data lake or data warehouse (in Apache Hive, Apache Iceberg or Apache Hudi).
+Như được hiển thị trong hình bên dưới, sau khi tích hợp và xử lý dữ liệu khác nhau, các nguồn dữ liệu thường được lưu trữ trong kho dữ liệu thời gian thực Apache Doris và hồ dữ liệu ngoại tuyến hoặc kho dữ liệu (trong Apache Hive, Apache Iceberg hoặc Apache Hudi).
 
 <br />
 
@@ -87,103 +84,103 @@ As shown in the figure below, after various data integration and processing, the
 <br />
 
 
-Apache Doris is widely used in the following scenarios:
+Apache Doris được sử dụng rộng rãi trong các kịch bản sau:
 
-- **Real-time Data Analysis**:
+- **Phân tích dữ liệu thời gian thực**:
 
-  - **Real-time Reporting and Decision-making**: Doris provides real-time updated reports and dashboards for both internal and external enterprise use, supporting real-time decision-making in automated processes.
+  - **Báo cáo và ra quyết định thời gian thực**: Doris cung cấp báo cáo và bảng điều khiển được cập nhật thời gian thực cho cả sử dụng doanh nghiệp nội bộ và bên ngoài, hỗ trợ ra quyết định thời gian thực trong các quy trình tự động.
   
-  - **Ad Hoc Analysis**: Doris offers multidimensional data analysis capabilities, enabling rapid business intelligence analysis and ad hoc queries to help users quickly uncover insights from complex data.
+  - **Phân tích ad-hoc**: Doris cung cấp khả năng phân tích dữ liệu đa chiều, cho phép phân tích trí tuệ kinh doanh nhanh chóng và truy vấn ad-hoc để giúp người dùng nhanh chóng khám phá thông tin chi tiết từ dữ liệu phức tạp.
   
-  - **User Profiling and Behavior Analysis**: Doris can analyze user behaviors such as participation, retention, and conversion, while also supporting scenarios like population insights and crowd selection for behavior analysis.
+  - **Hồ sơ người dùng và phân tích hành vi**: Doris có thể phân tích hành vi người dùng như tham gia, giữ chân và chuyển đổi, đồng thời hỗ trợ các kịch bản như thông tin chi tiết về dân số và lựa chọn nhóm để phân tích hành vi.
 
-- **Lakehouse Analytics**:
+- **Phân tích hồ dữ liệu**:
 
-  - **Lakehouse Query Acceleration**: Doris accelerates lakehouse data queries with its efficient query engine.
+  - **Tăng tốc truy vấn hồ dữ liệu**: Doris tăng tốc truy vấn dữ liệu hồ dữ liệu với động cơ truy vấn hiệu quả của nó.
   
-  - **Federated Analytics**: Doris supports federated queries across multiple data sources, simplifying architecture and eliminating data silos.
+  - **Phân tích liên kết**: Doris hỗ trợ truy vấn liên kết trên nhiều nguồn dữ liệu, đơn giản hóa kiến trúc và loại bỏ các silo dữ liệu.
   
-  - **Real-time Data Processing**: Doris combines real-time data streams and batch data processing capabilities to meet the needs of high concurrency and low-latency complex business requirements.
+  - **Xử lý dữ liệu thời gian thực**: Doris kết hợp khả năng xử lý luồng dữ liệu thời gian thực và xử lý hàng loạt để đáp ứng nhu cầu đồng thời cao và độ trễ thấp của các yêu cầu kinh doanh phức tạp.
 
-- **SQL-based Observability**:
+- **Khả năng quan sát dựa trên SQL**:
 
-  - **Log and Event Analysis**: Doris enables real-time or batch analysis of logs and events in distributed systems, helping to identify issues and optimize performance.
+  - **Phân tích nhật ký và sự kiện**: Doris cho phép phân tích thời gian thực hoặc hàng loạt nhật ký và sự kiện trong các hệ thống phân tán, giúp xác định vấn đề và tối ưu hóa hiệu suất.
 
 
-## Overall Architecture
+## Kiến trúc tổng thể
 
-Apache Doris uses the MySQL protocol, is highly compatible with MySQL syntax, and supports standard SQL. Users can access Apache Doris through various client tools, and it seamlessly integrates with BI tools.
+Apache Doris sử dụng giao thức MySQL, tương thích cao với cú pháp MySQL và hỗ trợ SQL tiêu chuẩn. Người dùng có thể truy cập Apache Doris thông qua các công cụ khách khác nhau và nó tích hợp liền mạch với các công cụ BI.
 
-### Storage-Compute Integrated Architecture
+### Kiến trúc tích hợp lưu trữ-tính toán
 
-The storage-compute integrated architecture of Apache Doris is streamlined and easy to maintain. As shown in the figure below, it consists of only two types of processes:
+Kiến trúc tích hợp lưu trữ-tính toán của Apache Doris được đơn giản hóa và dễ bảo trì. Như được hiển thị trong hình bên dưới, nó chỉ bao gồm hai loại quy trình:
 
-- **Frontend (FE):** Primarily responsible for handling user requests, query parsing and planning, metadata management, and node management tasks.
+- **Frontend (FE):** Chủ yếu chịu trách nhiệm xử lý yêu cầu người dùng, phân tích và lập kế hoạch truy vấn, quản lý siêu dữ liệu và các tác vụ quản lý nút.
 
-- **Backend (BE):** Primarily responsible for data storage and query execution. Data is partitioned into shards and stored with multiple replicas across BE nodes.
+- **Backend (BE):** Chủ yếu chịu trách nhiệm lưu trữ dữ liệu và thực thi truy vấn. Dữ liệu được phân vùng thành các mảnh và được lưu trữ với nhiều bản sao trên các nút BE.
 
-![The overall architecture of Apache Doris](https://cdn.selectdb.com/static/What_is_Apache_Doris_adb26397e2.png)
+![Kiến trúc tổng thể của Apache Doris](https://cdn.selectdb.com/static/What_is_Apache_Doris_adb26397e2.png)
 
 <br />
 
-In a production environment, multiple FE nodes can be deployed for disaster recovery. Each FE node maintains a full copy of the metadata. The FE nodes are divided into three roles:
+Trong môi trường sản xuất, nhiều nút FE có thể được triển khai để khôi phục sau thảm họa. Mỗi nút FE duy trì một bản sao đầy đủ của siêu dữ liệu. Các nút FE được chia thành ba vai trò:
 
-| Role      | Function                                                     |
+| Vai trò      | Chức năng                                                     |
 | --------- | ------------------------------------------------------------ |
-| Master    | The FE Master node is responsible for metadata read and write operations. When metadata changes occur in the Master, they are synchronized to Follower or Observer nodes via the BDB JE protocol. |
-| Follower  | The Follower node is responsible for reading metadata. If the Master node fails, a Follower node can be selected as the new Master. |
-| Observer  | The Observer node is responsible for reading metadata and is mainly used to increase query concurrency. It does not participate in cluster leadership elections. |
+| Master    | Nút FE Master chịu trách nhiệm cho các hoạt động đọc và ghi siêu dữ liệu. Khi thay đổi siêu dữ liệu xảy ra trong Master, chúng được đồng bộ hóa với các nút Follower hoặc Observer thông qua giao thức BDB JE. |
+| Follower  | Nút Follower chịu trách nhiệm đọc siêu dữ liệu. Nếu nút Master thất bại, một nút Follower có thể được chọn làm Master mới. |
+| Observer  | Nút Observer chịu trách nhiệm đọc siêu dữ liệu và chủ yếu được sử dụng để tăng tính đồng thời của truy vấn. Nó không tham gia vào các cuộc bầu cử lãnh đạo cụm. |
 
-Both FE and BE processes are horizontally scalable, enabling a single cluster to support hundreds of machines and tens of petabytes of storage capacity. The FE and BE processes use a consistency protocol to ensure high availability of services and high reliability of data. The storage-compute integrated architecture is highly integrated, significantly reducing the operational complexity of distributed systems.
+Cả quy trình FE và BE đều có thể mở rộng theo chiều ngang, cho phép một cụm duy nhất hỗ trợ hàng trăm máy và hàng chục petabyte dung lượng lưu trữ. Các quy trình FE và BE sử dụng giao thức nhất quán để đảm bảo tính khả dụng cao của dịch vụ và độ tin cậy cao của dữ liệu. Kiến trúc tích hợp lưu trữ-tính toán được tích hợp cao, giảm đáng kể độ phức tạp vận hành của các hệ thống phân tán.
 
 
-## Core Features of Apache Doris
+## Tính năng cốt lõi của Apache Doris
 
-- **High Availability**: In Apache Doris, both metadata and data are stored with multiple replicas, synchronizing data logs via the quorum protocol. Data write is considered successful once a majority of replicas have completed the write, ensuring that the cluster remains available even if a few nodes fail. Apache Doris supports both same-city and cross-region disaster recovery, enabling dual-cluster master-slave modes. When some nodes experience failures, the cluster can automatically isolate the faulty nodes, preventing the overall cluster availability from being affected.
+- **Tính khả dụng cao**: Trong Apache Doris, cả siêu dữ liệu và dữ liệu đều được lưu trữ với nhiều bản sao, đồng bộ hóa nhật ký dữ liệu thông qua giao thức quorum. Việc ghi dữ liệu được coi là thành công khi đa số các bản sao đã hoàn thành việc ghi, đảm bảo rằng cụm vẫn khả dụng ngay cả khi một số nút thất bại. Apache Doris hỗ trợ cả khôi phục sau thảm họa trong cùng thành phố và giữa các khu vực, cho phép các chế độ chủ-tớ cụm kép. Khi một số nút gặp sự cố, cụm có thể tự động cách ly các nút lỗi, ngăn chặn tính khả dụng tổng thể của cụm bị ảnh hưởng.
 
-- **High Compatibility**: Apache Doris is highly compatible with the MySQL protocol and supports standard SQL syntax, covering most MySQL and Hive functions. This high compatibility allows users to seamlessly migrate and integrate existing applications and tools. Apache Doris supports the MySQL ecosystem, enabling users to connect Doris using MySQL Client tools for more convenient operations and maintenance. It also supports MySQL protocol compatibility for BI reporting tools and data transmission tools, ensuring efficiency and stability in data analysis and data transmission processes.
+- **Tương thích cao**: Apache Doris tương thích cao với giao thức MySQL và hỗ trợ cú pháp SQL tiêu chuẩn, bao gồm hầu hết các chức năng MySQL và Hive. Tính tương thích cao này cho phép người dùng di chuyển và tích hợp liền mạch các ứng dụng và công cụ hiện có. Apache Doris hỗ trợ hệ sinh thái MySQL, cho phép người dùng kết nối Doris bằng các công cụ MySQL Client để vận hành và bảo trì thuận tiện hơn. Nó cũng hỗ trợ tương thích giao thức MySQL cho các công cụ báo cáo BI và công cụ truyền dữ liệu, đảm bảo hiệu quả và ổn định trong các quy trình phân tích dữ liệu và truyền dữ liệu.
 
-- **Real-Time Data Warehouse**: Based on Apache Doris, a real-time data warehouse service can be built. Apache Doris offers second-level data ingestion capabilities, capturing incremental changes from upstream online transactional databases into Doris within seconds. Leveraging vectorized engines, MPP architecture, and Pipeline execution engines, Doris provides sub-second data query capabilities, thereby constructing a high-performance, low-latency real-time data warehouse platform.
+- **Kho dữ liệu thời gian thực**: Dựa trên Apache Doris, một dịch vụ kho dữ liệu thời gian thực có thể được xây dựng. Apache Doris cung cấp khả năng thu thập dữ liệu cấp giây, nắm bắt các thay đổi gia tăng từ các cơ sở dữ liệu giao dịch trực tuyến thượng nguồn vào Doris trong vòng vài giây. Tận dụng các động cơ vectơ hóa, kiến trúc MPP và động cơ thực thi Pipeline, Doris cung cấp khả năng truy vấn dữ liệu dưới một giây, do đó xây dựng một nền tảng kho dữ liệu thời gian thực hiệu suất cao và độ trễ thấp.
 
-- **Unified Lakehouse**: Apache Doris can build a unified lakehouse architecture based on external data sources such as data lakes or relational databases. The Doris unified lakehouse solution enables seamless integration and free data flow between data lakes and data warehouses, helping users directly utilize data warehouse capabilities to solve data analysis problems in data lakes while fully leveraging data lake data management capabilities to enhance data value.
+- **Hồ dữ liệu thống nhất**: Apache Doris có thể xây dựng kiến trúc hồ dữ liệu thống nhất dựa trên các nguồn dữ liệu bên ngoài như hồ dữ liệu hoặc cơ sở dữ liệu quan hệ. Giải pháp hồ dữ liệu thống nhất của Doris cho phép tích hợp liền mạch và luồng dữ liệu tự do giữa hồ dữ liệu và kho dữ liệu, giúp người dùng sử dụng trực tiếp khả năng kho dữ liệu để giải quyết các vấn đề phân tích dữ liệu trong hồ dữ liệu trong khi tận dụng đầy đủ khả năng quản lý dữ liệu hồ dữ liệu để tăng giá trị dữ liệu.
 
-- **Flexible Modeling**: Apache Doris offers various modeling approaches, such as wide table models, pre-aggregation models, star/snowflake schemas, etc. During data import, data can be flattened into wide tables and written into Doris through compute engines like Flink or Spark, or data can be directly imported into Doris, performing data modeling operations through views, materialized views, or real-time multi-table joins.
+- **Mô hình hóa linh hoạt**: Apache Doris cung cấp các phương pháp mô hình hóa khác nhau, chẳng hạn như mô hình bảng rộng, mô hình tiền tổng hợp, lược đồ sao/bông tuyết, v.v. Trong quá trình nhập dữ liệu, dữ liệu có thể được làm phẳng thành bảng rộng và ghi vào Doris thông qua các động cơ tính toán như Flink hoặc Spark, hoặc dữ liệu có thể được nhập trực tiếp vào Doris, thực hiện các hoạt động mô hình hóa dữ liệu thông qua chế độ xem, chế độ xem vật chất hóa hoặc kết hợp nhiều bảng thời gian thực.
 
-## Technical overview
+## Tổng quan kỹ thuật
 
-Doris provides an efficient SQL interface and is fully compatible with the MySQL protocol. Its query engine is based on an MPP (Massively Parallel Processing) architecture, capable of efficiently executing complex analytical queries and achieving low-latency real-time queries. Through columnar storage technology for data encoding and compression, it significantly optimizes query performance and storage compression ratio.
+Doris cung cấp giao diện SQL hiệu quả và hoàn toàn tương thích với giao thức MySQL. Động cơ truy vấn của nó dựa trên kiến trúc MPP (xử lý song song lớn), có khả năng thực thi hiệu quả các truy vấn phân tích phức tạp và đạt được các truy vấn thời gian thực độ trễ thấp. Thông qua công nghệ lưu trữ cột cho mã hóa và nén dữ liệu, nó tối ưu hóa đáng kể hiệu suất truy vấn và tỷ lệ nén lưu trữ.
 
-### Interface
+### Giao diện
 
-Apache Doris adopts the MySQL protocol, supports standard SQL, and is highly compatible with MySQL syntax. Users can access Apache Doris through various client tools and seamlessly integrate it with BI tools, including but not limited to Smartbi, DataEase, FineBI, Tableau, Power BI, and Apache Superset. Apache Doris can work as the data source for any BI tools that support the MySQL protocol.
+Apache Doris áp dụng giao thức MySQL, hỗ trợ SQL tiêu chuẩn và tương thích cao với cú pháp MySQL. Người dùng có thể truy cập Apache Doris thông qua các công cụ khách khác nhau và tích hợp liền mạch với các công cụ BI, bao gồm nhưng không giới hạn ở Smartbi, DataEase, FineBI, Tableau, Power BI và Apache Superset. Apache Doris có thể hoạt động như nguồn dữ liệu cho bất kỳ công cụ BI nào hỗ trợ giao thức MySQL.
 
-### Storage engine
+### Động cơ lưu trữ
 
-Apache Doris has a columnar storage engine, which encodes, compresses, and reads data by column. This enables a very high data compression ratio and largely reduces unnecessary data scanning, thus making more efficient use of IO and CPU resources.
+Apache Doris có động cơ lưu trữ cột, mã hóa, nén và đọc dữ liệu theo cột. Điều này cho phép tỷ lệ nén dữ liệu rất cao và giảm đáng kể việc quét dữ liệu không cần thiết, do đó sử dụng hiệu quả hơn tài nguyên IO và CPU.
 
-Apache Doris supports various index structures to minimize data scans:
+Apache Doris hỗ trợ các cấu trúc chỉ mục khác nhau để giảm thiểu việc quét dữ liệu:
 
-- **Sorted Compound Key Index**: Users can specify three columns at most to form a compound sort key. This can effectively prune data to better support highly concurrent reporting scenarios.
+- **Chỉ mục khóa hợp chất được sắp xếp**: Người dùng có thể chỉ định tối đa ba cột để tạo thành khóa sắp xếp hợp chất. Điều này có thể cắt tỉa dữ liệu hiệu quả để hỗ trợ tốt hơn các kịch bản báo cáo đồng thời cao.
 
-- **Min/Max Index**: This enables effective data filtering in equivalence and range queries of numeric types.
+- **Chỉ mục Min/Max**: Điều này cho phép lọc dữ liệu hiệu quả trong các truy vấn tương đương và phạm vi của các loại số.
 
-- **BloomFilter Index**: This is very effective in equivalence filtering and pruning of high-cardinality columns.
+- **Chỉ mục BloomFilter**: Điều này rất hiệu quả trong việc lọc tương đương và cắt tỉa các cột có độ lớn cao.
 
-- **Inverted Index**: This enables fast searching for any field.
+- **Chỉ mục đảo ngược**: Điều này cho phép tìm kiếm nhanh cho bất kỳ trường nào.
 
-Apache Doris supports a variety of data models and has optimized them for different scenarios:
+Apache Doris hỗ trợ nhiều mô hình dữ liệu và đã tối ưu hóa chúng cho các kịch bản khác nhau:
 
-- **Detail Model (Duplicate Key Model):** A detail data model designed to meet the detailed storage requirements of fact tables.
+- **Mô hình chi tiết (Mô hình khóa trùng lặp):** Mô hình dữ liệu chi tiết được thiết kế để đáp ứng các yêu cầu lưu trữ chi tiết của bảng sự kiện.
 
-- **Primary Key Model (Unique Key Model):** Ensures unique keys; data with the same key is overwritten, enabling row-level data updates.
+- **Mô hình khóa chính (Mô hình khóa duy nhất):** Đảm bảo các khóa duy nhất; dữ liệu có cùng khóa được ghi đè, cho phép cập nhật dữ liệu ở cấp hàng.
 
-- **Aggregate Model (Aggregate Key Model):** Merges value columns with the same key, significantly improving performance through pre-aggregation.
+- **Mô hình tổng hợp (Mô hình khóa tổng hợp):** Hợp nhất các cột giá trị có cùng khóa, cải thiện đáng kể hiệu suất thông qua tiền tổng hợp.
 
-Apache Doris also supports strongly consistent single-table materialized views and asynchronously refreshed multi-table materialized views. Single-table materialized views are automatically refreshed and maintained by the system, requiring no manual intervention from users. Multi-table materialized views can be refreshed periodically using in-cluster scheduling or external scheduling tools, reducing the complexity of data modeling.
+Apache Doris cũng hỗ trợ các chế độ xem vật chất hóa bảng đơn nhất quán mạnh và các chế độ xem vật chất hóa đa bảng được làm mới không đồng bộ. Các chế độ xem vật chất hóa bảng đơn được hệ thống tự động làm mới và duy trì, không yêu cầu can thiệp thủ công từ người dùng. Các chế độ xem vật chất hóa đa bảng có thể được làm mới định kỳ bằng cách sử dụng lập lịch trong cụm hoặc công cụ lập lịch bên ngoài, giảm độ phức tạp của mô hình hóa dữ liệu.
 
-### 🔍 Query Engine
+### 🔍 Động cơ truy vấn
 
-Apache Doris has an MPP-based query engine for parallel execution between and within nodes. It supports distributed shuffle join for large tables to better handle complicated queries.
+Apache Doris có động cơ truy vấn dựa trên MPP để thực thi song song giữa và trong các nút. Nó hỗ trợ kết hợp shuffle phân tán cho các bảng lớn để xử lý tốt hơn các truy vấn phức tạp.
 
 <br />
 
@@ -191,7 +188,7 @@ Apache Doris has an MPP-based query engine for parallel execution between and wi
 
 <br />
 
-The query engine of Apache Doris is fully vectorized, with all memory structures laid out in a columnar format. This can largely reduce virtual function calls, increase cache hit rates, and make efficient use of SIMD instructions. Apache Doris delivers a 5~10 times higher performance in wide table aggregation scenarios than non-vectorized engines.
+Động cơ truy vấn của Apache Doris được vectơ hóa hoàn toàn, với tất cả các cấu trúc bộ nhớ được bố trí ở định dạng cột. Điều này có thể giảm đáng kể các cuộc gọi hàm ảo, tăng tỷ lệ trúng bộ nhớ cache và sử dụng hiệu quả các lệnh SIMD. Apache Doris cung cấp hiệu suất cao hơn 5-10 lần trong các kịch bản tổng hợp bảng rộng so với các động cơ không được vectơ hóa.
 
 <br />
 
@@ -199,116 +196,115 @@ The query engine of Apache Doris is fully vectorized, with all memory structures
 
 <br />
 
-Apache Doris uses adaptive query execution technology to dynamically adjust the execution plan based on runtime statistics. For example, it can generate a runtime filter and push it to the probe side. Specifically, it pushes the filters to the lowest-level scan node on the probe side, which largely reduces the data amount to be processed and increases join performance. The runtime filter of Apache Doris supports In/Min/Max/Bloom Filter.
+Apache Doris sử dụng công nghệ thực thi truy vấn thích ứng để điều chỉnh động kế hoạch thực thi dựa trên thống kê thời gian chạy. Ví dụ, nó có thể tạo bộ lọc thời gian chạy và đẩy nó sang phía đầu dò. Cụ thể, nó đẩy các bộ lọc đến nút quét cấp thấp nhất ở phía đầu dò, điều này giảm đáng kể lượng dữ liệu cần xử lý và tăng hiệu suất kết hợp. Bộ lọc thời gian chạy của Apache Doris hỗ trợ In/Min/Max/Bloom Filter.
 
-Apache Doris uses a Pipeline execution engine that breaks down queries into multiple sub-tasks for parallel execution, fully leveraging multi-core CPU capabilities. It simultaneously addresses the thread explosion problem by limiting the number of query threads. The Pipeline execution engine reduces data copying and sharing, optimizes sorting and aggregation operations, thereby significantly improving query efficiency and throughput.
+Apache Doris sử dụng động cơ thực thi Pipeline phân tách truy vấn thành nhiều nhiệm vụ con để thực thi song song, tận dụng đầy đủ khả năng CPU đa lõi. Nó đồng thời giải quyết vấn đề bùng nổ luồng bằng cách giới hạn số lượng luồng truy vấn. Động cơ thực thi Pipeline giảm sao chép và chia sẻ dữ liệu, tối ưu hóa các hoạt động sắp xếp và tổng hợp, do đó cải thiện đáng kể hiệu quả và thông lượng truy vấn.
 
-In terms of the optimizer, Apache Doris employs a combined optimization strategy of CBO (Cost-Based Optimizer), RBO (Rule-Based Optimizer), and HBO (History-Based Optimizer). RBO supports constant folding, subquery rewriting, predicate pushdown, and more. CBO supports join reordering and other optimizations. HBO recommends the optimal execution plan based on historical query information. These multiple optimization measures ensure that Doris can enumerate high-performance query plans across various types of queries.
+Về mặt tối ưu hóa, Apache Doris sử dụng chiến lược tối ưu hóa kết hợp của CBO (tối ưu hóa dựa trên chi phí), RBO (tối ưu hóa dựa trên quy tắc) và HBO (tối ưu hóa dựa trên lịch sử). RBO hỗ trợ gấp hằng số, viết lại truy vấn con, đẩy xuống vị ngữ và hơn thế nữa. CBO hỗ trợ sắp xếp lại kết hợp và các tối ưu hóa khác. HBO đề xuất kế hoạch thực thi tối ưu dựa trên thông tin truy vấn lịch sử. Các biện pháp tối ưu hóa đa dạng này đảm bảo rằng Doris có thể liệt kê các kế hoạch truy vấn hiệu suất cao cho các loại truy vấn khác nhau.
 
 
-## 🎆 Why choose Apache Doris?
+## 🎆 Tại sao chọn Apache Doris?
 
-- 🎯 **Easy to Use:** Two processes, no other dependencies; online cluster scaling, automatic replica recovery; compatible with MySQL protocol, and using standard SQL.
+- 🎯 **Dễ sử dụng**: Hai quy trình, không có phụ thuộc khác; mở rộng cụm trực tuyến, khôi phục bản sao tự động; tương thích với giao thức MySQL và sử dụng SQL tiêu chuẩn.
 
-- 🚀 **High Performance:** Extremely fast performance for low-latency and high-throughput queries with columnar storage engine, modern MPP architecture, vectorized query engine, pre-aggregated materialized view and data index.
+- 🚀 **Hiệu suất cao**: Hiệu suất cực nhanh cho các truy vấn độ trễ thấp và thông lượng cao với động cơ lưu trữ cột, kiến trúc MPP hiện đại, động cơ truy vấn vectơ hóa, chế độ xem vật chất hóa tiền tổng hợp và chỉ mục dữ liệu.
 
-- 🖥️ **Single Unified:** A single system can support real-time data serving, interactive data analysis and offline data processing scenarios.
+- 🖥️ **Thống nhất duy nhất**: Một hệ thống duy nhất có thể hỗ trợ các kịch bản phục vụ dữ liệu thời gian thực, phân tích dữ liệu tương tác và xử lý dữ liệu ngoại tuyến.
 
-- ⚛️ **Federated Querying:** Supports federated querying of data lakes such as Hive, Iceberg, Hudi, and databases such as MySQL and Elasticsearch.
+- ⚛️ **Truy vấn liên kết**: Hỗ trợ truy vấn liên kết của hồ dữ liệu như Hive, Iceberg, Hudi và cơ sở dữ liệu như MySQL và Elasticsearch.
 
-- ⏩ **Various Data Import Methods:** Supports batch import from HDFS/S3 and stream import from MySQL Binlog/Kafka; supports micro-batch writing through HTTP interface and real-time writing using Insert in JDBC.
+- ⏩ **Nhiều phương pháp nhập dữ liệu**: Hỗ trợ nhập hàng loạt từ HDFS/S3 và nhập luồng từ MySQL Binlog/Kafka; hỗ trợ ghi micro-batch thông qua giao diện HTTP và ghi thời gian thực bằng Insert trong JDBC.
 
-- 🚙 **Rich Ecology:** Spark uses Spark-Doris-Connector to read and write Doris; Flink-Doris-Connector enables Flink CDC to implement exactly-once data writing to Doris; DBT Doris Adapter is provided to transform data in Doris with DBT.
+- 🚙 **Hệ sinh thái phong phú**: Spark sử dụng Spark-Doris-Connector để đọc và ghi Doris; Flink-Doris-Connector cho phép Flink CDC thực hiện ghi dữ liệu chính xác một lần vào Doris; DBT Doris Adapter được cung cấp để chuyển đổi dữ liệu trong Doris với DBT.
 
-## 🙌 Contributors
+## 🙌 Người đóng góp
 
-**Apache Doris has graduated from Apache incubator successfully and become a Top-Level Project in June 2022**. 
+**Apache Doris đã tốt nghiệp thành công từ lò ấp Apache và trở thành dự án cấp cao nhất vào tháng 6 năm 2022**.
 
-We deeply appreciate 🔗[community contributors](https://github.com/apache/doris/graphs/contributors) for their contribution to Apache Doris.
+Chúng tôi đánh giá cao 🔗[người đóng góp cộng đồng](https://github.com/apache/doris/graphs/contributors) vì sự đóng góp của họ cho Apache Doris.
 
 [![contrib graph](https://contrib.rocks/image?repo=apache/doris)](https://github.com/apache/doris/graphs/contributors)
 
-## 👨‍👩‍👧‍👦 Users
+## 👨‍👩‍👧‍👦 Người dùng
 
-Apache Doris now has a wide user base in China and around the world, and as of today, **Apache Doris is used in production environments in thousands of companies worldwide.** More than 80% of the top 50 Internet companies in China in terms of market capitalization or valuation have been using Apache Doris for a long time, including Baidu, Meituan, Xiaomi, Jingdong, Bytedance, Tencent, NetEase, Kwai, Sina, 360, Mihoyo, and Ke Holdings. It is also widely used in some traditional industries such as finance, energy, manufacturing, and telecommunications.
+Apache Doris hiện có cơ sở người dùng rộng lớn ở Trung Quốc và trên toàn thế giới, và tính đến ngày nay, **Apache Doris được sử dụng trong môi trường sản xuất tại hàng nghìn công ty trên toàn thế giới.** Hơn 80% trong số 50 công ty Internet hàng đầu ở Trung Quốc về vốn hóa thị trường hoặc định giá đã sử dụng Apache Doris trong thời gian dài, bao gồm Baidu, Meituan, Xiaomi, Jingdong, Bytedance, Tencent, NetEase, Kwai, Sina, 360, Mihoyo và Ke Holdings. Nó cũng được sử dụng rộng rãi trong một số ngành truyền thống như tài chính, năng lượng, sản xuất và viễn thông.
 
-The users of Apache Doris: 🔗[Users](https://doris.apache.org/users)
+Người dùng của Apache Doris: 🔗[Người dùng](https://doris.apache.org/users)
 
-Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://github.com/apache/doris/discussions/27683)
+Thêm logo công ty của bạn tại Trang web Apache Doris: 🔗[Thêm công ty của bạn](https://github.com/apache/doris/discussions/27683)
  
-## 👣 Get Started
+## 👣 Bắt đầu
 
-### 📚 Docs
+### 📚 Tài liệu
 
-All Documentation   🔗[Docs](https://doris.apache.org/docs/gettingStarted/what-is-apache-doris)  
+Tất cả tài liệu   🔗[Tài liệu](https://doris.apache.org/docs/gettingStarted/what-is-apache-doris)  
 
-### ⬇️ Download 
+### ⬇️ Tải xuống 
 
-All release and binary version 🔗[Download](https://doris.apache.org/download) 
+Tất cả phiên bản phát hành và nhị phân 🔗[Tải xuống](https://doris.apache.org/download) 
 
-### 🗄️ Compile
+### 🗄️ Biên dịch
 
-See how to compile  🔗[Compilation](https://doris.apache.org/community/source-install/compilation-with-docker))
+Xem cách biên dịch  🔗[Biên dịch](https://doris.apache.org/community/source-install/compilation-with-docker))
 
-### 📮 Install
+### 📮 Cài đặt
 
-See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/install/preparation/env-checking) 
+Xem cách cài đặt và triển khai 🔗[Cài đặt và triển khai](https://doris.apache.org/docs/install/preparation/env-checking) 
 
-## 🧩 Components
+## 🧩 Thành phần
 
 ### 📝 Doris Connector
 
-Doris provides support for Spark/Flink to read data stored in Doris through Connector, and also supports to write data to Doris through Connector.
+Doris cung cấp hỗ trợ cho Spark/Flink để đọc dữ liệu được lưu trữ trong Doris thông qua Connector và cũng hỗ trợ ghi dữ liệu vào Doris thông qua Connector.
 
 🔗[apache/doris-flink-connector](https://github.com/apache/doris-flink-connector)
 
 🔗[apache/doris-spark-connector](https://github.com/apache/doris-spark-connector)
 
 
-## 🌈 Community and Support
+## 🌈 Cộng đồng và hỗ trợ
 
-### 📤 Subscribe Mailing Lists
+### 📤 Đăng ký danh sách thư
 
-Mail List is the most recognized form of communication in Apache community. See how to 🔗[Subscribe Mailing Lists](https://doris.apache.org/community/subscribe-mail-list)
+Danh sách thư là hình thức giao tiếp được công nhận nhất trong cộng đồng Apache. Xem cách 🔗[Đăng ký danh sách thư](https://doris.apache.org/community/subscribe-mail-list)
 
-### 🙋 Report Issues or Submit Pull Request
+### 🙋 Báo cáo vấn đề hoặc gửi Pull Request
 
-If you meet any questions, feel free to file a 🔗[GitHub Issue](https://github.com/apache/doris/issues) or post it in 🔗[GitHub Discussion](https://github.com/apache/doris/discussions) and fix it by submitting a 🔗[Pull Request](https://github.com/apache/doris/pulls) 
+Nếu bạn gặp bất kỳ câu hỏi nào, vui lòng tạo 🔗[GitHub Issue](https://github.com/apache/doris/issues) hoặc đăng nó trong 🔗[GitHub Discussion](https://github.com/apache/doris/discussions) và sửa nó bằng cách gửi 🔗[Pull Request](https://github.com/apache/doris/pulls) 
 
-### 🍻 How to Contribute
+### 🍻 Cách đóng góp
 
-We welcome your suggestions, comments (including criticisms), comments and contributions. See 🔗[How to Contribute](https://doris.apache.org/community/how-to-contribute/) and 🔗[Code Submission Guide](https://doris.apache.org/community/how-to-contribute/pull-request/)
+Chúng tôi hoan nghênh các đề xuất, nhận xét (bao gồm cả chỉ trích), nhận xét và đóng góp của bạn. Xem 🔗[Cách đóng góp](https://doris.apache.org/community/how-to-contribute/) và 🔗[Hướng dẫn gửi mã](https://doris.apache.org/community/how-to-contribute/pull-request/)
 
-### ⌨️ Doris Improvement Proposals (DSIP)
+### ⌨️ Đề xuất cải tiến Doris (DSIP)
 
-🔗[Doris Improvement Proposal (DSIP)](https://cwiki.apache.org/confluence/display/DORIS/Doris+Improvement+Proposals) can be thought of as **A Collection of Design Documents for all Major Feature Updates or Improvements**.
+🔗[Đề xuất cải tiến Doris (DSIP)](https://cwiki.apache.org/confluence/display/DORIS/Doris+Improvement+Proposals) có thể được coi là **Bộ sưu tập tài liệu thiết kế cho tất cả các cập nhật hoặc cải tiến tính năng chính**.
 
-### 🔑 Backend C++ Coding Specification
-🔗 [Backend C++ Coding Specification](https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=240883637) should be strictly followed, which will help us achieve better code quality.
+### 🔑 Đặc tả mã hóa Backend C++
+🔗 [Đặc tả mã hóa Backend C++](https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=240883637) phải được tuân thủ nghiêm ngặt, điều này sẽ giúp chúng tôi đạt được chất lượng mã tốt hơn.
 
-## 💬 Contact Us
+## 💬 Liên hệ với chúng tôi
 
-Contact us through the following mailing list.
+Liên hệ với chúng tôi thông qua danh sách thư sau.
 
-| Name                                                                          | Scope                           |                                                                 |                                                                     |                                                                              |
+| Tên                                                                          | Phạm vi                           |                                                                 |                                                                     |                                                                              |
 |:------------------------------------------------------------------------------|:--------------------------------|:----------------------------------------------------------------|:--------------------------------------------------------------------|:-----------------------------------------------------------------------------|
-| [dev@doris.apache.org](mailto:dev@doris.apache.org)     | Development-related discussions | [Subscribe](mailto:dev-subscribe@doris.apache.org)   | [Unsubscribe](mailto:dev-unsubscribe@doris.apache.org)   | [Archives](http://mail-archives.apache.org/mod_mbox/doris-dev/)   |
+| [dev@doris.apache.org](mailto:dev@doris.apache.org)     | Thảo luận liên quan đến phát triển | [Đăng ký](mailto:dev-subscribe@doris.apache.org)   | [Hủy đăng ký](mailto:dev-unsubscribe@doris.apache.org)   | [Lưu trữ](http://mail-archives.apache.org/mod_mbox/doris-dev/)   |
 
-## 🧰 Links
+## 🧰 Liên kết
 
-* Apache Doris Official Website - [Site](https://doris.apache.org)
-* Developer Mailing list - <dev@doris.apache.org>. Mail to <dev-subscribe@doris.apache.org>, follow the reply to subscribe the mail list.
-* Slack channel - [Join the Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
-* Twitter - [Follow @doris_apache](https://twitter.com/doris_apache)
+* Trang web chính thức Apache Doris - [Trang web](https://doris.apache.org)
+* Danh sách thư nhà phát triển - <dev@doris.apache.org>. Gửi thư đến <dev-subscribe@doris.apache.org>, làm theo phản hồi để đăng ký danh sách thư.
+* Kênh Slack - [Tham gia Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Twitter - [Theo dõi @doris_apache](https://twitter.com/doris_apache)
 
 
-## 📜 License
+## 📜 Giấy phép
 
 [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 
-> **Note**
-> Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
-some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
-
+> **Lưu ý**
+> Một số giấy phép của các phụ thuộc bên thứ ba không tương thích với Giấy phép Apache 2.0. Vì vậy, bạn cần vô hiệu hóa
+một số tính năng Doris để tuân thủ Giấy phép Apache 2.0. Để biết chi tiết, tham khảo tệp `thirdparty/LICENSE.txt`
 
 

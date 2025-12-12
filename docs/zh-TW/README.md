@@ -19,7 +19,7 @@ under the License.
 
 ## 🌍 閱讀其他語言版本
 
-[العربية](../ar-SA/README.md) • [বাংলা](../bn-BD/README.md) • [Deutsch](../de-DE/README.md) • [English](../../README.md) • [Español](../es-ES/README.md) • [فارسی](../fa-IR/README.md) • [Français](../fr-FR/README.md) • [हिन्दी](../hi-IN/README.md) • [Bahasa Indonesia](../id-ID/README.md) • [Italiano](../it-IT/README.md) • [日本語](../ja-JP/README.md) • [한국어](../ko-KR/README.md) • [Polski](../pl-PL/README.md) • [Português](../pt-BR/README.md) • [Română](../ro-RO/README.md) • [Русский](../ru-RU/README.md) • [Slovenščina](../sl-SI/README.md) • [ไทย](../th-TH/README.md) • [Türkçe](../tr-TR/README.md) • [Українська](../uk-UA/README.md) • [Tiếng Việt](../vi-VN/README.md) • [简体中文](../zh-CN/README.md) • [繁體中文](README.md)
+[English](../../README.md) • [简体中文](../zh-CN/README.md) • [繁體中文](README.md) • [日本語](../ja-JP/README.md) • [한국어](../ko-KR/README.md) • [Español](../es-ES/README.md) • [Français](../fr-FR/README.md) • [Deutsch](../de-DE/README.md) • [العربية](../ar-SA/README.md) • [Türkçe](../tr-TR/README.md) • [Tiếng Việt](../vi-VN/README.md) • [বাংলা](../bn-BD/README.md) • [Română](../ro-RO/README.md) • [Polski](../pl-PL/README.md) • [हिन्दी](../hi-IN/README.md) • [فارسی](../fa-IR/README.md) • [Slovenščina](../sl-SI/README.md) • [Bahasa Indonesia](../id-ID/README.md) • [Português](../pt-BR/README.md) • [Русский](../ru-RU/README.md) • [Italiano](../it-IT/README.md) • [ไทย](../th-TH/README.md) • [Українська](../uk-UA/README.md)
 
 <div align="center">
 
@@ -56,10 +56,6 @@ under the License.
 
 ---
 
-
-
-
-
 <p align="center">
 
   <a href="https://trendshift.io/repositories/1156" target="_blank"><img src="https://trendshift.io/api/badge/repositories/1156" alt="apache%2Fdoris | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -69,7 +65,7 @@ under the License.
 
 
 
-基於 MPP 架構的易用、高效能、即時的分析型資料庫，以其極速和易用性而聞名。它僅需亞秒級響應時間即可返回海量資料下的查詢結果，不僅可以支援高併發的點查詢場景，也能支援高吞吐的複雜分析場景。
+Apache Doris 是一個基於 MPP 架構的易用、高效能、即時的分析型資料庫，以其極速和易用性而聞名。它僅需亞秒級響應時間即可返回海量資料下的查詢結果，不僅可以支援高併發的點查詢場景，也能支援高吞吐的複雜分析場景。
 
 所有這些特性使得 Apache Doris 成為報表分析、即席查詢、統一數倉構建、資料湖查詢加速等場景的理想工具。在 Apache Doris 上，使用者可以構建各種應用，如使用者行為分析、AB 測試平台、日誌檢索分析、使用者畫像分析、訂單分析等。
 
@@ -291,7 +287,7 @@ Doris 通過 Connector 支援 Spark/Flink 讀取儲存在 Doris 中的資料，�
 
 通過以下郵件列表聯絡我們。
 
-| Name                                                                          | Scope                           |                                                                 |                                                                     |                                                                              |
+| 名稱                                                                          | 範圍                           |                                                                 |                                                                     |                                                                              |
 |:------------------------------------------------------------------------------|:--------------------------------|:----------------------------------------------------------------|:--------------------------------------------------------------------|:-----------------------------------------------------------------------------|
 | [dev@doris.apache.org](mailto:dev@doris.apache.org)     | 開發相關討論 | [訂閱](mailto:dev-subscribe@doris.apache.org)   | [取消訂閱](mailto:dev-unsubscribe@doris.apache.org)   | [歸檔](http://mail-archives.apache.org/mod_mbox/doris-dev/)   |
 
@@ -309,6 +305,5 @@ Doris 通過 Connector 支援 Spark/Flink 讀取儲存在 Doris 中的資料，�
 
 > **注意**
 > 某些第三方依賴項的許可證與 Apache 2.0 許可證不相容。因此，您需要停用某些 Doris 功能以符合 Apache 2.0 許可證。有關詳細資訊，請參閱 `thirdparty/LICENSE.txt`
-
 
 
