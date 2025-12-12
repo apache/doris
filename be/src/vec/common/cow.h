@@ -417,6 +417,12 @@ public:
     }
 #include "common/compile_check_avoid_end.h"
 
+    static Ptr cast_to_column_ptr(const Derived* raw_type_ptr) { return Ptr(raw_type_ptr); }
+
+    static MutablePtr cast_to_column_mutptr(Derived* raw_type_ptr) {
+        return MutablePtr(raw_type_ptr);
+    }
+
     typename Base::MutablePtr clone() const override {
         return typename Base::MutablePtr(new Derived(static_cast<const Derived&>(*this)));
     }
