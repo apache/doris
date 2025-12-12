@@ -568,6 +568,18 @@ merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"100
         },
         R"({"items":[{"key_id":"23456","key":"key_1"}]})",
     },
+    Input {
+        "PackedFileKey",
+        "instance_id=gavin-instance&packed_file_path=/path/to/file",
+        {"01106d657461000110676176696e2d696e7374616e63650001107061636b65645f66696c650001102f706174682f746f2f66696c650001"},
+        []() -> std::vector<std::string> {
+            PackedFileInfoPB pb;
+            pb.set_resource_id("resource_id");
+            pb.set_ref_cnt(5);
+            return {pb.SerializeAsString()};
+        },
+        R"({"ref_cnt":"5","resource_id":"resource_id"})",
+    },
 };
 // clang-format on
 
@@ -637,4 +649,430 @@ TEST(HttpGetValueTest, process_http_get_value_test_cover_all_template) {
         // std::cout << http_res.body << std::endl;
         EXPECT_EQ(http_res.body, input.value);
     }
+}
+
+// Test data for versioned keys
+// clang-format off
+static auto versioned_test_inputs = std::array {
+    Input {
+        "VersionedPartitionVersionKey",
+        "instance_id=gavin-instance&partition_id=10086",
+        {"031076657273696f6e000110676176696e2d696e7374616e6365000110706172746974696f6e0001120000000000002766"},
+        []() -> std::vector<std::string> {
+            VersionPB pb;
+            pb.set_version(100);
+            return {pb.SerializeAsString()};
+        },
+        R"({"version":"100"})",
+    },
+    Input {
+        "VersionedTableVersionKey",
+        "instance_id=gavin-instance&table_id=10086",
+        {"031076657273696f6e000110676176696e2d696e7374616e63650001107461626c650001120000000000002766"},
+        []() -> std::vector<std::string> {
+            return {""};
+        },
+        "",
+    },
+    Input {
+        "VersionedPartitionIndexKey",
+        "instance_id=gavin-instance&partition_id=10086",
+        {"0310696e646578000110676176696e2d696e7374616e6365000110706172746974696f6e0001120000000000002766"},
+        []() -> std::vector<std::string> {
+            PartitionIndexPB pb;
+            pb.set_db_id(10000);
+            pb.set_table_id(20000);
+            return {pb.SerializeAsString()};
+        },
+        R"({"db_id":"10000","table_id":"20000"})",
+    },
+    Input {
+        "VersionedPartitionInvertedIndexKey",
+        "instance_id=gavin-instance&db_id=10000&table_id=20000&partition_id=10086",
+        {"0310696e646578000110676176696e2d696e7374616e6365000110706172746974696f6e5f696e7665727465640001120000000000002710120000000000004e20120000000000002766"},
+        []() -> std::vector<std::string> {
+            return {""};
+        },
+        "",
+    },
+    Input {
+        "VersionedTabletIndexKey",
+        "instance_id=gavin-instance&tablet_id=10086",
+        {"0310696e646578000110676176696e2d696e7374616e63650001107461626c65740001120000000000002766"},
+        []() -> std::vector<std::string> {
+            TabletIndexPB pb;
+            pb.set_table_id(20000);
+            pb.set_index_id(30000);
+            pb.set_partition_id(10086);
+            pb.set_tablet_id(10086);
+            return {pb.SerializeAsString()};
+        },
+        R"({"table_id":"20000","index_id":"30000","partition_id":"10086","tablet_id":"10086"})",
+    },
+    Input {
+        "VersionedTabletInvertedIndexKey",
+        "instance_id=gavin-instance&db_id=10000&table_id=20000&index_id=30000&partition_id=10086&tablet_id=10087",
+        {"0310696e646578000110676176696e2d696e7374616e63650001107461626c65745f696e7665727465640001120000000000002710120000000000004e20120000000000007530120000000000002766120000000000002767"},
+        []() -> std::vector<std::string> {
+            return {""};
+        },
+        "",
+    },
+    Input {
+        "VersionedIndexIndexKey",
+        "instance_id=gavin-instance&index_id=10086",
+        {"0310696e646578000110676176696e2d696e7374616e6365000110696e6465780001120000000000002766"},
+        []() -> std::vector<std::string> {
+            IndexIndexPB pb;
+            pb.set_db_id(10000);
+            pb.set_table_id(20000);
+            return {pb.SerializeAsString()};
+        },
+        R"({"db_id":"10000","table_id":"20000"})",
+    },
+    Input {
+        "VersionedIndexInvertedKey",
+        "instance_id=gavin-instance&db_id=10000&table_id=20000&index_id=10086",
+        {"0310696e646578000110676176696e2d696e7374616e6365000110696e6465785f696e7665727465640001120000000000002710120000000000004e20120000000000002766"},
+        []() -> std::vector<std::string> {
+            return {""};
+        },
+        "",
+    },
+    Input {
+        "VersionedTabletLoadStatsKey",
+        "instance_id=gavin-instance&tablet_id=10086",
+        {"03107374617473000110676176696e2d696e7374616e63650001107461626c65745f6c6f61640001120000000000002766"},
+        []() -> std::vector<std::string> {
+            TabletStatsPB pb;
+            pb.set_data_size(1024);
+            pb.set_num_rows(100);
+            pb.set_num_rowsets(10);
+            pb.set_num_segments(20);
+            return {pb.SerializeAsString()};
+        },
+        R"({"data_size":"1024","num_rows":"100","num_rowsets":"10","num_segments":"20"})",
+    },
+    Input {
+        "VersionedTabletCompactStatsKey",
+        "instance_id=gavin-instance&tablet_id=10086",
+        {"03107374617473000110676176696e2d696e7374616e63650001107461626c65745f636f6d706163740001120000000000002766"},
+        []() -> std::vector<std::string> {
+            TabletStatsPB pb;
+            pb.set_data_size(2048);
+            pb.set_num_rows(200);
+            pb.set_num_rowsets(20);
+            pb.set_num_segments(40);
+            return {pb.SerializeAsString()};
+        },
+        R"({"data_size":"2048","num_rows":"200","num_rowsets":"20","num_segments":"40"})",
+    },
+    Input {
+        "VersionedMetaPartitionKey",
+        "instance_id=gavin-instance&partition_id=10086",
+        {"03106d657461000110676176696e2d696e7374616e6365000110706172746974696f6e0001120000000000002766"},
+        []() -> std::vector<std::string> {
+            return {""};
+        },
+        "",
+    },
+    Input {
+        "VersionedMetaIndexKey",
+        "instance_id=gavin-instance&index_id=10086",
+        {"03106d657461000110676176696e2d696e7374616e6365000110696e6465780001120000000000002766"},
+        []() -> std::vector<std::string> {
+            return {""};
+        },
+        "",
+    },
+    Input {
+        "VersionedMetaTabletKey",
+        "instance_id=gavin-instance&tablet_id=10086",
+        {"03106d657461000110676176696e2d696e7374616e63650001107461626c65740001120000000000002766"},
+        []() -> std::vector<std::string> {
+            doris::TabletMetaCloudPB pb;
+            pb.set_table_id(20000);
+            pb.set_index_id(30000);
+            pb.set_partition_id(10086);
+            pb.set_tablet_id(10086);
+            return {pb.SerializeAsString()};
+        },
+        R"({"table_id":"20000","partition_id":"10086","tablet_id":"10086","index_id":"30000"})",
+    },
+    Input {
+        "VersionedMetaSchemaKey",
+        "instance_id=gavin-instance&index_id=10086&schema_version=100",
+        {"03106d657461000110676176696e2d696e7374616e6365000110736368656d610001120000000000002766120000000000000064"},
+        []() -> std::vector<std::string> {
+            doris::TabletSchemaCloudPB pb;
+            pb.set_schema_version(100);
+            auto col = pb.add_column();
+            col->set_unique_id(1);
+            col->set_name("col_1");
+            col->set_type("INT");
+            return {pb.SerializeAsString()};
+        },
+        R"({"column":[{"unique_id":1,"name":"col_1","type":"INT"}],"schema_version":100})",
+    },
+    Input {
+        "VersionedMetaRowsetLoadKey",
+        "instance_id=gavin-instance&tablet_id=10086&version=100",
+        {"03106d657461000110676176696e2d696e7374616e6365000110726f777365745f6c6f61640001120000000000002766120000000000000064"},
+        []() -> std::vector<std::string> {
+            doris::RowsetMetaCloudPB pb;
+            pb.set_rowset_id(0);
+            pb.set_rowset_id_v2("rowset_1");
+            pb.set_tablet_id(10086);
+            pb.set_start_version(100);
+            pb.set_end_version(100);
+            return {pb.SerializeAsString()};
+        },
+        R"({"rowset_id":"0","tablet_id":"10086","start_version":"100","end_version":"100","rowset_id_v2":"rowset_1"})",
+    },
+    Input {
+        "VersionedMetaRowsetCompactKey",
+        "instance_id=gavin-instance&tablet_id=10086&version=100",
+        {"03106d657461000110676176696e2d696e7374616e6365000110726f777365745f636f6d706163740001120000000000002766120000000000000064"},
+        []() -> std::vector<std::string> {
+            doris::RowsetMetaCloudPB pb;
+            pb.set_rowset_id(0);
+            pb.set_rowset_id_v2("rowset_2");
+            pb.set_tablet_id(10086);
+            pb.set_start_version(100);
+            pb.set_end_version(100);
+            return {pb.SerializeAsString()};
+        },
+        R"({"rowset_id":"0","tablet_id":"10086","start_version":"100","end_version":"100","rowset_id_v2":"rowset_2"})",
+    },
+    Input {
+        "VersionedMetaDeleteBitmapKey",
+        "instance_id=gavin-instance&tablet_id=10086&rowset_id=rowset_1",
+        {"03106d657461000110676176696e2d696e7374616e636500011064656c6574655f6269746d6170000112000000000000276610726f777365745f310001"},
+        []() -> std::vector<std::string> {
+            DeleteBitmapStoragePB pb;
+            pb.set_store_in_fdb(false);
+            return {pb.SerializeAsString()};
+        },
+        R"({"store_in_fdb":false})",
+    },
+    Input {
+        "VersionedDataRowsetRefCountKey",
+        "instance_id=gavin-instance&tablet_id=10086&rowset_id=rowset_1",
+        {"031064617461000110676176696e2d696e7374616e6365000110726f777365745f7265665f636f756e74000112000000000000276610726f777365745f310001"},
+        []() -> std::vector<std::string> {
+            int64_t count = 42;
+            std::string value;
+            value.resize(sizeof(int64_t));
+            std::memcpy(value.data(), &count, sizeof(int64_t));
+            return {value};
+        },
+        "42",
+    },
+};
+// clang-format on
+
+TEST(HttpEncodeKeyTest, process_http_encode_versioned_key_test) {
+    static auto format_fdb_key = [](const std::string& s) {
+        std::stringstream r;
+        for (size_t i = 0; i < s.size(); ++i) {
+            if (!(i % 2)) r << "\\x";
+            r << s[i];
+        }
+        return r.str();
+    };
+    brpc::URI uri;
+    (void)uri.get_query_map(); // initialize query map
+    for (auto&& input : versioned_test_inputs) {
+        std::stringstream url;
+        url << "localhost:5000/MetaService/http?key_type=" << input.key_type;
+        if (!input.param.empty()) {
+            url << "&" << input.param;
+        }
+        EXPECT_EQ(uri.SetHttpURL(url.str()), 0); // clear and set query string
+        auto http_res = process_http_encode_key(uri);
+        EXPECT_EQ(http_res.status_code, 200) << "Failed for key_type: " << input.key_type;
+        EXPECT_NE(http_res.body.find(input.key[0]), std::string::npos)
+                << "real full text: " << http_res.body << "\nexpect contains: " << input.key[0]
+                << "\n"
+                << format_fdb_key(input.key[0]) << "\nkey_type: " << input.key_type
+                << "\nurl: " << url.str();
+    }
+}
+
+TEST(HttpEncodeKeyTest, process_http_encode_versioned_key_with_versionstamp) {
+    brpc::URI uri;
+    (void)uri.get_query_map();
+
+    // Test encoding a versioned key with versionstamp parameter
+    uri.SetQuery("key_type", "VersionedPartitionVersionKey");
+    uri.SetQuery("instance_id", "gavin-instance");
+    uri.SetQuery("partition_id", "10086");
+    // Versionstamp in hex format: 10 bytes
+    uri.SetQuery("versionstamp", "00000000000000010001");
+
+    auto http_res = process_http_encode_key(uri);
+    EXPECT_EQ(http_res.status_code, 200);
+    // The encoded key should contain both the base key and the versionstamp
+    EXPECT_NE(http_res.body.find("031076657273696f6e000110676176696e2d696e7374616e63650001107061727"
+                                 "46974696f6e0001120000000000002766"),
+              std::string::npos);
+}
+
+TEST(HttpGetValueTest, process_http_get_value_versioned_key_test) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    // Prepare test data for versioned keys
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    // Test VersionedPartitionIndexKey (non-versioned value)
+    std::string partition_index_key =
+            unhex("0310696e646578000110676176696e2d696e7374616e6365000110706172746974696f6e00011200"
+                  "00000000002766");
+    PartitionIndexPB partition_index_pb;
+    partition_index_pb.set_db_id(10000);
+    partition_index_pb.set_table_id(20000);
+    txn->put(partition_index_key, partition_index_pb.SerializeAsString());
+
+    // Test VersionedTabletIndexKey (non-versioned value)
+    std::string tablet_index_key =
+            unhex("0310696e646578000110676176696e2d696e7374616e63650001107461626c657400011200000000"
+                  "00002766");
+    TabletIndexPB tablet_index_pb;
+    tablet_index_pb.set_table_id(20000);
+    tablet_index_pb.set_index_id(30000);
+    tablet_index_pb.set_partition_id(10086);
+    tablet_index_pb.set_tablet_id(10086);
+    txn->put(tablet_index_key, tablet_index_pb.SerializeAsString());
+
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::URI uri;
+    (void)uri.get_query_map();
+
+    // Test getting VersionedPartitionIndexKey
+    uri.SetQuery("key_type", "VersionedPartitionIndexKey");
+    uri.SetQuery("instance_id", "gavin-instance");
+    uri.SetQuery("partition_id", "10086");
+    auto http_res = process_http_get_value(txn_kv.get(), uri);
+    EXPECT_EQ(http_res.status_code, 200);
+    EXPECT_NE(http_res.body.find("\"db_id\":\"10000\""), std::string::npos);
+    EXPECT_NE(http_res.body.find("\"table_id\":\"20000\""), std::string::npos);
+
+    // Test getting VersionedTabletIndexKey
+    uri.SetQuery("key_type", "VersionedTabletIndexKey");
+    uri.SetQuery("tablet_id", "10086");
+    http_res = process_http_get_value(txn_kv.get(), uri);
+    EXPECT_EQ(http_res.status_code, 200);
+    EXPECT_NE(http_res.body.find("\"table_id\":\"20000\""), std::string::npos) << http_res.body;
+    EXPECT_NE(http_res.body.find("\"index_id\":\"30000\""), std::string::npos);
+
+    // Test getting VersionedDataRowsetRefCountKey
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string ref_count_key =
+            unhex("031064617461000110676176696e2d696e7374616e6365000110726f777365745f7265665f636f75"
+                  "6e74000112000000000000276610726f777365745f310001");
+    int64_t count = 42;
+    std::string count_value;
+    count_value.resize(sizeof(int64_t));
+    std::memcpy(count_value.data(), &count, sizeof(int64_t));
+    txn->put(ref_count_key, count_value);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    uri.SetQuery("key_type", "VersionedDataRowsetRefCountKey");
+    uri.SetQuery("tablet_id", "10086");
+    uri.SetQuery("rowset_id", "rowset_1");
+    http_res = process_http_get_value(txn_kv.get(), uri);
+    EXPECT_EQ(http_res.status_code, 200);
+    EXPECT_EQ(http_res.body, "42");
+}
+
+TEST(HttpSetValueTest, process_http_set_value_versioned_key_test) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    brpc::Controller cntl;
+    brpc::URI uri;
+    (void)uri.get_query_map();
+
+    // Test setting VersionedPartitionIndexKey (non-versioned value)
+    uri.SetQuery("key_type", "VersionedPartitionIndexKey");
+    uri.SetQuery("instance_id", "gavin-instance");
+    uri.SetQuery("partition_id", "10086");
+    cntl.http_request().uri() = uri;
+
+    PartitionIndexPB pb;
+    pb.set_db_id(10000);
+    pb.set_table_id(20000);
+    std::string json_body = proto_to_json(pb);
+    cntl.request_attachment().append(json_body);
+
+    auto http_res = process_http_set_value(txn_kv.get(), &cntl);
+    EXPECT_EQ(http_res.status_code, 200) << http_res.body;
+
+    // Verify the value was set correctly
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key =
+            unhex("0310696e646578000110676176696e2d696e7374616e6365000110706172746974696f6e00011200"
+                  "00000000002766");
+    std::string value;
+    ASSERT_EQ(txn->get(key, &value), TxnErrorCode::TXN_OK);
+    PartitionIndexPB retrieved_pb;
+    ASSERT_TRUE(retrieved_pb.ParseFromString(value));
+    EXPECT_EQ(retrieved_pb.db_id(), 10000);
+    EXPECT_EQ(retrieved_pb.table_id(), 20000);
+
+    // Test setting VersionedDataRowsetRefCountKey (int64 value)
+    brpc::Controller cntl2;
+    brpc::URI uri2;
+    (void)uri2.get_query_map();
+    uri2.SetQuery("key_type", "VersionedDataRowsetRefCountKey");
+    uri2.SetQuery("instance_id", "gavin-instance");
+    uri2.SetQuery("tablet_id", "10086");
+    uri2.SetQuery("rowset_id", "rowset_1");
+    cntl2.http_request().uri() = uri2;
+    cntl2.request_attachment().append("42");
+
+    http_res = process_http_set_value(txn_kv.get(), &cntl2);
+    EXPECT_EQ(http_res.status_code, 200) << http_res.body;
+
+    // Verify the int64 value was set correctly
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string ref_count_key =
+            unhex("031064617461000110676176696e2d696e7374616e6365000110726f777365745f7265665f636f75"
+                  "6e74000112000000000000276610726f777365745f310001");
+    std::string ref_count_value;
+    ASSERT_EQ(txn->get(ref_count_key, &ref_count_value), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(ref_count_value.size(), sizeof(int64_t));
+    int64_t retrieved_count = 0;
+    std::memcpy(&retrieved_count, ref_count_value.data(), sizeof(int64_t));
+    EXPECT_EQ(retrieved_count, 42);
+}
+
+TEST(HttpEncodeKeyTest, parse_versionstamp_from_uri_test) {
+    brpc::URI uri;
+    (void)uri.get_query_map();
+
+    // Test valid versionstamp
+    uri.SetQuery("versionstamp", "00000000000000010001");
+    uri.SetQuery("key_type", "VersionedPartitionVersionKey");
+    uri.SetQuery("instance_id", "test");
+    uri.SetQuery("partition_id", "1");
+
+    auto http_res = process_http_encode_key(uri);
+    EXPECT_EQ(http_res.status_code, 200);
+
+    // Test invalid versionstamp (wrong size)
+    brpc::URI uri2;
+    (void)uri2.get_query_map();
+    uri2.SetQuery("versionstamp", "0000000000"); // Only 5 bytes, should be 10
+    uri2.SetQuery("key_type", "VersionedPartitionVersionKey");
+    uri2.SetQuery("instance_id", "test");
+    uri2.SetQuery("partition_id", "1");
+
+    http_res = process_http_encode_key(uri2);
+    // Should still succeed in encoding the key, versionstamp will be ignored if invalid
+    EXPECT_EQ(http_res.status_code, 200);
 }
