@@ -424,10 +424,18 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             return;
         }
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
-        ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
-                .filter(s -> s instanceof Slot)
-                .map(s -> (Slot) s)
-                .collect(ImmutableSet.toImmutableSet());
+
+        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+            return;
+        }
+
+        // Extract all input slots from group by expressions
+        ImmutableSet.Builder<Slot> groupByKeysBuilder = ImmutableSet.builder();
+        for (Expression expr : groupByExpressions) {
+            groupByKeysBuilder.addAll(expr.getInputSlots());
+        }
+        ImmutableSet<Slot> groupByKeys = groupByKeysBuilder.build();
+
         // when group by all tuples, the result only have one row
         if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
             getOutput().forEach(builder::addUniqueSlot);
@@ -460,10 +468,18 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             // roll up may generate new data
             return;
         }
-        ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
-                .filter(s -> s instanceof Slot)
-                .map(s -> (Slot) s)
-                .collect(ImmutableSet.toImmutableSet());
+
+        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+            return;
+        }
+
+        // Extract all input slots from group by expressions
+        ImmutableSet.Builder<Slot> groupByKeysBuilder = ImmutableSet.builder();
+        for (Expression expr : groupByExpressions) {
+            groupByKeysBuilder.addAll(expr.getInputSlots());
+        }
+        ImmutableSet<Slot> groupByKeys = groupByKeysBuilder.build();
+
         // when group by all tuples, the result only have one row
         if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
             getOutput().forEach(builder::addUniformSlot);
