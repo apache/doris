@@ -34,6 +34,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -152,9 +153,11 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             this.fileType = mapToFileType(storageProperties.getType());
             Map<String, String> backendProps = storageProperties.getBackendConfigProperties();
             try {
-                normalizedPaths = parsedPaths.stream()
-                        .map(storageProperties::validateAndNormalizeUri)
-                        .collect(Collectors.toList());
+                List<String> tmpPaths = new ArrayList<>(parsedPaths.size());
+                for (String path : parsedPaths) {
+                    tmpPaths.add(storageProperties.validateAndNormalizeUri(path));
+                }
+                normalizedPaths = tmpPaths;
             } catch (UserException e) {
                 throw new AnalysisException(
                         "Failed to normalize parquet_metadata paths: " + e.getMessage(), e);
