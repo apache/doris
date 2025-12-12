@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/consts.h"
@@ -39,6 +40,8 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "io/cache/cached_remote_file_reader.h"
+#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/collection_similarity.h"
@@ -61,8 +64,10 @@
 #include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/ordinal_page_index.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/segment_prefetcher.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/rowset/segment_v2/virtual_column_iterator.h"
 #include "olap/schema.h"
@@ -75,6 +80,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
@@ -542,7 +548,97 @@ Status SegmentIterator::_lazy_init(vectorized::Block* block) {
     }
 
     _lazy_inited = true;
+
+    _init_segment_prefetchers();
+
     return Status::OK();
+}
+
+void SegmentIterator::_init_segment_prefetchers() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_segment_prefetchers_timer_ns);
+    if (!config::is_cloud_mode()) {
+        return;
+    }
+    static std::vector<ReaderType> supported_reader_types {
+            ReaderType::READER_QUERY, ReaderType::READER_BASE_COMPACTION,
+            ReaderType::READER_CUMULATIVE_COMPACTION, ReaderType::READER_FULL_COMPACTION};
+    if (std::ranges::none_of(supported_reader_types,
+                             [&](ReaderType t) { return _opts.io_ctx.reader_type == t; })) {
+        return;
+    }
+    // Initialize segment prefetcher for predicate and non-predicate columns
+    bool is_query = (_opts.io_ctx.reader_type == ReaderType::READER_QUERY);
+    bool enable_prefetch = is_query ? config::enable_query_segment_file_cache_prefetch
+                                    : config::enable_compaction_segment_file_cache_prefetch;
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+            "[verbose] SegmentIterator _init_segment_prefetchers, is_query={}, enable_prefetch={}, "
+            "_row_bitmap.isEmpty()={}, row_bitmap.cardinality()={}, tablet={}, rowset={}, "
+            "segment={}, predicate_column_ids={}, common_expr_column_ids={}",
+            is_query, enable_prefetch, _row_bitmap.isEmpty(), _row_bitmap.cardinality(),
+            _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
+            fmt::join(_predicate_column_ids, ","), fmt::join(_common_expr_column_ids, ","));
+    if (enable_prefetch && !_row_bitmap.isEmpty()) {
+        int window_size =
+                1 + (is_query ? config::query_segment_file_cache_prefetch_block_size
+                              : config::compaction_segment_file_cache_prefetch_block_size);
+        LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+                "[verbose] SegmentIterator prefetch config: window_size={}", window_size);
+        if (window_size > 0 &&
+            !_column_iterators.empty()) { // ensure init_iterators has been called
+            SegmentPrefetcherConfig prefetch_config(window_size,
+                                                    config::file_cache_each_block_size);
+            for (auto cid : _schema->column_ids()) {
+                auto& column_iter = _column_iterators[cid];
+                if (column_iter == nullptr) {
+                    continue;
+                }
+                const auto* tablet_column = _schema->column(cid);
+                SegmentPrefetchParams params {
+                        .config = prefetch_config,
+                        .row_bitmap = _row_bitmap,
+                        .read_options = _opts,
+                };
+                LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+                        "[verbose] SegmentIterator init_segment_prefetchers, "
+                        "tablet={}, rowset={}, segment={}, column_id={}, col_name={}, type={}",
+                        _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(), cid,
+                        tablet_column->name(), tablet_column->type());
+                Status st = column_iter->init_prefetcher(params);
+                if (!st.ok()) {
+                    LOG_IF(WARNING, config::enable_segment_prefetch_verbose_log) << fmt::format(
+                            "[verbose] failed to init prefetcher for column_id={}, "
+                            "tablet={}, rowset={}, segment={}, error={}",
+                            cid, _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
+                            st.to_string());
+                }
+            }
+
+            std::vector<SegmentPrefetcher*> prefetchers;
+            for (const auto& column_iter : _column_iterators) {
+                if (column_iter != nullptr) {
+                    column_iter->collect_prefetchers(prefetchers);
+                }
+            }
+
+            int batch_size = config::segment_file_cache_consume_rowids_batch_size;
+            std::vector<rowid_t> rowids(batch_size);
+            roaring::api::roaring_uint32_iterator_t iter;
+            roaring::api::roaring_init_iterator(&_row_bitmap.roaring, &iter);
+            uint32_t num =
+                    roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size);
+
+            for (; num > 0; num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(),
+                                                                             batch_size)) {
+                for (auto* prefetcher : prefetchers) {
+                    prefetcher->add_rowids(rowids.data(), num);
+                }
+            }
+
+            for (auto* prefetcher : prefetchers) {
+                prefetcher->finish_build_blocks();
+            }
+        }
+    }
 }
 
 Status SegmentIterator::_get_row_ranges_by_keys() {
@@ -2050,6 +2146,11 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
             "[{}]",
             nrows_read, is_continuous, fmt::join(_predicate_column_ids, ","));
 
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+            "[verbose] SegmentIterator::_read_columns_by_index read {} rowids, continuous: {}, "
+            "rowids: [{}...{}]",
+            nrows_read, is_continuous, nrows_read > 0 ? _block_rowids[0] : 0,
+            nrows_read > 0 ? _block_rowids[nrows_read - 1] : 0);
     for (auto cid : _predicate_column_ids) {
         auto& column = _current_return_columns[cid];
         VLOG_DEBUG << fmt::format("Reading column {}, col_name {}", cid,
@@ -2414,6 +2515,8 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().segment_iterator_next_batch);
+
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
 
