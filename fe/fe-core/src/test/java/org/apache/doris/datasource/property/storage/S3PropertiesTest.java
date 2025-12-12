@@ -130,7 +130,8 @@ public class S3PropertiesTest {
         origProps.put("s3.connection.timeout", "6000");
         origProps.put("test_non_storage_param", "6000");
         origProps.put("s3.endpoint", "s3.us-west-1.amazonaws.com");
-        S3Properties s3Properties = (S3Properties) StorageProperties.createAll(origProps).get(0);
+        S3Properties s3Properties = (S3Properties) StorageProperties.createAll(origProps).get(1);
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createAll(origProps).get(0).getClass());
         Map<String, String> s3Props = s3Properties.getBackendConfigProperties();
         Map<String, String> s3Config = s3Properties.getMatchedProperties();
         Assertions.assertTrue(!s3Config.containsKey("test_non_storage_param"));
