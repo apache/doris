@@ -44,7 +44,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
                 handlePendingState();
                 break;
             case RUNNING:
-                streamingInsertJob.fetchMeta();
+                handleRunningState();
                 break;
             case PAUSED:
                 autoResumeHandler();
@@ -65,9 +65,15 @@ public class StreamingJobSchedulerTask extends AbstractTask {
                 return;
             }
         }
-        streamingInsertJob.createStreamingInsertTask();
+        streamingInsertJob.replayOffsetProviderIfNeed();
+        streamingInsertJob.createStreamingTask();
         streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
         streamingInsertJob.setAutoResumeCount(0);
+    }
+
+    private void handleRunningState() {
+        streamingInsertJob.processTimeoutTasks();
+        streamingInsertJob.fetchMeta();
     }
 
     private void autoResumeHandler() throws JobException {

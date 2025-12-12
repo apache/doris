@@ -587,4 +587,15 @@ public class BackendServiceProxy {
         }
         return null;
     }
+
+    public Future<InternalService.PRequestCdcClientResult> requestCdcClient(TNetworkAddress address,
+            InternalService.PRequestCdcClientRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.requestCdcClient(request);
+        } catch (Throwable e) {
+            LOG.warn("request cdc client failed, address={}:{}", address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
 }
