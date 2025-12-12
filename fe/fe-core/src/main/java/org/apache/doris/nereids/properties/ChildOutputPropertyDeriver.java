@@ -450,8 +450,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         }
         int distributeToChildIndex
                 = setOperation.<Integer>getMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX).orElse(-1);
-        if (distributeToChildIndex >= 0) {
-            // must be hash distribution, because we already check before set distributeToChildIndex
+        if (distributeToChildIndex >= 0 && childrenDistribution instanceof DistributionSpecHash) {
             DistributionSpecHash childDistribution
                     = (DistributionSpecHash) childrenDistribution.get(distributeToChildIndex);
             List<SlotReference> childToIndex = setOperation.getRegularChildrenOutputs().get(distributeToChildIndex);
