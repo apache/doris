@@ -376,9 +376,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         double lowerCartesianLowerBound =
                 stats.getRowCount() / LOWER_AGGREGATE_EFFECT_COEFFICIENT;
         if (high.size() + medium.size() == 1 && lower.size() <= 2 && lowerCartesian <= lowerCartesianLowerBound) {
-            StatsCalculator statsCalculator = new StatsCalculator(null);
-            double estAggRowCount = statsCalculator.estimateGroupByRowCount(context.getGroupKeys(), stats);
-            return estAggRowCount < lowerCartesianLowerBound;
+            return true;
+            // StatsCalculator statsCalculator = new StatsCalculator(null);
+            // double estAggRowCount = statsCalculator.estimateGroupByRowCount(context.getGroupKeys(), stats);
+            // return estAggRowCount < lowerCartesianLowerBound;
         }
 
         return false;
