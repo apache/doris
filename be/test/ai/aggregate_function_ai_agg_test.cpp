@@ -60,7 +60,7 @@ public:
         _data_types = {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
                        std::make_shared<DataTypeString>()};
 
-        _agg_function = _factory->get("ai_agg", _data_types, false, -1);
+        _agg_function = _factory->get("ai_agg", _data_types, nullptr, false, -1);
         ASSERT_TRUE(_agg_function != nullptr);
 
         _agg_function->set_query_context(_query_ctx.get());

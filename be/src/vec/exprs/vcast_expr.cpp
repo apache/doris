@@ -67,9 +67,8 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     argument_template.reserve(2);
     argument_template.emplace_back(nullptr, child->data_type(), child_name);
     argument_template.emplace_back(nullptr, _cast_param_data_type, _target_data_type_name);
-    _function = SimpleFunctionFactory::instance().get_function(
-            function_name, argument_template, _data_type,
-            {.enable_decimal256 = state->enable_decimal256()});
+    _function = SimpleFunctionFactory::instance().get_function(function_name, argument_template,
+                                                               _data_type, {});
 
     if (_function == nullptr) {
         return Status::NotSupported("Cast from {} to {} is not implemented",

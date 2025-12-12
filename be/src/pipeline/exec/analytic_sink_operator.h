@@ -186,9 +186,15 @@ public:
 #ifdef BE_TEST
     AnalyticSinkOperatorX(ObjectPool* pool)
             : _pool(pool),
+              _intermediate_tuple_id(0),
+              _output_tuple_id(0),
               _buffered_tuple_id(0),
               _is_colocate(false),
-              _require_bucket_distribution(false) {}
+              _require_bucket_distribution(false),
+              _has_window(false),
+              _has_range_window(false),
+              _has_window_start(false),
+              _has_window_end(false) {}
 #endif
 
     Status init(const TDataSink& tsink) override {
