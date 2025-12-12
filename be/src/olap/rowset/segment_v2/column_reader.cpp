@@ -65,6 +65,7 @@
 #include "util/binary_cast.hpp"
 #include "util/bitmap.h"
 #include "util/block_compression.h"
+#include "util/concurrency_stats.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -363,6 +364,7 @@ Status ColumnReader::new_inverted_index_iterator(
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
     opts.verify_checksum = _opts.verify_checksum;
@@ -723,6 +725,16 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     if (!iter->valid()) {
         return Status::NotFound("Failed to seek to ordinal {}, ", ordinal);
     }
+    return Status::OK();
+}
+
+Status ColumnReader::get_ordinal_index_reader(OrdinalIndexReader*& reader,
+                                              OlapReaderStatistics* index_load_stats) {
+    CHECK(_ordinal_index) << fmt::format("ordinal index is null for column reader of type {}",
+                                         std::to_string(int(_meta_type)));
+    RETURN_IF_ERROR(
+            _ordinal_index->load(_use_index_page_cache, _opts.kept_in_memory, index_load_stats));
+    reader = _ordinal_index.get();
     return Status::OK();
 }
 
@@ -1328,7 +1340,22 @@ Status FileColumnIterator::seek_to_first() {
     return Status::OK();
 }
 
+void FileColumnIterator::_trigger_prefetch_if_eligible(ordinal_t ord) {
+    std::vector<BlockRange> ranges;
+    if (_prefetcher->need_prefetch(ord, &ranges)) {
+        for (const auto& range : ranges) {
+            _cached_remote_file_reader->prefetch_range(range.offset, range.size, &_opts.io_ctx);
+        }
+    }
+}
+
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+            "[verbose] FileColumnIterator::seek_to_ordinal seek to ordinal {}, enable_prefetch={}",
+            ord, _enable_prefetch);
+    if (_enable_prefetch) {
+        _trigger_prefetch_if_eligible(ord);
+    }
     // if current page contains this row, we don't need to seek
     if (!_page || !_page.contains(ord) || !_page_iter.valid()) {
         RETURN_IF_ERROR(_reader->seek_at_or_before(ord, &_page_iter, _opts));
@@ -1609,6 +1636,24 @@ Status FileColumnIterator::get_row_ranges_by_dict(const AndBlockColumnPredicate*
         row_ranges->clear();
     }
     return Status::OK();
+}
+
+Status FileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    if (_cached_remote_file_reader =
+                std::dynamic_pointer_cast<io::CachedRemoteFileReader>(_reader->_file_reader);
+        !_cached_remote_file_reader) {
+        return Status::OK();
+    }
+    _enable_prefetch = true;
+    _prefetcher = std::make_unique<SegmentPrefetcher>(params.config);
+    RETURN_IF_ERROR(_prefetcher->init(params.row_bitmap, _reader, params.read_options));
+    return Status::OK();
+}
+
+void FileColumnIterator::collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) {
+    if (_prefetcher) {
+        prefetchers.emplace_back(_prefetcher.get());
+    }
 }
 
 Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {

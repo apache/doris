@@ -38,6 +38,7 @@
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "util/bit_util.h"
+#include "util/concurrency_stats.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -135,6 +136,8 @@ std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, si
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                             const IOContext* io_ctx) {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().cached_remote_reader_read_at);
+
     g_read_at_req_bytes << result.size;
     const bool is_dryrun = io_ctx->is_dryrun;
     DCHECK(!closed());
@@ -240,8 +243,12 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     cache_context.stats = &stats;
     MonotonicStopWatch sw;
     sw.start();
+
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set->increment();
     FileBlocksHolder holder =
             _cache->get_or_set(_cache_hash, align_left, align_size, cache_context);
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set->decrement();
+
     stats.cache_get_or_set_timer += sw.elapsed_time();
     std::vector<FileBlockSPtr> empty_blocks;
     for (auto& block : holder.file_blocks) {
@@ -279,23 +286,28 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
                                                          &size, io_ctx));
         }
-        for (auto& block : empty_blocks) {
-            if (block->state() == FileBlock::State::SKIP_CACHE) {
-                continue;
+        {
+            SCOPED_CONCURRENCY_COUNT(
+                    ConcurrencyStatsManager::instance().cached_remote_reader_write_back);
+            for (auto& block : empty_blocks) {
+                if (block->state() == FileBlock::State::SKIP_CACHE) {
+                    continue;
+                }
+                SCOPED_RAW_TIMER(&stats.local_write_timer);
+                char* cur_ptr = buffer.get() + block->range().left - empty_start;
+                size_t block_size = block->range().size();
+                Status st = block->append(Slice(cur_ptr, block_size));
+                if (st.ok()) {
+                    st = block->finalize();
+                }
+                if (!st.ok()) {
+                    LOG_EVERY_N(WARNING, 100)
+                            << "Write data to file cache failed. err=" << st.msg();
+                } else {
+                    _insert_file_reader(block);
+                }
+                stats.bytes_write_into_file_cache += block_size;
             }
-            SCOPED_RAW_TIMER(&stats.local_write_timer);
-            char* cur_ptr = buffer.get() + block->range().left - empty_start;
-            size_t block_size = block->range().size();
-            Status st = block->append(Slice(cur_ptr, block_size));
-            if (st.ok()) {
-                st = block->finalize();
-            }
-            if (!st.ok()) {
-                LOG_EVERY_N(WARNING, 100) << "Write data to file cache failed. err=" << st.msg();
-            } else {
-                _insert_file_reader(block);
-            }
-            stats.bytes_write_into_file_cache += block_size;
         }
         // copy from memory directly
         size_t right_offset = offset + bytes_req - 1;
@@ -333,6 +345,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         static int64_t max_wait_time = 10;
         TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
         if (block_state != FileBlock::State::DOWNLOADED) {
+            SCOPED_CONCURRENCY_COUNT(
+                    ConcurrencyStatsManager::instance().cached_remote_reader_blocking);
             do {
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
@@ -358,6 +372,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 } else {
                     size_t file_offset = current_offset - left;
                     SCOPED_RAW_TIMER(&stats.local_read_timer);
+                    SCOPED_CONCURRENCY_COUNT(
+                            ConcurrencyStatsManager::instance().cached_remote_reader_local_read);
                     st = block->read(Slice(result.data + (current_offset - offset), read_size),
                                      file_offset);
                 }
@@ -421,6 +437,50 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
 
     g_skip_cache_num << read_stats.skip_cache;
     g_skip_cache_sum << read_stats.skip_cache;
+}
+
+void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IOContext* io_ctx) {
+    if (offset >= this->size() || size == 0) {
+        return;
+    }
+
+    size = std::min(size, this->size() - offset);
+
+    ThreadPool* pool = ExecEnv::GetInstance()->segment_prefetch_thread_pool();
+    if (pool == nullptr) {
+        return;
+    }
+
+    IOContext dryrun_ctx;
+    if (io_ctx != nullptr) {
+        dryrun_ctx = *io_ctx;
+    }
+    dryrun_ctx.is_dryrun = true;
+    dryrun_ctx.query_id = nullptr;
+    dryrun_ctx.file_cache_stats = nullptr;
+    dryrun_ctx.file_reader_stats = nullptr;
+
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log)
+            << fmt::format("[verbose] Submitting prefetch task for offset={} size={}, file={}",
+                           offset, size, path().filename().native());
+    std::weak_ptr<CachedRemoteFileReader> weak_this = shared_from_this();
+    auto st = pool->submit_func([weak_this, offset, size, dryrun_ctx]() {
+        auto self = weak_this.lock();
+        if (self == nullptr) {
+            return;
+        }
+        size_t bytes_read;
+        Slice dummy_buffer((char*)nullptr, size);
+        (void)self->read_at_impl(offset, dummy_buffer, &bytes_read, &dryrun_ctx);
+        LOG_IF(INFO, config::enable_segment_prefetch_verbose_log)
+                << fmt::format("[verbose] Prefetch task completed for offset={} size={}, file={}",
+                               offset, size, self->path().filename().native());
+    });
+
+    if (!st.ok()) {
+        VLOG_DEBUG << "Failed to submit prefetch task for offset=" << offset << " size=" << size
+                   << " error=" << st.to_string();
+    }
 }
 
 } // namespace doris::io

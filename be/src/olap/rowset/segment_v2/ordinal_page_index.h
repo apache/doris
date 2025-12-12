@@ -101,6 +101,7 @@ private:
 
 private:
     friend OrdinalPageIndexIterator;
+    friend class SegmentPrefetcher;
 
     io::FileReaderSPtr _file_reader;
     DorisCallOnce<Status> _load_once;

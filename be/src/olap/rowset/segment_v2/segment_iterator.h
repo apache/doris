@@ -379,6 +379,8 @@ private:
 
     void _clear_iterators();
 
+    void _init_segment_prefetchers();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
