@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TParquetMetadataParams;
@@ -30,6 +32,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -50,8 +54,6 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
     private static final String MODE_SCHEMA = "parquet_schema";
     private static final ImmutableSet<String> SUPPORTED_MODES =
             ImmutableSet.of(MODE_METADATA, MODE_SCHEMA);
-
-    private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(PATH, MODE);
 
     private static final ImmutableList<Column> PARQUET_SCHEMA_COLUMNS = ImmutableList.of(
             new Column("file_name", PrimitiveType.STRING, true),
@@ -93,6 +95,9 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
 
     private final List<String> paths;
     private final String mode;
+    // File system info for remote Parquet access (e.g. S3).
+    private final TFileType fileType;
+    private final Map<String, String> properties;
 
     public ParquetMetadataTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> normalizedParams = params.entrySet().stream().collect(Collectors.toMap(
@@ -100,11 +105,6 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
                 Map.Entry::getValue,
                 (value1, value2) -> value2
         ));
-        for (String key : normalizedParams.keySet()) {
-            if (!PROPERTIES_SET.contains(key)) {
-                throw new AnalysisException("'" + key + "' is invalid property for parquet_metadata");
-            }
-        }
         String rawPath = normalizedParams.get(PATH);
         if (Strings.isNullOrEmpty(rawPath)) {
             throw new AnalysisException("Property 'path' is required for parquet_metadata");
@@ -123,6 +123,25 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         if (!SUPPORTED_MODES.contains(mode)) {
             throw new AnalysisException("Unsupported mode '" + rawMode + "' for parquet_metadata");
         }
+
+        String firstPath = this.paths.get(0);
+        if (firstPath.toLowerCase().startsWith("s3://")) {
+            Map<String, String> storageParams = new HashMap<>(normalizedParams);
+            // StorageProperties detects provider by "uri".
+            storageParams.put("uri", firstPath);
+            StorageProperties storageProperties;
+            try {
+                storageProperties = StorageProperties.createPrimary(storageParams);
+            } catch (RuntimeException e) {
+                throw new AnalysisException(
+                        "Failed to parse S3 properties for parquet_metadata: " + e.getMessage(), e);
+            }
+            this.fileType = TFileType.FILE_S3;
+            this.properties = storageProperties.getBackendConfigProperties();
+        } else {
+            this.fileType = TFileType.FILE_LOCAL;
+            this.properties = Collections.emptyMap();
+        }
     }
 
     @Override
@@ -135,6 +154,8 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         TParquetMetadataParams parquetParams = new TParquetMetadataParams();
         parquetParams.setPaths(paths);
         parquetParams.setMode(mode);
+        parquetParams.setFileType(fileType);
+        parquetParams.setProperties(properties);
 
         TMetaScanRange scanRange = new TMetaScanRange();
         scanRange.setMetadataType(TMetadataType.PARQUET);

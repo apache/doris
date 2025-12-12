@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
@@ -432,7 +433,25 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
     if (params.__isset.mode) {
         _mode = params.mode;
     } else {
-        _mode = MODE_METADATA; // defalut
+        _mode = MODE_METADATA; // default
+    }
+
+    if (params.__isset.file_type) {
+        _file_type = params.file_type;
+    } else if (!_paths.empty()) {
+        std::string lower_path = to_lower(_paths.front());
+        if (lower_path.starts_with("s3://")) {
+            _file_type = TFileType::FILE_S3;
+        } else if (lower_path.starts_with("hdfs://")) {
+            _file_type = TFileType::FILE_HDFS;
+        } else if (lower_path.starts_with("http://") || lower_path.starts_with("https://")) {
+            _file_type = TFileType::FILE_HTTP;
+        } else {
+            _file_type = TFileType::FILE_LOCAL;
+        }
+    }
+    if (params.__isset.properties) {
+        _properties = params.properties;
     }
     std::string lower_mode = _mode;
     std::ranges::transform(lower_mode, lower_mode.begin(),
@@ -501,7 +520,15 @@ Status ParquetMetadataReader::_build_rows(std::vector<MutableColumnPtr>& columns
 Status ParquetMetadataReader::_append_file_rows(const std::string& path,
                                                 std::vector<MutableColumnPtr>& columns) {
     io::FileReaderSPtr file_reader;
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, &file_reader));
+    if (_file_type == TFileType::FILE_LOCAL) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, &file_reader));
+    } else {
+        io::FileSystemProperties system_properties {.system_type = _file_type,
+                                                    .properties = _properties};
+        io::FileDescription file_desc {.path = path};
+        file_reader = DORIS_TRY(FileFactory::create_file_reader(
+                system_properties, file_desc, io::FileReaderOptions::DEFAULT, nullptr));
+    }
 
     std::unique_ptr<FileMetaData> file_metadata;
     size_t meta_size = 0;
