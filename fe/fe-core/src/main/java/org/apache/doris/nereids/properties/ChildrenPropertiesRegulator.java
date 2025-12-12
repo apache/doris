@@ -54,7 +54,10 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,6 +70,8 @@ import java.util.Set;
  * to process must shuffle except project and filter
  */
 public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalProperties>>, Void> {
+    public static final Logger LOG = LogManager.getLogger(ChildrenPropertiesRegulator.class);
+
     private final GroupExpression parent;
     private final List<GroupExpression> children;
     private final List<PhysicalProperties> originChildrenProperties;
@@ -325,6 +330,18 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             } else {
                 return (PhysicalOlapScan) targetPlan;
             }
+        }
+    }
+
+    private PhysicalOlapScan findBucketShuffleCandidate(Plan plan) {
+        if (plan instanceof PhysicalOlapScan) {
+            return (PhysicalOlapScan) plan;
+        } else if (plan instanceof GroupPlan) {
+            return findDownGradeBucketShuffleCandidate((GroupPlan) plan);
+        } else if (plan.arity() > 0) {
+            return findBucketShuffleCandidate(plan.child(0));
+        } else {
+            return null;
         }
     }
 
@@ -610,18 +627,84 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         } else if (requiredDistributionSpec instanceof DistributionSpecHash) {
             // TODO: should use the most common hash spec as basic
             DistributionSpecHash basic = (DistributionSpecHash) requiredDistributionSpec;
-            for (int i = 0; i < originChildrenProperties.size(); i++) {
-                DistributionSpecHash current
-                        = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
-                if (current.getShuffleType() != ShuffleType.EXECUTION_BUCKETED
-                        || !bothSideShuffleKeysAreSameOrder(basic, current,
-                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
-                        (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
+            int distributeToChildIndex = -1;
+            double basicBuckets = -1;
+            double basicRowCount = -1;
+
+            Set<ShuffleType> allowShuffleTypes = ImmutableSet.of(
+                    ShuffleType.NATURAL,
+                    ShuffleType.STORAGE_BUCKETED,
+                    ShuffleType.EXECUTION_BUCKETED
+            );
+
+            try {
+                // find the most (bucket num, rowCount) side as the basic
+                for (int i = 0; i < originChildrenProperties.size(); i++) {
+                    PhysicalProperties originChildrenProperty = originChildrenProperties.get(i);
+                    DistributionSpec childDistribution = originChildrenProperty.getDistributionSpec();
+                    if (childDistribution instanceof DistributionSpecHash
+                            && allowShuffleTypes.contains(
+                                    ((DistributionSpecHash) childDistribution).getShuffleType())) {
+                        int bucketNum = getBucketNum(children.get(i).getPlan());
+                        Statistics stats = setOperation.child(i).getStats();
+                        double rowCount = stats.getRowCount();
+                        if (bucketNum > basicBuckets) {
+                            basicBuckets = bucketNum;
+                            basicRowCount = rowCount;
+                            distributeToChildIndex = i;
+                        } else if (bucketNum == basicBuckets && rowCount > basicRowCount) {
+                            basicRowCount = rowCount;
+                            distributeToChildIndex = i;
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                // catch stats exception
+                LOG.warn("Can not find the most (bucket num, rowCount): " + t, t);
+                distributeToChildIndex = -1;
+            }
+
+            if (distributeToChildIndex >= 0) {
+                requiredProperty = requiredProperties.get(distributeToChildIndex);
+                requiredDistributionSpec = requiredProperty.getDistributionSpec();
+                basic = (DistributionSpecHash) requiredDistributionSpec;
+
+                DistributionSpecHash notShuffleSideRequireDistribution
+                        = (DistributionSpecHash) requiredProperties.get(distributeToChildIndex).getDistributionSpec();
+                boolean basicIsNature = notShuffleSideRequireDistribution.getShuffleType() == ShuffleType.NATURAL;
+                ShuffleType shuffleType = basicIsNature
+                        ? ShuffleType.STORAGE_BUCKETED
+                        : ShuffleType.EXECUTION_BUCKETED;
+                for (int i = 0; i < originChildrenProperties.size(); i++) {
+                    DistributionSpecHash current
+                            = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
+                    if (i == distributeToChildIndex || !bothSideShuffleKeysAreSameOrder(basic, current,
+                            notShuffleSideRequireDistribution,
+                            (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
+                        continue;
+                    }
                     PhysicalProperties target = calAnotherSideRequired(
-                            ShuffleType.EXECUTION_BUCKETED, basic, current,
-                            (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                            shuffleType,
+                            basic, current,
+                            notShuffleSideRequireDistribution,
                             (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec());
                     updateChildEnforceAndCost(i, target);
+                }
+                setOperation.setMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX, distributeToChildIndex);
+            } else {
+                for (int i = 0; i < originChildrenProperties.size(); i++) {
+                    DistributionSpecHash current
+                            = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
+                    if (current.getShuffleType() != ShuffleType.EXECUTION_BUCKETED
+                            || !bothSideShuffleKeysAreSameOrder(basic, current,
+                            (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                            (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
+                        PhysicalProperties target = calAnotherSideRequired(
+                                ShuffleType.EXECUTION_BUCKETED, basic, current,
+                                (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                                (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec());
+                        updateChildEnforceAndCost(i, target);
+                    }
                 }
             }
         }
@@ -792,5 +875,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             enforcer.putOutputPropertiesMap(newOutputProperty, newOutputProperty);
         }
         child.getOwnerGroup().setBestPlan(enforcer, totalCost, newOutputProperty);
+    }
+
+    private int getBucketNum(Plan plan) {
+        PhysicalOlapScan candidate = findBucketShuffleCandidate(plan);
+        if (candidate == null || candidate.getTable() == null
+                || candidate.getTable().getDefaultDistributionInfo() == null) {
+            return -1;
+        } else {
+            return candidate.getTable().getDefaultDistributionInfo().getBucketNum();
+        }
     }
 }

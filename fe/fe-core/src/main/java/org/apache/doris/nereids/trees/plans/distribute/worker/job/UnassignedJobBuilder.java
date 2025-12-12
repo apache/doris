@@ -289,6 +289,9 @@ public class UnassignedJobBuilder {
         if (fragment.hasBucketShuffleJoin()) {
             return true;
         }
+        if (fragment.hasBucketShuffleSetOperation()) {
+            return true;
+        }
         return false;
     }
 
