@@ -2157,6 +2157,12 @@ message PackedFileInfoPB {
     optional string resource_id = 9;
 }
 
+// Wrapper for packed file debug information. It keeps PackedFileInfoPB extensible for tools
+// reading packed file trailers.
+message PackedFileDebugInfoPB {
+    optional PackedFileInfoPB packed_file_info = 1;
+}
+
 message UpdatePackedFileInfoRequest {
     optional string cloud_unique_id = 1; // For auth
     optional string request_ip = 2;
