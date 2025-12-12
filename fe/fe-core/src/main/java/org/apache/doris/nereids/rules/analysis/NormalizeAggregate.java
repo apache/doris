@@ -163,8 +163,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // collect all trivial-agg
         List<NamedExpression> aggregateOutput = aggregate.getOutputExpressions();
-        Map<AggregateFunction, Map<String, String>> aggFuncs = CollectNonWindowedAggFuncsWithSessionVar
-                .collect(aggregateOutput);
+        Map<AggregateFunction, Map<String, String>> aggFuncs =
+                CollectNonWindowedAggFuncsWithSessionVar.collect(aggregateOutput);
 
         // split agg child as two part
         // TRUE part 1: need push down itself, if it contains subquery or window expression
@@ -194,8 +194,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                         continue;
                     }
 
-                    Collection<? extends Expression> inputSlots = arg instanceof OrderExpression ? arg.getInputSlots()
-                            : ImmutableList.of(arg);
+                    Collection<? extends Expression> inputSlots
+                            = arg instanceof OrderExpression ? arg.getInputSlots() : ImmutableList.of(arg);
                     for (Expression input : inputSlots) {
                         if (input instanceof SlotReference) {
                             needPushDownInputs.add(input);
@@ -210,7 +210,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         Set<Expression> needPushSelf = needPushDownSelfExprs.build();
         Set<Slot> needPushInputSlots = ExpressionUtils.getInputSlotSet(needPushDownInputs.build());
 
-        Set<Alias> existsAlias = ExpressionUtils.mutableCollect(aggregateOutput, Alias.class::isInstance);
+        Set<Alias> existsAlias =
+                ExpressionUtils.mutableCollect(aggregateOutput, Alias.class::isInstance);
 
         // push down 3 kinds of exprs, these pushed exprs will be used to normalize agg output later
         // 1. group by exprs
@@ -224,10 +225,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 .buildContext(existsAliasAndGroupByAlias, argsOfAggFuncNeedPushDown);
         NormalizeToSlotContext bottomSlotContext = argsOfAggFuncNeedPushDownContext.mergeContext(groupByExprContext);
 
-        Set<NamedExpression> pushedGroupByExprs = bottomSlotContext.pushDownToNamedExpression(groupingByExprs);
-        Set<NamedExpression> pushedTrivialAggChildren = bottomSlotContext.pushDownToNamedExpression(needPushSelf);
-        Set<NamedExpression> pushedTrivialAggInputSlots = bottomSlotContext
-                .pushDownToNamedExpression(needPushInputSlots);
+        Set<NamedExpression> pushedGroupByExprs =
+                bottomSlotContext.pushDownToNamedExpression(groupingByExprs);
+        Set<NamedExpression> pushedTrivialAggChildren =
+                bottomSlotContext.pushDownToNamedExpression(needPushSelf);
+        Set<NamedExpression> pushedTrivialAggInputSlots =
+                bottomSlotContext.pushDownToNamedExpression(needPushInputSlots);
         Set<NamedExpression> bottomProjects = Sets.union(pushedGroupByExprs,
                 Sets.union(pushedTrivialAggChildren, pushedTrivialAggInputSlots));
 
@@ -243,11 +246,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // +-- project((a[#0] + 1)[#1])
 
         // normalize group by exprs by bottomProjects
-        List<Expression> normalizedGroupExprs = bottomSlotContext.normalizeToUseSlotRef(groupingByExprs);
+        List<Expression> normalizedGroupExprs =
+                bottomSlotContext.normalizeToUseSlotRef(groupingByExprs);
 
         // normalize trivial-aggs by bottomProjects
-        List<Expression> normalizedAggFuncs = bottomSlotContext
-                .normalizeToUseSlotRef(SessionVarGuardExpr.getExprWithGuard(aggFuncs));
+        List<Expression> normalizedAggFuncs =
+                bottomSlotContext.normalizeToUseSlotRef(SessionVarGuardExpr.getExprWithGuard(aggFuncs));
         if (normalizedAggFuncs.stream().anyMatch(agg -> !agg.children().isEmpty()
                 && agg.child(0).containsType(AggregateFunction.class))) {
             throw new AnalysisException(
@@ -255,19 +259,20 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         }
 
         // build normalized agg output
-        NormalizeToSlotContext normalizedAggFuncsToSlotContext = NormalizeToSlotContext.buildContext(existsAlias,
-                normalizedAggFuncs);
+        NormalizeToSlotContext normalizedAggFuncsToSlotContext =
+                NormalizeToSlotContext.buildContext(existsAlias, normalizedAggFuncs);
 
         // agg output include 2 parts
         // pushedGroupByExprs and normalized agg functions
 
-        ImmutableList.Builder<NamedExpression> normalizedAggOutputBuilder = ImmutableList
-                .builderWithExpectedSize(groupingByExprs.size() + normalizedAggFuncs.size());
+        ImmutableList.Builder<NamedExpression> normalizedAggOutputBuilder
+                = ImmutableList.builderWithExpectedSize(groupingByExprs.size() + normalizedAggFuncs.size());
         for (NamedExpression pushedGroupByExpr : pushedGroupByExprs) {
             normalizedAggOutputBuilder.add(pushedGroupByExpr.toSlot());
         }
         normalizedAggOutputBuilder.addAll(
-                normalizedAggFuncsToSlotContext.pushDownToNamedExpression(normalizedAggFuncs));
+                normalizedAggFuncsToSlotContext.pushDownToNamedExpression(normalizedAggFuncs)
+        );
         // create new agg node
         ImmutableList<NamedExpression> normalizedAggOutput = normalizedAggOutputBuilder.build();
 
@@ -321,8 +326,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         }
         // NOTICE: we must call normalizedAggOutputBuilder.build() here, normalizedAggOutputBuilder could be updated
         // if we need to process non-standard aggregate: SELECT c1, c2 FROM t GROUP BY c1
-        LogicalAggregate<?> newAggregate = aggregate.withNormalized(normalizedGroupExprs,
-                normalizedAggOutputBuilder.build(), bottomPlan);
+        LogicalAggregate<?> newAggregate =
+                aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutputBuilder.build(), bottomPlan);
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx);
         LogicalProject<Plan> project = eliminateGroupByConstant(groupByExprContext, rewriteContext,
                 normalizedGroupExprs, normalizedAggOutput, bottomProjects, aggregate, upperProjects, newAggregate);
@@ -338,7 +343,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             return project.withChildren(ImmutableList.of(
                     new LogicalHaving<>(
                             ExpressionUtils.replace(having.get().getConjuncts(), project.getAliasToProducer()),
-                            project.child())));
+                            project.child()
+                    )));
         }
 
         // after build logical plan, it will not extract window expression from the SELECT lists,
