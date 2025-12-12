@@ -599,7 +599,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
             auto phrase_term_infos = build_phrase_term_infos(term_infos);
             if (phrase_term_infos.size() == 1) {
-                const auto& term_info = term_infos[0];
+                const auto& term_info = phrase_term_infos[0];
                 if (term_info.is_single_term()) {
                     std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
                     *out = std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr);
@@ -613,13 +613,14 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                     *out = builder->build();
                 }
             } else {
-                if (std::ranges::all_of(term_infos, [](const auto& term_info) {
+                if (std::ranges::all_of(phrase_term_infos, [](const auto& term_info) {
                         return term_info.is_single_term();
                     })) {
-                    *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr, term_infos);
+                    *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr,
+                                                                   phrase_term_infos);
                 } else {
                     *out = std::make_shared<query_v2::MultiPhraseQuery>(context, field_wstr,
-                                                                        term_infos);
+                                                                        phrase_term_infos);
                 }
             }
 
