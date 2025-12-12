@@ -464,7 +464,9 @@ int key_exist(TxnKv* txn_kv, std::string_view key) {
 
 InstanceChecker::InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id)
         : txn_kv_(txn_kv), instance_id_(instance_id) {
-    snapshot_manager_ = std::make_shared<SnapshotManager>(std::move(txn_kv));
+    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv);
+    resource_mgr_ = std::make_shared<ResourceManager>(std::move(txn_kv));
+    resource_mgr_->init();
 }
 
 int InstanceChecker::init(const InstanceInfoPB& instance) {
