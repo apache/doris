@@ -1462,7 +1462,7 @@ DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
 DEFINE_mBool(enable_segment_prefetch_verbose_log, "false");
 // The thread num for SegmentPrefetchThreadPool
 DEFINE_Int64(segment_prefetch_thread_pool_thread_num_min, "32");
-DEFINE_Int64(segment_prefetch_thread_pool_thread_num_max, "20000");
+DEFINE_Int64(segment_prefetch_thread_pool_thread_num_max, "2000");
 
 DEFINE_mInt32(segment_file_cache_consume_rowids_batch_size, "8000");
 // Enable segment file cache block prefetch for query
