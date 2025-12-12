@@ -394,12 +394,9 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private String resolveTableName() {
-        String tableName = icebergTable.name();
-        if (tableName == null || tableName.isEmpty()) {
-            ExternalTable table = (ExternalTable) desc.getTable();
-            tableName = table.getCatalog().getName() + "." + table.getDbName() + "." + table.getName();
-        }
-        return tableName;
+        // Use the same key format as manifest cache invalidation: catalogId.db.table
+        ExternalTable table = (ExternalTable) desc.getTable();
+        return table.getCatalog().getId() + "." + table.getDbName() + "." + table.getName();
     }
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {
@@ -707,4 +704,3 @@ public class IcebergScanNode extends FileQueryScanNode {
         return Optional.empty();
     }
 }
-
