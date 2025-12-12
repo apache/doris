@@ -1319,8 +1319,8 @@ public class ExpressionUtils {
             if (dataType.isArrayType()) {
                 Expression[] arrayArgs = args.toArray(new Expression[0]);
                 return unnest.isOuter()
-                        ? unnest.needOrdinality() ? new PosExplodeOuter(args.get(0)) : new ExplodeOuter(arrayArgs)
-                        : unnest.needOrdinality() ? new PosExplode(args.get(0)) : new Explode(arrayArgs);
+                        ? unnest.needOrdinality() ? new PosExplodeOuter(arrayArgs) : new ExplodeOuter(arrayArgs)
+                        : unnest.needOrdinality() ? new PosExplode(arrayArgs) : new Explode(arrayArgs);
             } else {
                 if (unnest.needOrdinality()) {
                     throw new AnalysisException(String.format("only ARRAY support WITH ORDINALITY,"
