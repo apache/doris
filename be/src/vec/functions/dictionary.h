@@ -132,15 +132,14 @@ protected:
     template <typename Type>
     struct ColumnWithType {
         // OutputColumnType is used as the result column type
-        using OutputColumnType = Type::ColumnType;
-        ColumnPtr column;
         ColumnPtr null_map;
         // RealColumnType is the real type of the column, as there may be ColumnString64, but the result column will not be ColumnString64
+
+        using OutputColumnType = Type::ColumnType;
         using RealColumnType = std::conditional_t<std::is_same_v<DictDataTypeString64, Type>,
                                                   ColumnString64, OutputColumnType>;
-        const RealColumnType* get() const {
-            return assert_cast<const RealColumnType*, TypeCheckOnRelease::DISABLE>(column.get());
-        }
+        RealColumnType::Ptr column;
+        const RealColumnType* get() const { return column.get(); }
 
         const ColumnUInt8* get_null_map() const {
             if (!null_map) {

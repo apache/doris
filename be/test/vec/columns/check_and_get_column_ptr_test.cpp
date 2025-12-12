@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include "runtime/primitive_type.h"
 #include "testutil/column_helper.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -139,4 +140,33 @@ TEST(CheckAndGetColumnPtrTest, destructstest) {
 
     EXPECT_EQ(column_ptr->use_count(), 1);
 }
+
+TEST(CheckAndGetColumnPtrTest, cast_to_column_immut) {
+    {
+        ColumnPtr column_ptr = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+
+        EXPECT_EQ(column_ptr->use_count(), 1);
+        ColumnInt32::Ptr column_i32 = cast_to_column<ColumnInt32>(column_ptr);
+
+        EXPECT_TRUE(column_i32);
+
+        EXPECT_EQ(column_ptr->use_count(), 2);
+
+        EXPECT_EQ(column_i32->use_count(), 2);
+    }
+}
+
+TEST(CheckAndGetColumnPtrTest, cast_to_column_mut) {
+    {
+        MutableColumnPtr column_ptr = ColumnInt32::create();
+
+        EXPECT_EQ(column_ptr->use_count(), 1);
+        ColumnInt32::MutablePtr column_i32 = cast_to_column<ColumnInt32>(std::move(column_ptr));
+
+        EXPECT_TRUE(column_i32);
+
+        EXPECT_EQ(column_i32->use_count(), 1);
+    }
+}
+
 } // namespace doris::vectorized
