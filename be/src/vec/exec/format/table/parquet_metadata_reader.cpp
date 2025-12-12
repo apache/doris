@@ -30,6 +30,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
+#include "util/string_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -86,17 +87,7 @@ enum MetadataColumnIndex {
 };
 
 std::string join_path(const std::vector<std::string>& items) {
-    if (items.empty()) {
-        return "";
-    }
-    std::ostringstream oss;
-    for (size_t i = 0; i < items.size(); ++i) {
-        if (i != 0) {
-            oss << ".";
-        }
-        oss << items[i];
-    }
-    return oss.str();
+    return join(items, ".");
 }
 
 template <typename ColumnType, typename T>
@@ -284,42 +275,40 @@ std::string logical_type_to_string(const tparquet::SchemaElement& element) {
 }
 
 std::string encodings_to_string(const std::vector<tparquet::Encoding::type>& encodings) {
-    std::ostringstream oss;
-    for (size_t i = 0; i < encodings.size(); ++i) {
-        if (i != 0) {
-            oss << ",";
-        }
-        switch (encodings[i]) {
+    std::vector<std::string> parts;
+    parts.reserve(encodings.size());
+    for (auto encoding : encodings) {
+        switch (encoding) {
         case tparquet::Encoding::PLAIN:
-            oss << "PLAIN";
+            parts.emplace_back("PLAIN");
             break;
         case tparquet::Encoding::PLAIN_DICTIONARY:
-            oss << "PLAIN_DICTIONARY";
+            parts.emplace_back("PLAIN_DICTIONARY");
             break;
         case tparquet::Encoding::RLE:
-            oss << "RLE";
+            parts.emplace_back("RLE");
             break;
         case tparquet::Encoding::BIT_PACKED:
-            oss << "BIT_PACKED";
+            parts.emplace_back("BIT_PACKED");
             break;
         case tparquet::Encoding::DELTA_BINARY_PACKED:
-            oss << "DELTA_BINARY_PACKED";
+            parts.emplace_back("DELTA_BINARY_PACKED");
             break;
         case tparquet::Encoding::DELTA_LENGTH_BYTE_ARRAY:
-            oss << "DELTA_LENGTH_BYTE_ARRAY";
+            parts.emplace_back("DELTA_LENGTH_BYTE_ARRAY");
             break;
         case tparquet::Encoding::DELTA_BYTE_ARRAY:
-            oss << "DELTA_BYTE_ARRAY";
+            parts.emplace_back("DELTA_BYTE_ARRAY");
             break;
         case tparquet::Encoding::RLE_DICTIONARY:
-            oss << "RLE_DICTIONARY";
+            parts.emplace_back("RLE_DICTIONARY");
             break;
         default:
-            oss << "UNKNOWN";
+            parts.emplace_back("UNKNOWN");
             break;
         }
     }
-    return oss.str();
+    return fmt::format("{}", fmt::join(parts, ","));
 }
 
 std::string statistics_value_to_string(const tparquet::Statistics& statistics, bool is_min) {
@@ -404,6 +393,8 @@ Status ParquetMetadataReader::get_next_block(Block* block, size_t* read_rows, bo
         return Status::OK();
     }
 
+    // Scanner may call multiple times; we surface data once and mark eof on the next call.
+    // When reusing a Block, wipe row data but keep column structure intact.
     bool mem_reuse = block->mem_reuse();
     std::vector<MutableColumnPtr> columns(_slots.size());
     if (mem_reuse) {
@@ -437,6 +428,7 @@ Status ParquetMetadataReader::get_next_block(Block* block, size_t* read_rows, bo
     return Status::OK();
 }
 
+// Iterate all configured paths and append metadata rows into the provided columns.
 Status ParquetMetadataReader::_build_rows(std::vector<MutableColumnPtr>& columns) {
     for (const auto& path : _paths) {
         RETURN_IF_ERROR(_append_file_rows(path, columns));
@@ -444,6 +436,7 @@ Status ParquetMetadataReader::_build_rows(std::vector<MutableColumnPtr>& columns
     return Status::OK();
 }
 
+// Open a single Parquet file, read its footer, and dispatch to schema/metadata handlers.
 Status ParquetMetadataReader::_append_file_rows(const std::string& path,
                                                 std::vector<MutableColumnPtr>& columns) {
     io::FileReaderSPtr file_reader;
@@ -462,6 +455,7 @@ Status ParquetMetadataReader::_append_file_rows(const std::string& path,
     return Status::OK();
 }
 
+// Emit one row per leaf field describing the logical/physical schema.
 Status ParquetMetadataReader::_append_schema_rows(const std::string& path, FileMetaData* metadata,
                                                   std::vector<MutableColumnPtr>& columns) {
     const auto& fields = metadata->schema().get_fields_schema();
@@ -471,6 +465,7 @@ Status ParquetMetadataReader::_append_schema_rows(const std::string& path, FileM
     return Status::OK();
 }
 
+// Depth-first walk to flatten nested schema into individual rows.
 Status ParquetMetadataReader::_append_schema_field(const std::string& path,
                                                    const FieldSchema& field,
                                                    const std::string& current_path,
@@ -507,6 +502,7 @@ Status ParquetMetadataReader::_append_schema_field(const std::string& path,
     return Status::OK();
 }
 
+// Emit one row per row-group/column chunk with offsets, sizes, encodings, and stats.
 Status ParquetMetadataReader::_append_metadata_rows(const std::string& path,
                                                     FileMetaData* metadata,
                                                     std::vector<MutableColumnPtr>& columns) {
