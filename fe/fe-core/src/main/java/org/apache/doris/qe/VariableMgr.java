@@ -26,6 +26,7 @@ import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -297,11 +298,35 @@ public class VariableMgr {
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
+            // Check if the variable is in the MySQL compatibility whitelist
+            if (isInMySQLCompatWhitelist(setVar.getVariable())) {
+                // Silently ignore whitelisted variables for MySQL compatibility
+                LOG.debug("Ignoring whitelisted MySQL compatibility variable: {}", setVar.getVariable());
+                return;
+            }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable(),
                     findSimilarSessionVarNames(setVar.getVariable()));
         }
         checkUpdate(setVar, varCtx.getFlag());
         setVarInternal(sessionVariable, setVar, varCtx);
+    }
+
+    /**
+     * Check if a variable name is in the MySQL compatibility whitelist.
+     * This allows MySQL client tools (like phpMyAdmin, mysqldump) to set certain
+     * variables that Doris doesn't support without causing errors.
+     */
+    private static boolean isInMySQLCompatWhitelist(String varName) {
+        if (varName == null || Config.mysql_compat_var_whitelist == null) {
+            return false;
+        }
+        String normalizedVarName = varName.toLowerCase();
+        for (String whitelistedVar : Config.mysql_compat_var_whitelist) {
+            if (whitelistedVar != null && whitelistedVar.toLowerCase().equals(normalizedVarName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static String findSimilarSessionVarNames(String inputName) {
@@ -318,6 +343,12 @@ public class VariableMgr {
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
+            // Check if the variable is in the MySQL compatibility whitelist
+            if (isInMySQLCompatWhitelist(setVar.getVariable())) {
+                // Silently ignore whitelisted variables for MySQL compatibility
+                LOG.debug("Ignoring whitelisted MySQL compatibility variable: {}", setVar.getVariable());
+                return;
+            }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
         setVarInternal(sessionVariable, setVar, varCtx);
