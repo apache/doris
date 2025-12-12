@@ -217,6 +217,7 @@ protected:
     virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
+    virtual PushDownType _should_push_down_topn_filter() { return PushDownType::UNACCEPTABLE; }
     virtual PushDownType _should_push_down_bitmap_filter() { return PushDownType::UNACCEPTABLE; }
     virtual PushDownType _should_push_down_is_null_predicate() {
         return PushDownType::UNACCEPTABLE;
@@ -252,6 +253,9 @@ protected:
     Status _eval_const_conjuncts(vectorized::VExprContext* expr_ctx, PushDownType* pdt);
 
     Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                   PushDownType* pdt);
+    Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                    PushDownType* pdt);
 

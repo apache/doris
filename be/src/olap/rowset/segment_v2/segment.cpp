@@ -275,39 +275,6 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
     }
 
-    if (!read_options.topn_filter_source_node_ids.empty()) {
-        auto* query_ctx = read_options.runtime_state->get_query_ctx();
-        for (int id : read_options.topn_filter_source_node_ids) {
-            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate(
-                    read_options.topn_filter_target_node_id);
-
-            AndBlockColumnPredicate and_predicate;
-            and_predicate.add_column_predicate(
-                    SingleColumnBlockPredicate::create_unique(runtime_predicate));
-            std::shared_ptr<ColumnReader> reader;
-            Status st = get_column_reader(
-                    read_options.tablet_schema->column(runtime_predicate->column_id()), &reader,
-                    read_options.stats);
-            if (st.is<ErrorCode::NOT_FOUND>()) {
-                continue;
-            }
-            RETURN_IF_ERROR(st);
-            DCHECK(reader != nullptr);
-            if (can_apply_predicate_safely(runtime_predicate->column_id(), *schema,
-                                           read_options.target_cast_type_for_variants,
-                                           read_options)) {
-                bool matched = true;
-                RETURN_IF_ERROR(reader->match_condition(&and_predicate, &matched));
-                if (!matched) {
-                    // any condition not satisfied, return.
-                    *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                    read_options.stats->filtered_segment_number++;
-                    return Status::OK();
-                }
-            }
-        }
-    }
-
     {
         SCOPED_RAW_TIMER(&read_options.stats->segment_load_index_timer_ns);
         RETURN_IF_ERROR(load_index(read_options.stats));

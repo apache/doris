@@ -45,6 +45,7 @@ public:
               _source_node_id(source_node_id),
               _expr_name(fmt::format("VTopNPred(source_node_id={})", _source_node_id)),
               _target_ctx(std::move(target_ctx)) {}
+    bool is_topn_filter() const override { return true; }
 
     static Status create_vtopn_pred(const TExpr& target_expr, int source_node_id,
                                     vectorized::VExprSPtr& expr) {
@@ -62,6 +63,8 @@ public:
 
         return Status::OK();
     }
+
+    int source_node_id() const { return _source_node_id; }
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         _predicate = &state->get_query_ctx()->get_runtime_predicate(_source_node_id);

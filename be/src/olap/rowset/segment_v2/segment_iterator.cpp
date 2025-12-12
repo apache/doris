@@ -946,31 +946,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                        condition_row_ranges);
 
-        if (!_opts.topn_filter_source_node_ids.empty()) {
-            auto* query_ctx = _opts.runtime_state->get_query_ctx();
-            for (int id : _opts.topn_filter_source_node_ids) {
-                std::shared_ptr<doris::ColumnPredicate> runtime_predicate =
-                        query_ctx->get_runtime_predicate(id).get_predicate(
-                                _opts.topn_filter_target_node_id);
-                if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(), *_schema,
-                                                         _opts.target_cast_type_for_variants,
-                                                         _opts)) {
-                    AndBlockColumnPredicate and_predicate;
-                    and_predicate.add_column_predicate(
-                            SingleColumnBlockPredicate::create_unique(runtime_predicate));
-
-                    RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
-                    RETURN_IF_ERROR(_column_iterators[runtime_predicate->column_id()]
-                                            ->get_row_ranges_by_zone_map(&and_predicate, nullptr,
-                                                                         &column_rp_row_ranges));
-
-                    // intersect different columns's row ranges to get final row ranges by zone map
-                    RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
-                                                   &zone_map_row_ranges);
-                }
-            }
-        }
-
         size_t pre_size2 = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                        condition_row_ranges);
@@ -1685,26 +1660,6 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             _delete_range_column_ids.push_back(predicate->column_id());
         } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
             _delete_bloom_filter_column_ids.push_back(predicate->column_id());
-        }
-    }
-
-    // add runtime predicate to _col_predicates
-    // should NOT add for order by key,
-    //  since key is already sorted and topn_next only need first N rows from each segment,
-    //  but runtime predicate will filter some rows and read more than N rows.
-    // should add add for order by none-key column, since none-key column is not sorted and
-    //  all rows should be read, so runtime predicate will reduce rows for topn node
-    if (!_opts.topn_filter_source_node_ids.empty() &&
-        (_opts.read_orderby_key_columns == nullptr || _opts.read_orderby_key_columns->empty())) {
-        for (int id : _opts.topn_filter_source_node_ids) {
-            auto& runtime_predicate =
-                    _opts.runtime_state->get_query_ctx()->get_runtime_predicate(id);
-            _col_predicates.push_back(
-                    runtime_predicate.get_predicate(_opts.topn_filter_target_node_id));
-            VLOG_DEBUG << fmt::format(
-                    "After appending topn filter to col_predicates, "
-                    "col_predicates size: {}, col_predicate: {}",
-                    _col_predicates.size(), _col_predicates.back()->debug_string());
         }
     }
 
