@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -31,6 +32,8 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -116,7 +119,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         if (parsedPaths.isEmpty()) {
             throw new AnalysisException("Property 'path' must contain at least one location");
         }
-        this.paths = ImmutableList.copyOf(parsedPaths);
+        List<String> normalizedPaths = parsedPaths;
 
         String rawMode = normalizedParams.getOrDefault(MODE, MODE_METADATA);
         mode = rawMode.toLowerCase();
@@ -124,23 +127,93 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             throw new AnalysisException("Unsupported mode '" + rawMode + "' for parquet_metadata");
         }
 
-        String firstPath = this.paths.get(0);
-        if (firstPath.toLowerCase().startsWith("s3://")) {
+        String firstPath = parsedPaths.get(0);
+        String scheme = null;
+        try {
+            scheme = new URI(firstPath).getScheme();
+        } catch (URISyntaxException e) {
+            scheme = null;
+        }
+        if (Strings.isNullOrEmpty(scheme) || "file".equalsIgnoreCase(scheme)) {
+            this.fileType = TFileType.FILE_LOCAL;
+            this.properties = Collections.emptyMap();
+        } else {
             Map<String, String> storageParams = new HashMap<>(normalizedParams);
-            // StorageProperties detects provider by "uri".
+            // StorageProperties detects provider by "uri", we also hint support by scheme.
             storageParams.put("uri", firstPath);
+            forceStorageSupport(storageParams, scheme.toLowerCase());
             StorageProperties storageProperties;
             try {
                 storageProperties = StorageProperties.createPrimary(storageParams);
             } catch (RuntimeException e) {
                 throw new AnalysisException(
-                        "Failed to parse S3 properties for parquet_metadata: " + e.getMessage(), e);
+                        "Failed to parse storage properties for parquet_metadata: " + e.getMessage(), e);
             }
-            this.fileType = TFileType.FILE_S3;
-            this.properties = storageProperties.getBackendConfigProperties();
-        } else {
-            this.fileType = TFileType.FILE_LOCAL;
-            this.properties = Collections.emptyMap();
+            this.fileType = mapToFileType(storageProperties.getType());
+            Map<String, String> backendProps = storageProperties.getBackendConfigProperties();
+            try {
+                normalizedPaths = parsedPaths.stream()
+                        .map(storageProperties::validateAndNormalizeUri)
+                        .collect(Collectors.toList());
+            } catch (UserException e) {
+                throw new AnalysisException(
+                        "Failed to normalize parquet_metadata paths: " + e.getMessage(), e);
+            }
+            if (this.fileType == TFileType.FILE_HTTP && !backendProps.containsKey("uri")) {
+                backendProps = new HashMap<>(backendProps);
+                backendProps.put("uri", normalizedPaths.get(0));
+            }
+            this.properties = backendProps;
+        }
+
+        this.paths = ImmutableList.copyOf(normalizedPaths);
+    }
+
+    /**
+     * Add fs.* support hints so StorageProperties can be created from URI-only inputs.
+     */
+    private static void forceStorageSupport(Map<String, String> params, String scheme) {
+        if ("s3".equals(scheme) || "s3a".equals(scheme) || "s3n".equals(scheme)) {
+            params.put(StorageProperties.FS_S3_SUPPORT, "true");
+        } else if ("oss".equals(scheme)) {
+            params.put(StorageProperties.FS_OSS_SUPPORT, "true");
+        } else if ("obs".equals(scheme)) {
+            params.put(StorageProperties.FS_OBS_SUPPORT, "true");
+        } else if ("cos".equals(scheme)) {
+            params.put(StorageProperties.FS_COS_SUPPORT, "true");
+        } else if ("gs".equals(scheme) || "gcs".equals(scheme)) {
+            params.put(StorageProperties.FS_GCS_SUPPORT, "true");
+        } else if ("minio".equals(scheme)) {
+            params.put(StorageProperties.FS_MINIO_SUPPORT, "true");
+        } else if ("azure".equals(scheme)) {
+            params.put(StorageProperties.FS_AZURE_SUPPORT, "true");
+        } else if ("http".equals(scheme) || "https".equals(scheme) || "hf".equals(scheme)) {
+            params.put(StorageProperties.FS_HTTP_SUPPORT, "true");
+        }
+    }
+
+    /**
+     * Map FE storage type to BE file type.
+     */
+    private static TFileType mapToFileType(StorageProperties.Type type) throws AnalysisException {
+        switch (type) {
+            case HDFS:
+            case OSS_HDFS:
+                return TFileType.FILE_HDFS;
+            case HTTP:
+                return TFileType.FILE_HTTP;
+            case LOCAL:
+                return TFileType.FILE_LOCAL;
+            case S3:
+            case OSS:
+            case OBS:
+            case COS:
+            case GCS:
+            case MINIO:
+            case AZURE:
+                return TFileType.FILE_S3;
+            default:
+                throw new AnalysisException("Unsupported storage type for parquet_metadata: " + type);
         }
     }
 
