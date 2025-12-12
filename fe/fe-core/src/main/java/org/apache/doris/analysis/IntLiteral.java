@@ -56,15 +56,16 @@ public class IntLiteral extends NumericLiteralExpr {
     public IntLiteral(long value) {
         super();
         init(value);
+        this.nullable = false;
         analysisDone();
     }
 
     public IntLiteral(long longValue, Type type) throws AnalysisException {
         super();
         checkValueValid(longValue, type);
-
         this.value = longValue;
         this.type = type;
+        this.nullable = false;
         analysisDone();
     }
 
@@ -80,6 +81,7 @@ public class IntLiteral extends NumericLiteralExpr {
 
         this.value = longValue;
         this.type = type;
+        this.nullable = false;
         analysisDone();
     }
 
