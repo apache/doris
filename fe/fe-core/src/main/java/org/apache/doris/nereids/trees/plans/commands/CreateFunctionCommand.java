@@ -1148,11 +1148,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                     expression.getDataType().toCatalogDataType(), hasVarArguments,
                     "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
-            FunctionCallExpr functionCallExpr;
             // create catalog FunctionCallExpr without analyze again
-            functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-            functionCallExpr.setNullableFromNereids(expression.nullable());
-            return functionCallExpr;
+            return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), expression.nullable());
         }
     }
 }
