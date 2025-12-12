@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <memory>
 #include <stack>
+#include <string_view>
 #include <utility>
 
 #include "common/config.h"
@@ -963,23 +964,14 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return Status::OK(); // Nothing to evaluate or no literals to compare against
     }
 
-    InvertedIndexCtx* inverted_index_ctx = nullptr;
-    if (_fn_context_index != -1) {
-        auto* fn_ctx = context->fn_context(_fn_context_index);
-        if (fn_ctx != nullptr) {
-            inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
-                    fn_ctx->get_function_state(FunctionContext::THREAD_LOCAL));
-            if (inverted_index_ctx == nullptr) {
-                inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
-                        fn_ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-            }
-        }
+    const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
+    if (auto index_context = context->get_index_context(); index_context != nullptr) {
+        analyzer_ctx = index_context->get_analyzer_ctx_for_expr(this);
     }
 
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
-    auto res =
-            function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
-                                              segment_num_rows, inverted_index_ctx, result_bitmap);
+    auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
+                                                 segment_num_rows, analyzer_ctx, result_bitmap);
     if (!res.ok()) {
         return res;
     }

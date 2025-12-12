@@ -48,7 +48,7 @@ public:
                                                const std::string& parser_mode,
                                                const std::string& lower_case,
                                                const std::string& stop_words);
-    static AnalyzerPtr create_analyzer(const InvertedIndexCtx* inverted_index_ctx);
+    static AnalyzerPtr create_analyzer(const InvertedIndexAnalyzerConfig* config);
 
     static std::vector<TermInfo> get_analyse_result(ReaderPtr reader,
                                                     lucene::analysis::Analyzer* analyzer);

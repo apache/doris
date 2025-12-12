@@ -165,7 +165,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-            InvertedIndexCtx* inverted_index_ctx,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -227,8 +227,8 @@ public:
                     nested_param_type, &nested_query_val, query_param));
             param.query_value = query_param->get_value();
             param.roaring = std::make_shared<roaring::Roaring>();
-            ;
-            RETURN_IF_ERROR(iter->read_from_index(&param, inverted_index_ctx));
+            param.analyzer_ctx = analyzer_ctx;
+            RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
             *roaring |= *param.roaring;
         }
 

@@ -36,8 +36,7 @@ public:
     IndexReaderPtr get_reader(IndexReaderType reader_type) const override {
         return std::static_pointer_cast<IndexReader>(_ann_reader);
     }
-    MOCK_FUNCTION Status read_from_index(
-            const IndexParam& param, const InvertedIndexCtx* inverted_index_ctx = nullptr) override;
+    MOCK_FUNCTION Status read_from_index(const IndexParam& param) override;
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override {
         return Status::OK();

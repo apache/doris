@@ -77,18 +77,18 @@ public:
     virtual Status execute_match(FunctionContext* context, const std::string& column_name,
                                  const std::string& match_query_str, size_t input_rows_count,
                                  const ColumnString* string_col,
-                                 InvertedIndexCtx* inverted_index_ctx,
+                                 const InvertedIndexAnalyzerCtx* analyzer_ctx,
                                  const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) const = 0;
 
     doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name() const;
 
-    std::vector<TermInfo> analyse_query_str_token(InvertedIndexCtx* inverted_index_ctx,
+    std::vector<TermInfo> analyse_query_str_token(const InvertedIndexAnalyzerCtx* analyzer_ctx,
                                                   const std::string& match_query_str,
                                                   const std::string& field_name) const;
 
     std::vector<TermInfo> analyse_data_token(const std::string& column_name,
-                                             InvertedIndexCtx* inverted_index_ctx,
+                                             const InvertedIndexAnalyzerCtx* analyzer_ctx,
                                              const ColumnString* string_col,
                                              int32_t current_block_row_idx,
                                              const ColumnArray::Offsets64* array_offsets,
@@ -100,7 +100,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-            InvertedIndexCtx* inverted_index_ctx,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
 };
 
@@ -113,7 +113,8 @@ public:
 
     Status execute_match(FunctionContext* context, const std::string& column_name,
                          const std::string& match_query_str, size_t input_rows_count,
-                         const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnString* string_col,
+                         const InvertedIndexAnalyzerCtx* analyzer_ctx,
                          const ColumnArray::Offsets64* array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
@@ -127,7 +128,8 @@ public:
 
     Status execute_match(FunctionContext* context, const std::string& column_name,
                          const std::string& match_query_str, size_t input_rows_count,
-                         const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnString* string_col,
+                         const InvertedIndexAnalyzerCtx* analyzer_ctx,
                          const ColumnArray::Offsets64* array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
@@ -141,7 +143,8 @@ public:
 
     Status execute_match(FunctionContext* context, const std::string& column_name,
                          const std::string& match_query_str, size_t input_rows_count,
-                         const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnString* string_col,
+                         const InvertedIndexAnalyzerCtx* analyzer_ctx,
                          const ColumnArray::Offsets64* array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
@@ -155,7 +158,8 @@ public:
 
     Status execute_match(FunctionContext* context, const std::string& column_name,
                          const std::string& match_query_str, size_t input_rows_count,
-                         const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnString* string_col,
+                         const InvertedIndexAnalyzerCtx* analyzer_ctx,
                          const ColumnArray::Offsets64* array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
@@ -169,7 +173,8 @@ public:
 
     Status execute_match(FunctionContext* context, const std::string& column_name,
                          const std::string& match_query_str, size_t input_rows_count,
-                         const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnString* string_col,
+                         const InvertedIndexAnalyzerCtx* analyzer_ctx,
                          const ColumnArray::Offsets64* array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
@@ -183,7 +188,8 @@ public:
 
     Status execute_match(FunctionContext* context, const std::string& column_name,
                          const std::string& match_query_str, size_t input_rows_count,
-                         const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnString* string_col,
+                         const InvertedIndexAnalyzerCtx* analyzer_ctx,
                          const ColumnArray::Offsets64* array_offsets,
                          ColumnUInt8::Container& result) const override;
 };

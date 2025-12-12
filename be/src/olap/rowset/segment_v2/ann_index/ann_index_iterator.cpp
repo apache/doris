@@ -27,8 +27,7 @@ AnnIndexIterator::AnnIndexIterator(const IndexReaderPtr& reader) : IndexIterator
     _ann_reader = std::dynamic_pointer_cast<AnnIndexReader>(reader);
 }
 
-Status AnnIndexIterator::read_from_index(const IndexParam& param,
-                                         const InvertedIndexCtx* /*inverted_index_ctx*/) {
+Status AnnIndexIterator::read_from_index(const IndexParam& param) {
     auto* a_param = std::get<segment_v2::AnnTopNParam*>(param);
     if (a_param == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("a_param is null");

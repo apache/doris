@@ -195,7 +195,7 @@ public:
     virtual Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                          const void* query_value, InvertedIndexQueryType query_type,
                          std::shared_ptr<roaring::Roaring>& bit_map,
-                         const InvertedIndexCtx* inverted_index_ctx = nullptr) = 0;
+                         const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) = 0;
     virtual Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
                              size_t* count) = 0;
@@ -257,7 +257,7 @@ public:
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
-                 const InvertedIndexCtx* inverted_index_ctx = nullptr) override;
+                 const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      size_t* count) override {
@@ -282,7 +282,7 @@ public:
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
-                 const InvertedIndexCtx* inverted_index_ctx = nullptr) override;
+                 const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      size_t* count) override {
@@ -342,7 +342,7 @@ public:
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
-                 const InvertedIndexCtx* inverted_index_ctx = nullptr) override;
+                 const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      size_t* count) override;
