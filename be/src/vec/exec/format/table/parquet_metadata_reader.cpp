@@ -354,7 +354,68 @@ ParquetMetadataReader::ParquetMetadataReader(std::vector<SlotDescriptor*> slots,
 
 Status ParquetMetadataReader::init_reader() {
     RETURN_IF_ERROR(_init_from_scan_range(_scan_range));
+    _init_slot_pos_map();
     return Status::OK();
+}
+
+void ParquetMetadataReader::_init_slot_pos_map() {
+    std::unordered_map<std::string, int> name_to_pos;
+    name_to_pos.reserve(_slots.size());
+    for (size_t i = 0; i < _slots.size(); ++i) {
+        name_to_pos.emplace(to_lower(_slots[i]->col_name()), static_cast<int>(i));
+    }
+
+    _schema_slot_pos.fill(-1);
+    _metadata_slot_pos.fill(-1);
+
+    auto set_schema_pos = [&](SchemaColumnIndex idx, const char* name) {
+        auto it = name_to_pos.find(name);
+        if (it != name_to_pos.end()) {
+            _schema_slot_pos[idx] = it->second;
+        }
+    };
+    auto set_meta_pos = [&](MetadataColumnIndex idx, const char* name) {
+        auto it = name_to_pos.find(name);
+        if (it != name_to_pos.end()) {
+            _metadata_slot_pos[idx] = it->second;
+        }
+    };
+
+    // Schema mode column names.
+    set_schema_pos(SCHEMA_FILE_NAME, "file_name");
+    set_schema_pos(SCHEMA_COLUMN_NAME, "column_name");
+    set_schema_pos(SCHEMA_COLUMN_PATH, "column_path");
+    set_schema_pos(SCHEMA_PHYSICAL_TYPE, "physical_type");
+    set_schema_pos(SCHEMA_LOGICAL_TYPE, "logical_type");
+    set_schema_pos(SCHEMA_REPETITION_LEVEL, "repetition_level");
+    set_schema_pos(SCHEMA_DEFINITION_LEVEL, "definition_level");
+    set_schema_pos(SCHEMA_TYPE_LENGTH, "type_length");
+    set_schema_pos(SCHEMA_PRECISION, "precision");
+    set_schema_pos(SCHEMA_SCALE, "scale");
+    set_schema_pos(SCHEMA_IS_NULLABLE, "is_nullable");
+
+    // Metadata mode column names.
+    set_meta_pos(META_FILE_NAME, "file_name");
+    set_meta_pos(META_ROW_GROUP_ID, "row_group_id");
+    set_meta_pos(META_COLUMN_ID, "column_id");
+    set_meta_pos(META_COLUMN_NAME, "column_name");
+    set_meta_pos(META_COLUMN_PATH, "column_path");
+    set_meta_pos(META_PHYSICAL_TYPE, "physical_type");
+    set_meta_pos(META_LOGICAL_TYPE, "logical_type");
+    set_meta_pos(META_TYPE_LENGTH, "type_length");
+    set_meta_pos(META_CONVERTED_TYPE, "converted_type");
+    set_meta_pos(META_NUM_VALUES, "num_values");
+    set_meta_pos(META_NULL_COUNT, "null_count");
+    set_meta_pos(META_DISTINCT_COUNT, "distinct_count");
+    set_meta_pos(META_ENCODINGS, "encodings");
+    set_meta_pos(META_COMPRESSION, "compression");
+    set_meta_pos(META_DATA_PAGE_OFFSET, "data_page_offset");
+    set_meta_pos(META_INDEX_PAGE_OFFSET, "index_page_offset");
+    set_meta_pos(META_DICTIONARY_PAGE_OFFSET, "dictionary_page_offset");
+    set_meta_pos(META_TOTAL_COMPRESSED_SIZE, "total_compressed_size");
+    set_meta_pos(META_TOTAL_UNCOMPRESSED_SIZE, "total_uncompressed_size");
+    set_meta_pos(META_STATISTICS_MIN, "statistics_min");
+    set_meta_pos(META_STATISTICS_MAX, "statistics_max");
 }
 
 Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_range) {
@@ -371,7 +432,7 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
     if (params.__isset.mode) {
         _mode = params.mode;
     } else {
-        _mode = MODE_METADATA;
+        _mode = MODE_METADATA; // defalut
     }
     std::string lower_mode = _mode;
     std::ranges::transform(lower_mode, lower_mode.begin(),
@@ -479,26 +540,35 @@ Status ParquetMetadataReader::_append_schema_field(const std::string& path,
         return Status::OK();
     }
 
-    insert_string(columns[SCHEMA_FILE_NAME], path);
-    insert_string(columns[SCHEMA_COLUMN_NAME], field.name);
-    insert_string(columns[SCHEMA_COLUMN_PATH], current_path);
-    insert_string(columns[SCHEMA_PHYSICAL_TYPE], physical_type_to_string(field.physical_type));
-    insert_string(columns[SCHEMA_LOGICAL_TYPE], logical_type_to_string(field.parquet_schema));
-    insert_int32(columns[SCHEMA_REPETITION_LEVEL], field.repetition_level);
-    insert_int32(columns[SCHEMA_DEFINITION_LEVEL], field.definition_level);
+    auto insert_if_requested = [&](SchemaColumnIndex idx, auto&& inserter, auto&&... args) {
+        int pos = _schema_slot_pos[idx];
+        if (pos >= 0) {
+            inserter(columns[pos], std::forward<decltype(args)>(args)...);
+        }
+    };
+
+    insert_if_requested(SCHEMA_FILE_NAME, insert_string, path);
+    insert_if_requested(SCHEMA_COLUMN_NAME, insert_string, field.name);
+    insert_if_requested(SCHEMA_COLUMN_PATH, insert_string, current_path);
+    insert_if_requested(SCHEMA_PHYSICAL_TYPE, insert_string,
+                        physical_type_to_string(field.physical_type));
+    insert_if_requested(SCHEMA_LOGICAL_TYPE, insert_string,
+                        logical_type_to_string(field.parquet_schema));
+    insert_if_requested(SCHEMA_REPETITION_LEVEL, insert_int32, field.repetition_level);
+    insert_if_requested(SCHEMA_DEFINITION_LEVEL, insert_int32, field.definition_level);
 
     int32_t type_length = field.parquet_schema.__isset.type_length ? field.parquet_schema.type_length
                                                                    : 0;
-    insert_int32(columns[SCHEMA_TYPE_LENGTH], type_length);
+    insert_if_requested(SCHEMA_TYPE_LENGTH, insert_int32, type_length);
     int32_t precision =
             field.parquet_schema.__isset.precision ? field.parquet_schema.precision : 0;
-    insert_int32(columns[SCHEMA_PRECISION], precision);
+    insert_if_requested(SCHEMA_PRECISION, insert_int32, precision);
     int32_t scale = field.parquet_schema.__isset.scale ? field.parquet_schema.scale : 0;
-    insert_int32(columns[SCHEMA_SCALE], scale);
+    insert_if_requested(SCHEMA_SCALE, insert_int32, scale);
     bool is_nullable_field =
             !field.parquet_schema.__isset.repetition_type ||
             field.parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED;
-    insert_bool(columns[SCHEMA_IS_NULLABLE], is_nullable_field);
+    insert_if_requested(SCHEMA_IS_NULLABLE, insert_bool, is_nullable_field);
     return Status::OK();
 }
 
@@ -532,70 +602,82 @@ Status ParquetMetadataReader::_append_metadata_rows(const std::string& path,
                 schema_field = it->second;
             }
 
-            insert_string(columns[META_FILE_NAME],
-                          column_chunk.__isset.file_path ? column_chunk.file_path : path);
-            insert_int32(columns[META_ROW_GROUP_ID], static_cast<Int32>(rg_index));
-            insert_int32(columns[META_COLUMN_ID], static_cast<Int32>(col_idx));
+            auto insert_if_requested =
+                    [&](MetadataColumnIndex idx, auto&& inserter, auto&&... args) {
+                        int pos = _metadata_slot_pos[idx];
+                        if (pos >= 0) {
+                            inserter(columns[pos], std::forward<decltype(args)>(args)...);
+                        }
+                    };
+
+            insert_if_requested(META_FILE_NAME, insert_string,
+                                column_chunk.__isset.file_path ? column_chunk.file_path : path);
+            insert_if_requested(META_ROW_GROUP_ID, insert_int32, static_cast<Int32>(rg_index));
+            insert_if_requested(META_COLUMN_ID, insert_int32, static_cast<Int32>(col_idx));
             std::string column_name =
                     column_meta.path_in_schema.empty() ? "" : column_meta.path_in_schema.back();
-            insert_string(columns[META_COLUMN_NAME], column_name);
-            insert_string(columns[META_COLUMN_PATH], column_path);
-            insert_string(columns[META_PHYSICAL_TYPE],
-                          physical_type_to_string(column_meta.type));
+            insert_if_requested(META_COLUMN_NAME, insert_string, column_name);
+            insert_if_requested(META_COLUMN_PATH, insert_string, column_path);
+            insert_if_requested(META_PHYSICAL_TYPE, insert_string,
+                                physical_type_to_string(column_meta.type));
 
             if (schema_field != nullptr) {
-                insert_string(columns[META_LOGICAL_TYPE],
-                              logical_type_to_string(schema_field->parquet_schema));
+                insert_if_requested(META_LOGICAL_TYPE, insert_string,
+                                    logical_type_to_string(schema_field->parquet_schema));
                 int32_t type_length = schema_field->parquet_schema.__isset.type_length
                                               ? schema_field->parquet_schema.type_length
                                               : 0;
-                insert_int32(columns[META_TYPE_LENGTH], type_length);
+                insert_if_requested(META_TYPE_LENGTH, insert_int32, type_length);
                 if (schema_field->parquet_schema.__isset.converted_type) {
-                    insert_string(columns[META_CONVERTED_TYPE],
-                                  converted_type_to_string(
-                                          schema_field->parquet_schema.converted_type));
+                    insert_if_requested(META_CONVERTED_TYPE, insert_string,
+                                        converted_type_to_string(
+                                                schema_field->parquet_schema.converted_type));
                 } else {
-                    insert_string(columns[META_CONVERTED_TYPE], "");
+                    insert_if_requested(META_CONVERTED_TYPE, insert_string, "");
                 }
             } else {
-                insert_string(columns[META_LOGICAL_TYPE], "");
-                insert_int32(columns[META_TYPE_LENGTH], 0);
-                insert_string(columns[META_CONVERTED_TYPE], "");
+                insert_if_requested(META_LOGICAL_TYPE, insert_string, "");
+                insert_if_requested(META_TYPE_LENGTH, insert_int32, 0);
+                insert_if_requested(META_CONVERTED_TYPE, insert_string, "");
             }
 
-            insert_int64(columns[META_NUM_VALUES], column_meta.num_values);
+            insert_if_requested(META_NUM_VALUES, insert_int64, column_meta.num_values);
             if (column_meta.__isset.statistics && column_meta.statistics.__isset.null_count) {
-                insert_int64(columns[META_NULL_COUNT], column_meta.statistics.null_count);
+                insert_if_requested(META_NULL_COUNT, insert_int64,
+                                    column_meta.statistics.null_count);
             } else {
-                insert_null(columns[META_NULL_COUNT]);
+                insert_if_requested(META_NULL_COUNT, insert_null);
             }
             if (column_meta.__isset.statistics &&
                 column_meta.statistics.__isset.distinct_count) {
-                insert_int64(columns[META_DISTINCT_COUNT], column_meta.statistics.distinct_count);
+                insert_if_requested(META_DISTINCT_COUNT, insert_int64,
+                                    column_meta.statistics.distinct_count);
             } else {
-                insert_null(columns[META_DISTINCT_COUNT]);
+                insert_if_requested(META_DISTINCT_COUNT, insert_null);
             }
 
-            insert_string(columns[META_ENCODINGS], encodings_to_string(column_meta.encodings));
-            insert_string(columns[META_COMPRESSION],
-                          compression_to_string(column_meta.codec));
-            insert_int64(columns[META_DATA_PAGE_OFFSET], column_meta.data_page_offset);
+            insert_if_requested(META_ENCODINGS, insert_string,
+                                encodings_to_string(column_meta.encodings));
+            insert_if_requested(META_COMPRESSION, insert_string,
+                                compression_to_string(column_meta.codec));
+            insert_if_requested(META_DATA_PAGE_OFFSET, insert_int64,
+                                column_meta.data_page_offset);
             if (column_meta.__isset.index_page_offset) {
-                insert_int64(columns[META_INDEX_PAGE_OFFSET],
-                             column_meta.index_page_offset);
+                insert_if_requested(META_INDEX_PAGE_OFFSET, insert_int64,
+                                    column_meta.index_page_offset);
             } else {
-                insert_null(columns[META_INDEX_PAGE_OFFSET]);
+                insert_if_requested(META_INDEX_PAGE_OFFSET, insert_null);
             }
             if (column_meta.__isset.dictionary_page_offset) {
-                insert_int64(columns[META_DICTIONARY_PAGE_OFFSET],
-                             column_meta.dictionary_page_offset);
+                insert_if_requested(META_DICTIONARY_PAGE_OFFSET, insert_int64,
+                                    column_meta.dictionary_page_offset);
             } else {
-                insert_null(columns[META_DICTIONARY_PAGE_OFFSET]);
+                insert_if_requested(META_DICTIONARY_PAGE_OFFSET, insert_null);
             }
-            insert_int64(columns[META_TOTAL_COMPRESSED_SIZE],
-                         column_meta.total_compressed_size);
-            insert_int64(columns[META_TOTAL_UNCOMPRESSED_SIZE],
-                         column_meta.total_uncompressed_size);
+            insert_if_requested(META_TOTAL_COMPRESSED_SIZE, insert_int64,
+                                column_meta.total_compressed_size);
+            insert_if_requested(META_TOTAL_UNCOMPRESSED_SIZE, insert_int64,
+                                column_meta.total_uncompressed_size);
 
             if (column_meta.__isset.statistics) {
                 std::string min_value =
@@ -603,18 +685,18 @@ Status ParquetMetadataReader::_append_metadata_rows(const std::string& path,
                 std::string max_value =
                         statistics_value_to_string(column_meta.statistics, false);
                 if (!min_value.empty()) {
-                    insert_string(columns[META_STATISTICS_MIN], min_value);
+                    insert_if_requested(META_STATISTICS_MIN, insert_string, min_value);
                 } else {
-                    insert_null(columns[META_STATISTICS_MIN]);
+                    insert_if_requested(META_STATISTICS_MIN, insert_null);
                 }
                 if (!max_value.empty()) {
-                    insert_string(columns[META_STATISTICS_MAX], max_value);
+                    insert_if_requested(META_STATISTICS_MAX, insert_string, max_value);
                 } else {
-                    insert_null(columns[META_STATISTICS_MAX]);
+                    insert_if_requested(META_STATISTICS_MAX, insert_null);
                 }
             } else {
-                insert_null(columns[META_STATISTICS_MIN]);
-                insert_null(columns[META_STATISTICS_MAX]);
+                insert_if_requested(META_STATISTICS_MIN, insert_null);
+                insert_if_requested(META_STATISTICS_MAX, insert_null);
             }
         }
     }
