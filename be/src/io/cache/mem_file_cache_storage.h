@@ -23,12 +23,9 @@
 
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
+#include "io/cache/shard_mem_cache.h"
 
 namespace doris::io {
-
-struct MemBlock {
-    std::shared_ptr<char[]> addr;
-};
 
 class MemFileCacheStorage : public FileCacheStorage {
 public:
@@ -51,8 +48,17 @@ public:
     FileCacheStorageType get_type() override { return MEMORY; }
 
 private:
-    std::unordered_map<FileWriterMapKey, MemBlock, FileWriterMapKeyHash> _cache_map;
-    std::mutex _cache_map_mtx;
+    uint64_t get_shard_num(const FileWriterMapKey& key) const {
+        FileWriterMapKeyHash hash_func;
+        std::size_t hash = hash_func(key);
+
+        return hash & _shard_mask;
+    }
+
+    // new code
+    uint64_t _shard_nums = 1;
+    uint64_t _shard_mask = 0;
+    std::vector<std::shared_ptr<ShardMemHashTable>> _shard_cache_map;
 };
 
 } // namespace doris::io

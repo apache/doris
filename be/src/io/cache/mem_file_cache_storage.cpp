@@ -21,46 +21,42 @@
 #include <mutex>
 #include <system_error>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/file_cache_storage.h"
+#include "io/cache/shard_mem_cache.h"
 #include "runtime/exec_env.h"
 #include "vec/common/hex.h"
 
 namespace doris::io {
 
-MemFileCacheStorage::~MemFileCacheStorage() {}
+MemFileCacheStorage::~MemFileCacheStorage() = default;
 
 Status MemFileCacheStorage::init(BlockFileCache* _mgr) {
     LOG_INFO("init in-memory file cache storage");
     _mgr->_async_open_done = true; // no data to load for memory storage
+
+    _shard_nums = config::file_cache_mem_storage_shard_num;
+    if ((_shard_nums & _shard_nums - 1) != 0) {
+        return Status::InternalError(
+                "The shard number of memory storage should be power of 2, but currently is {}",
+                _shard_nums);
+    }
+    _shard_mask = _shard_nums - 1;
+
+    for (uint64_t i = 0; i < _shard_nums; i++) {
+        _shard_cache_map.emplace_back(std::make_shared<ShardMemHashTable>());
+    }
+
     return Status::OK();
 }
 
 Status MemFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
-    std::lock_guard<std::mutex> lock(_cache_map_mtx);
-
-    auto map_key = std::make_pair(key.hash, key.offset);
-    auto iter = _cache_map.find(map_key);
-    if (iter != _cache_map.end()) {
-        // despite the name append, it is indeed a put, so the key should not exist
-        LOG_WARNING("key already exists in in-memory cache map")
-                .tag("hash", key.hash.to_string())
-                .tag("offset", key.offset);
-        DCHECK(false);
-        return Status::IOError("key already exists in in-memory cache map");
-    }
-    // TODO(zhengyu): allocate in mempool
-    auto mem_block =
-            MemBlock {std::shared_ptr<char[]>(new char[value.size], std::default_delete<char[]>())};
-    DCHECK(mem_block.addr != nullptr);
-    _cache_map[map_key] = mem_block;
-    char* dst = mem_block.addr.get();
-    // TODO(zhengyu): zero copy!
-    memcpy(dst, value.data, value.size);
-
-    return Status::OK();
+    uint64_t shard_num = get_shard_num(FileWriterMapKey {std::pair {key.hash, key.offset}});
+    return _shard_cache_map[shard_num]->append(key, value);
 }
 
 Status MemFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
@@ -70,38 +66,14 @@ Status MemFileCacheStorage::finalize(const FileCacheKey& key, const size_t size)
 }
 
 Status MemFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Slice buffer) {
-    std::lock_guard<std::mutex> lock(_cache_map_mtx);
-    auto map_key = std::make_pair(key.hash, key.offset);
-    auto iter = _cache_map.find(map_key);
-    if (iter == _cache_map.end()) {
-        LOG_WARNING("key not found in cache map")
-                .tag("hash", key.hash.to_string())
-                .tag("offset", key.offset);
-        return Status::IOError("key not found in in-memory cache map when read");
-    }
-    auto mem_block = iter->second;
-    DCHECK(mem_block.addr != nullptr);
-    char* src = mem_block.addr.get();
-    char* dst = buffer.data;
-    size_t size = buffer.size;
-    memcpy(dst, src, size);
-    return Status::OK();
+    uint64_t shard_num = get_shard_num(FileWriterMapKey {std::pair {key.hash, key.offset}});
+    return _shard_cache_map[shard_num]->read(key, value_offset, buffer);
 }
 
 Status MemFileCacheStorage::remove(const FileCacheKey& key) {
     // find and clear the one in _cache_map
-    std::lock_guard<std::mutex> lock(_cache_map_mtx);
-    auto map_key = std::make_pair(key.hash, key.offset);
-    auto iter = _cache_map.find(map_key);
-    if (iter == _cache_map.end()) {
-        LOG_WARNING("key not found in cache map")
-                .tag("hash", key.hash.to_string())
-                .tag("offset", key.offset);
-        return Status::IOError("key not found in in-memory cache map when remove");
-    }
-    _cache_map.erase(iter);
-
-    return Status::OK();
+    uint64_t shard_num = get_shard_num(FileWriterMapKey {std::pair {key.hash, key.offset}});
+    return _shard_cache_map[shard_num]->remove(key);
 }
 
 Status MemFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
@@ -124,8 +96,13 @@ void MemFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* _mgr,
 }
 
 Status MemFileCacheStorage::clear(std::string& msg) {
-    std::lock_guard<std::mutex> lock(_cache_map_mtx);
-    _cache_map.clear();
+    for (auto& shard_cache : _shard_cache_map) {
+        Status s = shard_cache->clear();
+        if (!s) {
+            return s;
+        }
+    }
+
     return Status::OK();
 }
 

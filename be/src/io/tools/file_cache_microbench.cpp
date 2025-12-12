@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -39,6 +40,7 @@
 #include <string>
 #include <thread>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "build/proto/microbench.pb.h"
@@ -257,7 +259,7 @@ public:
         for (const auto& pair : records_) {
             const std::vector<FileInfo>& file_infos = pair.second;
             for (const auto& file_info : file_infos) {
-                if (file_info.filename.compare(0, file_prefix.length(), file_prefix) == 0) {
+                if (file_info.filename.starts_with(file_prefix)) {
                     if (file_number == -1 || result.size() < file_number) {
                         result.push_back(file_info.filename);
                     }
@@ -274,7 +276,7 @@ public:
         for (const auto& pair : records_) {
             const std::vector<FileInfo>& file_infos = pair.second;
             for (const auto& file_info : file_infos) {
-                if (file_info.filename.compare(0, file_prefix.length(), file_prefix) == 0) {
+                if (file_info.filename.starts_with(file_prefix)) {
                     return pair.first;
                 }
             }
@@ -296,7 +298,7 @@ public:
                            const std::string& bucket, const std::string& key,
                            const doris::io::FileWriterOptions* options,
                            std::shared_ptr<doris::S3RateLimiterHolder> rate_limiter)
-            : _writer(client, bucket, key, options), _rate_limiter(rate_limiter) {}
+            : _writer(client, bucket, key, options), _rate_limiter(std::move(rate_limiter)) {}
 
     doris::Status appendv(const doris::Slice* slices, size_t slices_size,
                           const std::shared_ptr<bvar::LatencyRecorder>& write_bvar) {
@@ -322,7 +324,7 @@ class MicrobenchFileReader {
 public:
     MicrobenchFileReader(std::shared_ptr<doris::io::FileReader> base_reader,
                          std::shared_ptr<doris::S3RateLimiterHolder> rate_limiter)
-            : _base_reader(std::move(base_reader)), _rate_limiter(rate_limiter) {}
+            : _base_reader(std::move(base_reader)), _rate_limiter(std::move(rate_limiter)) {}
 
     doris::Status read_at(size_t offset, const doris::Slice& result, size_t* bytes_read,
                           const doris::io::IOContext* io_ctx,
@@ -835,10 +837,381 @@ private:
     }
 };
 
-// Job manager
+namespace microbenchService {
+class JobManager;
+
+class ServiceStateMachine {
+public:
+    static constexpr uint32_t JobUnit = 0b100;
+    static constexpr uint32_t StateMask = 0b11;
+    static constexpr uint32_t Idle = 0b11;
+    static constexpr uint32_t Reloading = 0b01;
+    static constexpr uint32_t Stopped = 0b00;
+
+    // idempotent handle
+    static constexpr uint32_t ReplicateReload = 0b10;
+
+    uint32_t finish_one_job() {
+        uint32_t old_s = _state.load();
+        while (true) {
+            DCHECK((old_s >> 2) > 0);
+            uint32_t new_s = old_s - JobUnit;
+            if (_state.compare_exchange_weak(old_s, new_s)) {
+                return new_s;
+            }
+        }
+    }
+
+    uint32_t run_one_job() {
+        uint32_t old_s = _state.load();
+        while (true) {
+            if ((old_s & StateMask) != Idle) {
+                return old_s;
+            }
+            uint32_t new_s = old_s + JobUnit;
+            if (_state.compare_exchange_weak(old_s, new_s)) {
+                return new_s;
+            }
+        }
+    }
+
+    uint32_t reload_request() {
+        uint32_t old_s = _state.load();
+        while (true) {
+            uint32_t state = old_s & StateMask;
+            if (state == Stopped) {
+                return old_s;
+            }
+            if (state == Reloading) {
+                return ReplicateReload;
+            }
+
+            uint32_t new_s = (old_s & ~StateMask) | Reloading;
+            if (_state.compare_exchange_weak(old_s, new_s)) {
+                return new_s;
+            }
+        }
+    }
+
+    uint32_t finish_reload() {
+        uint32_t expected = Reloading;
+        if (_state.compare_exchange_strong(expected, Idle)) {
+            return Idle;
+        }
+        return expected;
+    }
+
+    uint32_t service_start() {
+        uint32_t expected = Stopped;
+        if (_state.compare_exchange_strong(expected, Idle)) {
+            return Idle;
+        }
+        return expected;
+    }
+
+    uint32_t service_stop() {
+        uint32_t expected = Idle;
+        if (_state.compare_exchange_strong(expected, Stopped)) {
+            return Stopped;
+        }
+        return expected;
+    }
+
+    uint32_t get_state() const { return _state.load(); }
+
+    uint32_t can_submit_job() const { return (_state.load() & StateMask) == Idle; }
+
+    bool can_do_reload() const {
+        uint32_t current_state = _state.load();
+        return ((current_state & StateMask) == Reloading) && ((current_state >> 2) == 0);
+    }
+
+private:
+    std::atomic<uint32_t> _state {Stopped};
+};
+
+using StateSPtr = std::shared_ptr<ServiceStateMachine>;
+
+class BenchEnvManager : public std::enable_shared_from_this<BenchEnvManager> {
+public:
+    BenchEnvManager(std::string_view doris_home) : _doris_home(doris_home) {}
+
+    ~BenchEnvManager() { stop_reload_worker(); }
+
+    doris::Status load_config() {
+        std::string conffile = std::string(_doris_home) + "/conf/be.conf";
+        if (!doris::config::init(conffile.c_str(), true, true, true)) {
+            return Status::InternalError("Error reading config file");
+        }
+
+        std::string custom_conffile = doris::config::custom_config_dir + "/be_custom.conf";
+        if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
+            return Status::InternalError("Error reading custom config file");
+        }
+
+        if (!doris::config::enable_file_cache) {
+            return Status::InternalError("config::enbale_file_cache should be true!");
+        }
+
+        config::group_commit_wal_max_disk_limit = "100M";
+        LOG(INFO) << "Obj config. ak=" << doris::config::test_s3_ak
+                  << " sk=" << doris::config::test_s3_sk
+                  << " region=" << doris::config::test_s3_region
+                  << " endpoint=" << doris::config::test_s3_endpoint
+                  << " bucket=" << doris::config::test_s3_bucket;
+
+        LOG(INFO) << "File cache config. enable_file_cache=" << doris::config::enable_file_cache
+                  << " file_cache_path=" << doris::config::file_cache_path
+                  << " file_cache_each_block_size=" << doris::config::file_cache_each_block_size
+                  << " clear_file_cache=" << doris::config::clear_file_cache
+                  << " enable_file_cache_query_limit="
+                  << doris::config::enable_file_cache_query_limit
+                  << " file_cache_enter_disk_resource_limit_mode_percent="
+                  << doris::config::file_cache_enter_disk_resource_limit_mode_percent
+                  << " file_cache_exit_disk_resource_limit_mode_percent="
+                  << doris::config::file_cache_exit_disk_resource_limit_mode_percent
+                  << " enable_read_cache_file_directly="
+                  << doris::config::enable_read_cache_file_directly
+                  << " file_cache_enable_evict_from_other_queue_by_size="
+                  << doris::config::file_cache_enable_evict_from_other_queue_by_size
+                  << " file_cache_error_log_limit_bytes="
+                  << doris::config::file_cache_error_log_limit_bytes
+                  << " cache_lock_wait_long_tail_threshold_us="
+                  << doris::config::cache_lock_wait_long_tail_threshold_us
+                  << " cache_lock_held_long_tail_threshold_us="
+                  << doris::config::cache_lock_held_long_tail_threshold_us
+                  << " file_cache_remove_block_qps_limit="
+                  << doris::config::file_cache_remove_block_qps_limit
+                  << " enable_evict_file_cache_in_advance="
+                  << doris::config::enable_evict_file_cache_in_advance
+                  << " file_cache_enter_need_evict_cache_in_advance_percent="
+                  << doris::config::file_cache_enter_need_evict_cache_in_advance_percent
+                  << " file_cache_exit_need_evict_cache_in_advance_percent="
+                  << doris::config::file_cache_exit_need_evict_cache_in_advance_percent
+                  << " file_cache_evict_in_advance_interval_ms="
+                  << doris::config::file_cache_evict_in_advance_interval_ms
+                  << " file_cache_evict_in_advance_batch_bytes="
+                  << doris::config::file_cache_evict_in_advance_batch_bytes;
+
+        LOG(INFO) << "S3 writer config. s3_file_writer_log_interval_second="
+                  << doris::config::s3_file_writer_log_interval_second
+                  << " s3_write_buffer_size=" << doris::config::s3_write_buffer_size
+                  << " enable_flush_file_cache_async="
+                  << doris::config::enable_flush_file_cache_async;
+
+        return Status::OK();
+    }
+
+    doris::Status load_bench_exec_env() {
+        SCOPED_INIT_THREAD_CONTEXT();
+
+        doris::CpuInfo::init();
+        doris::DiskInfo::init();
+        doris::MemInfo::init();
+
+        LOG(INFO) << doris::CpuInfo::debug_string();
+        LOG(INFO) << doris::DiskInfo::debug_string();
+        LOG(INFO) << doris::MemInfo::debug_string();
+
+        std::vector<doris::StorePath> paths;
+        auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
+        if (!olap_res) {
+            LOG(ERROR) << "parse config storage path failed, path="
+                       << doris::config::storage_root_path;
+            exit(-1);
+        }
+
+        std::vector<doris::StorePath> spill_paths;
+        if (doris::config::spill_storage_root_path.empty()) {
+            doris::config::spill_storage_root_path = doris::config::storage_root_path;
+        }
+        olap_res =
+                doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
+        if (!olap_res) {
+            LOG(ERROR) << "parse config spill storage path failed, path="
+                       << doris::config::spill_storage_root_path;
+            exit(-1);
+        }
+        std::set<std::string> broken_paths;
+        doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);
+
+        auto it = paths.begin();
+        for (; it != paths.end();) {
+            if (broken_paths.contains(it->path)) {
+                if (doris::config::ignore_broken_disk) {
+                    LOG(WARNING) << "ignore broken disk, path = " << it->path;
+                    it = paths.erase(it);
+                } else {
+                    LOG(ERROR) << "a broken disk is found " << it->path;
+                    exit(-1);
+                }
+            } else if (!doris::check_datapath_rw(it->path)) {
+                if (doris::config::ignore_broken_disk) {
+                    LOG(WARNING) << "read write test file failed, path=" << it->path;
+                    it = paths.erase(it);
+                } else {
+                    LOG(ERROR) << "read write test file failed, path=" << it->path;
+                    // if only one disk and the disk is full, also need exit because rocksdb will open failed
+                    exit(-1);
+                }
+            } else {
+                ++it;
+            }
+        }
+
+        if (paths.empty()) {
+            LOG(ERROR) << "All disks are broken, exit.";
+            exit(-1);
+        }
+
+        it = spill_paths.begin();
+        for (; it != spill_paths.end();) {
+            if (!doris::check_datapath_rw(it->path)) {
+                if (doris::config::ignore_broken_disk) {
+                    LOG(WARNING) << "read write test file failed, path=" << it->path;
+                    it = spill_paths.erase(it);
+                } else {
+                    LOG(ERROR) << "read write test file failed, path=" << it->path;
+                    exit(-1);
+                }
+            } else {
+                ++it;
+            }
+        }
+        if (spill_paths.empty()) {
+            LOG(ERROR) << "All spill disks are broken, exit.";
+            exit(-1);
+        }
+
+        auto* exec_env = doris::ExecEnv::GetInstance();
+        auto status = doris::ExecEnv::init(exec_env, paths, spill_paths, broken_paths);
+        if (!status.ok()) {
+            return status;
+        }
+
+        std::unique_ptr<doris::ThreadPool> s3_upload_pool;
+        static_cast<void>(doris::ThreadPoolBuilder("MicrobenchS3FileUploadThreadPool")
+                                  .set_min_threads(256)
+                                  .set_max_threads(512)
+                                  .build(&s3_upload_pool));
+        exec_env->set_s3_file_upload_thread_pool(std::move(s3_upload_pool));
+        exec_env->set_file_cache_open_fd_cache(std::make_unique<doris::io::FDCache>());
+        return Status::OK();
+    }
+
+    doris::Status reload_or_create_cache_in_config() {
+        std::unordered_set<std::string> cache_path_set;
+        std::vector<doris::CachePath> cache_paths;
+        Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+        if (!rest) {
+            return rest;
+        }
+
+        doris::Status cache_status;
+        for (auto& cache_path : cache_paths) {
+            if (cache_path_set.contains(cache_path.path)) {
+                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
+                continue;
+            }
+
+            cache_status = doris::io::FileCacheFactory::instance()->reload_or_create_file_cache(
+                    cache_path.path, cache_path.init_settings());
+            if (!cache_status.ok()) {
+                return cache_status;
+            }
+            cache_path_set.emplace(cache_path.path);
+        }
+        return Status::OK();
+    }
+
+    std::unique_ptr<JobManager> create_job_manager_from_current_config() {
+        return std::make_unique<JobManager>(shared_from_this());
+    }
+
+    void start_reload_worker(StateSPtr service_state) {
+        std::lock_guard<std::mutex> lock(_reload_mt);
+        if (_reload_thread.joinable()) {
+            return;
+        }
+        _service_state = service_state;
+        _stop_thread = false;
+        _reload_thread = std::thread(&BenchEnvManager::_reload_worker_func, this);
+        LOG(INFO) << "Reload worker thread started";
+    }
+
+    void stop_reload_worker() {
+        {
+            std::unique_lock<std::mutex> lock(_reload_mt);
+            if (_stop_thread) {
+                return;
+            }
+
+            _stop_thread = true;
+            _reload_cv.notify_all();
+        }
+        if (_reload_thread.joinable()) {
+            _reload_thread.join();
+        }
+    }
+
+    void notify_reload() { _reload_cv.notify_one(); }
+
+private:
+    void _reload_worker_func() {
+        while (true) {
+            std::unique_lock<std::mutex> l(_reload_mt);
+            // Wait until stopped or safe to reload (State == Reloading && JobCount == 0)
+            _reload_cv.wait(l, [this]() {
+                return _stop_thread || (_service_state && _service_state->can_do_reload());
+            });
+
+            if (_stop_thread) {
+                break;
+            }
+
+            LOG(INFO) << "Starting configuration reload sequence...";
+
+            l.unlock();
+
+            doris::Status status;
+            try {
+                status = load_config();
+                if (!status) {
+                    LOG(ERROR) << "Failed to load config!";
+                    throw std::runtime_error(status.to_string().c_str());
+                }
+                status = reload_or_create_cache_in_config();
+                if (!status) {
+                    LOG(ERROR) << "Failed to reload file cache!";
+                    throw std::runtime_error(status.to_string().c_str());
+                }
+            } catch (const std::exception& e) {
+                LOG(ERROR) << "Exception during reload: " << e.what();
+            }
+
+            uint32_t result = _service_state->finish_reload();
+            if ((result & ServiceStateMachine::StateMask) == ServiceStateMachine::Idle) {
+                LOG(INFO) << "Configuration reload completed. Service is IDLE.";
+            } else {
+                LOG(ERROR) << "Failed to transition state to IDLE after reload.";
+            }
+        }
+    }
+
+    std::string _doris_home;
+    std::mutex _reload_mt;
+    std::condition_variable _reload_cv;
+    std::thread _reload_thread;
+    bool _stop_thread {false};
+    StateSPtr _service_state;
+};
+
 class JobManager {
 public:
-    JobManager() : _next_job_id(0), _job_executor_pool(std::thread::hardware_concurrency()) {
+    JobManager(std::shared_ptr<BenchEnvManager> env_mgr)
+            : _next_job_id(0),
+              _env_mgr(std::move(env_mgr)),
+              _job_executor_pool(std::thread::hardware_concurrency()) {
         LOG(INFO) << "Initialized JobManager with " << std::thread::hardware_concurrency()
                   << " executor threads";
     }
@@ -852,7 +1225,7 @@ public:
     }
 
     // Submit a new job
-    std::string submit_job(const JobConfig& config) {
+    std::string submit_job(const JobConfig& config, StateSPtr service_state) {
         try {
             std::string job_id = generate_job_id();
 
@@ -864,8 +1237,20 @@ public:
             LOG(INFO) << "Submitting job " << job_id << " with config: " << config.to_string();
 
             // Execute the job asynchronously
-            _job_executor_pool.enqueue(
-                    [this, job_id]() { execute_job_with_status_updates(job_id); });
+            _job_executor_pool.enqueue([this, job_id, service_state]() {
+                if ((service_state->run_one_job() & ServiceStateMachine::StateMask) !=
+                    ServiceStateMachine::Idle) {
+                    LOG(WARNING) << "Service may be reloading config or stopped"
+                                 << " job" << job_id << " has been discarded";
+                    return;
+                }
+
+                execute_job_with_status_updates(job_id);
+
+                if (service_state->finish_one_job() == ServiceStateMachine::Reloading) {
+                    _env_mgr->notify_reload();
+                }
+            });
 
             return job_id;
         } catch (const std::exception& e) {
@@ -917,7 +1302,7 @@ public:
         std::lock_guard<std::mutex> lock(_mutex);
         auto it = _jobs.find(job_id);
         if (it != _jobs.end()) {
-            FileInfo file_info = {key, data_size, job_id};
+            FileInfo file_info = {.filename = key, .data_size = data_size, .job_id = job_id};
             it->second->file_records.push_back(file_info);
             s3_file_records.add_file_info(job_id, file_info);
         } else {
@@ -1177,9 +1562,15 @@ private:
         LOG(INFO) << "job_id = " << job.job_id << " read_files size = " << read_files.size();
 
         read_stopwatch.start();
+        std::vector<std::string> read_buffers(read_files.size());
+
+        for (auto& buffer : read_buffers) {
+            buffer.resize(config.read_length_right);
+        }
+
         for (int i = 0; i < read_files.size(); ++i) {
             const auto& key = read_files[i];
-            read_futures.push_back(read_pool.enqueue([&, key]() {
+            read_futures.push_back(read_pool.enqueue([&, &buffer = read_buffers[i], key]() {
                 try {
                     if (job.completion_tracker) {
                         job.completion_tracker->wait_for_completion(
@@ -1232,7 +1623,7 @@ private:
                             }
                         }};
 
-                        for (int i = 0; i < config.repeat; i++) {
+                        for (int j = 0; j < config.repeat; j++) {
                             size_t read_offset = 0;
                             size_t read_length = 0;
 
@@ -1242,12 +1633,10 @@ private:
                             }
                             if (exist_job_perfile_size != -1) {
                                 // read exist files
-                                if (config.read_offset_right > exist_job_perfile_size) {
-                                    config.read_offset_right = exist_job_perfile_size;
-                                }
-                                if (config.read_length_right > exist_job_perfile_size) {
-                                    config.read_length_right = exist_job_perfile_size;
-                                }
+                                config.read_offset_right =
+                                        std::min(config.read_offset_right, exist_job_perfile_size);
+                                config.read_length_right =
+                                        std::min(config.read_length_right, exist_job_perfile_size);
 
                                 if (use_random) {
                                     std::random_device rd;
@@ -1282,16 +1671,13 @@ private:
                             CHECK(read_length >= 0)
                                     << "Calculated read_length is negative: " << read_length;
 
-                            std::string read_buffer;
-                            read_buffer.resize(read_length);
-
                             size_t total_bytes_read = 0;
                             while (total_bytes_read < read_length) {
                                 size_t bytes_to_read = std::min(
                                         read_length - total_bytes_read,
                                         static_cast<size_t>(4 * 1024 * 1024)); // 4MB chunks
 
-                                doris::Slice read_slice(read_buffer.data() + total_bytes_read,
+                                doris::Slice read_slice(buffer.data() + total_bytes_read,
                                                         bytes_to_read);
                                 size_t bytes_read = 0;
 
@@ -1322,7 +1708,7 @@ private:
 // TODO(dengxin): fix verify
 #if 0
         // Verify read data
-                            if (!DataVerifier::verify_data(key, file_size, read_offset, read_buffer,
+                            if (!DataVerifier::verify_data(key, file_size, read_offset, buffer,
                                                            read_length)) {
                                 throw std::runtime_error("Data verification failed for key: " +
                                                          key);
@@ -1384,15 +1770,115 @@ private:
     std::mutex _mutex;
     std::atomic<int> _next_job_id;
     std::map<std::string, std::shared_ptr<Job>> _jobs;
+    std::shared_ptr<BenchEnvManager> _env_mgr;
     BenchThreadPool _job_executor_pool;
 };
 
-namespace microbenchService {
-
 class MicrobenchServiceImpl : public microbench::MicrobenchService {
 public:
-    MicrobenchServiceImpl(JobManager& job_manager) : _job_manager(job_manager) {}
-    virtual ~MicrobenchServiceImpl() {}
+    MicrobenchServiceImpl(std::string_view doris_home_path)
+            : _bench_env_mgr(std::make_shared<BenchEnvManager>(doris_home_path)),
+              _service_state(std::make_shared<ServiceStateMachine>()) {}
+
+    ~MicrobenchServiceImpl() override {
+        if (_job_manager) {
+            _job_manager->stop();
+        }
+        if (_bench_env_mgr) {
+            _bench_env_mgr->stop_reload_worker();
+        }
+        _service_state->service_stop();
+    }
+
+    doris::Status init_microbench_service() {
+        auto status = _bench_env_mgr->load_config();
+        if (!status) {
+            return status;
+        }
+
+        status = _bench_env_mgr->load_bench_exec_env();
+        if (!status) {
+            return status;
+        }
+        _job_manager = _bench_env_mgr->create_job_manager_from_current_config();
+        _bench_env_mgr->start_reload_worker(_service_state);
+        _service_state->service_start();
+
+        return Status::OK();
+    }
+
+    void show_service_status(google::protobuf::RpcController* cntl_base,
+                             const microbench::HttpRequest* request,
+                             microbench::HttpResponse* response,
+                             google::protobuf::Closure* done) override {
+        brpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+
+        writer.StartObject();
+        writer.Key("status");
+        writer.String("OK");
+
+        writer.Key("service_status");
+        writer.String(get_service_status_string(_service_state->get_state()).c_str());
+
+        writer.EndObject();
+
+        cntl->http_response().set_content_type("application/json");
+        cntl->response_attachment().append(buffer.GetString());
+    }
+
+    void reload_config(google::protobuf::RpcController* cntl_base,
+                       const microbench::HttpRequest* request, microbench::HttpResponse* response,
+                       google::protobuf::Closure* done) override {
+        brpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+
+        LOG(INFO) << "Hot reload config of microbench service";
+
+        try {
+            if ((_service_state->reload_request() & ServiceStateMachine::StateMask) !=
+                ServiceStateMachine::Reloading) {
+                throw std::runtime_error("Service is not able to reloading currently!");
+            }
+
+            LOG(INFO) << "Request reload. May be execute after";
+            _bench_env_mgr->notify_reload();
+
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            writer.StartObject();
+            writer.Key("status");
+            writer.String("OK");
+            writer.Key("message");
+            writer.String("Reload requested");
+            writer.EndObject();
+            cntl->http_response().set_content_type("application/json");
+            cntl->response_attachment().append(buffer.GetString());
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error reloading config job: " << e.what();
+
+            // Set error status code and response
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
+            cntl->http_response().set_content_type("application/json");
+
+            // Build error response
+            rapidjson::Document error_doc;
+            error_doc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
+            error_doc.AddMember("status", "error", allocator);
+            error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
+
+            // Serialize to string
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            error_doc.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        }
+    }
 
     /**
      * Submit a job
@@ -1402,20 +1888,23 @@ public:
      */
     void submit_job(google::protobuf::RpcController* cntl_base,
                     const microbench::HttpRequest* request, microbench::HttpResponse* response,
-                    google::protobuf::Closure* done) {
+                    google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
         LOG(INFO) << "Received submit job request";
 
         try {
+            if (!_service_state->can_submit_job()) {
+                throw std::runtime_error("Microbench service can not submit job currently!");
+            }
             // Parse request body JSON
             std::string job_config = cntl->request_attachment().to_string();
             JobConfig config = JobConfig::from_json(job_config);
 
             LOG(INFO) << "Parsed JobConfig: " << config.to_string();
 
-            std::string job_id = _job_manager.submit_job(config);
+            std::string job_id = _job_manager->submit_job(config, _service_state);
             LOG(INFO) << "Job submitted successfully with ID: " << job_id;
 
             // Set response headers
@@ -1466,7 +1955,7 @@ public:
      */
     void get_job_status(google::protobuf::RpcController* cntl_base,
                         const microbench::HttpRequest* request, microbench::HttpResponse* response,
-                        google::protobuf::Closure* done) {
+                        google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
@@ -1487,7 +1976,7 @@ public:
                   << ", max_files=" << max_files;
 
         try {
-            const Job& job = _job_manager.get_job_status(job_id);
+            const Job& job = _job_manager->get_job_status(job_id);
 
             // Set response headers
             cntl->http_response().set_content_type("application/json");
@@ -1559,14 +2048,14 @@ public:
      */
     void list_jobs(google::protobuf::RpcController* cntl_base,
                    const microbench::HttpRequest* request, microbench::HttpResponse* response,
-                   google::protobuf::Closure* done) {
+                   google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
         LOG(INFO) << "Received list_jobs request";
 
         try {
-            std::vector<std::shared_ptr<Job>> jobs = _job_manager.list_jobs();
+            std::vector<std::shared_ptr<Job>> jobs = _job_manager->list_jobs();
 
             // Set response headers
             cntl->http_response().set_content_type("application/json");
@@ -1642,7 +2131,7 @@ public:
      */
     void cancel_job(google::protobuf::RpcController* cntl_base,
                     const microbench::HttpRequest* request, microbench::HttpResponse* response,
-                    google::protobuf::Closure* done) {
+                    google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
@@ -1675,7 +2164,7 @@ public:
      */
     void get_help(google::protobuf::RpcController* cntl_base,
                   const microbench::HttpRequest* request, microbench::HttpResponse* response,
-                  google::protobuf::Closure* done) {
+                  google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
@@ -1695,7 +2184,8 @@ public:
      */
     void file_cache_clear(google::protobuf::RpcController* cntl_base,
                           const microbench::HttpRequest* request,
-                          microbench::HttpResponse* response, google::protobuf::Closure* done) {
+                          microbench::HttpResponse* response,
+                          google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
@@ -1706,6 +2196,10 @@ public:
                   << ", segment_path=" << (segment_path ? *segment_path : "");
 
         try {
+            if (!_service_state->can_submit_job()) {
+                throw std::runtime_error("Microbench service can not clear cache currently!");
+            }
+
             bool sync = sync_str ? (doris::to_lower(*sync_str) == "true") : false;
 
             if (segment_path == nullptr) {
@@ -1769,12 +2263,17 @@ public:
      */
     void file_cache_reset(google::protobuf::RpcController* cntl_base,
                           const microbench::HttpRequest* request,
-                          microbench::HttpResponse* response, google::protobuf::Closure* done) {
+                          microbench::HttpResponse* response,
+                          google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
         LOG(INFO) << "Received file_cache_reset request";
 
         try {
+            if (!_service_state->can_submit_job()) {
+                throw std::runtime_error("Microbench service can not clear cache currently!");
+            }
+
             const std::string* capacity_str = cntl->http_request().uri().GetQuery("capacity");
             int64_t new_capacity = 0;
             new_capacity = std::stoll(*capacity_str);
@@ -1837,12 +2336,17 @@ public:
      */
     void file_cache_release(google::protobuf::RpcController* cntl_base,
                             const microbench::HttpRequest* request,
-                            microbench::HttpResponse* response, google::protobuf::Closure* done) {
+                            microbench::HttpResponse* response,
+                            google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
         LOG(INFO) << "Received file_cache_release request";
 
         try {
+            if (!_service_state->can_submit_job()) {
+                throw std::runtime_error("Microbench service can not release cache currently!");
+            }
+
             const std::string* base_path_str = cntl->http_request().uri().GetQuery("base_path");
             size_t released = 0;
             if (base_path_str == nullptr) {
@@ -1897,20 +2401,24 @@ public:
      */
     void update_config(google::protobuf::RpcController* cntl_base,
                        const microbench::HttpRequest* request, microbench::HttpResponse* response,
-                       google::protobuf::Closure* done) {
+                       google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
         LOG(INFO) << "Received update_config request";
 
         try {
+            if (!_service_state->can_submit_job()) {
+                throw std::runtime_error("Microbench service can not release cache currently!");
+            }
+
             bool need_persist = false;
             const std::string* persist_str = cntl->http_request().uri().GetQuery("persist");
             if (persist_str && *persist_str == "true") {
                 need_persist = true;
             }
             cntl->http_request().uri().RemoveQuery("persist");
-            std::string key = "";
-            std::string value = "";
+            std::string key;
+            std::string value;
             for (brpc::URI::QueryIterator it = cntl->http_request().uri().QueryBegin();
                  it != cntl->http_request().uri().QueryEnd(); ++it) {
                 key = it->first;
@@ -1971,12 +2479,16 @@ public:
      */
     void show_config(google::protobuf::RpcController* cntl_base,
                      const microbench::HttpRequest* request, microbench::HttpResponse* response,
-                     google::protobuf::Closure* done) {
+                     google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
         LOG(INFO) << "Received show_config request";
 
         try {
+            if (!_service_state->can_submit_job()) {
+                throw std::runtime_error("Microbench service can not show config currently!");
+            }
+
             std::vector<std::vector<std::string>> config_info = doris::config::get_config_info();
 
             rapidjson::StringBuffer buffer;
@@ -2055,6 +2567,19 @@ private:
             return "COMPLETED";
         case JobStatus::FAILED:
             return "FAILED";
+        default:
+            return "UNKNOWN";
+        }
+    }
+
+    std::string get_service_status_string(uint32_t service_status) {
+        switch (service_status & ServiceStateMachine::StateMask) {
+        case ServiceStateMachine::Idle:
+            return "IDLE";
+        case ServiceStateMachine::Reloading:
+            return "RELOADING";
+        case ServiceStateMachine::Stopped:
+            return "STOPPED";
         default:
             return "UNKNOWN";
         }
@@ -2205,18 +2730,25 @@ private:
         doc.AddMember("file_records_total", static_cast<uint64_t>(file_records.size()), allocator);
     }
 
-    JobManager& _job_manager;
+    std::shared_ptr<BenchEnvManager> _bench_env_mgr;
+    std::unique_ptr<JobManager> _job_manager;
+    StateSPtr _service_state;
 };
 } // namespace microbenchService
 
 // HTTP server handling
 class HttpServer {
 public:
-    HttpServer(JobManager& job_manager) : _job_manager(job_manager), _server(nullptr) {}
+    HttpServer() = default;
 
-    void start() {
+    void start(std::string_view doris_home_path) {
         _server = new brpc::Server();
-        microbenchService::MicrobenchServiceImpl http_svc(_job_manager);
+        microbenchService::MicrobenchServiceImpl http_svc(doris_home_path);
+        auto status = http_svc.init_microbench_service();
+        if (!status) {
+            LOG(ERROR) << status.to_string();
+            return;
+        }
 
         LOG(INFO) << "Starting HTTP server on port " << FLAGS_port;
 
@@ -2246,103 +2778,8 @@ public:
     }
 
 private:
-    JobManager& _job_manager;
-    brpc::Server* _server;
+    brpc::Server* _server {nullptr};
 };
-
-void init_exec_env() {
-    SCOPED_INIT_THREAD_CONTEXT();
-    std::vector<doris::StorePath> paths;
-    auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
-    if (!olap_res) {
-        LOG(ERROR) << "parse config storage path failed, path=" << doris::config::storage_root_path;
-        exit(-1);
-    }
-
-    std::vector<doris::StorePath> spill_paths;
-    if (doris::config::spill_storage_root_path.empty()) {
-        doris::config::spill_storage_root_path = doris::config::storage_root_path;
-    }
-    olap_res = doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
-    if (!olap_res) {
-        LOG(ERROR) << "parse config spill storage path failed, path="
-                   << doris::config::spill_storage_root_path;
-        exit(-1);
-    }
-    std::set<std::string> broken_paths;
-    doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);
-
-    auto it = paths.begin();
-    for (; it != paths.end();) {
-        if (broken_paths.count(it->path) > 0) {
-            if (doris::config::ignore_broken_disk) {
-                LOG(WARNING) << "ignore broken disk, path = " << it->path;
-                it = paths.erase(it);
-            } else {
-                LOG(ERROR) << "a broken disk is found " << it->path;
-                exit(-1);
-            }
-        } else if (!doris::check_datapath_rw(it->path)) {
-            if (doris::config::ignore_broken_disk) {
-                LOG(WARNING) << "read write test file failed, path=" << it->path;
-                it = paths.erase(it);
-            } else {
-                LOG(ERROR) << "read write test file failed, path=" << it->path;
-                // if only one disk and the disk is full, also need exit because rocksdb will open failed
-                exit(-1);
-            }
-        } else {
-            ++it;
-        }
-    }
-
-    if (paths.empty()) {
-        LOG(ERROR) << "All disks are broken, exit.";
-        exit(-1);
-    }
-
-    it = spill_paths.begin();
-    for (; it != spill_paths.end();) {
-        if (!doris::check_datapath_rw(it->path)) {
-            if (doris::config::ignore_broken_disk) {
-                LOG(WARNING) << "read write test file failed, path=" << it->path;
-                it = spill_paths.erase(it);
-            } else {
-                LOG(ERROR) << "read write test file failed, path=" << it->path;
-                exit(-1);
-            }
-        } else {
-            ++it;
-        }
-    }
-    if (spill_paths.empty()) {
-        LOG(ERROR) << "All spill disks are broken, exit.";
-        exit(-1);
-    }
-
-    doris::CpuInfo::init();
-    doris::DiskInfo::init();
-    doris::MemInfo::init();
-
-    LOG(INFO) << doris::CpuInfo::debug_string();
-    LOG(INFO) << doris::DiskInfo::debug_string();
-    LOG(INFO) << doris::MemInfo::debug_string();
-
-    auto* exec_env = doris::ExecEnv::GetInstance();
-    auto status = exec_env->init_mem_env();
-
-    std::unique_ptr<doris::ThreadPool> s3_upload_pool;
-    static_cast<void>(doris::ThreadPoolBuilder("MicrobenchS3FileUploadThreadPool")
-                              .set_min_threads(256)
-                              .set_max_threads(512)
-                              .build(&s3_upload_pool));
-    exec_env->set_s3_file_upload_thread_pool(std::move(s3_upload_pool));
-
-    exec_env->set_file_cache_factory(new FileCacheFactory());
-    std::vector<doris::CachePath> cache_paths;
-    exec_env->init_file_cache_factory(cache_paths);
-    exec_env->set_file_cache_open_fd_cache(std::make_unique<doris::io::FDCache>());
-}
 
 int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
@@ -2358,73 +2795,17 @@ int main(int argc, char* argv[]) {
     }
     google::InitGoogleLogging(argv[0]);
 
-    if (-1 == setenv("DORIS_HOME", ".", 0)) {
-        LOG(WARNING) << "set DORIS_HOME error";
+    std::string doris_home = getenv("DORIS_HOME");
+    if (!doris_home.empty()) {
+        LOG(ERROR) << "DORIS_HOME environment variable not set";
     }
-    const char* doris_home = getenv("DORIS_HOME");
-    if (doris_home == nullptr) {
-        LOG(INFO) << "DORIS_HOME environment variable not set";
+
+    std::string env_log_dir = getenv("LOG_DIR");
+    if (!env_log_dir.empty()) {
+        LOG(ERROR) << " environment variable LOG_DIR not set";
     }
+
     LOG(INFO) << "env=" << doris_home;
-    std::string conffile = std::string(doris_home) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), true, true, true)) {
-        LOG(ERROR) << "Error reading config file";
-        return -1;
-    }
-    std::string custom_conffile = doris::config::custom_config_dir + "/be_custom.conf";
-    if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
-        LOG(ERROR) << "Error reading custom config file";
-        return -1;
-    }
-
-    if (!doris::config::enable_file_cache) {
-        LOG(ERROR) << "config::enbale_file_cache should be true!";
-        return -1;
-    }
-
-    LOG(INFO) << "Obj config. ak=" << doris::config::test_s3_ak
-              << " sk=" << doris::config::test_s3_sk << " region=" << doris::config::test_s3_region
-              << " endpoint=" << doris::config::test_s3_endpoint
-              << " bucket=" << doris::config::test_s3_bucket;
-    LOG(INFO) << "File cache config. enable_file_cache=" << doris::config::enable_file_cache
-              << " file_cache_path=" << doris::config::file_cache_path
-              << " file_cache_each_block_size=" << doris::config::file_cache_each_block_size
-              << " clear_file_cache=" << doris::config::clear_file_cache
-              << " enable_file_cache_query_limit=" << doris::config::enable_file_cache_query_limit
-              << " file_cache_enter_disk_resource_limit_mode_percent="
-              << doris::config::file_cache_enter_disk_resource_limit_mode_percent
-              << " file_cache_exit_disk_resource_limit_mode_percent="
-              << doris::config::file_cache_exit_disk_resource_limit_mode_percent
-              << " enable_read_cache_file_directly="
-              << doris::config::enable_read_cache_file_directly
-              << " file_cache_enable_evict_from_other_queue_by_size="
-              << doris::config::file_cache_enable_evict_from_other_queue_by_size
-              << " file_cache_error_log_limit_bytes="
-              << doris::config::file_cache_error_log_limit_bytes
-              << " cache_lock_wait_long_tail_threshold_us="
-              << doris::config::cache_lock_wait_long_tail_threshold_us
-              << " cache_lock_held_long_tail_threshold_us="
-              << doris::config::cache_lock_held_long_tail_threshold_us
-              << " file_cache_remove_block_qps_limit="
-              << doris::config::file_cache_remove_block_qps_limit
-              << " enable_evict_file_cache_in_advance="
-              << doris::config::enable_evict_file_cache_in_advance
-              << " file_cache_enter_need_evict_cache_in_advance_percent="
-              << doris::config::file_cache_enter_need_evict_cache_in_advance_percent
-              << " file_cache_exit_need_evict_cache_in_advance_percent="
-              << doris::config::file_cache_exit_need_evict_cache_in_advance_percent
-              << " file_cache_evict_in_advance_interval_ms="
-              << doris::config::file_cache_evict_in_advance_interval_ms
-              << " file_cache_evict_in_advance_batch_bytes="
-              << doris::config::file_cache_evict_in_advance_batch_bytes;
-    LOG(INFO) << "S3 writer config. s3_file_writer_log_interval_second="
-              << doris::config::s3_file_writer_log_interval_second
-              << " s3_write_buffer_size=" << doris::config::s3_write_buffer_size
-              << " enable_flush_file_cache_async=" << doris::config::enable_flush_file_cache_async;
-
-    init_exec_env();
-    JobManager job_manager;
-
     std::thread periodiccally_log_thread;
     std::mutex periodiccally_log_thread_lock;
     std::condition_variable periodiccally_log_thread_cv;
@@ -2439,8 +2820,8 @@ int main(int argc, char* argv[]) {
     periodiccally_log_thread = std::thread {periodiccally_log};
 
     try {
-        HttpServer http_server(job_manager);
-        http_server.start();
+        HttpServer http_server;
+        http_server.start(doris_home);
     } catch (const std::exception& e) {
         LOG(ERROR) << "Error in HTTP server: " << e.what();
     }

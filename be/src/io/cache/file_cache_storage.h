@@ -43,6 +43,10 @@ struct FileWriterMapKeyHash {
     }
 };
 
+struct MemBlock {
+    std::shared_ptr<char[]> addr;
+};
+
 // The interface is for organizing datas in disk
 class FileCacheStorage {
 public:
