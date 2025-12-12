@@ -49,9 +49,12 @@ PhysicalResultSink
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[ws_sold_date_sk]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5
+--------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[ws_sold_date_sk]
+----------------------------hashAgg[GLOBAL]
+------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------hashAgg[LOCAL]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_month_seq <= 1213) and (date_dim.d_month_seq >= 1202))
 --------------------------------PhysicalOlapScan[date_dim]
