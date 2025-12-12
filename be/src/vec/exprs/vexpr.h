@@ -209,6 +209,7 @@ public:
         return std::ranges::any_of(_children.begin(), _children.end(),
                                    [](VExprSPtr child) { return child->is_rf_wrapper(); });
     }
+    virtual bool is_topn_filter() const { return false; }
 
     virtual void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) {
         for (auto child : _children) {

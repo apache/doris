@@ -55,16 +55,31 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
                                 : create_comparison_predicate0<PredicateType::GE>;
 }
 
-void RuntimePredicate::init_target(
-        int32_t target_node_id, phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc) {
+Status RuntimePredicate::init_target(int32_t target_node_id,
+                                   phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
+                                   const doris::RowDescriptor& desc) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     check_target_node_id(target_node_id);
     if (target_is_slot(target_node_id)) {
         _contexts[target_node_id].col_name =
                 slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
                         ->col_name();
+        auto slot_id = get_texpr(target_node_id).nodes[0].slot_ref.slot_id;
+        auto column_id = desc.get_column_id(slot_id);
+        if (column_id < 0) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "RuntimePredicate has invalid slot id: {}, name: {}, desc: {}, slot_desc: {}",
+                    slot_id,
+                    slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
+                            ->col_name(),
+                    desc.debug_string(),
+                    slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
+                            ->debug_string());
+        }
+        _contexts[target_node_id].predicate = SharedPredicate::create_shared(column_id);
     }
     _detected_target = true;
+    return Status::OK();
 }
 
 StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveType type) {
