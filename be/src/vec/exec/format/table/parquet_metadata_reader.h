@@ -43,6 +43,9 @@ class FieldDescriptor;
 struct FieldSchema;
 class FileMetaData;
 
+// Lightweight reader that surfaces Parquet footer metadata as a table-valued scan.
+// It reads only file footers (no data pages) and emits either schema rows or
+// row-group/column statistics based on `mode`.
 class ParquetMetadataReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetMetadataReader);
 
