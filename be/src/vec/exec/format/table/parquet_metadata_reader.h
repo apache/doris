@@ -20,6 +20,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <array>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -77,6 +78,9 @@ private:
     std::vector<SlotDescriptor*> _slots;
     TMetaScanRange _scan_range;
     std::vector<std::string> _paths;
+    // File system type and properties for remote Parquet access.
+    TFileType::type _file_type = TFileType::FILE_LOCAL;
+    std::map<std::string, std::string> _properties;
     std::string _mode;
     Mode _mode_type = Mode::METADATA;
     bool _eof = false;

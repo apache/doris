@@ -634,6 +634,8 @@ struct TMetaCacheStatsParams {
 struct TParquetMetadataParams {
   1: optional list<string> paths
   2: optional string mode
+  3: optional Types.TFileType file_type
+  4: optional map<string, string> properties
 }
 
 struct TMetaScanRange {
