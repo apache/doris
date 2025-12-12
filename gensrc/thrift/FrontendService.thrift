@@ -457,6 +457,7 @@ struct TLoadTxnBeginResult {
     2: optional i64 txnId
     3: optional string job_status // if label already used, set status of existing job
     4: optional i64 db_id
+    5: optional i64 table_id
 }
 
 struct TBeginTxnRequest {
@@ -642,6 +643,7 @@ struct TLoadTxnCommitRequest {
     18: optional bool groupCommit
     19: optional i64 receiveBytes
     20: optional i64 backendId 
+    21: optional list<i64> table_ids
 }
 
 struct TLoadTxnCommitResult {
@@ -728,6 +730,7 @@ struct TLoadTxnRollbackRequest {
     13: optional list<string> tbls
     14: optional string auth_code_uuid // deprecated, use token instead
     15: optional string label
+    16: optional i64 table_id
 }
 
 struct TLoadTxnRollbackResult {

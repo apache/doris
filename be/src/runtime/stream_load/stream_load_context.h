@@ -249,6 +249,7 @@ public:
 
     // for single-stream-multi-table, we have table list
     std::vector<std::string> table_list;
+    std::vector<int64_t> table_id_list;
 
     bool memtable_on_sink_node = false;
 

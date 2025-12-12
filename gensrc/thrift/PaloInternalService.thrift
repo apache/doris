@@ -668,6 +668,7 @@ struct TPipelineFragmentParams {
   // Used by 2.1
   44: optional list<i32> topn_filter_source_node_ids
   45: optional map<string, TAIResource> ai_resources
+  46: optional i64 table_id
 
   // For cloud
   1000: optional bool is_mow_table;
