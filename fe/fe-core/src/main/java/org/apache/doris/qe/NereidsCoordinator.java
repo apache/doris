@@ -61,6 +61,7 @@ import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -139,6 +140,20 @@ public class NereidsCoordinator extends Coordinator {
 
     @Override
     public void exec() throws Exception {
+        try {
+            doExec();
+        } catch (Throwable t) {
+            LOG.error("Execute failed: " + t.getMessage(), t);
+            try {
+                cancel(new Status(TStatusCode.CANCELLED, "Execute failed: " + t));
+            } catch (Throwable cancelThrowable) {
+                LOG.warn("Cancel execute failed: " + cancelThrowable.getMessage(), cancelThrowable);
+            }
+            throw t;
+        }
+    }
+
+    private void doExec() throws Exception {
         enqueue(coordinatorContext.connectContext);
 
         processTopSink(coordinatorContext, coordinatorContext.topDistributedPlan);
