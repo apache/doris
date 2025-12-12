@@ -1612,7 +1612,8 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    void quickRunTest(String tag, Object arg, boolean isOrder = false) {
+    // rowConverter: { row -> convertedRow }
+    void quickRunTest(String tag, Object arg, boolean isOrder = false, Closure rowConverter = null) {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
@@ -1646,6 +1647,9 @@ class Suite implements GroovyInterceptable {
                 }
             }
             def (result, meta) = tupleResult
+            if (rowConverter != null) {
+                result = result.collect { rowConverter.call(it) }
+            }
             if (isOrder) {
                 result = sortByToString(result)
             }
@@ -1695,6 +1699,9 @@ class Suite implements GroovyInterceptable {
                 }
             }
             def (realResults, meta) = tupleResult
+            if (rowConverter != null) {
+                realResults = realResults.collect { rowConverter.call(it) }
+            }
             if (isOrder) {
                 realResults = sortByToString(realResults)
             }
@@ -1758,7 +1765,7 @@ class Suite implements GroovyInterceptable {
     }
 
     // test results of two sqls are the same
-    void quickRunTest(String tag, Object arg1, Object arg2) {
+    void quickRunTestTwoSQL(String tag, Object arg1, Object arg2) {
         def (realResults1, meta1) = executeQueryByTag(tag, arg1)
         Iterator<List<Object>> realResultsIter1 = realResults1.iterator()
 
@@ -1802,7 +1809,7 @@ class Suite implements GroovyInterceptable {
             String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
             sql = cleanedSqlStr
         }
-        quickRunTest(tag, sql1, sql2)
+        quickRunTestTwoSQL(tag, sql1, sql2)
     }
 
     void quickExecute(String tag, PreparedStatement stmt) {

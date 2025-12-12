@@ -36,6 +36,9 @@ public class ExpressionVisitors {
     private static class ContainsAggregateChecker extends DefaultExpressionVisitor<Boolean, Void> {
         @Override
         public Boolean visit(Expression expr, Void context) {
+            if (!expr.containsType(AggregateFunction.class)) {
+                return false;
+            }
             boolean needAggregate = false;
             for (Expression child : expr.children()) {
                 needAggregate = needAggregate || child.accept(this, context);
