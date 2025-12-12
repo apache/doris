@@ -18,16 +18,13 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -56,10 +53,7 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
 
     private MultiDistinctCount(boolean distinct, List<Expression> children) {
         super("multi_distinct_count", false, new LinkedHashSet<>(children)
-                .stream()
-                .map(arg -> !(arg instanceof Unbound) && arg.getDataType() instanceof DateLikeType
-                        ? new Cast(arg, BigIntType.INSTANCE) : arg)
-                .collect(ImmutableList.toImmutableList()));
+                .stream().collect(ImmutableList.toImmutableList()));
         if (super.children().size() > 1) {
             throw new AnalysisException("MultiDistinctCount's children size must be 1");
         }

@@ -193,7 +193,8 @@ Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::
 Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                               int64_t end, vectorized::Arena& arena) const {
+                                               int64_t end, vectorized::Arena& arena,
+                                               const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     const auto& string_column = assert_cast<const ColumnString&>(column);
     // First pass: calculate total memory needed and collect serialized values
@@ -405,8 +406,8 @@ const uint8_t* DataTypeJsonbSerDe::deserialize_binary_to_field(const uint8_t* da
     return data;
 }
 
-void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num,
-                                   BufferWritable& bw) const {
+void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                   const FormatOptions& options) const {
     const auto& col = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
     const auto& data_ref = col.get_data_at(row_num);
     if (data_ref.size > 0) {
@@ -424,7 +425,8 @@ void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num,
 }
 
 bool DataTypeJsonbSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                                     int64_t row_idx) const {
+                                                     int64_t row_idx,
+                                                     const FormatOptions& options) const {
     const auto& col = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
     const auto& data_ref = col.get_data_at(row_idx);
     if (data_ref.size > 0) {

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -415,6 +416,16 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             }
             if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && !table.hasDeleteSign()) {
                 throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+            }
+            if (properties != null) {
+                String loadToSingleTablet = properties.get(LOAD_TO_SINGLE_TABLET);
+                if (loadToSingleTablet != null && loadToSingleTablet.equalsIgnoreCase("true")) {
+                    if (!(table.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
+                        throw new AnalysisException(
+                                "if load_to_single_tablet set to true, "
+                                + "the olap table must be with random distribution");
+                    }
+                }
             }
             if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {

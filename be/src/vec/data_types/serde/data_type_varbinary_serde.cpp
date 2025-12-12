@@ -22,8 +22,8 @@
 namespace doris::vectorized {
 
 void DataTypeVarbinarySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                     Arena& arena, int32_t col_id,
-                                                     int64_t row_num) const {
+                                                     Arena& arena, int32_t col_id, int64_t row_num,
+                                                     const FormatOptions& options) const {
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                            "Data type {} read_one_cell_from_jsonb ostr not implement.",
                            column.get_name());
@@ -85,7 +85,8 @@ Status DataTypeVarbinarySerDe::write_column_to_orc(const std::string& timezone,
                                                    const IColumn& column, const NullMap* null_map,
                                                    orc::ColumnVectorBatch* orc_col_batch,
                                                    int64_t start, int64_t end,
-                                                   vectorized::Arena& arena) const {
+                                                   vectorized::Arena& arena,
+                                                   const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
 
@@ -115,8 +116,8 @@ Status DataTypeVarbinarySerDe::deserialize_one_cell_from_json(IColumn& column, S
     return Status::OK();
 }
 
-void DataTypeVarbinarySerDe::to_string(const IColumn& column, size_t row_num,
-                                       BufferWritable& bw) const {
+void DataTypeVarbinarySerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                       const FormatOptions& options) const {
     const auto value = assert_cast<const ColumnVarbinary&>(column).get_data_at(row_num);
     bw.write(value.data, value.size);
 }

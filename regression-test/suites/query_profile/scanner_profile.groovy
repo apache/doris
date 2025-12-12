@@ -18,49 +18,7 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
-
-
-def getProfileList = {
-    def dst = 'http://' + context.config.feHttpAddress
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
-}
-
-
-def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-}
-
-def getProfileWithToken = { token ->
-    def wholeString = getProfileList()
-    List profileData = new JsonSlurper().parseText(wholeString).data.rows
-    String profileId = "";    
-    logger.info("{}", token)
-
-    for (def profileItem in profileData) {
-        if (profileItem["Sql Statement"].toString().contains(token)) {
-            profileId = profileItem["Profile ID"].toString()
-            logger.info("profileItem: {}", profileItem)
-        }
-    }
-
-    logger.info("$token: {}", profileId)
-    // Sleep 2 seconds to make sure profile collection is done
-    Thread.sleep(2000)
-
-    def String profile = getProfile(profileId).toString()
-    return profile;
-}
+import org.apache.doris.regression.action.ProfileAction
 
 suite('scanner_profile') {
     sql """
@@ -103,16 +61,30 @@ suite('scanner_profile') {
     sql """
         select "${token}", * from scanner_profile limit 10;
     """
+    def profileAction = new ProfileAction(context)
+    def getProfileByToken = { pattern ->
+        List profileData = profileAction.getProfileList()
+        def profileContent = ""
+        for (final def profileItem in profileData) {
+            if (profileItem["Sql Statement"].toString().contains(pattern)) {
+                profileContent = profileAction.getProfile(profileItem["Profile ID"].toString())
+                break
+            }
+        }
+        return profileContent        
+    }
 
-    def String profileWithLimit1 = getProfileWithToken(token)
-    logger.info("Profile of ${token} ${profileWithLimit1}")
-    assertTrue(profileWithLimit1.contains("- MaxScanConcurrency: 1"))
+    List profileData = profileAction.getProfileList()
+    def profileWithLimit1 = getProfileByToken(token)
+    logger.info("${token} Profile Data: ${profileWithLimit1}")
+    assertTrue(profileWithLimit1.toString().contains("- MaxScanConcurrency: 1"))
 
     token = UUID.randomUUID().toString()
     sql """
         select "${token}", * from scanner_profile where id < 10;
     """
-    def String profileWithFilter = getProfileWithToken(token)
-    logger.info("Profile of ${token} ${profileWithFilter}")
-    assertTrue(profileWithFilter.contains("actualRows=9"))
+
+    String profileWithFilter = getProfileByToken(token)
+    logger.info("${token} Profile Data: ${profileWithFilter}")
+    assertTrue(profileWithFilter.toString().contains("actualRows=9"))
 }

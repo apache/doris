@@ -139,8 +139,12 @@ TEST_F(DataTypeVarbinarySerDeTest, JsonbThrows) {
 
     JsonbWriterT<JsonbOutStream> jw;
     Arena pool;
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
 
-    EXPECT_THROW({ serde.write_one_cell_to_jsonb(*col, jw, pool, 0, 0); }, doris::Exception);
+    EXPECT_THROW({ serde.write_one_cell_to_jsonb(*col, jw, pool, 0, 0, options); },
+                 doris::Exception);
     EXPECT_THROW({ serde.read_one_cell_from_jsonb(*vb, nullptr); }, doris::Exception);
 }
 
@@ -153,14 +157,13 @@ TEST_F(DataTypeVarbinarySerDeTest, MysqlTextAndBinaryAndConst) {
         vb->insert_data(v.data(), v.size());
     }
 
-    DataTypeSerDe::FormatOptions opt;
-
     // binary protocol (smoke)
     {
         MysqlRowBinaryBuffer rb;
+        auto format_options = DataTypeSerDe::FormatOptions();
         rb.start_binary_row(vals.size());
         for (int i = 0; i < static_cast<int>(vals.size()); ++i) {
-            auto st = serde.write_column_to_mysql_binary(*col, rb, i, false, opt);
+            auto st = serde.write_column_to_mysql_binary(*col, rb, i, false, format_options);
             EXPECT_TRUE(st.ok()) << st.to_string();
         }
         EXPECT_GT(rb.length(), 0);
@@ -203,11 +206,18 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteSupported) {
     vb->insert_data(v.data(), v.size());
 
     Arena arena;
+    TimezoneUtils::load_timezones_to_cache();
+    DataTypeSerDe::FormatOptions format_options;
+    cctz::time_zone tz;
+    TimezoneUtils::find_cctz_time_zone("UTC", tz);
+    format_options.timezone = &tz;
     auto batch = std::make_unique<orc::StringVectorBatch>(1, *orc::getDefaultPool());
-    auto st = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), 0, 0, arena);
+    auto st = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), 0, 0, arena,
+                                        format_options);
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(batch->numElements, 0);
-    auto st2 = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), 0, 1, arena);
+    auto st2 = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), 0, 1, arena,
+                                         format_options);
     EXPECT_TRUE(st2.ok());
     EXPECT_EQ(batch->numElements, 1);
     EXPECT_EQ(batch->length[0], 3);
@@ -291,11 +301,16 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteStartEndNullMapIgnoredAndEmptyRange) 
 
     Arena arena;
     auto batch = std::make_unique<orc::StringVectorBatch>(8, *orc::getDefaultPool());
+    TimezoneUtils::load_timezones_to_cache();
+    DataTypeSerDe::FormatOptions format_options;
+    cctz::time_zone tz;
+    TimezoneUtils::find_cctz_time_zone("UTC", tz);
+    format_options.timezone = &tz;
 
     // Provide a null_map but implementation ignores it; ensure data still written.
     NullMap nulls = {0, 1, 0};
     auto st = serde.write_column_to_orc("UTC", *col, &nulls, batch.get(), /*start=*/1, /*end=*/3,
-                                        arena);
+                                        arena, format_options);
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(batch->numElements, 2);
     // rows 1 and 2 are filled
@@ -306,7 +321,7 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteStartEndNullMapIgnoredAndEmptyRange) 
 
     // Empty range should set numElements = 0
     auto st2 = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), /*start=*/3, /*end=*/3,
-                                         arena);
+                                         arena, format_options);
     EXPECT_TRUE(st2.ok());
     EXPECT_EQ(batch->numElements, 0);
 }

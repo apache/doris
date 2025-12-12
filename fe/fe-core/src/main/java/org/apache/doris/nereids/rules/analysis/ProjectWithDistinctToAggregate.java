@@ -19,9 +19,14 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+
+import com.google.common.collect.ImmutableList;
 
 /**
  * ProjectWithDistinctToAggregate.
@@ -46,7 +51,30 @@ public class ProjectWithDistinctToAggregate extends OneAnalysisRuleFactory {
             logicalProject()
                 .when(LogicalProject::isDistinct)
                 .whenNot(project -> ExpressionUtils.hasNonWindowAggregateFunction(project.getProjects()))
-                .then(project -> new LogicalAggregate<>(project.getProjects(), false, project.child()))
+                .then(this::rewrite)
         );
+    }
+
+    private LogicalPlan rewrite(LogicalProject<?> project) {
+        boolean hasWindowExpression = false;
+        for (NamedExpression expr : project.getProjects()) {
+            if (expr.containsType(WindowExpression.class)) {
+                hasWindowExpression = true;
+                break;
+            }
+        }
+        if (hasWindowExpression) {
+            // for distinct, group by = agg output
+            // if the project contains window expression, because agg group by cannot
+            // contains window function, we need to project them, otherwise CheckAnalysis will fail.
+            ImmutableList.Builder<NamedExpression> aggOutput
+                    = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+            for (NamedExpression output : project.getProjects()) {
+                aggOutput.add(output.toSlot());
+            }
+            return new LogicalAggregate<>(aggOutput.build(), false, project.withDistinct(false));
+        } else {
+            return new LogicalAggregate<>(project.getProjects(), false, project.child());
+        }
     }
 }

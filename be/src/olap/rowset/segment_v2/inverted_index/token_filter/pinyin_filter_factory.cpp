@@ -52,14 +52,6 @@ void PinyinFilterFactory::initialize(const Settings& settings) {
 
     // Integer parameters
     config_->limitFirstLetterLength = settings.get_int("limit_first_letter_length", 16);
-
-    // Validate configuration (same validation as Java)
-    if (!(config_->keepFirstLetter || config_->keepSeparateFirstLetter || config_->keepFullPinyin ||
-          config_->keepJoinedFullPinyin || config_->keepSeparateChinese)) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "pinyin config error, can't disable separate_first_letter, "
-                        "first_letter and full_pinyin at the same time.");
-    }
 }
 
 TokenFilterPtr PinyinFilterFactory::create(const TokenStreamPtr& in) {
