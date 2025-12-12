@@ -156,6 +156,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // has colocate plan node
     protected boolean hasColocatePlanNode = false;
     protected final Supplier<Boolean> hasBucketShuffleJoin;
+    protected final Supplier<Boolean> hasBucketShuffleSetOperation;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
@@ -177,6 +178,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.builderRuntimeFilterIds = new HashSet<>();
         this.targetRuntimeFilterIds = new HashSet<>();
         this.hasBucketShuffleJoin = buildHasBucketShuffleJoin();
+        this.hasBucketShuffleSetOperation = buildHasBucketShuffleSetOperation();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
     }
@@ -198,6 +200,20 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             List<HashJoinNode> hashJoinNodes = getPlanRoot().collectInCurrentFragment(HashJoinNode.class::isInstance);
             for (HashJoinNode hashJoinNode : hashJoinNodes) {
                 if (hashJoinNode.isBucketShuffle()) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+
+    private Supplier<Boolean> buildHasBucketShuffleSetOperation() {
+        return Suppliers.memoize(() -> {
+            List<SetOperationNode> setOperationNodes
+                    = getPlanRoot().collectInCurrentFragment(SetOperationNode.class::isInstance);
+            for (SetOperationNode setOperationNode : setOperationNodes) {
+                if (setOperationNode.isBucketShuffle()) {
                     return true;
                 }
             }
@@ -269,6 +285,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean hasBucketShuffleJoin() {
         return hasBucketShuffleJoin.get();
+    }
+
+    public boolean hasBucketShuffleSetOperation() {
+        return hasBucketShuffleSetOperation.get();
     }
 
     public void setResultSinkType(TResultSinkType resultSinkType) {

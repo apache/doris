@@ -116,6 +116,16 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
         if (context != null
                 && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
             StringBuilder builder = new StringBuilder();
+
+            boolean ignoreDistribute = ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes()
+                    .contains(PhysicalDistribute.class.getSimpleName());
+
+            ShuffleType shuffleType = shuffleType();
+            if (!ignoreDistribute && shuffleType != ShuffleType.shuffle) {
+                builder.append("[").append(shuffleType).append("]");
+            }
+
             builder.append(getClass().getSimpleName());
             builder.append("(constantExprsList=");
             builder.append(constantExprsList.stream()

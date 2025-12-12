@@ -34,6 +34,14 @@ public interface SetOperation {
         DISTINCT
     }
 
+    /**
+     * join shuffle type
+     */
+    enum ShuffleType {
+        shuffle,
+        bucketShuffle
+    }
+
     Qualifier getQualifier();
 
     List<SlotReference> getRegularChildOutput(int i);
