@@ -243,6 +243,7 @@ public class AuditLogHelper {
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setTimestamp(ctx.getStartTime())
                 .setClientIp(ctx.getClientIP())
+                .setSessionId(ctx.getSessionId())
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setFeIp(FrontendOptions.getLocalHostAddress())
                 .setCtl(catalog == null ? InternalCatalog.INTERNAL_CATALOG_NAME : catalog.getName())
