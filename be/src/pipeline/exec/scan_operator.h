@@ -256,8 +256,8 @@ protected:
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                    PushDownType* pdt);
     Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                   PushDownType* pdt);
+                                  std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                  PushDownType* pdt);
 
     Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
                                     std::vector<std::shared_ptr<ColumnPredicate>>& predicates,

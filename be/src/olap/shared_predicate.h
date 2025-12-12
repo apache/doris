@@ -54,9 +54,7 @@ public:
                        ColumnPredicate::debug_string(), _nested ? _nested->debug_string() : "null");
         return fmt::to_string(debug_string_buffer);
     }
-    void set_column_id(uint32_t column_id) {
-        _column_id = column_id;
-    }
+    void set_column_id(uint32_t column_id) { _column_id = column_id; }
     std::shared_ptr<ColumnPredicate> clone(uint32_t column_id) const override {
         // All scanner thread should share the same SharedPredicate object.
         return std::const_pointer_cast<ColumnPredicate>(shared_from_this());
