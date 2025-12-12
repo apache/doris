@@ -22,8 +22,8 @@
 #include <algorithm>
 #include <cctype>
 #include <memory>
-#include <sstream>
 #include <unordered_map>
+#include <utility>
 
 #include "common/logging.h"
 #include "io/fs/file_reader.h"
@@ -314,17 +314,17 @@ std::string encodings_to_string(const std::vector<tparquet::Encoding::type>& enc
 std::string statistics_value_to_string(const tparquet::Statistics& statistics, bool is_min) {
     if (is_min) {
         if (statistics.__isset.min_value) {
-            return std::string(statistics.min_value);
+            return {statistics.min_value};
         }
         if (statistics.__isset.min) {
-            return std::string(statistics.min);
+            return {statistics.min};
         }
     } else {
         if (statistics.__isset.max_value) {
-            return std::string(statistics.max_value);
+            return {statistics.max_value};
         }
         if (statistics.__isset.max) {
-            return std::string(statistics.max);
+            return {statistics.max};
         }
     }
     return "";
@@ -344,10 +344,10 @@ void build_path_map(const FieldSchema& field, const std::string& prefix,
 
 } // namespace
 
-ParquetMetadataReader::ParquetMetadataReader(const std::vector<SlotDescriptor*>& slots,
+ParquetMetadataReader::ParquetMetadataReader(std::vector<SlotDescriptor*> slots,
                                              RuntimeState* state, RuntimeProfile* profile,
-                                             const TMetaScanRange& scan_range)
-        : _slots(slots), _scan_range(scan_range) {
+                                             TMetaScanRange scan_range)
+        : _slots(std::move(slots)), _scan_range(std::move(scan_range)) {
     (void)state;
     (void)profile;
 }
