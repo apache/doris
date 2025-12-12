@@ -197,9 +197,8 @@ TEST(FunctionMapConcatTest, TestEdgeCases) {
                 mp_dest_array
             }
         };
-        any_cast<TestArray>(src[0]);
-        // Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        // EXPECT_TRUE(status.ok()) << "Function test failed six : " << status.to_string();
+
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
 }
 
