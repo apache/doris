@@ -49,7 +49,7 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
                 .when(this::canPushProjectIntoUnion
         ).thenApply(ctx -> {
             LogicalProject<LogicalUnion> p = ctx.root;
-            ExpressionRewriteContext expressionRewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
+            ExpressionRewriteContext expressionRewriteContext = new ExpressionRewriteContext(p, ctx.cascadesContext);
             LogicalUnion union = p.child();
             ImmutableList.Builder<List<NamedExpression>> newConstExprs = ImmutableList.builder();
             for (List<NamedExpression> constExprs : union.getConstantExprsList()) {

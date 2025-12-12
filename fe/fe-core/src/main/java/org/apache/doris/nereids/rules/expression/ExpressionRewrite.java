@@ -24,6 +24,7 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext.ExpressionSource;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
@@ -120,7 +122,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         public Rule build() {
             return logicalGenerate().thenApply(ctx -> {
                 LogicalGenerate<Plan> generate = ctx.root;
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(generate, ctx.cascadesContext);
                 List<Function> generators = generate.getGenerators();
                 List<Function> newGenerators = generators.stream()
                         .map(func -> (Function) rewriter.rewrite(func, context))
@@ -140,7 +142,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             return logicalOneRowRelation().thenApply(ctx -> {
                 LogicalOneRowRelation oneRowRelation = ctx.root;
                 List<NamedExpression> projects = oneRowRelation.getProjects();
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(oneRowRelation, ctx.cascadesContext);
 
                 Builder<NamedExpression> rewrittenExprs
                         = ImmutableList.builderWithExpectedSize(projects.size());
@@ -165,7 +167,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         public Rule build() {
             return logicalProject().thenApply(ctx -> {
                 LogicalProject<Plan> project = ctx.root;
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(project, ctx.cascadesContext);
                 List<NamedExpression> projects = project.getProjects();
                 RewriteResult<NamedExpression> result = rewriteAll(projects, rewriter, context);
                 if (!result.changed) {
@@ -182,7 +184,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         public Rule build() {
             return logicalFilter().thenApply(ctx -> {
                 LogicalFilter<Plan> filter = ctx.root;
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(filter, ctx.cascadesContext);
                 Expression originPredicate = filter.getPredicate();
                 Expression predicate = rewriter.rewrite(originPredicate, context);
                 if (predicate == originPredicate && !(predicate instanceof And)) {
@@ -205,7 +207,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         public Rule build() {
             return logicalOlapTableSink().thenApply(ctx -> {
                 LogicalOlapTableSink<Plan> olapTableSink = ctx.root;
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(olapTableSink, ctx.cascadesContext);
                 List<Expression> partitionExprList = olapTableSink.getPartitionExprList();
                 RewriteResult<Expression> result = rewriteAll(partitionExprList, rewriter, context);
                 Map<Long, Expression> syncMvWhereClauses = olapTableSink.getSyncMvWhereClauses();
@@ -228,7 +230,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             return logicalAggregate().thenApply(ctx -> {
                 LogicalAggregate<Plan> agg = ctx.root;
                 List<Expression> groupByExprs = agg.getGroupByExpressions();
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(agg, ctx.cascadesContext);
                 List<Expression> newGroupByExprs = rewriter.rewrite(groupByExprs, context);
 
                 List<NamedExpression> outputExpressions = agg.getOutputExpressions();
@@ -256,18 +258,32 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     return join;
                 }
 
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
-                Pair<Boolean, List<Expression>> newHashJoinConjuncts = rewriteConjuncts(hashJoinConjuncts, context);
-                Pair<Boolean, List<Expression>> newOtherJoinConjuncts = rewriteConjuncts(otherJoinConjuncts, context);
-                Pair<Boolean, List<Expression>> newMarkJoinConjuncts = rewriteConjuncts(markJoinConjuncts, context);
+                Pair<Boolean, List<Expression>> newHashJoinConjuncts = rewriteConjuncts(hashJoinConjuncts,
+                        new ExpressionRewriteContext(join, ExpressionSource.JOIN_HASH_CONDITION, ctx.cascadesContext));
+                Pair<Boolean, List<Expression>> newOtherJoinConjuncts = rewriteConjuncts(otherJoinConjuncts,
+                        new ExpressionRewriteContext(join, ExpressionSource.JOIN_OTHER_CONDITION, ctx.cascadesContext));
+                Pair<Boolean, List<Expression>> newMarkJoinConjuncts = rewriteConjuncts(markJoinConjuncts,
+                        new ExpressionRewriteContext(join, ExpressionSource.JOIN_MARK_CONDITION, ctx.cascadesContext));
 
                 if (!newHashJoinConjuncts.first && !newOtherJoinConjuncts.first
                         && !newMarkJoinConjuncts.first) {
                     return join;
                 }
 
-                return new LogicalJoin<>(join.getJoinType(), newHashJoinConjuncts.second,
-                        newOtherJoinConjuncts.second, newMarkJoinConjuncts.second,
+                List<Expression> newOtherConjunctsList = newOtherJoinConjuncts.second;
+                List<Expression> newHashConjunctsList = newHashJoinConjuncts.second;
+                List<Expression> newMarkConjunctsList = newMarkJoinConjuncts.second;
+                // split hash join conjuncts and other conjuncts
+                Pair<List<Expression>, List<Expression>> splitResult = JoinUtils.extractExpressionForHashTable(
+                        join.left().getOutput(), join.right().getOutput(), newHashConjunctsList);
+                if (!splitResult.second.isEmpty()) {
+                    newHashConjunctsList = ImmutableList.copyOf(splitResult.first);
+                    newOtherConjunctsList = ImmutableList.<Expression>builder()
+                            .addAll(newOtherConjunctsList).addAll(splitResult.second).build();
+                }
+
+                return new LogicalJoin<>(join.getJoinType(),
+                        newHashConjunctsList, newOtherConjunctsList, newMarkConjunctsList,
                         join.getDistributeHint(), join.getMarkJoinSlotReference(), join.children(),
                         join.getJoinReorderContext());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
@@ -308,7 +324,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<OrderKey> orderKeys = sort.getOrderKeys();
                 ImmutableList.Builder<OrderKey> rewrittenOrderKeys
                         = ImmutableList.builderWithExpectedSize(orderKeys.size());
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(sort, ctx.cascadesContext);
                 boolean changed = false;
                 for (OrderKey k : orderKeys) {
                     Expression expression = rewriter.rewrite(k.getExpr(), context);
@@ -326,7 +342,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         public Rule build() {
             return logicalHaving().thenApply(ctx -> {
                 LogicalHaving<Plan> having = ctx.root;
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(having, ctx.cascadesContext);
                 Set<Expression> newConjuncts = ImmutableSet.copyOf(ExpressionUtils.extractConjunction(
                         rewriter.rewrite(having.getPredicate(), context)));
                 if (newConjuncts.equals(having.getConjuncts())) {
@@ -343,7 +359,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             return logicalWindow().thenApply(ctx -> {
                 LogicalWindow<Plan> window = ctx.root;
                 List<NamedExpression> windowExpressions = window.getWindowExpressions();
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(window, ctx.cascadesContext);
                 RewriteResult<NamedExpression> result = rewriteAll(windowExpressions, rewriter, context);
                 if (!result.changed) {
                     return window;
@@ -361,7 +377,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 LogicalSetOperation setOperation = ctx.root;
                 List<List<SlotReference>> slotsList = setOperation.getRegularChildrenOutputs();
                 List<List<SlotReference>> newSlotsList = new ArrayList<>();
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(setOperation, ctx.cascadesContext);
                 boolean changed = false;
                 for (List<SlotReference> slots : slotsList) {
                     RewriteResult<SlotReference> result = rewriteAll(slots, rewriter, context);
@@ -385,7 +401,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<OrderKey> orderKeys = topN.getOrderKeys();
                 ImmutableList.Builder<OrderKey> rewrittenOrderKeys
                         = ImmutableList.builderWithExpectedSize(orderKeys.size());
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(topN, ctx.cascadesContext);
                 boolean changed = false;
                 for (OrderKey k : orderKeys) {
                     Expression expression = rewriter.rewrite(k.getExpr(), context);
@@ -402,7 +418,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         public Rule build() {
             return logicalPartitionTopN().thenApply(ctx -> {
                 LogicalPartitionTopN<Plan> partitionTopN = ctx.root;
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(partitionTopN, ctx.cascadesContext);
                 List<OrderExpression> newOrderExpressions = new ArrayList<>();
                 boolean changed = false;
                 for (OrderExpression orderExpression : partitionTopN.getOrderKeys()) {
@@ -429,7 +445,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             return logicalCTEConsumer().thenApply(ctx -> {
                 LogicalCTEConsumer consumer = ctx.root;
                 boolean changed = false;
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(consumer, ctx.cascadesContext);
                 ImmutableMap.Builder<Slot, Slot> cToPBuilder = ImmutableMap.builder();
                 ImmutableMultimap.Builder<Slot, Slot> pToCBuilder = ImmutableMultimap.builder();
                 for (Map.Entry<Slot, Slot> entry : consumer.getConsumerToProducerOutputMap().entrySet()) {
@@ -512,7 +528,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
 
     private LogicalSink<Plan> applyRewriteToSink(MatchingContext<? extends LogicalSink<Plan>> ctx) {
         LogicalSink<Plan> sink = ctx.root;
-        ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+        ExpressionRewriteContext context = new ExpressionRewriteContext(sink, ctx.cascadesContext);
         List<NamedExpression> outputExprs = sink.getOutputExprs();
         RewriteResult<NamedExpression> result = rewriteAll(outputExprs, rewriter, context);
         if (!result.changed) {
@@ -528,7 +544,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             return logicalRepeat().thenApply(ctx -> {
                 LogicalRepeat<Plan> repeat = ctx.root;
                 ImmutableList.Builder<List<Expression>> groupingExprs = ImmutableList.builder();
-                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(repeat, ctx.cascadesContext);
                 for (List<Expression> expressions : repeat.getGroupingSets()) {
                     groupingExprs.add(expressions.stream()
                             .map(expr -> rewriter.rewrite(expr, context))
