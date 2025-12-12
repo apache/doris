@@ -523,9 +523,11 @@ Status ParquetMetadataReader::_append_file_rows(const std::string& path,
     if (_file_type == TFileType::FILE_LOCAL) {
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, &file_reader));
     } else {
-        io::FileSystemProperties system_properties {.system_type = _file_type,
-                                                    .properties = _properties};
-        io::FileDescription file_desc {.path = path};
+        io::FileSystemProperties system_properties;
+        system_properties.system_type = _file_type;
+        system_properties.properties = _properties;
+        io::FileDescription file_desc;
+        file_desc.path = path;
         file_reader = DORIS_TRY(FileFactory::create_file_reader(
                 system_properties, file_desc, io::FileReaderOptions::DEFAULT, nullptr));
     }
