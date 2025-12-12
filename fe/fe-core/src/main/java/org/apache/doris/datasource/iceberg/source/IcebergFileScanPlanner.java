@@ -41,17 +41,22 @@ import org.apache.iceberg.expressions.Evaluator;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
+import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.metrics.ScanMetrics;
+import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -117,6 +122,8 @@ public class IcebergFileScanPlanner {
         for (ManifestFile manifestFile : dataManifests) {
             Set<DataFile> dataFiles = ctx.manifestCache.getDataFiles(manifestFile.path());
             if (dataFiles != null && !dataFiles.isEmpty()) {
+                // Register mapping so invalidateTableCache can clean up
+                ctx.manifestCache.prepareCache(manifestFile.path(), ctx.tableName);
                 // Cache hit: create FileScanTask from cached DataFiles
                 List<FileScanTask> tasks = createFileScanTasksFromCachedDataFiles(
                         ctx, manifestFile, dataFiles, deleteManifests);
@@ -165,18 +172,10 @@ public class IcebergFileScanPlanner {
         InclusiveMetricsEvaluator fileEvaluator = new InclusiveMetricsEvaluator(
                 ctx.icebergTable.schema(), dataFilter, ctx.scan.isCaseSensitive());
 
-        // Get cached delete files for all delete manifests
-        Set<DeleteFile> cachedDeleteFiles = new HashSet<>();
-        for (ManifestFile deleteManifest : deleteManifests) {
-            Set<DeleteFile> deleteFiles = Env.getCurrentEnv()
-                    .getExtMetaCacheMgr()
-                    .getIcebergMetadataCache()
-                    .getManifestCache()
-                    .getDeleteFiles(deleteManifest.path());
-            if (deleteFiles != null) {
-                cachedDeleteFiles.addAll(deleteFiles);
-            }
-        }
+        // Get relevant delete files for this scan (filtered by manifest/partition/data
+        // filter)
+        Set<DeleteFile> cachedDeleteFiles = loadRelevantDeleteFiles(ctx, deleteManifests);
+        DeleteIndex deleteIndex = DeleteIndex.build(cachedDeleteFiles);
 
         // Create TaskContext
         // Note: For cached files, we don't ignore residuals to maintain correctness
@@ -200,9 +199,13 @@ public class IcebergFileScanPlanner {
                 continue;
             }
 
+            List<DeleteFile> matchingDeletes = new ArrayList<>();
+            deleteIndex.match(dataFile, matchingDeletes);
+
             // 3. Find matching DeleteFiles
-            DeleteFile[] deleteFilesArray = findDeleteFilesForDataFile(
-                    dataFile, cachedDeleteFiles);
+            DeleteFile[] deleteFilesArray = matchingDeletes.isEmpty()
+                    ? new DeleteFile[0]
+                    : matchingDeletes.toArray(new DeleteFile[0]);
 
             // 4. Create FileScanTask
             FileScanTask task = createFileScanTaskFromDataFile(
@@ -211,6 +214,155 @@ public class IcebergFileScanPlanner {
         }
 
         return tasks;
+    }
+
+    /**
+     * Load delete files that are relevant to current scan filter/partition filter.
+     * This mirrors Iceberg DeleteFileIndex manifest-level filtering to avoid
+     * over-application.
+     */
+    private Set<DeleteFile> loadRelevantDeleteFiles(PlanContext ctx, List<ManifestFile> deleteManifests) {
+        Set<DeleteFile> result = new HashSet<>();
+        Expression dataFilter = ctx.scan.filter() == null ? Expressions.alwaysTrue() : ctx.scan.filter();
+        boolean caseSensitive = ctx.scan.isCaseSensitive();
+
+        for (ManifestFile deleteManifest : deleteManifests) {
+            PartitionSpec spec = ctx.icebergTable.specs().get(deleteManifest.partitionSpecId());
+            // project data filter to partition to prune manifest
+            Expression projectedPartitionFilter = Projections.inclusive(spec, caseSensitive).project(dataFilter);
+            ManifestEvaluator manifestEvaluator = ManifestEvaluator.forPartitionFilter(
+                    projectedPartitionFilter, spec, caseSensitive);
+            if (!manifestEvaluator.eval(deleteManifest)) {
+                continue;
+            }
+
+            // Partition-level evaluator for per-file filtering
+            Evaluator partitionEvaluator = new Evaluator(spec.partitionType(), projectedPartitionFilter, caseSensitive);
+
+            Set<DeleteFile> cached = Env.getCurrentEnv()
+                    .getExtMetaCacheMgr()
+                    .getIcebergMetadataCache()
+                    .getManifestCache()
+                    .getDeleteFiles(deleteManifest.path());
+
+            if (cached != null && !cached.isEmpty()) {
+                for (DeleteFile df : cached) {
+                    if (df.partition() == null || partitionEvaluator.eval(df.partition())) {
+                        result.add(df);
+                    }
+                }
+                continue;
+            }
+
+            // cache miss: read delete manifest with filters and fill cache
+            Set<DeleteFile> deleteFiles = Sets.newHashSet();
+            try {
+                ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                        deleteManifest, ctx.icebergTable.io(), ctx.icebergTable.specs());
+                try (CloseableIterable<DeleteFile> files = reader
+                        .filterRows(dataFilter)
+                        .filterPartitions(projectedPartitionFilter)
+                        .caseSensitive(caseSensitive)) {
+                    for (DeleteFile df : files) {
+                        if (df.partition() == null || partitionEvaluator.eval(df.partition())) {
+                            deleteFiles.add(df);
+                            result.add(df);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to read delete manifest {} for cache", deleteManifest.path(), e);
+            }
+            if (!deleteFiles.isEmpty()) {
+                Env.getCurrentEnv()
+                        .getExtMetaCacheMgr()
+                        .getIcebergMetadataCache()
+                        .getManifestCache()
+                        .putDeleteFiles(deleteManifest.path(), deleteFiles);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Lightweight delete file index built from cached delete files.
+     * Mirrors Iceberg DeleteFileIndex grouping: position deletes by referenced path
+     * (preferred)
+     * or partition, equality deletes by partition.
+     */
+    private static class DeleteIndex {
+        private final Map<String, List<DeleteFile>> posDeletesByPath;
+        private final Map<Integer, Map<StructLike, List<DeleteFile>>> posDeletesByPartition;
+        private final Map<Integer, Map<StructLike, List<DeleteFile>>> eqDeletesByPartition;
+
+        private DeleteIndex(Map<String, List<DeleteFile>> posDeletesByPath,
+                Map<Integer, Map<StructLike, List<DeleteFile>>> posDeletesByPartition,
+                Map<Integer, Map<StructLike, List<DeleteFile>>> eqDeletesByPartition) {
+            this.posDeletesByPath = posDeletesByPath;
+            this.posDeletesByPartition = posDeletesByPartition;
+            this.eqDeletesByPartition = eqDeletesByPartition;
+        }
+
+        static DeleteIndex build(Set<DeleteFile> deleteFiles) {
+            Map<String, List<DeleteFile>> posByPath = new HashMap<>();
+            Map<Integer, Map<StructLike, List<DeleteFile>>> posByPartition = new HashMap<>();
+            Map<Integer, Map<StructLike, List<DeleteFile>>> eqByPartition = new HashMap<>();
+            for (DeleteFile deleteFile : deleteFiles) {
+                if (deleteFile.content() == FileContent.POSITION_DELETES) {
+                    CharSequence refPath = ContentFileUtil.referencedDataFile(deleteFile);
+                    if (refPath != null) {
+                        posByPath.computeIfAbsent(refPath.toString(), k -> new ArrayList<>()).add(deleteFile);
+                    } else {
+                        posByPartition
+                                .computeIfAbsent(deleteFile.specId(), k -> new HashMap<>())
+                                .computeIfAbsent(deleteFile.partition(), k -> new ArrayList<>())
+                                .add(deleteFile);
+                    }
+                } else if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
+                    eqByPartition
+                            .computeIfAbsent(deleteFile.specId(), k -> new HashMap<>())
+                            .computeIfAbsent(deleteFile.partition(), k -> new ArrayList<>())
+                            .add(deleteFile);
+                }
+            }
+            return new DeleteIndex(posByPath, posByPartition, eqByPartition);
+        }
+
+        void match(DataFile dataFile, List<DeleteFile> out) {
+            // Position deletes matched by data file path (preferred)
+            List<DeleteFile> pathDeletes = posDeletesByPath.get(dataFile.path().toString());
+            if (pathDeletes != null) {
+                for (DeleteFile deleteFile : pathDeletes) {
+                    if (deleteFile.dataSequenceNumber() >= dataFile.dataSequenceNumber()) {
+                        out.add(deleteFile);
+                    }
+                }
+            }
+
+            // Position deletes matched by partition (when no referenced path is present)
+            Map<StructLike, List<DeleteFile>> partitionPosDeletes = posDeletesByPartition
+                    .getOrDefault(dataFile.specId(), Collections.emptyMap());
+            List<DeleteFile> posPartitionList = partitionPosDeletes.get(dataFile.partition());
+            if (posPartitionList != null) {
+                for (DeleteFile deleteFile : posPartitionList) {
+                    if (deleteFile.dataSequenceNumber() >= dataFile.dataSequenceNumber()) {
+                        out.add(deleteFile);
+                    }
+                }
+            }
+
+            // Equality deletes matched by partition
+            Map<StructLike, List<DeleteFile>> partitionEqDeletes = eqDeletesByPartition.getOrDefault(dataFile.specId(),
+                    Collections.emptyMap());
+            List<DeleteFile> eqPartitionList = partitionEqDeletes.get(dataFile.partition());
+            if (eqPartitionList != null) {
+                for (DeleteFile deleteFile : eqPartitionList) {
+                    if (deleteFile.dataSequenceNumber() >= dataFile.dataSequenceNumber()) {
+                        out.add(deleteFile);
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -262,66 +414,6 @@ public class IcebergFileScanPlanner {
                 dropStats,
                 columnsToKeepStats,
                 ScanMetrics.noop());
-    }
-
-    /**
-     * Find DeleteFiles for a DataFile.
-     */
-    private DeleteFile[] findDeleteFilesForDataFile(
-            DataFile dataFile,
-            Set<DeleteFile> cachedDeleteFiles) {
-
-        if (cachedDeleteFiles == null || cachedDeleteFiles.isEmpty()) {
-            return new DeleteFile[0];
-        }
-
-        List<DeleteFile> matchingDeletes = new ArrayList<>();
-        long dataFileSequence = dataFile.dataSequenceNumber();
-
-        for (DeleteFile deleteFile : cachedDeleteFiles) {
-            // Check sequence number
-            if (deleteFile.dataSequenceNumber() < dataFileSequence) {
-                continue;
-            }
-
-            // Match based on DeleteFile type
-            if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
-                // Equality deletes: match partition
-                if (matchesPartition(dataFile, deleteFile)) {
-                    matchingDeletes.add(deleteFile);
-                }
-            } else if (deleteFile.content() == FileContent.POSITION_DELETES) {
-                // Position deletes: match file path or partition
-                if (matchesFileOrPartition(dataFile, deleteFile)) {
-                    matchingDeletes.add(deleteFile);
-                }
-            }
-        }
-
-        return matchingDeletes.toArray(new DeleteFile[0]);
-    }
-
-    /**
-     * Check if DeleteFile matches DataFile's partition.
-     */
-    private boolean matchesPartition(DataFile dataFile, DeleteFile deleteFile) {
-        StructLike dataPartition = dataFile.partition();
-        StructLike deletePartition = deleteFile.partition();
-
-        if (dataPartition == null || deletePartition == null) {
-            return false;
-        }
-
-        return dataPartition.equals(deletePartition);
-    }
-
-    /**
-     * Check if DeleteFile matches DataFile's file path or partition.
-     */
-    private boolean matchesFileOrPartition(DataFile dataFile, DeleteFile deleteFile) {
-        // For position deletes, a full implementation would check the referenced data file path.
-        // Here we fall back to partition matching for simplicity.
-        return matchesPartition(dataFile, deleteFile);
     }
 
     /**
@@ -467,4 +559,3 @@ public class IcebergFileScanPlanner {
         }
     }
 }
-
