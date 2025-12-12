@@ -17,6 +17,7 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -468,7 +469,8 @@ public class SystemInfoService {
 
     // Select the smallest number of tablets as the starting position of
     // round robin in the BE that match the policy
-    public int getStartPosOfRoundRobin(Tag tag, TStorageMedium storageMedium, boolean isStorageMediumSpecified) {
+    public int getStartPosOfRoundRobin(Tag tag, TStorageMedium storageMedium,
+            MediumAllocationMode mediumAllocationMode) {
         BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder()
                 .needScheduleAvailable()
                 .needCheckDiskUsage()
@@ -480,7 +482,7 @@ public class SystemInfoService {
 
         BeSelectionPolicy policy = builder.build();
         List<Long> beIds = selectBackendIdsByPolicy(policy, -1);
-        if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified) {
+        if (beIds.isEmpty() && storageMedium != null && mediumAllocationMode.isAdaptive()) {
             storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
             policy = builder.setStorageMedium(storageMedium).build();
             beIds = selectBackendIdsByPolicy(policy, -1);
@@ -499,20 +501,59 @@ public class SystemInfoService {
     }
 
     /**
+     * Check if the cluster is in single-medium environment.
+     * A single-medium environment means only one type of storage medium is available
+     * across all alive and non-decommissioned backends.
+     *
+     * @param backends All backends to check
+     * @return true if only one medium (HDD or SSD) is available, false if both are available
+     */
+    private boolean isSingleMediumEnvironment(Map<Long, Backend> backends) {
+        boolean hasHDD = false;
+        boolean hasSSD = false;
+
+        for (Backend backend : backends.values()) {
+            // Only check alive and non-decommissioned backends
+            if (!backend.isAlive() || backend.isDecommissioned()) {
+                continue;
+            }
+
+            // Check if backend has HDD
+            if (backend.hasSpecifiedStorageMedium(TStorageMedium.HDD)) {
+                hasHDD = true;
+            }
+
+            // Check if backend has SSD
+            if (backend.hasSpecifiedStorageMedium(TStorageMedium.SSD)) {
+                hasSSD = true;
+            }
+
+            // Early exit: if both mediums are available, it's not single-medium
+            if (hasHDD && hasSSD) {
+                return false;  // Dual-medium environment
+            }
+        }
+
+        // Single medium environment: exactly one of HDD or SSD is available
+        // XOR: true if only one is true
+        return hasHDD != hasSSD;
+    }
+
+    /**
      * Select a set of backends for replica creation.
      * The following parameters need to be considered when selecting backends.
      *
      * @param replicaAlloc
      * @param nextIndexs create tablet round robin next be index, when enable_round_robin_create_tablet
      * @param storageMedium
-     * @param isStorageMediumSpecified
+     * @param mediumAllocationMode
      * @param isOnlyForCheck set true if only used for check available backend
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
     public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
-            TStorageMedium storageMedium, boolean isStorageMediumSpecified,
+            TStorageMedium storageMedium, MediumAllocationMode mediumAllocationMode,
             boolean isOnlyForCheck)
             throws DdlException {
         Map<Long, Backend> copiedBackends = Maps.newHashMap(getAllClusterBackendsNoException());
@@ -526,6 +567,12 @@ public class SystemInfoService {
                     + "replication num is " + replicaAlloc.getTotalReplicaNum()
                     + ", available backend num is " + aliveBackendNum);
         } else {
+            // Detect single-medium environment based on current backend status
+            boolean isSingleMedium = isSingleMediumEnvironment(copiedBackends);
+            if (isSingleMedium) {
+                LOG.info("Detected single-medium environment for replica creation");
+            }
+
             List<String> failedEntries = Lists.newArrayList();
 
             for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
@@ -546,14 +593,39 @@ public class SystemInfoService {
                 // first time empty, retry with different storage medium
                 // if only for check, no need to retry different storage medium to get backend
                 TStorageMedium originalStorageMedium = storageMedium;
-                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
-                    storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
-                    builder.setStorageMedium(storageMedium);
-                    if (Config.enable_round_robin_create_tablet) {
-                        builder.setNextRoundRobinIndex(nextIndexs.getOrDefault(tag, -1));
+                if (beIds.isEmpty() && storageMedium != null && !isOnlyForCheck) {
+                    // Decide whether to retry with alternative medium:
+                    // 1. Adaptive mode: always retry to support graceful degradation
+                    // 2. Strict mode: only retry in single-medium environment (no other choice)
+                    boolean shouldRetry = mediumAllocationMode.isAdaptive() || isSingleMedium;
+
+                    if (shouldRetry) {
+                        // Try the alternative medium
+                        storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
+                        builder.setStorageMedium(storageMedium);
+                        if (Config.enable_round_robin_create_tablet) {
+                            builder.setNextRoundRobinIndex(nextIndexs.getOrDefault(tag, -1));
+                        }
+                        policy = builder.build();
+                        beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+
+                        // Log the fallback behavior
+                        if (!beIds.isEmpty()) {
+                            if (mediumAllocationMode.isStrict()) {
+                                LOG.warn("Strict mode: requested medium {} unavailable, using {} "
+                                        + "(single-medium environment detected, no alternative available)",
+                                        originalStorageMedium, storageMedium);
+                            } else {
+                                LOG.info("Adaptive mode: requested medium {} unavailable, downgraded to {}",
+                                        originalStorageMedium, storageMedium);
+                            }
+                        }
+                    } else {
+                        // Strict mode in dual-medium environment: do not retry
+                        LOG.error("Strict mode: requested medium {} unavailable, not retrying "
+                                + "(dual-medium environment, strict semantics enforced)",
+                                originalStorageMedium);
                     }
-                    policy = builder.build();
-                    beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 }
                 if (Config.enable_round_robin_create_tablet) {
                     nextIndexs.put(tag, policy.nextRoundRobinIndex);
