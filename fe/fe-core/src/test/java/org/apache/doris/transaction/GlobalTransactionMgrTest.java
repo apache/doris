@@ -36,6 +36,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.KafkaTaskInfo;
@@ -77,7 +78,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
@@ -302,7 +302,7 @@ public class GlobalTransactionMgrTest {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
         Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
         partitionIdToOffset.put(1, 0L);
-        KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, 20000,
+        KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUIDUtil.genUUID(), 1L, 20000,
                 partitionIdToOffset, false, -1, false);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
@@ -369,7 +369,7 @@ public class GlobalTransactionMgrTest {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
         Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
         partitionIdToOffset.put(1, 0L);
-        KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, 20000,
+        KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUIDUtil.genUUID(), 1L, 20000,
                 partitionIdToOffset, false, -1, false);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);

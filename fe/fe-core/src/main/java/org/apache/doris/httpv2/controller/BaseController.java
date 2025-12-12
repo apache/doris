@@ -25,6 +25,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
@@ -49,7 +50,6 @@ import org.apache.logging.log4j.Logger;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.UUID;
-
 
 public class BaseController {
 
@@ -102,7 +102,7 @@ public class BaseController {
     }
 
     protected void addSession(HttpServletRequest request, HttpServletResponse response, SessionValue value) {
-        String key = UUID.randomUUID().toString();
+        String key = UUIDUtil.genUUID().toString();
         Cookie cookie = new Cookie(PALO_SESSION_ID, key);
         if (Config.enable_https) {
             cookie.setSecure(true);

@@ -21,6 +21,7 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -202,7 +203,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     // set/use etc. stmt returns an OK result by default.
                     if (connectContext.getFlightSqlChannel().resultNum() == 0) {
                         // a random query id and add empty results
-                        String queryId = UUID.randomUUID().toString();
+                        String queryId = UUIDUtil.genUUID().toString();
                         connectContext.getFlightSqlChannel().addOKResult(queryId, query);
 
                         final ByteString handle = ByteString.copyFromUtf8(peerIdentity + ":" + queryId);

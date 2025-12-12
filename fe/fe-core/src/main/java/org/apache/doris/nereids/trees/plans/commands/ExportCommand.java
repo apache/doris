@@ -35,6 +35,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
@@ -305,7 +306,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
 
         // set label
         // if fileProperties contains LABEL, the label has been checked in check phases
-        String defaultLabel = "export_" + UUID.randomUUID();
+        String defaultLabel = "export_" + UUIDUtil.genUUID();
         exportJob.setLabel(fileProperties.getOrDefault(LABEL, defaultLabel));
 
         // set max_file_size

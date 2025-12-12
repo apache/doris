@@ -34,6 +34,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
@@ -58,7 +59,6 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * load OLAP table data from external bulk file
@@ -497,7 +497,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
                             + " to load client local file.");
                     return;
                 }
-                String loadId = UUID.randomUUID().toString();
+                String loadId = UUIDUtil.genUUID().toString();
                 mysqlLoadId = loadId;
                 LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
                         .executeMySqlLoadJobFromCommand(ctx, getDataDescriptions().get(0), loadId);

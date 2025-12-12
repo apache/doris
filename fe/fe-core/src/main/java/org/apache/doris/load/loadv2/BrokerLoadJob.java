@@ -43,6 +43,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.load.BrokerFileGroup;
@@ -71,7 +72,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.stream.Collectors;
 
@@ -266,8 +266,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                 getPriority(), isEnableMemtableOnSinkNode, batchSize);
 
-        UUID uuid = UUID.randomUUID();
-        TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TUniqueId loadId = UUIDUtil.genTUniqueId();
 
         setComputeGroup();
 

@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg.rewrite;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
@@ -241,8 +242,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         taskContext.setRemoteIP(connectContext.getRemoteIP());
 
         // Assign unique query id and start time
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TUniqueId queryId = UUIDUtil.genTUniqueId();
         taskContext.setQueryId(queryId);
         taskContext.setThreadLocalInfo();
         taskContext.setStartTime();

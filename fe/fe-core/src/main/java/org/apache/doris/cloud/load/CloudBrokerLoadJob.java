@@ -30,6 +30,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
@@ -58,7 +59,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class CloudBrokerLoadJob extends BrokerLoadJob {
@@ -162,8 +162,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                 getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);
-        UUID uuid = UUID.randomUUID();
-        TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TUniqueId loadId = UUIDUtil.genTUniqueId();
 
         try (AutoCloseConnectContext r = buildConnectContext()) {
             task.init(loadId, attachment.getFileStatusByTable(aggKey),

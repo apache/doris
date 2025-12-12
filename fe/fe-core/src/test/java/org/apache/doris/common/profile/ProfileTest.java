@@ -218,23 +218,21 @@ public class ProfileTest {
     public void testParseProfileFileName() {
         // Valid profile name
         long timestamp = System.currentTimeMillis();
-        UUID taskId = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-        String id = DebugUtil.printId(queryId);
-        String validName = timestamp + "_" + id + ".zip";
+        String profileId = DebugUtil.printId(UUID.randomUUID());
+        String validName = timestamp + "_" + profileId + ".zip";
 
         String[] parts = Profile.parseProfileFileName(validName);
         Assertions.assertNotNull(parts);
         Assertions.assertEquals(2, parts.length);
         Assertions.assertEquals(String.valueOf(timestamp), parts[0]);
-        Assertions.assertEquals(id, parts[1]);
+        Assertions.assertEquals(profileId, parts[1]);
 
         // Invalid profile name
         String invalidName = "not_a_valid_profile_name";
         Assertions.assertNull(Profile.parseProfileFileName(invalidName));
 
         // Wrong extension
-        String wrongExtension = timestamp + "_" + id + ".txt";
+        String wrongExtension = timestamp + "_" + profileId + ".txt";
         Assertions.assertNull(Profile.parseProfileFileName(wrongExtension));
     }
 

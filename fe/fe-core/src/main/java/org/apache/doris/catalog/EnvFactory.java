@@ -26,6 +26,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
@@ -56,7 +57,6 @@ import org.apache.thrift.TException;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 // EnvFactory is responsed for create none-cloud object.
 // CloudEnvFactory is responsed for create cloud object.
@@ -161,8 +161,7 @@ public class EnvFactory {
                                          String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         if (SessionVariable.canUseNereidsDistributePlanner()) {
             if (queryId == null) {
-                UUID taskId = UUID.randomUUID();
-                queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                queryId = UUIDUtil.genTUniqueId();
             }
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext == null) {
