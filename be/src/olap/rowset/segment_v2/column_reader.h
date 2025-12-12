@@ -235,6 +235,12 @@ public:
     void check_data_by_zone_map_for_test(const vectorized::MutableColumnPtr& dst) const;
 #endif
 
+    // We can determine the maximum and minimum values from the zonemap.
+    // When the maximum and minimum are equal,
+    // we can conclude that all values in this column are the same as maximum (or minimum) value.
+    // So we provide this function to get this constant value.
+    const char* get_const_value() const;
+
 private:
     friend class VariantColumnReader;
 
@@ -308,6 +314,8 @@ private:
     std::vector<std::shared_ptr<ColumnReader>> _sub_readers;
 
     DorisCallOnce<Status> _set_dict_encoding_type_once;
+
+    std::unique_ptr<char[]> _const_value_ptr;
 };
 
 // Base iterator to read one column data
@@ -409,6 +417,7 @@ public:
     virtual void remove_pruned_sub_iterators() {};
 
 protected:
+    bool _is_dict_column(const vectorized::IColumn& column) const;
     Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
     ColumnIteratorOptions _opts;
 
