@@ -61,7 +61,7 @@ public class PushTask extends AgentTask {
     private TPushType pushType;
     private List<Predicate> conditions;
     // for synchronous delete
-    private MarkedCountDownLatch latch;
+    private MarkedCountDownLatch<Long, Long> latch;
 
     // lzop decompress or not
     private boolean needDecompress;
@@ -216,6 +216,18 @@ public class PushTask extends AgentTask {
                     LOG.debug("pushTask current latch count: {}. backend: {}, tablet:{}", latch.getCount(), backendId,
                             tabletId);
                 }
+            }
+        }
+    }
+
+    public void countDownLatchWithStatus(long backendId, long tabletId, Status st) {
+        if (this.latch == null) {
+            return;
+        }
+        if (latch.markedCountDownWithStatus(backendId, tabletId, st)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("pushTask current latch count with status: {}. backend: {}, tablet:{}, st::{}",
+                        latch.getCount(), backendId, tabletId, st);
             }
         }
     }
