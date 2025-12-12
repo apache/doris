@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <array>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -58,6 +59,8 @@ public:
     Status close() override;
 
 private:
+    // Initialize projection maps from slot names to output positions.
+    void _init_slot_pos_map();
     Status _init_from_scan_range(const TMetaScanRange& scan_range);
     Status _build_rows(std::vector<MutableColumnPtr>& columns);
     Status _append_file_rows(const std::string& path, std::vector<MutableColumnPtr>& columns);
@@ -77,6 +80,12 @@ private:
     std::string _mode;
     Mode _mode_type = Mode::METADATA;
     bool _eof = false;
+
+    static constexpr size_t kSchemaColumnCount = 11;
+    static constexpr size_t kMetadataColumnCount = 21;
+    // Maps full schema/metadata column index -> position in `_slots` (or -1 if not requested).
+    std::array<int, kSchemaColumnCount> _schema_slot_pos;
+    std::array<int, kMetadataColumnCount> _metadata_slot_pos;
 };
 
 } // namespace doris::vectorized
