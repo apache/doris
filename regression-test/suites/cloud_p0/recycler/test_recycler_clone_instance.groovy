@@ -26,21 +26,13 @@ suite("test_recycler_clone_instance") {
         return
     }
 
-    def get_instance_id = { host ->
-        def url = "http://${host}/MetaService/http/get_instance?token=${token}&instance_id=${instance_id}"
-        def (code, out, err) = curl('GET', url, null, 180)
-        assert code == 0 : "Failed to get multi version status: ${out} ${err}"
-        def json = parseJson(out)
-        assert json["code"] == "OK" : "Get instance failed: ${out} ${err}"
-        if (json["result"].containsKey("instance_id")) {
-            return json["result"]["instance_id"]
-        }
-        return null
-    }
-
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
 
-    def instanceId = get_instance_id(metaServiceHttpAddress)
+    def instanceId = System.getenv("DORIS_MS_INSTANCE_ID")
+    logger.info("DORIS_MS_INSTANCE_ID: ${instanceId}")
+
+    assert instanceId != null, "DORIS_MS_INSTANCE_ID is not set"
+
     def username = "root"
 
     logger.info("Querying cluster snapshots")
