@@ -30,9 +30,12 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[cs_sold_date_sk]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3
+------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[cs_sold_date_sk]
+--------------------------------hashAgg[GLOBAL]
+----------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------hashAgg[LOCAL]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_month_seq <= 1200) and (date_dim.d_month_seq >= 1189))
 ------------------------------------PhysicalOlapScan[date_dim]
@@ -45,9 +48,12 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[ss_sold_date_sk]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF4 RF5
+------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[ss_sold_date_sk]
+--------------------------------hashAgg[GLOBAL]
+----------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------hashAgg[LOCAL]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF4 RF5
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_month_seq <= 1200) and (date_dim.d_month_seq >= 1189))
 ------------------------------------PhysicalOlapScan[date_dim]
