@@ -580,6 +580,15 @@ MutableColumns Block::clone_empty_columns() const {
     return columns;
 }
 
+ColumnRawPtrs Block::get_columns_raw_ptr() const {
+    size_t num_columns = data.size();
+    ColumnRawPtrs columns(num_columns);
+    for (size_t i = 0; i < num_columns; ++i) {
+        columns[i] = data[i].column.get();
+    }
+    return columns;
+}
+
 Columns Block::get_columns() const {
     size_t num_columns = data.size();
     Columns columns(num_columns);
@@ -782,6 +791,18 @@ void Block::filter_block_internal(Block* block, const IColumn::Filter& filter) {
             filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     for (int i = 0; i < block->columns(); ++i) {
         auto& column = block->get_by_position(i).column;
+        if (column->is_exclusive()) {
+            column->assume_mutable()->filter(filter);
+        } else {
+            column = column->filter(filter, count);
+        }
+    }
+}
+
+void Block::filter_columns_internal(Columns& columns, const IColumn::Filter& filter) {
+    const size_t count =
+            filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+    for (auto& column : columns) {
         if (column->is_exclusive()) {
             column->assume_mutable()->filter(filter);
         } else {

@@ -346,17 +346,15 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
     auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
 
     size_t key_size = _probe_expr_ctxs.size();
-    vectorized::ColumnRawPtrs key_columns(key_size);
+    vectorized::Columns key_columns(key_size);
+    vectorized::ColumnRawPtrs key_columns_raw_ptr(key_size);
     {
         SCOPED_TIMER(_expr_timer);
         for (size_t i = 0; i < key_size; ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(in_block, &result_column_id));
-            in_block->get_by_position(result_column_id).column =
-                    in_block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
-            key_columns[i] = in_block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
+            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(in_block, key_columns[i]));
+            key_columns[i] = key_columns[i]->convert_to_full_column_if_const();
+            key_columns_raw_ptr[i] = key_columns[i].get();
+            key_columns_raw_ptr[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
@@ -389,7 +387,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
         if (!mem_reuse) {
             vectorized::ColumnsWithTypeAndName columns_with_schema;
             for (int i = 0; i < key_size; ++i) {
-                columns_with_schema.emplace_back(key_columns[i]->clone_resized(rows),
+                columns_with_schema.emplace_back(key_columns_raw_ptr[i]->clone_resized(rows),
                                                  _probe_expr_ctxs[i]->root()->data_type(),
                                                  _probe_expr_ctxs[i]->root()->expr_name());
             }
@@ -401,11 +399,11 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
             for (int i = 0; i < key_size; ++i) {
                 std::move(*out_block->get_by_position(i).column)
                         .mutate()
-                        ->insert_range_from(*key_columns[i], 0, rows);
+                        ->insert_range_from(*key_columns_raw_ptr[i], 0, rows);
             }
         }
     } else {
-        _emplace_into_hash_table(_places.data(), key_columns, rows);
+        _emplace_into_hash_table(_places.data(), key_columns_raw_ptr, rows);
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(

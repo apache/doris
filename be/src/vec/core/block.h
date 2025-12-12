@@ -206,6 +206,7 @@ public:
 
     Columns get_columns() const;
     Columns get_columns_and_convert();
+    ColumnRawPtrs get_columns_raw_ptr() const;
 
     Block clone_without_columns(const std::vector<int>* column_offset = nullptr) const;
 
@@ -267,6 +268,8 @@ public:
                                       uint32_t column_to_keep);
     // need exception safety
     static void filter_block_internal(Block* block, const IColumn::Filter& filter);
+
+    static void filter_columns_internal(Columns& columns, const IColumn::Filter& filter);
 
     static Status filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                size_t filter_column_id, size_t column_to_keep);
