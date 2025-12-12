@@ -50,8 +50,8 @@ class ParquetMetadataReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetMetadataReader);
 
 public:
-    ParquetMetadataReader(const std::vector<SlotDescriptor*>& slots, RuntimeState* state,
-                          RuntimeProfile* profile, const TMetaScanRange& scan_range);
+    ParquetMetadataReader(std::vector<SlotDescriptor*> slots, RuntimeState* state,
+                          RuntimeProfile* profile, TMetaScanRange scan_range);
 
     Status init_reader();
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
