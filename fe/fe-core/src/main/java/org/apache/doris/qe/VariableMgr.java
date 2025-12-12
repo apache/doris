@@ -385,7 +385,12 @@ public class VariableMgr {
         // global variable will make effect when is set immediately.
         wlock.lock();
         try {
-
+            // Check if the value has actually changed before writing edit log
+            String currentValue = getValue(ctx.getObj(), ctx.getField());
+            if (value.equals(currentValue)) {
+                // Value unchanged, skip setValue and edit log writing
+                return;
+            }
             setValue(ctx.getObj(), new SessionVariableField(ctx.getField()), value);
             // write edit log
             GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(name));
