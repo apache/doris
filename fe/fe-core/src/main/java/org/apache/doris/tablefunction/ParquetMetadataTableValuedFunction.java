@@ -18,11 +18,20 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
@@ -40,6 +49,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -135,6 +146,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         } catch (URISyntaxException e) {
             scheme = null;
         }
+        StorageProperties storageProperties = null;
         if (Strings.isNullOrEmpty(scheme) || "file".equalsIgnoreCase(scheme)) {
             this.fileType = TFileType.FILE_LOCAL;
             this.properties = Collections.emptyMap();
@@ -143,7 +155,6 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             // StorageProperties detects provider by "uri", we also hint support by scheme.
             storageParams.put("uri", firstPath);
             forceStorageSupport(storageParams, scheme.toLowerCase());
-            StorageProperties storageProperties;
             try {
                 storageProperties = StorageProperties.createPrimary(storageParams);
             } catch (RuntimeException e) {
@@ -169,7 +180,115 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             this.properties = backendProps;
         }
 
+        // Expand any glob patterns (e.g. *.parquet) to concrete file paths.
+        normalizedPaths = expandGlobPaths(normalizedPaths, storageProperties, this.fileType);
+
         this.paths = ImmutableList.copyOf(normalizedPaths);
+    }
+
+    /**
+     * Expand wildcard paths to matching files.
+     */
+    private static List<String> expandGlobPaths(List<String> inputPaths,
+                                               StorageProperties storageProperties,
+                                               TFileType fileType) throws AnalysisException {
+        if (inputPaths == null || inputPaths.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> expanded = new ArrayList<>();
+        for (String path : inputPaths) {
+            if (!containsWildcards(path)) {
+                expanded.add(path);
+                continue;
+            }
+            expanded.addAll(expandSingleGlob(path, storageProperties, fileType));
+        }
+        if (expanded.isEmpty()) {
+            throw new AnalysisException("No files matched parquet_metadata path patterns: " + inputPaths);
+        }
+        return expanded;
+    }
+
+    private static boolean containsWildcards(String path) {
+        if (Strings.isNullOrEmpty(path)) {
+            return false;
+        }
+        return path.contains("*") || path.contains("?") || path.contains("[") || path.contains("{");
+    }
+
+    private static List<String> expandSingleGlob(String pattern,
+                                                 StorageProperties storageProperties,
+                                                 TFileType fileType) throws AnalysisException {
+        if (fileType == TFileType.FILE_LOCAL) {
+            return globLocal(pattern);
+        }
+        if (storageProperties == null) {
+            throw new AnalysisException("Storage properties is required for glob pattern: " + pattern);
+        }
+        if (fileType == TFileType.FILE_S3 || fileType == TFileType.FILE_HDFS) {
+            return globRemote(storageProperties, pattern);
+        }
+        throw new AnalysisException("Glob patterns are not supported for file type: " + fileType);
+    }
+
+    private static List<String> globRemote(StorageProperties storageProperties,
+                                          String pattern) throws AnalysisException {
+        List<RemoteFile> remoteFiles = new ArrayList<>();
+        try (RemoteFileSystem fileSystem = FileSystemFactory.get(storageProperties)) {
+            Status status = fileSystem.globList(pattern, remoteFiles, false);
+            if (!status.ok()) {
+                throw new AnalysisException(status.getErrMsg());
+            }
+        } catch (Exception e) {
+            throw new AnalysisException("Failed to expand glob pattern '" + pattern + "': "
+                    + e.getMessage(), e);
+        }
+        return remoteFiles.stream()
+                .filter(RemoteFile::isFile)
+                .map(RemoteFile::getName)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Local glob expansion is executed on an arbitrary alive backend, because FE may not
+     * have access to BE local file system.
+     */
+    private static List<String> globLocal(String pattern) throws AnalysisException {
+        Backend backend;
+        try {
+            backend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values().stream()
+                    .filter(Backend::isAlive)
+                    .findFirst()
+                    .orElse(null);
+        } catch (AnalysisException e) {
+            throw e;
+        }
+        if (backend == null) {
+            throw new AnalysisException("No alive backends to expand local glob pattern");
+        }
+        BackendServiceProxy proxy = BackendServiceProxy.getInstance();
+        InternalService.PGlobRequest.Builder requestBuilder = InternalService.PGlobRequest.newBuilder();
+        requestBuilder.setPattern(pattern);
+        long timeoutS = ConnectContext.get() == null ? 60
+                : Math.min(ConnectContext.get().getQueryTimeoutS(), 60);
+        try {
+            Future<InternalService.PGlobResponse> response =
+                    proxy.glob(backend.getBrpcAddress(), requestBuilder.build());
+            InternalService.PGlobResponse globResponse =
+                    response.get(timeoutS, TimeUnit.SECONDS);
+            if (globResponse.getStatus().getStatusCode() != 0) {
+                throw new AnalysisException("Expand local glob pattern failed: "
+                        + globResponse.getStatus().getErrorMsgsList());
+            }
+            List<String> result = new ArrayList<>();
+            for (InternalService.PGlobResponse.PFileInfo fileInfo : globResponse.getFilesList()) {
+                result.add(fileInfo.getFile().trim());
+            }
+            return result;
+        } catch (Exception e) {
+            throw new AnalysisException("Failed to expand local glob pattern '" + pattern + "': "
+                    + e.getMessage(), e);
+        }
     }
 
     /**
