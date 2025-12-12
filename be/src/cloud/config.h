@@ -114,6 +114,8 @@ DECLARE_mBool(use_public_endpoint_for_error_log);
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
+DECLARE_Int32(warmup_cache_async_thread);
+
 DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 DECLARE_mInt32(get_delete_bitmap_lock_max_retry_times);
