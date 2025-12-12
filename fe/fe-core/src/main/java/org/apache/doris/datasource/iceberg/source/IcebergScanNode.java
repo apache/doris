@@ -72,6 +72,7 @@ import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -103,7 +104,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private boolean tableLevelPushDownCount = false;
     private long countFromSnapshot;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
-    private long targetSplitSize;
+    private long targetSplitSize = 0;
     // This is used to avoid repeatedly calculating partition info map for the same partition data.
     private Map<PartitionData, Map<String, String>> partitionMapInfos;
     private boolean isPartitionedTable;
@@ -155,7 +156,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         icebergTable = source.getIcebergTable();
-        targetSplitSize = getRealFileSplitSize(0);
         partitionMapInfos = new HashMap<>();
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
@@ -358,8 +358,31 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
-        long targetSplitSize = getRealFileSplitSize(0);
-        return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+        long targetFileSplitSize = determineTargetFileSplitSize(scan.planFiles(), isBatchMode());
+        return TableScanUtil.splitFiles(scan.planFiles(), targetFileSplitSize);
+    }
+
+    private long determineTargetFileSplitSize(CloseableIterable<FileScanTask> tasks,
+            boolean isBatchMode) {
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        // Currently iceberg batch split mode will use max split size.
+        // TODO: dynamic split size in batch split mode need to customize iceberg splitter.
+        if (isBatchMode) {
+            return sessionVariable.getMaxSplitSize();
+        }
+        long result = sessionVariable.getMaxInitialSplitSize();
+        long accumulatedTotalFileSize = 0;
+        for (FileScanTask task : tasks) {
+            accumulatedTotalFileSize += ScanTaskUtil.contentSizeInBytes(task.file());
+            if (accumulatedTotalFileSize
+                    >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                result = sessionVariable.getMaxSplitSize();
+                break;
+            }
+        }
+        return result;
     }
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {
@@ -448,18 +471,26 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public boolean isBatchMode() throws UserException {
+    public boolean isBatchMode() {
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
         if (aggOp.equals(TPushAggOp.COUNT)) {
-            countFromSnapshot = getCountFromSnapshot();
+            try {
+                countFromSnapshot = getCountFromSnapshot();
+            } catch (UserException e) {
+                throw new RuntimeException(e);
+            }
             if (countFromSnapshot >= 0) {
                 tableLevelPushDownCount = true;
                 return false;
             }
         }
 
-        if (createTableScan().snapshot() == null) {
-            return false;
+        try {
+            if (createTableScan().snapshot() == null) {
+                return false;
+            }
+        } catch (UserException e) {
+            throw new RuntimeException(e);
         }
 
         if (!sessionVariable.getEnableExternalTableBatchMode()) {
