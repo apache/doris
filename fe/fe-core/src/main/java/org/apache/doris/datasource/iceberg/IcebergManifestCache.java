@@ -28,6 +28,8 @@ import org.apache.iceberg.DeleteFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -48,17 +50,19 @@ public class IcebergManifestCache {
     // DeleteFile cache: Key is Manifest file path, Value is DeleteFile set
     private final Cache<String, Set<DeleteFile>> deleteFileCache;
 
-    // Manifest file to table mapping, for cache invalidation
-    private final ConcurrentHashMap<String, Set<String>> manifestToTableMap;
+    // Table to manifest mapping, for faster cache invalidation
+    private final ConcurrentHashMap<String, Set<String>> tableToManifestMap;
 
     public IcebergManifestCache(ExecutorService executor) {
-        this.manifestToTableMap = new ConcurrentHashMap<>();
-
         if (!Config.enable_iceberg_manifest_cache) {
             this.dataFileCache = null;
             this.deleteFileCache = null;
+            this.tableToManifestMap = null;
+            LOG.info("Iceberg manifest cache is disabled.");
             return;
         }
+
+        this.tableToManifestMap = new ConcurrentHashMap<>();
 
         // Calculate cache size limits (based on JVM max memory ratio)
         long maxMemory = Runtime.getRuntime().maxMemory();
@@ -66,10 +70,8 @@ public class IcebergManifestCache {
         long deleteFileCacheSize = Math.round(maxMemory * Config.iceberg_delete_file_cache_memory_usage_ratio);
 
         // Initialize DataFile cache
-        @SuppressWarnings("unchecked")
-        Caffeine<String, Set<DataFile>> dataFileCacheBuilder =
-                (Caffeine<String, Set<DataFile>>) (Caffeine<?, ?>) Caffeine.newBuilder();
-        this.dataFileCache = dataFileCacheBuilder
+        this.dataFileCache = Caffeine
+                .newBuilder()
                 .executor(executor)
                 .expireAfterWrite(Config.iceberg_manifest_cache_ttl_sec, TimeUnit.SECONDS)
                 .weigher((String key, Set<DataFile> files) -> {
@@ -84,10 +86,8 @@ public class IcebergManifestCache {
                 .build();
 
         // Initialize DeleteFile cache
-        @SuppressWarnings("unchecked")
-        Caffeine<String, Set<DeleteFile>> deleteFileCacheBuilder =
-                (Caffeine<String, Set<DeleteFile>>) (Caffeine<?, ?>) Caffeine.newBuilder();
-        this.deleteFileCache = deleteFileCacheBuilder
+        this.deleteFileCache = Caffeine
+                .newBuilder()
                 .executor(executor)
                 .expireAfterWrite(Config.iceberg_manifest_cache_ttl_sec, TimeUnit.SECONDS)
                 .weigher((String key, Set<DeleteFile> files) -> {
@@ -146,7 +146,7 @@ public class IcebergManifestCache {
      * Prepare cache for a manifest path (register table mapping)
      */
     public void prepareCache(String manifestPath, String tableName) {
-        manifestToTableMap.computeIfAbsent(manifestPath, k -> ConcurrentHashMap.newKeySet()).add(tableName);
+        tableToManifestMap.computeIfAbsent(tableName, k -> ConcurrentHashMap.newKeySet()).add(manifestPath);
     }
 
     /**
@@ -157,17 +157,15 @@ public class IcebergManifestCache {
             return;
         }
 
-        Set<String> manifestPaths = Sets.newHashSet();
-        manifestToTableMap.entrySet().stream()
-                .filter(entry -> entry.getValue().contains(tableName))
-                .forEach(entry -> manifestPaths.add(entry.getKey()));
+        Set<String> manifestPaths = tableToManifestMap.remove(tableName);
+        if (manifestPaths == null || manifestPaths.isEmpty()) {
+            return;
+        }
 
         for (String manifestPath : manifestPaths) {
             dataFileCache.invalidate(manifestPath);
             deleteFileCache.invalidate(manifestPath);
         }
-
-        manifestToTableMap.entrySet().removeIf(entry -> entry.getValue().contains(tableName));
     }
 
     /**
@@ -207,8 +205,8 @@ public class IcebergManifestCache {
     /**
      * Get cache statistics
      */
-    public java.util.Map<String, java.util.Map<String, String>> getCacheStats() {
-        java.util.Map<String, java.util.Map<String, String>> stats = new java.util.HashMap<>();
+    public Map<String, Map<String, String>> getCacheStats() {
+        Map<String, Map<String, String>> stats = new HashMap<>();
 
         if (dataFileCache != null) {
             stats.put("data_file_cache", ExternalMetaCacheMgr.getCacheStats(
