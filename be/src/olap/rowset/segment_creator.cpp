@@ -111,7 +111,13 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
 }
 
 Status SegmentFlusher::close() {
-    return _seg_files.close();
+    RETURN_IF_ERROR(_seg_files.close());
+    for (const auto& [seg_id, idx_writer_ptr] : _idx_files.get_file_writers()) {
+        if (idx_writer_ptr != nullptr && idx_writer_ptr->get_file_writer() != nullptr) {
+            RETURN_IF_ERROR(idx_writer_ptr->get_file_writer()->close());
+        }
+    }
+    return Status::OK();
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
