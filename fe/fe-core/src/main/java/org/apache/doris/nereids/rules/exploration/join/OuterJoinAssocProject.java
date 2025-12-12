@@ -58,7 +58,15 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
     // newBottomJoin Type = topJoin Type, newTopJoin Type = bottomJoin Type
     public static Set<Pair<JoinType, JoinType>> VALID_TYPE_PAIR_SET = ImmutableSet.of(
             Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN),
-            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
+            Pair.of(JoinType.INNER_JOIN, JoinType.ASOF_LEFT_OUTER_JOIN),
+            Pair.of(JoinType.ASOF_LEFT_INNER_JOIN, JoinType.LEFT_OUTER_JOIN),
+            Pair.of(JoinType.ASOF_LEFT_INNER_JOIN, JoinType.ASOF_LEFT_OUTER_JOIN),
+            Pair.of(JoinType.ASOF_RIGHT_INNER_JOIN, JoinType.LEFT_OUTER_JOIN),
+            Pair.of(JoinType.ASOF_RIGHT_INNER_JOIN, JoinType.ASOF_LEFT_OUTER_JOIN),
+            Pair.of(JoinType.ASOF_LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN),
+            Pair.of(JoinType.ASOF_LEFT_OUTER_JOIN, JoinType.ASOF_LEFT_OUTER_JOIN),
+            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN),
+            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.ASOF_LEFT_OUTER_JOIN));
 
     @Override
     public Rule build() {

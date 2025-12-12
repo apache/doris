@@ -39,7 +39,11 @@ public enum JoinOperator {
     NULL_AWARE_LEFT_ANTI_JOIN("NULL AWARE LEFT ANTI JOIN",
             TJoinOp.NULL_AWARE_LEFT_ANTI_JOIN),
     NULL_AWARE_LEFT_SEMI_JOIN("NULL AWARE LEFT SEMI JOIN",
-            TJoinOp.NULL_AWARE_LEFT_SEMI_JOIN);
+            TJoinOp.NULL_AWARE_LEFT_SEMI_JOIN),
+    ASOF_LEFT_INNER_JOIN("ASOF_LEFT_INNER_JOIN", TJoinOp.ASOF_LEFT_INNER_JOIN),
+    ASOF_RIGHT_INNER_JOIN("ASOF_RIGHT_INNER_JOIN", TJoinOp.ASOF_RIGHT_INNER_JOIN),
+    ASOF_LEFT_OUTER_JOIN("ASOF_LEFT_OUTER_JOIN", TJoinOp.ASOF_LEFT_OUTER_JOIN),
+    ASOF_RIGHT_OUTER_JOIN("ASOF_LEFT_INNER_JOIN", TJoinOp.ASOF_RIGHT_OUTER_JOIN);
 
     private final String  description;
     private final TJoinOp thriftJoinOp;
@@ -56,67 +60,5 @@ public enum JoinOperator {
 
     public TJoinOp toThrift() {
         return thriftJoinOp;
-    }
-
-    public boolean isOuterJoin() {
-        return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN || this == FULL_OUTER_JOIN;
-    }
-
-    public boolean isSemiAntiJoin() {
-        return this == LEFT_SEMI_JOIN || this == RIGHT_SEMI_JOIN || this == LEFT_ANTI_JOIN
-                || this == NULL_AWARE_LEFT_ANTI_JOIN || this == RIGHT_ANTI_JOIN;
-    }
-
-    public boolean isSemiJoin() {
-        return this == JoinOperator.LEFT_SEMI_JOIN || this == JoinOperator.LEFT_ANTI_JOIN
-                || this == JoinOperator.RIGHT_SEMI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN
-                || this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
-    }
-
-    public boolean isSemiOrAntiJoinNoNullAware() {
-        return this == JoinOperator.LEFT_SEMI_JOIN || this == JoinOperator.LEFT_ANTI_JOIN
-                || this == JoinOperator.RIGHT_SEMI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN;
-    }
-
-    public boolean isAntiJoinNullAware() {
-        return this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
-    }
-
-    public boolean isAntiJoinNoNullAware() {
-        return this == JoinOperator.LEFT_ANTI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN;
-    }
-
-    public boolean isLeftSemiJoin() {
-        return this.thriftJoinOp == TJoinOp.LEFT_SEMI_JOIN;
-    }
-
-    public boolean isInnerJoin() {
-        return this.thriftJoinOp == TJoinOp.INNER_JOIN;
-    }
-
-    public boolean isAntiJoin() {
-        return this == JoinOperator.LEFT_ANTI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN
-                || this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
-    }
-
-    public boolean supportMarkJoin() {
-        return this == JoinOperator.LEFT_ANTI_JOIN || this == JoinOperator.LEFT_SEMI_JOIN
-                || this == JoinOperator.CROSS_JOIN || this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
-    }
-
-    public boolean isCrossJoin() {
-        return this == CROSS_JOIN;
-    }
-
-    public boolean isFullOuterJoin() {
-        return this == FULL_OUTER_JOIN;
-    }
-
-    public boolean isLeftOuterJoin() {
-        return this == LEFT_OUTER_JOIN;
-    }
-
-    public boolean isRightOuterJoin() {
-        return this == RIGHT_OUTER_JOIN;
     }
 }

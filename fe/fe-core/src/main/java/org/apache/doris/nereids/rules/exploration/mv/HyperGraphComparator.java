@@ -67,12 +67,24 @@ public class HyperGraphComparator {
     static Map<Pair<JoinType, JoinType>, Pair<Boolean, Boolean>> canInferredJoinTypeMap = ImmutableMap
             .<Pair<JoinType, JoinType>, Pair<Boolean, Boolean>>builder()
             .put(Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.INNER_JOIN), Pair.of(false, false))
+            .put(Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.ASOF_LEFT_INNER_JOIN), Pair.of(false, false))
+            .put(Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.ASOF_RIGHT_INNER_JOIN), Pair.of(false, false))
             .put(Pair.of(JoinType.RIGHT_SEMI_JOIN, JoinType.INNER_JOIN), Pair.of(false, false))
+            .put(Pair.of(JoinType.RIGHT_SEMI_JOIN, JoinType.ASOF_LEFT_INNER_JOIN), Pair.of(false, false))
+            .put(Pair.of(JoinType.RIGHT_SEMI_JOIN, JoinType.ASOF_RIGHT_INNER_JOIN), Pair.of(false, false))
             .put(Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN), Pair.of(false, true))
             .put(Pair.of(JoinType.INNER_JOIN, JoinType.RIGHT_OUTER_JOIN), Pair.of(true, false))
             .put(Pair.of(JoinType.INNER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(true, true))
+            .put(Pair.of(JoinType.ASOF_LEFT_INNER_JOIN, JoinType.LEFT_OUTER_JOIN), Pair.of(false, true))
+            .put(Pair.of(JoinType.ASOF_LEFT_INNER_JOIN, JoinType.RIGHT_OUTER_JOIN), Pair.of(true, false))
+            .put(Pair.of(JoinType.ASOF_LEFT_INNER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(true, true))
+            .put(Pair.of(JoinType.ASOF_RIGHT_INNER_JOIN, JoinType.LEFT_OUTER_JOIN), Pair.of(false, true))
+            .put(Pair.of(JoinType.ASOF_RIGHT_INNER_JOIN, JoinType.RIGHT_OUTER_JOIN), Pair.of(true, false))
+            .put(Pair.of(JoinType.ASOF_RIGHT_INNER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(true, true))
             .put(Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(true, false))
+            .put(Pair.of(JoinType.ASOF_LEFT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(true, false))
             .put(Pair.of(JoinType.RIGHT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(false, true))
+            .put(Pair.of(JoinType.ASOF_RIGHT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(false, true))
             .build();
 
     // record inferred edges when comparing mv

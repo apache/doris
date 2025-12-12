@@ -30,7 +30,7 @@ public class EliminateJoinByUnique extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalProject(
-                logicalJoin().when(join -> join.getJoinType().isLeftOuterJoin())
+                logicalJoin().when(join -> join.getJoinType().isLeftOuterJoin() && !join.getJoinType().isAsofJoin())
         ).then(project -> {
             LogicalJoin<?, ?> join = project.child();
             if (!join.left().getOutputSet().containsAll(project.getInputSlots())) {

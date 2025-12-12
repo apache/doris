@@ -75,22 +75,34 @@ public enum JoinType {
      * topJoin        -          -
      * bottomJoin     +          -
      */
-    private static final Map<JoinType, ImmutableSet<JoinType>> assocJoinMatrix
-            = ImmutableMap.<JoinType, ImmutableSet<JoinType>>builder()
-            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
-            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
+    private static final Map<JoinType, ImmutableSet<JoinType>> assocJoinMatrix = ImmutableMap
+            .<JoinType, ImmutableSet<JoinType>>builder()
+            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
+            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
+            .put(ASOF_LEFT_INNER_JOIN,
+                    ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
+            .put(ASOF_RIGHT_INNER_JOIN,
+                    ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
             .build();
 
-    private static final Map<JoinType, ImmutableSet<JoinType>> lAssocJoinMatrix
-            = ImmutableMap.<JoinType, ImmutableSet<JoinType>>builder()
-            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
-            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
+    private static final Map<JoinType, ImmutableSet<JoinType>> lAssocJoinMatrix = ImmutableMap
+            .<JoinType, ImmutableSet<JoinType>>builder()
+            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
+            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
+            .put(ASOF_LEFT_INNER_JOIN,
+                    ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
+            .put(ASOF_RIGHT_INNER_JOIN,
+                    ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
             .build();
 
-    private static final Map<JoinType, ImmutableSet<JoinType>> rAssocJoinMatrix
-            = ImmutableMap.<JoinType, ImmutableSet<JoinType>>builder()
-            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
-            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
+    private static final Map<JoinType, ImmutableSet<JoinType>> rAssocJoinMatrix = ImmutableMap
+            .<JoinType, ImmutableSet<JoinType>>builder()
+            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
+            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
+            .put(ASOF_LEFT_INNER_JOIN,
+                    ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
+            .put(ASOF_RIGHT_INNER_JOIN,
+                    ImmutableSet.of(CROSS_JOIN, INNER_JOIN, ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN))
             .build();
 
     /**
@@ -120,6 +132,14 @@ public enum JoinType {
                 return JoinOperator.LEFT_SEMI_JOIN;
             case RIGHT_SEMI_JOIN:
                 return JoinOperator.RIGHT_SEMI_JOIN;
+            case ASOF_LEFT_INNER_JOIN:
+                return JoinOperator.ASOF_LEFT_INNER_JOIN;
+            case ASOF_RIGHT_INNER_JOIN:
+                return JoinOperator.ASOF_RIGHT_INNER_JOIN;
+            case ASOF_LEFT_OUTER_JOIN:
+                return JoinOperator.ASOF_LEFT_OUTER_JOIN;
+            case ASOF_RIGHT_OUTER_JOIN:
+                return JoinOperator.ASOF_RIGHT_OUTER_JOIN;
             case CROSS_JOIN:
                 return JoinOperator.CROSS_JOIN;
             default:
@@ -132,20 +152,22 @@ public enum JoinType {
     }
 
     public final boolean isInnerJoin() {
-        return this == INNER_JOIN;
+        return this == INNER_JOIN || this == ASOF_LEFT_INNER_JOIN || this == ASOF_RIGHT_INNER_JOIN;
     }
 
     public final boolean isInnerOrCrossJoin() {
-        return this == INNER_JOIN || this == CROSS_JOIN;
+        return this == INNER_JOIN || this == CROSS_JOIN
+                || this == ASOF_LEFT_INNER_JOIN || this == ASOF_RIGHT_INNER_JOIN;
     }
 
     public final boolean isLeftJoin() {
         return this == LEFT_OUTER_JOIN || this == LEFT_ANTI_JOIN || this == NULL_AWARE_LEFT_ANTI_JOIN
-                || this == LEFT_SEMI_JOIN;
+                || this == LEFT_SEMI_JOIN || this == ASOF_LEFT_OUTER_JOIN;
     }
 
     public final boolean isRightJoin() {
-        return this == RIGHT_OUTER_JOIN || this == RIGHT_ANTI_JOIN || this == RIGHT_SEMI_JOIN;
+        return this == RIGHT_OUTER_JOIN || this == RIGHT_ANTI_JOIN || this == RIGHT_SEMI_JOIN
+                || this == ASOF_RIGHT_OUTER_JOIN;
     }
 
     public final boolean isFullOuterJoin() {
@@ -153,15 +175,16 @@ public enum JoinType {
     }
 
     public final boolean isLeftOuterJoin() {
-        return this == LEFT_OUTER_JOIN;
+        return this == LEFT_OUTER_JOIN || this == ASOF_LEFT_OUTER_JOIN;
     }
 
     public final boolean isRightOuterJoin() {
-        return this == RIGHT_OUTER_JOIN;
+        return this == RIGHT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
     }
 
     public final boolean isLeftRightOuterOrCrossJoin() {
-        return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN || this == CROSS_JOIN;
+        return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN || this == CROSS_JOIN
+                || this == ASOF_LEFT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
     }
 
     public final boolean isLeftSemiOrAntiJoin() {
@@ -202,11 +225,13 @@ public enum JoinType {
     }
 
     public final boolean isOuterJoin() {
-        return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN || this == FULL_OUTER_JOIN;
+        return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN || this == FULL_OUTER_JOIN
+                || this == ASOF_LEFT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
     }
 
     public final boolean isOneSideOuterJoin() {
-        return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN;
+        return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN
+                || this == ASOF_LEFT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
     }
 
     public final boolean isRemainLeftJoin() {
@@ -219,6 +244,23 @@ public enum JoinType {
 
     public final boolean isNullAwareLeftAntiJoin() {
         return this == NULL_AWARE_LEFT_ANTI_JOIN;
+    }
+
+    public final boolean isAsofLeftInnerJoin() {
+        return this == ASOF_LEFT_INNER_JOIN;
+    }
+
+    public final boolean isAsofInnerJoin() {
+        return this == ASOF_LEFT_INNER_JOIN || this == ASOF_RIGHT_INNER_JOIN;
+    }
+
+    public final boolean isAsofOuterJoin() {
+        return this == ASOF_LEFT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
+    }
+
+    public final boolean isAsofJoin() {
+        return this == ASOF_LEFT_INNER_JOIN || this == ASOF_RIGHT_INNER_JOIN
+                || this == ASOF_LEFT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
     }
 
     public final boolean isSwapJoinType() {

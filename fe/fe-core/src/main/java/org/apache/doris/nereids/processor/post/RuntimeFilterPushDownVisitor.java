@@ -280,7 +280,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         PhysicalRelation target2 = null;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
             if (!join.equals(ctx.builderNode)
-                    && (join.getJoinType() == JoinType.INNER_JOIN || join.getJoinType().isSemiJoin())) {
+                    && (join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())) {
                 for (Expression expr : join.getHashJoinConjuncts()) {
                     EqualPredicate equalTo = (EqualPredicate) expr;
                     if (ctx.probeExpr.equals(equalTo.left())) {

@@ -107,7 +107,7 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
             return false;
         }
 
-        if (bottomJoin.getJoinType() != JoinType.INNER_JOIN && bottomJoin.getJoinType() != JoinType.CROSS_JOIN) {
+        if (!bottomJoin.getJoinType().isInnerOrCrossJoin()) {
             return false;
         }
 

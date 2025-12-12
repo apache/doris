@@ -80,7 +80,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                         // RIGHT_OUTER_JOIN should be eliminated in rewrite phase
                         // TODO: when top join is ANTI JOIN,  bottomJoin may be RIGHT_OUTER_JOIN
                         // Can we also do the transformation?
-                        if (bottomJoin.getJoinType() == JoinType.RIGHT_OUTER_JOIN) {
+                        if (bottomJoin.getJoinType().isRightOuterJoin()) {
                             return null;
                         }
 
@@ -100,7 +100,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                         // LEFT_OUTER_JOIN should be eliminated in rewrite phase
                         // TODO: when top join is ANTI JOIN,  bottomJoin may be RIGHT_OUTER_JOIN
                         // Can we also do the transformation?
-                        if (bottomJoin.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
+                        if (bottomJoin.getJoinType().isLeftOuterJoin()) {
                             return null;
                         }
 

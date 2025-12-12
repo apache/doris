@@ -205,12 +205,16 @@ public class SaltJoin extends OneRewriteRuleFactory {
         switch (join.getJoinType()) {
             case INNER_JOIN:
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 leftProject = addRandomSlot(leftSkewExpr, skewSideValues, join.left(), factor, type,
                         statementContext);
                 rightProject = expandSkewValueRows(rightSkewExpr, expandSideValues, join.right(), factor, type,
                         statementContext);
                 break;
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 leftProject = expandSkewValueRows(leftSkewExpr, expandSideValues, join.left(), factor, type,
                         statementContext);
                 rightProject = addRandomSlot(rightSkewExpr, skewSideValues, join.right(), factor, type,
