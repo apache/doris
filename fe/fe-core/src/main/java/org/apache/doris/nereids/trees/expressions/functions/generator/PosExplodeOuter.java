@@ -83,15 +83,6 @@ public class PosExplodeOuter extends TableGeneratingFunction implements
 
     @Override
     public FunctionSignature customSignature() {
-        if (1 == children.size()) {
-            if (!children.get(0).getDataType().isArrayType()) {
-                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
-            }
-            return FunctionSignature.ret(new StructType(ImmutableList.of(
-                        new StructField("pos", IntegerType.INSTANCE, false, ""),
-                        new StructField("col", ((ArrayType) children.get(0).getDataType()).getItemType(), true, ""))))
-                        .args(children.get(0).getDataType());
-        }
         List<DataType> arguments = new ArrayList<>();
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
         structFields.add(new StructField("pos", IntegerType.INSTANCE, false, ""));
