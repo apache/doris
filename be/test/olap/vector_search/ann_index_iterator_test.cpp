@@ -319,10 +319,10 @@ TEST_F(AnnIndexIteratorTest, TestSuccessfulWorkflow) {
     IndexParam param = &ann_param;
 
     // Mock successful read_from_index
-    EXPECT_CALL(*mock_iterator, read_from_index(testing::_))
+    EXPECT_CALL(*mock_iterator, read_from_index(testing::_, testing::_))
             .WillOnce(testing::Return(doris::Status::OK()));
 
-    auto status = mock_iterator->read_from_index(param);
+    auto status = mock_iterator->read_from_index(param, nullptr);
     EXPECT_TRUE(status.ok());
 
     // Mock successful range_search

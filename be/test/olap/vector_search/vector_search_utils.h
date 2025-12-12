@@ -155,7 +155,10 @@ public:
 
     ~MockAnnIndexIterator() override = default;
 
-    MOCK_METHOD(Status, read_from_index, (const doris::segment_v2::IndexParam& param), (override));
+    MOCK_METHOD(Status, read_from_index,
+                (const doris::segment_v2::IndexParam& param,
+                 const doris::InvertedIndexCtx* inverted_index_ctx),
+                (override));
     MOCK_METHOD(Status, range_search,
                 (const segment_v2::AnnRangeSearchParams& params,
                  const VectorSearchUserParams& custom_params,

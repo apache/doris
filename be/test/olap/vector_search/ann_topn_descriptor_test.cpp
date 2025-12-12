@@ -157,9 +157,11 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
         _ann_index_iterator->_ann_reader = pair.second;
     }
 
-    EXPECT_CALL(*_ann_index_iterator, read_from_index(testing::_))
+    EXPECT_CALL(*_ann_index_iterator, read_from_index(testing::_, testing::_))
             .Times(1)
-            .WillOnce(testing::Invoke([](const segment_v2::IndexParam& value) {
+            .WillOnce(testing::Invoke([](const segment_v2::IndexParam& value,
+                                         const doris::InvertedIndexCtx* inverted_index_ctx) {
+                (void)inverted_index_ctx;
                 auto* ann_param = std::get<segment_v2::AnnTopNParam*>(value);
                 ann_param->distance = std::make_unique<std::vector<float>>();
                 ann_param->row_ids = std::make_unique<std::vector<uint64_t>>();
