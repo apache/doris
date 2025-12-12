@@ -61,8 +61,8 @@ public:
 
     static MutablePtr create(const ColumnPtr& keys, const ColumnPtr& values,
                              const ColumnPtr& offsets) {
-        return ColumnMap::create(keys->assume_mutable(), values->assume_mutable(),
-                                 offsets->assume_mutable());
+        return ColumnMap::create(std::move(*keys).mutate(), std::move(*values).mutate(),
+                                 std::move(*offsets).mutate());
     }
 
     template <typename... Args,
