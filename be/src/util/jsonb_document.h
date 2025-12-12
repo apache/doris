@@ -1003,31 +1003,6 @@ struct ArrayVal : public ContainerVal {
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
 };
 
-inline Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
-                                                    const JsonbDocument** doc) {
-    *doc = nullptr;
-    if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
-        return Status::InvalidArgument("Invalid JSONB document: too small size({}) or null pointer",
-                                       size);
-    }
-
-    const auto* doc_ptr = (const JsonbDocument*)pb;
-    if (doc_ptr->header_.ver_ != JSONB_VER) {
-        return Status::InvalidArgument("Invalid JSONB document: invalid version({})",
-                                       doc_ptr->header_.ver_);
-    }
-
-    const auto* val = (const JsonbValue*)doc_ptr->payload_;
-    if (val->type < JsonbType::T_Null || val->type >= JsonbType::NUM_TYPES ||
-        size != sizeof(JsonbHeader) + val->numPackedBytes()) {
-        return Status::InvalidArgument("Invalid JSONB document: invalid type({}) or size({})",
-                                       static_cast<JsonbTypeUnder>(val->type), size);
-    }
-
-    *doc = doc_ptr;
-    return Status::OK();
-}
-
 inline const JsonbValue* JsonbDocument::createValue(const char* pb, size_t size) {
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return nullptr;
