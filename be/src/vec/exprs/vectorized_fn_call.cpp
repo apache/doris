@@ -210,7 +210,7 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, 
             }
         }
     })
-    DCHECK(_open_finished || _getting_const_col) << debug_string();
+    DCHECK(_open_finished || block == nullptr) << debug_string();
 
     Block temp_block;
     ColumnNumbers args(_children.size());

@@ -77,7 +77,7 @@ doris::Status vectorized::VBitmapPredicate::open(doris::RuntimeState* state,
 
 Status VBitmapPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
                                         ColumnPtr& result_column) const {
-    DCHECK(_open_finished || _getting_const_col);
+    DCHECK(_open_finished || block == nullptr);
     DCHECK_EQ(_children.size(), 1);
 
     ColumnPtr argument_column;
