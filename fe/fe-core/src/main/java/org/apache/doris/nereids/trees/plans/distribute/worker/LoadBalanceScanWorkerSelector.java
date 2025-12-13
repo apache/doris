@@ -137,7 +137,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
                         unassignedJob, scanNodes, bucketScanRangeSupplier,
                         bucketBytesSupplier, orderedScanRangeLocations
                 );
-            } else if (fragment.hasColocatePlanNode()) {
+            } else if (fragment.hasColocatePlanNode() || fragment.hasBucketShuffleSetOperation()) {
                 return selectForBucket(
                         unassignedJob, scanNodes, bucketScanRangeSupplier,
                         bucketBytesSupplier, orderedScanRangeLocations
