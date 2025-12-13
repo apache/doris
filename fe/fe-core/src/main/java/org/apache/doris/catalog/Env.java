@@ -3760,6 +3760,16 @@ public class Env {
             }
         }
 
+        // column group
+        Map<String, List<String>> seqMap = olapTable.getColumnSeqMapping();
+        if (seqMap != null && seqMap.size() != 0) {
+            for (Map.Entry<String, List<String>> columnGroup : seqMap.entrySet()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING).append(".")
+                    .append(columnGroup.getKey()).append("\" = \"");
+                sb.append(String.join(",", columnGroup.getValue())).append("\"");
+            }
+        }
+
         // store row column
         if (olapTable.storeRowColumn()) {
             List<String> rsColumnNames = olapTable.getTableProperty().getCopiedRowStoreColumns();
@@ -5720,6 +5730,10 @@ public class Env {
         table.checkNormalStateForAlter();
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
+        }
+        // TODO support rename in future version
+        if (table.hasColumnSeqMapping()) {
+            throw new DdlException("table use sequence mapping do not support rename yet");
         }
 
         // @NOTE: Rename partition columns should also rename column names in partition expressions

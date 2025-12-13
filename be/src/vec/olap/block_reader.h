@@ -19,6 +19,7 @@
 
 #include <parallel_hashmap/phmap.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 #include <utility>
 #include <vector>
@@ -70,11 +71,17 @@ private:
     // to minimize the comparison time in merge heap.
     Status _unique_key_next_block(Block* block, bool* eof);
 
+    Status _replace_key_next_block(Block* block, bool* eof);
+
     Status _init_collect_iter(const ReaderParams& read_params);
 
     Status _init_agg_state(const ReaderParams& read_params);
 
     Status _insert_data_normal(MutableColumns& columns);
+
+    // for partial update table
+    void _update_last_mutil_seq(int seq_idx);
+    void _compare_sequence_map_and_replace(MutableColumns& columns);
 
     void _append_agg_data(MutableColumns& columns);
 
@@ -117,6 +124,14 @@ private:
     ColumnPtr _delete_filter_column;
 
     bool _is_rowsets_overlapping = true;
+
+    bool _has_seq_map = false;
+    // for check multi seq
+    std::unordered_map<uint32_t, MutableColumnPtr> _seq_columns;
+    // MutableColumns _seq_columns;
+    // seq in return_columns, val pos in _normal_columns_idx
+    std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_in_origin_block;
+    std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_not_in_origin_block;
 
     Arena _arena;
 };

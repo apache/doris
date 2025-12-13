@@ -202,6 +202,9 @@ public class MaterializedViewHandler extends AlterHandler {
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
             }
+            if (olapTable.hasColumnSeqMapping()) {
+                throw new DdlException("Can not add materialized view when table use column sequence mapping");
+            }
             // check no duplicate column name in full schema
             Set<String> allColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             for (Column column : olapTable.getFullSchema()) {
@@ -287,6 +290,9 @@ public class MaterializedViewHandler extends AlterHandler {
             olapTable.checkNormalStateForAlter();
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
+            }
+            if  (olapTable.hasColumnSeqMapping()) {
+                throw new DdlException("Can not add rollup when table use column sequence mapping");
             }
 
             // 1 check and make rollup job

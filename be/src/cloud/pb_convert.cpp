@@ -377,6 +377,9 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+    if (in.has_seq_map()) {
+        out->mutable_seq_map()->CopyFrom(in.seq_map());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -414,6 +417,9 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+    if (in.has_seq_map()) {
+        out->mutable_seq_map()->CopyFrom(in.seq_map());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -464,6 +470,9 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+    if (in.has_seq_map()) {
+        out->mutable_seq_map()->CopyFrom(in.seq_map());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -502,6 +511,9 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+    if (in.has_seq_map()) {
+        out->mutable_seq_map()->CopyFrom(in.seq_map());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
