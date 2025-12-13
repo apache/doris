@@ -97,7 +97,6 @@ TPlanNode PartitionedAggregationTestHelper::create_test_plan_node() {
     fn_child_node.type.types.emplace_back(type_node);
 
     tnode.row_tuples.push_back(0);
-    tnode.nullable_tuples.push_back(false);
 
     return tnode;
 }

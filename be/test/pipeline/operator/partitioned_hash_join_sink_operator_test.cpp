@@ -67,7 +67,6 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, Init) {
     ASSERT_EQ(desc_tbl.get_tuple_descs().size(), 2);
 
     tnode.row_tuples.push_back(desc_tbl.get_tuple_descs().front()->id());
-    tnode.nullable_tuples.push_back(false);
 
     PartitionedHashJoinSinkOperatorX operator_x(
             _helper.obj_pool.get(), 0, 0, tnode, desc_tbl,

@@ -72,18 +72,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         this.tupleIds.addAll(tupleIds);
         children.add(outer);
         children.add(inner);
-        // Inherits all the nullable tuple from the children
-        // Mark tuples that form the "nullable" side of the outer join as nullable.
-        nullableTupleIds.addAll(outer.getNullableTupleIds());
-        nullableTupleIds.addAll(inner.getNullableTupleIds());
-        if (joinOp.equals(JoinOperator.FULL_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getOutputTupleIds());
-            nullableTupleIds.addAll(inner.getOutputTupleIds());
-        } else if (joinOp.equals(JoinOperator.LEFT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(inner.getOutputTupleIds());
-        } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getOutputTupleIds());
-        }
     }
 
     public void setOutputLeftSideOnly(boolean outputLeftSideOnly) {

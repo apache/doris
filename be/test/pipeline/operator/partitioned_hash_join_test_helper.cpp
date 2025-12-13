@@ -46,8 +46,6 @@ TPlanNode PartitionedHashJoinTestHelper::create_test_plan_node() {
 
     tnode.row_tuples.push_back(0);
     tnode.row_tuples.push_back(1);
-    tnode.nullable_tuples.push_back(false);
-    tnode.nullable_tuples.push_back(false);
     tnode.node_type = TPlanNodeType::HASH_JOIN_NODE;
     tnode.hash_join_node.join_op = TJoinOp::INNER_JOIN;
     tnode.__isset.hash_join_node = true;
