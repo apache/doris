@@ -309,16 +309,16 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     }
     vectorized::Block input_block = *origin_block;
 
-    std::vector<int> result_column_ids;
     size_t bytes_usage = 0;
+    vectorized::ColumnsWithTypeAndName new_columns;
     for (const auto& projections : local_state->_intermediate_projections) {
-        result_column_ids.resize(projections.size());
+        new_columns.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
-            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+            RETURN_IF_ERROR(projections[i]->execute(&input_block, new_columns[i]));
         }
-
-        bytes_usage += input_block.allocated_bytes();
-        input_block.shuffle_columns(result_column_ids);
+        vectorized::Block tmp_block {new_columns};
+        bytes_usage += tmp_block.allocated_bytes();
+        input_block.swap(tmp_block);
     }
 
     DCHECK_EQ(rows, input_block.rows());

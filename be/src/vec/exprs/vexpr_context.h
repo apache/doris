@@ -174,6 +174,7 @@ public:
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
     [[nodiscard]] Status execute(const Block* block, ColumnPtr& result_column);
+    [[nodiscard]] Status execute(const Block* block, ColumnWithTypeAndName& result_data);
     [[nodiscard]] DataTypePtr execute_type(const Block* block);
     [[nodiscard]] const std::string& expr_name() const;
     [[nodiscard]] bool is_blockable() const;
