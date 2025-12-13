@@ -38,6 +38,7 @@ suite('test_peer_read_async_warmup', 'docker') {
         'schedule_sync_tablets_interval_s=18000',
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
+        'enable_cache_read_from_peer=true',
     ]
     options.setFeNum(1)
     options.setBeNum(1)
