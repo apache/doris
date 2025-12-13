@@ -236,13 +236,7 @@ void CloudWarmUpManager::handle_jobs() {
                     continue;
                 }
 
-                int64_t expiration_time =
-                        tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
-                                ? 0
-                                : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
-                if (expiration_time <= UnixSeconds()) {
-                    expiration_time = 0;
-                }
+                int64_t expiration_time = tablet_meta->ttl_seconds();
                 if (!tablet->add_rowset_warmup_state(*rs, WarmUpTriggerSource::JOB)) {
                     LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
                               << ", skip it";
