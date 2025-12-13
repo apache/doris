@@ -202,7 +202,10 @@ private:
                 return Status::InternalError(controller.ErrorText());
             }
 
-            RETURN_IF_ERROR(Status::create(result.status()));
+            auto rpc_st = Status::create(result.status());
+            if (!rpc_st.ok()) {
+                return rpc_st;
+            }
         }
         return Status::OK();
     }
