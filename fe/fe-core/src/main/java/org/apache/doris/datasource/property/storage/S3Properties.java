@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.thrift.TCredProviderType;
 import org.apache.doris.thrift.TS3StorageParam;
@@ -38,6 +39,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
@@ -306,7 +308,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3IAMRole)) {
             StsClient stsClient = StsClient.builder()
                     .region(Region.of(region))
-                    .credentialsProvider(awsCredentialsProviderMode.getCredentialsProviderV2())
+                    .credentialsProvider(InstanceProfileCredentialsProvider.create())
                     .build();
 
             return StsAssumeRoleCredentialsProvider.builder()
@@ -330,9 +332,10 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3IAMRole)) {
             StsClient stsClient = StsClient.builder()
                     .region(Region.of(region))
-                    .credentialsProvider(awsCredentialsProviderMode.getCredentialsProviderV2())
+                    .credentialsProvider(AwsCredentialsProviderFactory.createV2(
+                            awsCredentialsProviderMode,
+                            false))
                     .build();
-
             return StsAssumeRoleCredentialsProvider.builder()
                     .stsClient(stsClient)
                     .refreshRequest(builder -> {
@@ -342,7 +345,9 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                         }
                     }).build();
         }
-        return awsCredentialsProviderMode.getCredentialsProviderV2();
+        return AwsCredentialsProviderFactory.createV2(
+                awsCredentialsProviderMode,
+                true);
     }
 
     @Override
@@ -363,8 +368,16 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             hadoopStorageConfig.set("fs.s3a.assumed.role.arn", s3IAMRole);
             hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
                     "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider");
-            hadoopStorageConfig.set("fs.s3a.assumed.role.credentials.provider",
-                    awsCredentialsProviderMode.getClassName());
+            if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
+                hadoopStorageConfig.set("fs.s3a.assumed.role.credentials.provider",
+                        AwsCredentialsProviderFactory.getV2ClassName(
+                                awsCredentialsProviderMode,
+                                false));
+            } else {
+                hadoopStorageConfig.set("fs.s3a.assumed.role.credentials.provider",
+                        InstanceProfileCredentialsProvider.class.getName());
+            }
+
             if (StringUtils.isNotBlank(s3ExternalId)) {
                 hadoopStorageConfig.set("fs.s3a.assumed.role.external.id", s3ExternalId);
             }
@@ -372,7 +385,9 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         }
         if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
             hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
-                    awsCredentialsProviderMode.getClassName());
+                    AwsCredentialsProviderFactory.createV2(
+                            awsCredentialsProviderMode,
+                            true).getClass().getName());
         }
     }
 
