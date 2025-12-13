@@ -561,6 +561,33 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testAggregateAggFunctionsIncludingFirst() throws Exception {
+        String sql = "create table test.agg_first\n"
+                + "(k1 int, k2 int,\n"
+                + " v_sum int sum,\n"
+                + " v_min int min,\n"
+                + " v_max int max,\n"
+                + " v_replace int replace,\n"
+                + " v_replace_if_not_null int replace_if_not_null,\n"
+                + " v_first int first)\n"
+                + "aggregate key(k1, k2)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');";
+        createTable(sql);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrDdlException("agg_first");
+
+        Assertions.assertSame(AggregateType.SUM, tbl.getColumn("v_sum").getAggregationType());
+        Assertions.assertSame(AggregateType.MIN, tbl.getColumn("v_min").getAggregationType());
+        Assertions.assertSame(AggregateType.MAX, tbl.getColumn("v_max").getAggregationType());
+        Assertions.assertSame(AggregateType.REPLACE, tbl.getColumn("v_replace").getAggregationType());
+        Assertions.assertSame(AggregateType.REPLACE_IF_NOT_NULL,
+                tbl.getColumn("v_replace_if_not_null").getAggregationType());
+        Assertions.assertSame(AggregateType.FIRST, tbl.getColumn("v_first").getAggregationType());
+    }
+
+    @Test
     public void testZOrderTable() {
         // create lexically sort table
         Assertions.assertDoesNotThrow(() -> createTable(

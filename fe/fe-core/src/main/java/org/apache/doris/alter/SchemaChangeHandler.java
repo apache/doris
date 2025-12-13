@@ -347,7 +347,8 @@ public class SchemaChangeHandler extends AlterHandler {
                         isKey = true;
                         lightSchemaChange = false;
                     } else if (AggregateType.REPLACE == column.getAggregationType()
-                            || AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()) {
+                            || AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()
+                            || AggregateType.FIRST == column.getAggregationType()) {
                         hasReplaceColumn = true;
                     }
                 }
@@ -366,7 +367,8 @@ public class SchemaChangeHandler extends AlterHandler {
                         isKey = true;
                         lightSchemaChange = false;
                     } else if (AggregateType.REPLACE == column.getAggregationType()
-                            || AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()) {
+                            || AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()
+                            || AggregateType.FIRST == column.getAggregationType()) {
                         hasReplaceColumn = true;
                     }
                 }

@@ -105,6 +105,16 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "op_time DATETIME)\n" + "DUPLICATE  KEY(timestamp, type)\n" + "DISTRIBUTED BY HASH(type) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');";
         createTable(createDupTblStmtStrForStruct);
+
+        String createAggFirst = "CREATE TABLE IF NOT EXISTS test.sc_first (\n"
+                + "user_id LARGEINT NOT NULL,\n"
+                + "date DATE NOT NULL,\n"
+                + "v_first INT FIRST\n"
+                + ")\n"
+                + "AGGREGATE KEY(user_id, date)\n"
+                + "DISTRIBUTED BY HASH(user_id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');";
+        createTable(createAggFirst);
     }
 
     private void waitAlterJobDone(Map<Long, AlterJobV2> alterJobs) throws Exception {
@@ -317,6 +327,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             testChangeExistingSubColumnType(defaultVal, tableName);
             testAddUnsupportedSubColumnType(defaultVal, tableName);
         }
+    }
+
+    @Test
+    public void testDropKeyColumnWithFirstValueColumnForbidden() throws Exception {
+        String alterStmt = "ALTER TABLE test.sc_first DROP COLUMN user_id";
+        expectException(alterStmt,
+                "Can not drop partition or distribution column : user_id");
     }
 
     @Test
