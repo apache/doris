@@ -35,7 +35,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /** Test the method in Predicates*/
 public class PredicatesTest extends SqlTestBase {
@@ -183,8 +185,47 @@ public class PredicatesTest extends SqlTestBase {
 
         Map<Expression, ExpressionInfo> compensateRangePredicates = Predicates.compensateRangePredicate(
                 queryStructInfo, mvStructInfo, mvToQuerySlotMapping, comparisonResult,
-                queryContext);
+                queryContext, new HashSet<>());
         Assertions.assertNotNull(compensateRangePredicates);
         Assertions.assertEquals(1, compensateRangePredicates.size());
+    }
+
+    @Test
+    public void testResidualCompensateWithUncoveredRangeAsExtraResidual() {
+        CascadesContext mvContext = createCascadesContext(
+                "select id, score from T1 where id = 5 or score = 1",
+                connectContext);
+        Plan mvPlan = PlanChecker.from(mvContext).analyze().rewrite().getPlan().child(0);
+
+        CascadesContext queryContext = createCascadesContext(
+                "select id, score from T1 where id = 5",
+                connectContext);
+        Plan queryPlan = PlanChecker.from(queryContext).analyze().rewrite().getAllPlan().get(0).child(0);
+
+        StructInfo mvStructInfo = MaterializedViewUtils.extractStructInfo(mvPlan, mvPlan,
+                mvContext, new BitSet()).get(0);
+        StructInfo queryStructInfo = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
+                queryContext, new BitSet()).get(0);
+        RelationMapping relationMapping = RelationMapping.generate(mvStructInfo.getRelations(),
+                queryStructInfo.getRelations(), 16).get(0);
+        SlotMapping mvToQuerySlotMapping = SlotMapping.generate(relationMapping);
+        ComparisonResult comparisonResult = HyperGraphComparator.isLogicCompatible(
+                queryStructInfo.getHyperGraph(),
+                mvStructInfo.getHyperGraph(),
+                constructContext(queryPlan, mvPlan, queryContext));
+
+        Set<Expression> uncoveredRanges = new HashSet<>();
+        Map<Expression, ExpressionInfo> compensateRangePredicates = Predicates.compensateRangePredicate(
+                queryStructInfo, mvStructInfo, mvToQuerySlotMapping, comparisonResult,
+                queryContext, uncoveredRanges);
+        Assertions.assertNotNull(compensateRangePredicates);
+        Assertions.assertTrue(compensateRangePredicates.isEmpty());
+        Assertions.assertEquals(1, uncoveredRanges.size());
+
+        Map<Expression, ExpressionInfo> residualComp = Predicates.compensateResidualPredicate(
+                queryStructInfo, mvStructInfo, mvToQuerySlotMapping, comparisonResult, uncoveredRanges);
+        Assertions.assertEquals(1, residualComp.size());
+
+        Assertions.assertEquals("[( not (score#1 = 1))]", residualComp.keySet().toString());
     }
 }
