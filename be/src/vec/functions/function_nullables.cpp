@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <sstream>
+
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -88,9 +90,15 @@ public:
         if (const auto* col_null = check_and_get_column<ColumnNullable>(data.column.get());
             col_null != nullptr) {
             if (col_null->has_null()) [[unlikely]] {
+                const auto& null_map = col_null->get_null_map_data();
+                std::stringstream ss;
+                for (size_t i = 0; i < null_map.size(); ++i) {
+                    ss << (int)(null_map[i]) << ",";
+                }
                 return Status::InvalidArgument(
-                        "There's NULL value in column {} which is illegal for non_nullable",
-                        data.name);
+                        "There's NULL value in column {} which is illegal for non_nullable , null "
+                        "map: {}",
+                        data.name, ss.str());
             }
             const ColumnPtr& nest_col = col_null->get_nested_column_ptr();
             block.replace_by_position(result, nest_col->clone_resized(nest_col->size()));
