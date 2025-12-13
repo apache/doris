@@ -113,8 +113,12 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             // In such table, non-key column's aggregation type is NONE, so we need to construct
             // the aggregate function manually.
             if (_skip_bitmap_col_idx != cid) {
+                auto agg = _tablet_schema->column(cid).aggregation();
+                const char* fn_name = (agg == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_FIRST)
+                                              ? "first_load"
+                                              : "replace_load";
                 function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                        "replace_load", {block->get_data_type(cid)}, block->get_data_type(cid),
+                        fn_name, {block->get_data_type(cid)}, block->get_data_type(cid),
                         block->get_data_type(cid)->is_nullable(),
                         BeExecVersionManager::get_newest_version());
             } else {

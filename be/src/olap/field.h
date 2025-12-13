@@ -559,6 +559,7 @@ public:
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX:
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE:
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_FIRST:
             switch (column.type()) {
             case FieldType::OLAP_FIELD_TYPE_CHAR:
                 return new CharField(column);

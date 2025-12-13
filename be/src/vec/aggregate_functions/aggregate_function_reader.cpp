@@ -83,4 +83,16 @@ void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFact
                       create_aggregate_function_last_non_null_value<false>, true);
 }
 
+void register_aggregate_function_first_reader_load(AggregateFunctionSimpleFactory& factory) {
+    auto register_function = [&](const std::string& name, const std::string& suffix,
+                                 const AggregateFunctionCreator& creator, bool nullable) {
+        factory.register_function(name + suffix, creator, nullable);
+    };
+
+    register_function("first", AGG_READER_SUFFIX, create_aggregate_function_last<true>, false);
+    register_function("first", AGG_READER_SUFFIX, create_aggregate_function_last<true>, true);
+    register_function("first", AGG_LOAD_SUFFIX, create_aggregate_function_first<false>, false);
+    register_function("first", AGG_LOAD_SUFFIX, create_aggregate_function_first<false>, true);
+}
+
 } // namespace doris::vectorized

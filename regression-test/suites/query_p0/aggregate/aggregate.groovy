@@ -187,6 +187,30 @@ suite("aggregate") {
     qt_aggregate """ select any(c_bigint), any(c_double),any(c_string), any(c_date), any(c_timestamp),any_value(c_date_1), any(c_timestamp_1), 
                  any_value(c_timestamp_2), any(c_timestamp_3) , any(c_boolean), any(c_short_decimal), any(c_long_decimal)from ${tableName2} """
 
+    def firstTable = "agg_first_demo"
+    sql "DROP TABLE IF EXISTS ${firstTable}"
+    sql """
+        CREATE TABLE ${firstTable} (
+            user_id INT,
+            load_dt INT,
+            city VARCHAR(255),
+            v_replace INT REPLACE,
+            v_first INT FIRST
+        )
+        AGGREGATE KEY(user_id, load_dt, city)
+        DISTRIBUTED BY HASH(user_id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+
+    sql "INSERT INTO ${firstTable} VALUES (1, 1, 'beijing', 1, 1), (2, 2, 'beijing', 2, 2)"
+    sql "INSERT INTO ${firstTable} VALUES (1, 1, 'beijing', 99, 99), (2, 2, 'beijing', 98, 98)"
+    sql "sync"
+
+    def rows = sql "SELECT user_id, load_dt, city, v_replace, v_first FROM ${firstTable} ORDER BY user_id"
+    assertEquals(2, rows.size())
+    assertEquals([1, 1, 'beijing', 99, 1], rows[0])
+    assertEquals([2, 2, 'beijing', 98, 2], rows[1])
+
 
     sql "use test_query_db"
     List<String> fields = ["k1", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9"]

@@ -140,6 +140,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         // Register foreach and foreachv2 functions
         register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_combinator_foreachv2(instance);
+        register_aggregate_function_first_reader_load(instance);
     });
     return instance;
 }
