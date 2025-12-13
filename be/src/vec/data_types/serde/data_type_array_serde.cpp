@@ -123,6 +123,10 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
                 quote_char = c;
                 has_quote = !has_quote;
             } else if (has_quote && quote_char == c) {
+                // skip the quote character if it is escaped
+                if (idx > 0 && slice[idx - 1] == options.escape_char) {
+                    continue;
+                }
                 quote_char = 0;
                 has_quote = !has_quote;
             }
@@ -437,8 +441,10 @@ Status DataTypeArraySerDe::_from_string(StringRef& str, IColumn& column,
     }
     str = str.substring(1, str.size - 2); // remove '[' and ']'
 
-    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
-            str, [&](char c) { return c == options.collection_delim; });
+    std::vector<ComplexTypeDeserializeUtil::SplitResult> split_result;
+    RETURN_IF_ERROR(ComplexTypeDeserializeUtil::split_by_delimiter(
+            str, options.escape_char, [&](char c) { return c == options.collection_delim; },
+            split_result));
 
     for (auto& e : split_result) {
         RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
