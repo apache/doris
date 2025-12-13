@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.common.DefaultDorisAwsCredentialsProviderChain;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -443,7 +442,7 @@ public class S3PropertiesTest {
         Assertions.assertEquals(AnonymousCredentialsProvider.class, provider.getClass());
         Config.aws_credentials_provider_version = "v2";
         provider = s3Properties.getAwsCredentialsProvider();
-        Assertions.assertEquals(DefaultDorisAwsCredentialsProviderChain.class, provider.getClass());
+        Assertions.assertEquals(AwsCredentialsProviderChain.class, provider.getClass());
         Config.aws_credentials_provider_version = "v2";
     }
 
