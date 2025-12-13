@@ -306,9 +306,9 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
-    _column_writers.push_back(std::move(writer));
+    _column_writers[cid] = std::move(writer);
 
-    _olap_data_convertor->add_column_data_convertor(column);
+    _olap_data_convertor->add_column_data_convertor_at(column, cid);
     return Status::OK();
 };
 
@@ -319,7 +319,6 @@ Status VerticalSegmentWriter::init() {
     }
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
     _olap_data_convertor->reserve(_tablet_schema->num_columns());
-    _column_writers.reserve(_tablet_schema->columns().size());
     // we don't need the short key index for unique key merge on write table.
     if (_is_mow()) {
         size_t seq_col_length = 0;
@@ -447,7 +446,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::_finalize_column_writer_and_update_meta(size_t cid) {
+Status VerticalSegmentWriter::_finalize_column_writer_and_update_meta(uint32_t cid) {
     RETURN_IF_ERROR(_column_writers[cid]->finish());
     RETURN_IF_ERROR(_column_writers[cid]->write_data());
 
@@ -531,6 +530,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     uint32_t segment_start_pos = 0;
     for (auto cid : including_cids) {
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
                 &full_block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
         // here we get segment column row num before append data.
@@ -635,6 +635,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     // convert missing columns and send to column writer
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     for (auto cid : missing_cids) {
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
                 &full_block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
@@ -693,7 +694,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // create full block and fill with sort key columns
     full_block = _tablet_schema->create_block();
 
-    uint32_t segment_start_pos = cast_set<uint32_t>(_column_writers.front()->get_next_rowid());
+    // Use _num_rows_written instead of _column_writers.front()->get_next_rowid()
+    // because column writers are lazily created and may not exist yet.
+    // All column writers should have the same row count, which equals _num_rows_written.
+    uint32_t segment_start_pos = cast_set<uint32_t>(_num_rows_written);
 
     DCHECK(_tablet_schema->has_skip_bitmap_col());
     auto skip_bitmap_col_idx = _tablet_schema->skip_bitmap_col_idx();
@@ -709,6 +713,21 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                     { sleep(60); })
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+
+    // Ensure convertors for key columns and sequence column are created before aggregation
+    // because convert_pk_columns and convert_seq_column need them
+    // Note: _column_writers uses push_back, so columns must be created in order (0, 1, 2, ...)
+    // to maintain correct indexing. We ensure key columns are created sequentially.
+    for (uint32_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+    }
+    if (schema_has_sequence_col) {
+        auto seq_col_idx = _tablet_schema->sequence_col_idx();
+        if (_column_writers.find(seq_col_idx) == _column_writers.end()) {
+            RETURN_IF_ERROR(_create_column_writer(seq_col_idx, _tablet_schema->column(seq_col_idx),
+                                                  _tablet_schema));
+        }
+    }
 
     // 1. aggregate duplicate rows in block
     RETURN_IF_ERROR(_block_aggregator.aggregate_for_flexible_partial_update(
@@ -742,12 +761,12 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
             BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     DCHECK(delete_signs != nullptr);
 
-    for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
+    for (uint32_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
         full_block.replace_by_position(cid, data.block->get_by_position(cid).column);
     }
 
     // 4. write primary key columns data
-    for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
+    for (uint32_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
         const auto& column = key_columns[cid];
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written);
         RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
@@ -783,7 +802,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     _serialize_block_to_row_column(full_block);
 
     // 8. encode and write all non-primary key columns(including sequence column if exists)
-    for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
+    for (uint32_t cid = static_cast<uint32_t>(_tablet_schema->num_key_columns());
+         cid < _tablet_schema->num_columns(); cid++) {
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                 full_block.get_by_position(cid), data.row_pos, data.num_rows,
                 cast_set<uint32_t>(cid)));
@@ -845,7 +866,11 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
     }
     DCHECK_EQ(block.rows(), 1);
     auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
-    olap_data_convertor->add_column_data_convertor(seq_column);
+    // Use 0 as cid because:
+    // 1. This is a temporary convertor containing only one column (sequence column)
+    // 2. The block created above has only one column at position 0
+    // 3. All subsequent calls (set_source_content, convert_column_data, _encode_seq_column) use index 0
+    olap_data_convertor->add_column_data_convertor_at(seq_column, 0);
     olap_data_convertor->set_source_content(&block, 0, 1);
     auto [status, column] = olap_data_convertor->convert_column_data(0);
     if (!status.ok()) {
@@ -949,10 +974,6 @@ Status VerticalSegmentWriter::write_batch() {
         !_opts.rowset_ctx->is_transient_rowset_writer) {
         bool is_flexible_partial_update =
                 _opts.rowset_ctx->partial_update_info->is_flexible_partial_update();
-        for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
-            RETURN_IF_ERROR(
-                    _create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
-        }
         vectorized::Block full_block;
         for (auto& data : _batched_blocks) {
             if (is_flexible_partial_update) {
@@ -1287,7 +1308,7 @@ Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* in
 }
 
 void VerticalSegmentWriter::clear() {
-    for (auto& column_writer : _column_writers) {
+    for (auto& [cid, column_writer] : _column_writers) {
         column_writer.reset();
     }
     _column_writers.clear();
@@ -1296,35 +1317,35 @@ void VerticalSegmentWriter::clear() {
 
 // write ordinal index after data has been written
 Status VerticalSegmentWriter::_write_ordinal_index() {
-    for (auto& column_writer : _column_writers) {
+    for (auto& [cid, column_writer] : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_ordinal_index());
     }
     return Status::OK();
 }
 
 Status VerticalSegmentWriter::_write_zone_map() {
-    for (auto& column_writer : _column_writers) {
+    for (auto& [cid, column_writer] : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_zone_map());
     }
     return Status::OK();
 }
 
 Status VerticalSegmentWriter::_write_inverted_index() {
-    for (auto& column_writer : _column_writers) {
+    for (auto& [cid, column_writer] : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
     }
     return Status::OK();
 }
 
 Status VerticalSegmentWriter::_write_ann_index() {
-    for (auto& column_writer : _column_writers) {
+    for (auto& [cid, column_writer] : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_ann_index());
     }
     return Status::OK();
 }
 
 Status VerticalSegmentWriter::_write_bloom_filter_index() {
-    for (auto& column_writer : _column_writers) {
+    for (auto& [cid, column_writer] : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_bloom_filter_index());
     }
     return Status::OK();
