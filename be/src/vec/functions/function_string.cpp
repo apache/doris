@@ -1352,6 +1352,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringParseDataSize>();
     factory.register_function<FunctionStringASCII>();
     factory.register_function<FunctionStringLength>();
+    factory.register_function<FunctionStringLevenshtein>();
     factory.register_function<FunctionCrc32>();
     factory.register_function<FunctionStringUTF8Length>();
     factory.register_function<FunctionStringSpace>();

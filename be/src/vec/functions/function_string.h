@@ -5261,6 +5261,7 @@ public:
     }
 };
 
+<<<<<<< HEAD
 class FunctionUnicodeNormalize : public IFunction {
 public:
     static constexpr auto name = "unicode_normalize";
@@ -5401,6 +5402,97 @@ private:
 
         output.clear();
         result16.toUTF8String(output);
+=======
+// Implementation of Levenshtein algorithm
+struct LevenshteinImpl {
+    static constexpr auto name = "levenshtein";
+
+    using ResultDataType = DataTypeInt32;
+    using ResultPaddedPODArray = ColumnInt32::Container;
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<ResultDataType>();
+    }
+
+    // Get UTF-8 byte length
+    static size_t get_utf8_byte_length(unsigned char byte) {
+        if (byte < 0x80) return 1;
+        if ((byte & 0xE0) == 0xC0) return 2;
+        if ((byte & 0xF0) == 0xE0) return 3;
+        if ((byte & 0xF8) == 0xF0) return 4;
+        return 1;
+    }
+
+    // Convert string to UTF-8 code points
+    static void to_utf32(const char* data, size_t size, std::vector<int32_t>& out) {
+        out.clear();
+        size_t i = 0;
+        while (i < size) {
+            size_t char_len = get_utf8_byte_length(static_cast<unsigned char>(data[i]));
+            if (i + char_len > size) {
+                char_len = 1;
+            }
+
+            int32_t code_point = 0;
+            for (size_t j = 0; j < char_len; ++j) {
+                code_point = (code_point << 8) | static_cast<unsigned char>(data[i + j]);
+            }
+            out.push_back(code_point);
+            i += char_len;
+        }
+    }
+
+    static void execute(std::string_view l, std::string_view r, int32_t& res) {
+        // Optimization for empty strings
+        if (UNLIKELY(l.empty())) {
+            // Need to count chars in r, not bytes
+            std::vector<int32_t> tmp;
+            to_utf32(r.data(), r.size(), tmp);
+            res = static_cast<int32_t>(tmp.size());
+            return;
+        }
+        if (UNLIKELY(r.empty())) {
+            std::vector<int32_t> tmp;
+            to_utf32(l.data(), l.size(), tmp);
+            res = static_cast<int32_t>(tmp.size());
+            return;
+        }
+
+        std::vector<int32_t> l_code_points;
+        std::vector<int32_t> r_code_points;
+
+        l_code_points.reserve(l.size());
+        r_code_points.reserve(r.size());
+
+        to_utf32(l.data(), l.size(), l_code_points);
+        to_utf32(r.data(), r.size(), r_code_points);
+
+        const auto& source = l_code_points;
+        const auto& target = r_code_points;
+
+        size_t n = source.size();
+        size_t m = target.size();
+
+        // DP arrays: prev_dist (previous row), curr_dist (current row)
+        std::vector<int32_t> prev_dist(m + 1);
+        std::vector<int32_t> curr_dist(m + 1);
+
+        for (size_t j = 0; j <= m; ++j) {
+            prev_dist[j] = static_cast<int32_t>(j);
+        }
+
+        for (size_t i = 1; i <= n; ++i) {
+            curr_dist[0] = static_cast<int32_t>(i);
+            for (size_t j = 1; j <= m; ++j) {
+                int32_t cost = (source[i - 1] == target[j - 1]) ? 0 : 1;
+                curr_dist[j] =
+                        std::min({prev_dist[j] + 1, curr_dist[j - 1] + 1, prev_dist[j - 1] + cost});
+            }
+            prev_dist.swap(curr_dist);
+        }
+
+        res = prev_dist[m];
+>>>>>>> f5b07c9f4e (feat(vec): implement string function levenshtein with UTF-8 support)
     }
 };
 
@@ -5417,7 +5509,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        // Convert input columns to full columns
         auto col_left =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto col_right =
@@ -5433,105 +5524,15 @@ public:
         auto col_res = ColumnInt32::create(input_rows_count);
         auto& res_data = col_res->get_data();
 
-        vector_vector(col_left_str, col_right_str, res_data, input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto l_view = col_left_str->get_data_at(i).to_string_view();
+            auto r_view = col_right_str->get_data_at(i).to_string_view();
+            LevenshteinImpl::execute(l_view, r_view, res_data[i]);
+        }
 
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
-
-private:
-    // Helper: Convert UTF-8 bytes to Unicode code points
-    static void to_utf8_codepoints(const StringRef& str, std::vector<uint32_t>& result) {
-        result.clear();
-        const char* p = str.data;
-        const char* end = str.data + str.size;
-
-        while (p < end) {
-            unsigned char c = static_cast<unsigned char>(*p);
-            uint32_t code_point = 0;
-            int bytes = 0;
-
-            if (c < 0x80) { // 1-byte sequence (ASCII)
-                bytes = 1;
-                code_point = c;
-            } else if ((c & 0xE0) == 0xC0) { // 2-byte sequence
-                bytes = 2;
-                code_point = c & 0x1F;
-            } else if ((c & 0xF0) == 0xE0) { // 3-byte sequence (Chinese, etc.)
-                bytes = 3;
-                code_point = c & 0x0F;
-            } else if ((c & 0xF8) == 0xF0) { // 4-byte sequence
-                bytes = 4;
-                code_point = c & 0x07;
-            } else {
-                // Invalid UTF-8, skip 1 byte
-                p++;
-                continue;
-            }
-
-            // Boundary check
-            if (p + bytes > end) break;
-
-            // Combine remaining bytes
-            for (int i = 1; i < bytes; ++i) {
-                code_point = (code_point << 6) | (p[i] & 0x3F);
-            }
-            result.push_back(code_point);
-            p += bytes;
-        }
-    }
-
-    static int32_t calculate_levenshtein(const StringRef& str1, const StringRef& str2) {
-        // Parse UTF-8 strings to code points
-        std::vector<uint32_t> source, target;
-        to_utf8_codepoints(str1, source);
-        to_utf8_codepoints(str2, target);
-
-        const size_t len1 = source.size();
-        const size_t len2 = target.size();
-
-        // Edge cases for empty strings
-        if (len1 == 0) return static_cast<int32_t>(len2);
-        if (len2 == 0) return static_cast<int32_t>(len1);
-
-        // DP vectors
-        std::vector<int32_t> prev_dp(len2 + 1);
-        std::vector<int32_t> curr_dp(len2 + 1);
-
-        // Initialize first row
-        for (size_t j = 0; j <= len2; ++j) prev_dp[j] = static_cast<int32_t>(j);
-
-        // DP Calculation
-        for (size_t i = 1; i <= len1; ++i) {
-            curr_dp[0] = static_cast<int32_t>(i);
-            for (size_t j = 1; j <= len2; ++j) {
-                // Compare code points instead of bytes
-                int cost = (source[i - 1] == target[j - 1]) ? 0 : 1;
-                curr_dp[j] = std::min({prev_dp[j] + 1,          // Deletion
-                                       curr_dp[j - 1] + 1,      // Insertion
-                                       prev_dp[j - 1] + cost}); // Substitution
-            }
-            prev_dp.swap(curr_dp);
-        }
-        return prev_dp[len2];
-    }
-
-    static void vector_vector(const ColumnString* col_left, const ColumnString* col_right,
-                              PaddedPODArray<Int32>& res, size_t rows) {
-        const auto& l_offsets = col_left->get_offsets();
-        const auto& l_chars = col_left->get_chars();
-        const auto& r_offsets = col_right->get_offsets();
-        const auto& r_chars = col_right->get_chars();
-
-        for (size_t i = 0; i < rows; ++i) {
-            auto l_off = i == 0 ? 0 : l_offsets[i - 1];
-            auto r_off = i == 0 ? 0 : r_offsets[i - 1];
-            StringRef lstr(reinterpret_cast<const char*>(&l_chars[l_off]), l_offsets[i] - l_off);
-            StringRef rstr(reinterpret_cast<const char*>(&r_chars[r_off]), r_offsets[i] - r_off);
-            res[i] = calculate_levenshtein(lstr, rstr);
-        }
-    }
 };
-
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized
