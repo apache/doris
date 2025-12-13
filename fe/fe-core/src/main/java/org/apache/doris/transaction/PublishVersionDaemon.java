@@ -149,7 +149,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             throw new NullPointerException("genPublishTask failed for txnId: " + transactionState.getTransactionId());
         }
 
-        if (transactionState.getSubTxnIds() != null) {
+        if (transactionState.getSubTxnIds() != null && transactionState.getSubTxnIdToTableCommitInfo() != null) {
             for (Entry<Long, TableCommitInfo> entry : transactionState.getSubTxnIdToTableCommitInfo().entrySet()) {
                 long subTxnId = entry.getKey();
                 List<TPartitionVersionInfo> partitionVersionInfos = generatePartitionVersionInfos(entry.getValue(),
