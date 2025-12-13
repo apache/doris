@@ -5261,6 +5261,96 @@ public:
     }
 };
 
+class NameLevenshtein {
+public:
+    static constexpr auto name = "levenshtein";
+};
+
+struct LevenshteinImpl {
+    static constexpr auto name = "levenshtein";
+
+    // 必需的类型定义
+    using ResultDataType = DataTypeInt32;
+    using ResultPaddedPODArray = ColumnInt32::Container;
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<ResultDataType>();
+    }
+
+    // Helper: Get UTF-8 byte length
+    static size_t get_utf8_byte_length(unsigned char byte) {
+        if (byte < 0x80) return 1;
+        if ((byte & 0xE0) == 0xC0) return 2;
+        if ((byte & 0xF0) == 0xE0) return 3;
+        if ((byte & 0xF8) == 0xF0) return 4;
+        return 1;
+    }
+
+    // Helper: Convert UTF-8 byte stream to Unicode code points
+    static void to_utf32(const char* data, size_t size, std::vector<int32_t>& out) {
+        out.clear();
+        size_t i = 0;
+        while (i < size) {
+            size_t char_len = get_utf8_byte_length(static_cast<unsigned char>(data[i]));
+            if (i + char_len > size) char_len = 1;
+
+            int32_t code_point = 0;
+            for (size_t j = 0; j < char_len; ++j) {
+                code_point = (code_point << 8) | static_cast<unsigned char>(data[i + j]);
+            }
+            out.push_back(code_point);
+            i += char_len;
+        }
+    }
+
+    // 核心执行函数: 修正参数类型为 std::string_view
+    static void execute(std::string_view l, std::string_view r, int32_t& res) {
+        // Use thread_local for memory reuse
+        static thread_local std::vector<int32_t> a_code_points;
+        static thread_local std::vector<int32_t> b_code_points;
+
+        // ADMIN REQUIREMENT: Renaming or adding clear comments for these two DP arrays
+        static thread_local std::vector<int32_t> prev_row; // Previous row distances (i-1)
+        static thread_local std::vector<int32_t> curr_row; // Current row distances (i)
+
+        // 注意：std::string_view 使用 .data() 和 .size() 方法
+        to_utf32(l.data(), l.size(), a_code_points);
+        to_utf32(r.data(), r.size(), b_code_points);
+
+        const auto& source = a_code_points;
+        const auto& target = b_code_points;
+
+        size_t n = source.size();
+        size_t m = target.size();
+
+        if (n == 0) {
+            res = static_cast<int32_t>(m);
+            return;
+        }
+        if (m == 0) {
+            res = static_cast<int32_t>(n);
+            return;
+        }
+
+        if (prev_row.size() <= m) prev_row.resize(m + 1);
+        if (curr_row.size() <= m) curr_row.resize(m + 1);
+
+        for (size_t j = 0; j <= m; ++j) {
+            prev_row[j] = static_cast<int32_t>(j);
+        }
+
+        for (size_t i = 1; i <= n; ++i) {
+            curr_row[0] = static_cast<int32_t>(i);
+            for (size_t j = 1; j <= m; ++j) {
+                int32_t cost = (source[i - 1] == target[j - 1]) ? 0 : 1;
+                curr_row[j] =
+                        std::min({prev_row[j] + 1, curr_row[j - 1] + 1, prev_row[j - 1] + cost});
+            }
+            std::copy(curr_row.begin(), curr_row.begin() + m + 1, prev_row.begin());
+        }
+        res = prev_row[m];
+    }
+};
 class FunctionUnicodeNormalize : public IFunction {
 public:
     static constexpr auto name = "unicode_normalize";
