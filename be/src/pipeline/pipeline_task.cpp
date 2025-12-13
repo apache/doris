@@ -602,8 +602,6 @@ Status PipelineTask::execute(bool* done) {
                                 "Only ExchangeSourceOperatorX can be rerun, real is {}",
                                 _root->get_name());
                     }
-                } else {
-                    RETURN_IF_ERROR(close(Status::OK(), false));
                 }
             }
 
