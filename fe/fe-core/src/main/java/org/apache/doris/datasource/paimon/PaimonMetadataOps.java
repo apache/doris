@@ -17,16 +17,22 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -39,12 +45,19 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Catalog.DatabaseNotEmptyException;
 import org.apache.paimon.catalog.Catalog.DatabaseNotExistException;
+import org.apache.paimon.catalog.Catalog.TableAlreadyExistException;
 import org.apache.paimon.catalog.Catalog.TableNotExistException;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.schema.Schema;
+import org.apache.paimon.types.DataType;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class PaimonMetadataOps implements ExternalMetadataOps {
 
@@ -52,6 +65,8 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     private ExecutionAuthenticator executionAuthenticator;
+    private static final String PRIMARY_KEY_IDENTIFIER = "primary-key";
+    private static final String PROP_COMMENT = "comment";
 
     public PaimonMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
         this.dorisCatalog = dorisCatalog;
@@ -148,7 +163,95 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
+        try {
+            return executionAuthenticator.execute(() -> performCreateTable(createTableInfo));
+        } catch (Exception e) {
+            throw new DdlException(
+                "Failed to create table: " + createTableInfo.getTableName() + ", error message is:" + e.getMessage(),
+                e);
+        }
+    }
+
+    public boolean performCreateTable(CreateTableInfo createTableInfo) throws UserException {
+        String dbName = createTableInfo.getDbName();
+        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
+        }
+        String tableName = createTableInfo.getTableName();
+        // 1. first, check if table exist in remote
+        if (tableExist(db.getRemoteName(), tableName)) {
+            if (createTableInfo.isIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableName);
+                return true;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+            }
+        }
+
+        // 2. second, check if table exist in local.
+        // This is because case sensibility issue, eg:
+        // 1. lower_case_table_name = 1
+        // 2. create table tbl1;
+        // 3. create table TBL1;  TBL1 does not exist in remote because the remote system is case-sensitive.
+        //    but because lower_case_table_name = 1, the table can not be created in Doris because it is conflict with
+        //    tbl1
+        ExternalTable dorisTable = db.getTableNullable(tableName);
+        if (dorisTable != null) {
+            if (createTableInfo.isIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableName);
+                return true;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+            }
+        }
+        List<ColumnDefinition> columns = createTableInfo.getColumnDefinitions();
+        List<StructField> collect = columns.stream()
+                .map(col -> new StructField(col.getName(), col.getType().toCatalogDataType(),
+                    col.getComment(), col.isNullable()))
+                .collect(Collectors.toList());
+        StructType structType = new StructType(new ArrayList<>(collect));
+        Schema schema = toPaimonSchema(structType, createTableInfo.getPartitionDesc(), createTableInfo.getProperties());
+        try {
+            catalog.createTable(new Identifier(createTableInfo.getDbName(), createTableInfo.getTableName()),
+                    schema, createTableInfo.isIfNotExists());
+        } catch (TableAlreadyExistException | DatabaseNotExistException e) {
+            throw new RuntimeException(e);
+        }
         return false;
+    }
+
+    private Schema toPaimonSchema(StructType structType, PartitionDesc partitionDesc, Map<String, String> properties) {
+        String pkAsString = properties.get(PRIMARY_KEY_IDENTIFIER);
+        List<String> primaryKeys = pkAsString == null ? Collections.emptyList() : Arrays.stream(pkAsString.split(","))
+                .map(String::trim)
+                .collect(Collectors.toList());
+        List<String> partitionKeys = partitionDesc.getPartitionColNames();
+        Schema.Builder schemaBuilder = Schema.newBuilder()
+                .options(properties)
+                .primaryKey(primaryKeys)
+                .partitionKeys(partitionKeys)
+                .comment(properties.getOrDefault(PROP_COMMENT, null));
+        for (StructField field : structType.getFields()) {
+            schemaBuilder.column(field.getName(),
+                    toPaimontype(field.getType()).copy(field.getContainsNull()),
+                    field.getComment());
+        }
+        return schemaBuilder.build();
+    }
+
+    private DataType toPaimontype(Type type) {
+        return DorisTypeVisitor.visit(type, new DorisToPaimonTypeVisitor());
+    }
+
+    @Override
+    public void afterCreateTable(String dbName, String tblName) {
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            db.get().resetMetaCacheNames();
+        }
+        LOG.info("after create table {}.{}.{}, is db exists: {}",
+                dorisCatalog.getName(), dbName, tblName, db.isPresent());
     }
 
     @Override
@@ -181,29 +284,37 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void truncateTableImpl(ExternalTable dorisTable, List<String> partitions) throws DdlException {
+    public void afterDropTable(String dbName, String tblName) {
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        db.ifPresent(externalDatabase -> externalDatabase.unregisterTable(tblName));
+        LOG.info("after drop table {}.{}.{}. is db exists: {}",
+                dorisCatalog.getName(), dbName, tblName, db.isPresent());
+    }
 
+    @Override
+    public void truncateTableImpl(ExternalTable dorisTable, List<String> partitions) throws DdlException {
+        throw new UnsupportedOperationException("truncate table is not a supported operation!");
     }
 
     @Override
     public void createOrReplaceBranchImpl(ExternalTable dorisTable, CreateOrReplaceBranchInfo branchInfo)
             throws UserException {
-
+        throw new UnsupportedOperationException("create or replace branch is not a supported operation!");
     }
 
     @Override
     public void createOrReplaceTagImpl(ExternalTable dorisTable, CreateOrReplaceTagInfo tagInfo) throws UserException {
-
+        throw new UnsupportedOperationException("create or replace tag is not a supported operation!");
     }
 
     @Override
     public void dropTagImpl(ExternalTable dorisTable, DropTagInfo tagInfo) throws UserException {
-
+        throw new UnsupportedOperationException("drop tag is not a supported operation!");
     }
 
     @Override
     public void dropBranchImpl(ExternalTable dorisTable, DropBranchInfo branchInfo) throws UserException {
-
+        throw new UnsupportedOperationException("drop branch is not a supported operation!");
     }
 
     @Override
@@ -268,6 +379,8 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void close() {
-
+        if (catalog != null) {
+            catalog = null;
+        }
     }
 }
