@@ -63,24 +63,29 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /** NormalizeRepeat
- * eg: select sum(b + 1), grouping(a+1) from t1 group by grouping sets ((b+1));
+ * eg: SELECT
+ *      camp,
+ *      COUNT(occupation) AS occ_cnt,
+ *      GROUPING(camp) AS grouping
+ *     FROM
+ *      `roles`
+ *      GROUP BY ROLLUP(camp);
  * Original Plan:
- * LogicalRepeat ( groupingSets=[[(a#0 + 1)]],
- *                 outputExpressions=[sum((b#1 + 1)) AS `sum((b + 1))`#2,
- *                 Grouping((a#0 + 1)) AS `Grouping((a + 1))`#3] )
- *      +--LogicalOlapScan (t1)
- *
+ * LogicalRepeat ( groupingSets=[[camp#2], []], outputExpressions=[camp#2,
+ *                  count(occupation#1) AS `occ_cnt`#6, Grouping(camp#2) AS `grouping`#7], groupingId=Optional.empty )
+ *  +--LogicalFilter[10] ( predicates=(__DORIS_DELETE_SIGN__#4 = 0) )
+ *      +--LogicalOlapScan ( qualified=roles, indexName=index_not_selected, selectedIndexId=1765187322191,
+ *                              preAgg=UNSET, operativeCol=[], virtualColumns=[] )
  * After:
- * LogicalAggregate[62] ( groupByExpr=[(a + 1)#4, GROUPING_ID#7, GROUPING_PREFIX_(a + 1)#6],
- *                        outputExpr=[sum((b + 1)#5) AS `sum((b + 1))`#2,
- *                                    GROUPING_PREFIX_(a + 1)#6 AS `GROUPING_PREFIX_(a + 1)`#3] )
- *    +--LogicalRepeat ( groupingSets=[[(a + 1)#4]],
- *                       outputExpressions=[(a + 1)#4,
- *                                          (b + 1)#5,
- *                                          GROUPING_ID#7,
- *                                          GROUPING_PREFIX_(a + 1)#6] )
- *      +--LogicalProject[60] ( projects=[(a#0 + 1) AS `(a + 1)`#4, (b#1 + 1) AS `(b + 1)`#5], excepts=[]
- *          +--LogicalOlapScan ( t1 )
+ * LogicalAggregate[19] ( groupByExpr=[camp#2, GROUPING_PREFIX_camp#8, GROUPING_ID#9],
+ *                          outputExpr=[camp#2, count(occupation#1) AS `occ_cnt`#6,
+ *                              GROUPING_PREFIX_camp#8 AS `grouping`#7], hasRepeat=true )
+ *  +--LogicalRepeat ( groupingSets=[[camp#2], []], outputExpressions=[camp#2, occupation#1,
+ *                              Grouping(camp#2) AS `GROUPING_PREFIX_camp`#8], groupingId=Optional[GROUPING_ID#9] )
+ *      +--LogicalProject[17] ( distinct=false, projects=[camp#2, occupation#1] )
+ *          +--LogicalFilter[10] ( predicates=(__DORIS_DELETE_SIGN__#4 = 0) )
+ *              +--LogicalOlapScan ( qualified=roles, indexName=index_not_selected,
+ *                                  selectedIndexId=1765187322191, preAgg=UNSET, operativeCol=[], virtualColumns=[] )
  */
 public class NormalizeRepeat extends OneAnalysisRuleFactory {
     @Override
@@ -198,7 +203,16 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
 
         Plan normalizedChild = pushDownProject(pushedProject, repeat.child());
 
-        SlotReference groupingId = new SlotReference(Repeat.COL_GROUPING_ID, BigIntType.INSTANCE, false);
+        // If grouping id is not present, we need to add it, if repeat already has grouping id, use it directly
+        // which is for the case repeat is introduced by mv rewrite, should keep the rewritten grouping id
+        // is same to the original grouping id
+        SlotReference groupingId = repeat.getGroupingId().orElse(
+                new SlotReference(Repeat.COL_GROUPING_ID, BigIntType.INSTANCE, false));
+        // remove grouping id from repeat output expressions, grouping id should not in repeat output
+        // this keep consistent with original repeat behavior
+        normalizedRepeatOutput = normalizedRepeatOutput.stream()
+                .filter(expr -> !expr.equals(groupingId))
+                .collect(Collectors.toList());
         LogicalRepeat<Plan> normalizedRepeat = repeat.withNormalizedExpr(
                 (List) normalizedGroupingSets, normalizedRepeatOutput, groupingId, normalizedChild);
 
