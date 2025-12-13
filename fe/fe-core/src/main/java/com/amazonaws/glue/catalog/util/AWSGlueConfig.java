@@ -63,4 +63,5 @@ public final class AWSGlueConfig {
     public static final String AWS_GLUE_SESSION_TOKEN = "aws.glue.session-token";
     public static final String AWS_GLUE_ROLE_ARN = "aws.glue.role-arn";
     public static final String AWS_GLUE_EXTERNAL_ID = "aws.glue.external-id";
+    public static final String AWS_CREDENTIALS_PROVIDER_MODE = "aws.credentials.provider.mode";
 }
