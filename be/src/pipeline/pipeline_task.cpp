@@ -591,6 +591,13 @@ Status PipelineTask::execute(bool* done) {
             RETURN_IF_ERROR(block->check_type_and_column());
             status = _sink->sink(_state, block, _eos);
 
+            if (status.is<ErrorCode::END_OF_FILE>()) {
+                set_wake_up_early();
+                return Status::OK();
+            } else if (!status) {
+                return status;
+            }
+
             if (_eos) {
                 if (_sink->need_rerun(_state)) {
                     if (auto* source = dynamic_cast<ExchangeSourceOperatorX*>(_root);
@@ -603,19 +610,9 @@ Status PipelineTask::execute(bool* done) {
                                 _root->get_name());
                     }
                 } else {
-                    RETURN_IF_ERROR(close(Status::OK(), false));
+                    // just return, the scheduler will do finish work
+                    return close(Status::OK(), false);
                 }
-            }
-
-            if (status.is<ErrorCode::END_OF_FILE>()) {
-                set_wake_up_early();
-                return Status::OK();
-            } else if (!status) {
-                return status;
-            }
-
-            if (_eos) { // just return, the scheduler will do finish work
-                return Status::OK();
             }
         }
     }
