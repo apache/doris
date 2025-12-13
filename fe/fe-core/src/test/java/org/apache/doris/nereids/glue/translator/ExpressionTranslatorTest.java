@@ -46,8 +46,8 @@ public class ExpressionTranslatorTest {
         ExpressionTranslator translator = ExpressionTranslator.INSTANCE;
         Expr actual = translator.visitUnaryArithmetic(bitNot, null);
         Expr expected = new ArithmeticExpr(Operator.BITNOT,
-                new IntLiteral(1, Type.INT), null, Type.INT, NullableMode.DEPEND_ON_ARGUMENT);
-        Assertions.assertEquals(actual, expected);
+                new IntLiteral(1, Type.INT), null, Type.INT, NullableMode.DEPEND_ON_ARGUMENT, false);
+        Assertions.assertEquals(expected, actual);
     }
 
     @Test
@@ -70,7 +70,6 @@ public class ExpressionTranslatorTest {
         context.addExprIdSlotRefPair(c.getExprId(), new SlotRef(Type.VARCHAR, false));
 
         Expr actual = translator.visitOr(or, context);
-        Assertions.assertTrue(actual.getChild(0).getNullableFromNereids().isPresent()
-                && actual.getNullableFromNereids().get());
+        Assertions.assertTrue(actual.isNullable());
     }
 }

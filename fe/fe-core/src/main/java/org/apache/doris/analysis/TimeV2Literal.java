@@ -62,6 +62,7 @@ public class TimeV2Literal extends LiteralExpr {
         if (checkRange(this.hour, this.minute, this.second, this.microsecond) || scale > 6 || scale < 0) {
             throw new AnalysisException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
         }
+        this.nullable = false;
         analysisDone();
     }
 

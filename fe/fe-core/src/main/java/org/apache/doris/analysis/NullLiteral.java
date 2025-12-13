@@ -46,6 +46,7 @@ public class NullLiteral extends LiteralExpr {
 
     public NullLiteral() {
         type = Type.NULL;
+        this.nullable = true;
     }
 
     public static NullLiteral create(Type type) {

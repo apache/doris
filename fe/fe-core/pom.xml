@@ -350,6 +350,11 @@ under the License.
             <groupId>com.huaweicloud.sdk</groupId>
             <artifactId>huaweicloud-sdk-iam</artifactId>
         </dependency>
+        <!-- ICU4J for unicode normalization -->
+        <dependency>
+            <groupId>com.ibm.icu</groupId>
+            <artifactId>icu4j</artifactId>
+        </dependency>
         <!-- Fix it-->
         <dependency>
             <groupId>org.awaitility</groupId>

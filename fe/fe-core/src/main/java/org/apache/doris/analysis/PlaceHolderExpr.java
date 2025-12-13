@@ -37,11 +37,13 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     public PlaceHolderExpr() {
         type = Type.UNSUPPORTED;
+        this.nullable = false;
     }
 
     protected PlaceHolderExpr(LiteralExpr literal) {
         this.lExpr = literal;
         this.type = literal.getType();
+        this.nullable = false;
     }
 
     public LiteralExpr getLiteral() {
@@ -122,11 +124,6 @@ public class PlaceHolderExpr extends LiteralExpr {
             }
         }
         return lExpr.getHashValue(colType);
-    }
-
-    @Override
-    public boolean isNullable() {
-        return this.lExpr instanceof NullLiteral;
     }
 
     @Override

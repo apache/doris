@@ -1677,6 +1677,7 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
         brpc::Controller cntl;
         CreateTabletsRequest req;
         CreateTabletsResponse res;
+        req.set_db_id(1000);
         req.set_cloud_unique_id("test_cloud_unique_id");
         add_tablet(req, table_id, index_id, partition_id, new_tablet_id);
 
@@ -2239,6 +2240,7 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLogKeepKeyBoundsWhenDisabled) {
         brpc::Controller cntl;
         CreateTabletsRequest req;
         CreateTabletsResponse res;
+        req.set_db_id(1);
         req.set_cloud_unique_id("test_cloud_unique_id_keep_bounds");
         add_tablet(req, table_id, index_id, partition_id, new_tablet_id);
         req.mutable_tablet_metas(0)->set_tablet_state(doris::TabletStatePB::PB_NOTREADY);

@@ -40,10 +40,12 @@ public class BoolLiteral extends LiteralExpr {
     private boolean value;
 
     private BoolLiteral() {
+        this.nullable = false;
     }
 
     public BoolLiteral(boolean value) {
         this.setValue(value);
+        this.nullable = false;
         type = Type.BOOLEAN;
     }
 
@@ -56,6 +58,7 @@ public class BoolLiteral extends LiteralExpr {
         } else {
             throw new AnalysisException("Invalid BOOLEAN literal: " + value);
         }
+        this.nullable = false;
     }
 
     protected BoolLiteral(BoolLiteral other) {

@@ -30,6 +30,7 @@ import com.google.gson.annotations.SerializedName;
 
 import java.util.Objects;
 
+@Deprecated
 public class LikePredicate extends Predicate {
 
     public enum Operator {

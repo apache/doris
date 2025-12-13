@@ -538,6 +538,8 @@ public:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
                 [[fallthrough]];
+            case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+                [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);
                 field->set_precision(column.precision());
@@ -597,6 +599,8 @@ public:
             case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+                [[fallthrough]];
+            case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);

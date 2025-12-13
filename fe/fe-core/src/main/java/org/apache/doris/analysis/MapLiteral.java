@@ -43,6 +43,7 @@ public class MapLiteral extends LiteralExpr {
     public MapLiteral() {
         type = new MapType(Type.NULL, Type.NULL);
         children = new ArrayList<>();
+        this.nullable = false;
     }
 
     public MapLiteral(Type type, List<LiteralExpr> keys, List<LiteralExpr> values) {
@@ -52,6 +53,7 @@ public class MapLiteral extends LiteralExpr {
             children.add(keys.get(i));
             children.add(values.get(i));
         }
+        this.nullable = false;
     }
 
     protected MapLiteral(MapLiteral other) {

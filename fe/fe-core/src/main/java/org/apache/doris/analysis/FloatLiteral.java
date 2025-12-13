@@ -43,6 +43,7 @@ public class FloatLiteral extends NumericLiteralExpr {
 
     public FloatLiteral(Double value) {
         init(value);
+        this.nullable = false;
     }
 
     /**
@@ -51,6 +52,7 @@ public class FloatLiteral extends NumericLiteralExpr {
     public FloatLiteral(Double value, Type type) {
         this.value = value.doubleValue();
         this.type = type;
+        this.nullable = false;
         analysisDone();
     }
 
@@ -62,6 +64,7 @@ public class FloatLiteral extends NumericLiteralExpr {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
         }
         init(floatValue);
+        this.nullable = false;
     }
 
     protected FloatLiteral(FloatLiteral other) {

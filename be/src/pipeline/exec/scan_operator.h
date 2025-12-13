@@ -263,7 +263,6 @@ protected:
                                        PushDownType* pdt);
 
     bool _is_predicate_acting_on_slot(const std::shared_ptr<vectorized::VSlotRef>& slot_ref,
-                                      const vectorized::VExprSPtr& child_contains_slot,
                                       ColumnValueRangeType** range);
 
     template <PrimitiveType T>
@@ -285,8 +284,6 @@ protected:
     Status _normalize_is_null_predicate(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
                                         std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         ColumnValueRange<T>& range, PushDownType* pdt);
-
-    bool _ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr);
 
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     Status _change_value_range(ColumnValueRange<PrimitiveType>& range, const void* value,

@@ -44,7 +44,8 @@ public:
             : DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6>(nesting_level) {};
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
-                                        int64_t row_idx, bool col_const) const override;
+                                        int64_t row_idx, bool col_const,
+                                        const FormatOptions& options) const override;
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
@@ -54,7 +55,8 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               const FormatOptions& options) const override;
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
@@ -62,7 +64,8 @@ public:
                                   int64_t end, const cctz::time_zone& ctz) const override;
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result,
-                                 Arena& mem_pool, int unique_id, int64_t row_num) const override;
+                                 Arena& mem_pool, int unique_id, int64_t row_num,
+                                 const FormatOptions& options) const override;
 
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const override;

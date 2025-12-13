@@ -113,7 +113,7 @@ Status StreamLoadRecorder::get(const std::string& key, std::string* value, bool 
     rocksdb::ReadOptions read_options;
     rocksdb::Status s = _db->Get(read_options, handle, rocksdb::Slice(key), value);
     if (s.IsNotFound()) {
-        return Status::NotFound("Key not found: {}", key);
+        return Status::NotFound<false>("Key not found: {}", key);
     }
     if (!s.ok()) {
         LOG(WARNING) << "rocks db get key:" << key << " failed, reason:" << s.ToString();

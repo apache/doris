@@ -30,6 +30,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "util/types.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -153,7 +154,7 @@ FieldWithDataType DataTypeArray::get_field_with_data_type(const IColumn& column,
     if (is_decimal(nested_type_id)) {
         precision = nested_type->get_precision();
         scale = nested_type->get_scale();
-    } else if (nested_type_id == TYPE_DATETIMEV2) {
+    } else if (nested_type_id == TYPE_DATETIMEV2 || nested_type_id == TYPE_TIMESTAMPTZ) {
         scale = nested_type->get_scale();
     } else if (nested_type_id == TYPE_JSONB) {
         // Array<Jsonb> should return JsonbField as element

@@ -44,6 +44,8 @@ struct fixed_len_to_uint32_v2 {
             } else if constexpr (std::is_same_v<T, DateV2Value<DateTimeV2ValueType>>) {
                 return uint32_t(HashCRC32<DateV2Value<DateTimeV2ValueType>::underlying_value>()(
                         value.to_date_int_val()));
+            } else if constexpr (std::is_same_v<T, TimestampTzValue>) {
+                return uint32_t(HashCRC32<typename T::underlying_value>()(value.to_date_int_val()));
             } else if constexpr (vectorized::IsDecimalNumber<T>) {
                 return uint32_t(HashCRC32<typename T::NativeType>()(value.value));
             } else {

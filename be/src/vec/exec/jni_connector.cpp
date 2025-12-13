@@ -25,6 +25,7 @@
 #include "jni.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_array.h"
@@ -65,6 +66,7 @@ namespace doris::vectorized {
     M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)            \
     M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)         \
     M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)    \
+    M(PrimitiveType::TYPE_TIMESTAMPTZ, ColumnTimeStampTz, UInt64)  \
     M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
     M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
 

@@ -48,6 +48,7 @@ public class VarBinaryLiteral extends LiteralExpr {
         super();
         this.value = value;
         this.type = Type.VARBINARY;
+        this.nullable = false;
         analysisDone();
     }
 

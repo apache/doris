@@ -29,17 +29,16 @@ import java.util.Optional;
 public class ColumnRefExpr extends Expr {
     private String columnName;
     private int columnId;
-    private boolean isNullable;
 
-    public ColumnRefExpr() {
+    public ColumnRefExpr(boolean nullable) {
         super();
+        this.nullable = nullable;
     }
 
     public ColumnRefExpr(ColumnRefExpr rhs) {
         super(rhs);
         this.columnId = rhs.columnId;
         this.columnName = rhs.columnName;
-        this.isNullable = rhs.isNullable;
     }
 
     public String getName() {
@@ -60,15 +59,6 @@ public class ColumnRefExpr extends Expr {
 
     public void setColumnId(int id) {
         this.columnId = id;
-    }
-
-    @Override
-    public boolean isNullable() {
-        return isNullable;
-    }
-
-    public void setNullable(boolean nullable) {
-        this.isNullable = nullable;
     }
 
     @Override

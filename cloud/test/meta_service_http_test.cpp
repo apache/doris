@@ -161,6 +161,7 @@ public:
         int status_code = ctrl.http_response().status_code();
 
         std::string response_body = ctrl.response_attachment().to_string();
+        LOG(INFO) << __PRETTY_FUNCTION__ << " response body: " << response_body;
         if constexpr (std::is_base_of_v<::google::protobuf::Message, Response>) {
             Response resp;
             auto s = google::protobuf::util::JsonStringToMessage(response_body, &resp);
@@ -264,11 +265,12 @@ static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t inde
     first_rowset->mutable_tablet_schema()->CopyFrom(*schema);
 }
 
-static void create_tablet(MetaService* meta_service, int64_t table_id, int64_t index_id,
-                          int64_t partition_id, int64_t tablet_id) {
+static void create_tablet(MetaService* meta_service, int64_t db_id, int64_t table_id,
+                          int64_t index_id, int64_t partition_id, int64_t tablet_id) {
     brpc::Controller cntl;
     CreateTabletsRequest req;
     CreateTabletsResponse res;
+    req.set_db_id(db_id);
     add_tablet(req, table_id, index_id, partition_id, tablet_id);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
@@ -1298,9 +1300,10 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
     HttpContext ctx(true);
     auto& meta_service = ctx.meta_service_;
 
-    constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
+    constexpr auto db_id = 1000, table_id = 10001, index_id = 10002, partition_id = 10003,
+                   tablet_id = 10004;
     ASSERT_NO_FATAL_FAILURE(
-            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+            create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id));
     GetTabletStatsResponse res;
     get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -3116,6 +3119,38 @@ TEST(MetaServiceHttpTest, ShortGetTabletStatsDebugStringTest) {
         GetTabletStatsRequest debug_req = *try_any_cast<GetTabletStatsRequest*>(args.back());
         ASSERT_EQ(10, debug_req.tablet_idx_size());
     });
+}
+
+TEST(MetaServiceHttpTest, FixTabletIndexDbId) {
+    HttpContext ctx(true);
+    auto& meta_service = ctx.meta_service_;
+    constexpr auto db_id = 1000, table_id = 10001, index_id = 10002, partition_id = 10003,
+                   tablet_id = 10004;
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    {
+        auto [status_code, msg] = ctx.query<std::string>(
+                "fix_tablet_db_id", "instance_id=test_instance&tablet_id=1000412&db_id=2000");
+        ASSERT_EQ(status_code, 404);
+    }
+
+    {
+        auto [status_code, msg] = ctx.query<std::string>(
+                "fix_tablet_db_id", "instance_id=test_instance&tablet_id=10004&db_id=2000");
+        ASSERT_EQ(status_code, 200);
+    }
+
+    auto txn_kv = meta_service->txn_kv();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    std::string value;
+    std::string tablet_idx_key = meta_tablet_idx_key({"test_instance", tablet_id});
+    ASSERT_EQ(txn->get(tablet_idx_key, &value), TxnErrorCode::TXN_OK);
+
+    TabletIndexPB tablet_index;
+    ASSERT_TRUE(tablet_index.ParseFromString(value));
+    ASSERT_EQ(tablet_index.db_id(), 2000);
 }
 
 } // namespace doris::cloud

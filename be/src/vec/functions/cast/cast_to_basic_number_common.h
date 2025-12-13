@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
@@ -442,30 +443,27 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
                 block.get_by_position(arguments[0]).column.get());
         auto to_type = block.get_by_position(result).type;
         auto serde = remove_nullable(to_type)->get_serde();
-        MutableColumnPtr column_to;
+
+        // by default framework, to_type is already unwrapped nullable
+        MutableColumnPtr column_to = to_type->create_column();
+        ColumnNullable::MutablePtr nullable_col_to = ColumnNullable::create(
+                std::move(column_to), ColumnUInt8::create(input_rows_count, 0));
 
         DataTypeSerDe::FormatOptions format_options;
         format_options.converted_from_string = true;
 
         if constexpr (Mode == CastModeType::NonStrictMode) {
-            auto to_nullable_type = make_nullable(to_type);
-            column_to = to_nullable_type->create_column();
-            auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
-            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, format_options));
+            // may write nulls to nullable_col_to
+            RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, format_options));
         } else if constexpr (Mode == CastModeType::StrictMode) {
-            if (to_type->is_nullable()) {
-                return Status::InternalError(
-                        "result type should be not nullable when casting string to number in "
-                        "strict cast mode");
-            }
-            column_to = to_type->create_column();
-            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(*col_from, *column_to,
-                                                                 format_options, null_map));
+            // WON'T write nulls to nullable_col_to, just raise errors. null_map is only used to skip invalid rows
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(
+                    *col_from, nullable_col_to->get_nested_column(), format_options, null_map));
         } else {
             return Status::InternalError("Unsupported cast mode");
         }
 
-        block.get_by_position(result).column = std::move(column_to);
+        block.get_by_position(result).column = std::move(nullable_col_to);
         return Status::OK();
     }
 };

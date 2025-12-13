@@ -29,6 +29,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 TEST(VFieldTest, field_string) {
@@ -49,6 +50,13 @@ TEST(VFieldTest, field_string) {
     f = Field::create_field<TYPE_ARRAY>(
             Array {Field::create_field<TYPE_STRING>(String {"Hello, world (6)"})});
     ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (6)");
+}
+
+TEST(VFieldTest, field_timestamptz) {
+    Field f;
+    f = Field::create_field<TYPE_TIMESTAMPTZ>(MIN_DATETIME_V2);
+    ASSERT_EQ(f.get_type(), TYPE_TIMESTAMPTZ);
+    ASSERT_EQ(f.get<UInt64>(), MIN_DATETIME_V2);
 }
 
 TEST(VFieldTest, jsonb_field_unique_ptr) {

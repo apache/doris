@@ -64,6 +64,7 @@
 #include "vec/exprs/vsearch.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
+#include "vec/runtime/timestamptz_value.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -168,7 +169,11 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         break;
     }
     case TYPE_TIMEV2: {
-        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(data, &node));
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_TIMESTAMPTZ: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMESTAMPTZ>(data, &node, precision, scale));
         break;
     }
     default:
@@ -245,6 +250,14 @@ TExprNode create_texpr_node_from(const vectorized::Field& field, const Primitive
 
         THROW_IF_ERROR(
                 create_texpr_literal_node<TYPE_DATETIMEV2>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_TIMESTAMPTZ: {
+        TimestampTzValue storage = binary_cast<uint64_t, TimestampTzValue>(
+                field.get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType>());
+
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_TIMESTAMPTZ>(&storage, &node, precision, scale));
         break;
     }
     case TYPE_DATE: {

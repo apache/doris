@@ -25,6 +25,7 @@
 #include "olap/accept_null_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/predicate_creator.h"
+#include "runtime/define_primitive_type.h"
 
 namespace doris::vectorized {
 
@@ -110,6 +111,11 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
     case PrimitiveType::TYPE_DATETIMEV2: {
         const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>();
         return StringRef((char*)&v, sizeof(v));
+    }
+    case PrimitiveType::TYPE_TIMESTAMPTZ: {
+        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType>();
+        return StringRef((char*)&v, sizeof(v));
+        break;
     }
     case PrimitiveType::TYPE_DATE: {
         const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>();

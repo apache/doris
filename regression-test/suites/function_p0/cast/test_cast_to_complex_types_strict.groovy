@@ -164,4 +164,10 @@ suite("test_cast_to_complex_types_strict") {
         CAST(ARRAY('123', '456') AS ARRAY<INT>) AS array_str_to_int,
         CAST(MAP('1', '2', '3','4') AS MAP<INT, INT>) AS map_str_to_int;
     """
+
+    sql "set enable_strict_cast = true;"
+    test {
+        sql "select cast('[99.12.31 23.59.59+05:30]' as array<date>);"
+        exception "INVALID_ARGUMENT"
+    }
 }

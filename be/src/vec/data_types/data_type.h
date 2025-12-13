@@ -86,7 +86,8 @@ public:
     virtual PrimitiveType get_primitive_type() const = 0;
 
     virtual doris::FieldType get_storage_field_type() const = 0;
-    std::string to_string(const IColumn& column, size_t row_num) const;
+    std::string to_string(const IColumn& column, size_t row_num,
+                          const DataTypeSerDe::FormatOptions& options) const;
     // get specific serializer or deserializer
     virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
 
@@ -203,7 +204,8 @@ public:
                 get_primitive_type() == TYPE_DECIMAL256) {
                 scalar_type.__set_precision(get_precision());
                 scalar_type.__set_scale(get_scale());
-            } else if (get_primitive_type() == TYPE_DATETIMEV2) {
+            } else if (get_primitive_type() == TYPE_DATETIMEV2 ||
+                       get_primitive_type() == TYPE_TIMESTAMPTZ) {
                 scalar_type.__set_scale(get_scale());
             }
         }
@@ -211,13 +213,18 @@ public:
 
     void to_string_batch(const IColumn& column, ColumnString& column_to) const {
         auto serde = get_serde();
-        serde->to_string_batch(column, column_to);
+        DataTypeSerDe::FormatOptions options;
+        auto timezone = cctz::utc_time_zone();
+        options.timezone = &timezone;
+        serde->to_string_batch(column, column_to, options);
     }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
         auto str = to_string(column, row_num);
         ostr.write(str.data(), str.size());
     }
+
+    std::string to_string(const IColumn& column, size_t row_num) const;
 #endif
 
 private:

@@ -141,7 +141,8 @@ enum TIndexPolicyType {
     ANALYZER,
     TOKENIZER,
     TOKEN_FILTER,
-    CHAR_FILTER
+    CHAR_FILTER,
+    NORMALIZER
 }
 
 struct TIndexPolicy {

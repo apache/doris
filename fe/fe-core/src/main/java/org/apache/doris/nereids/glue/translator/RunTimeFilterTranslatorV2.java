@@ -20,6 +20,8 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
@@ -94,7 +96,8 @@ public class RunTimeFilterTranslatorV2 {
         for (RuntimeFilterV2 filter : filters) {
             Expr targetExpr = filter.getLegacyTargetExpr();
             if (!srcExpr.getType().equals(targetExpr.getType())) {
-                targetExpr = new CastExpr(srcExpr.getType(), targetExpr, null);
+                targetExpr = new CastExpr(srcExpr.getType(), targetExpr, Cast.castNullable(srcExpr.isNullable(),
+                        DataType.fromCatalogType(srcExpr.getType()), DataType.fromCatalogType(targetExpr.getType())));
             }
             targets.add(new RuntimeFilterTarget(filter.getLegacyTargetNode(), targetExpr));
         }

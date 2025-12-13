@@ -42,6 +42,9 @@ public class CompoundPredicate extends Predicate {
         // use for serde only
     }
 
+    /**
+     * use only for test.
+     */
     public CompoundPredicate(Operator op, Expr e1, Expr e2) {
         super();
         this.op = op;
@@ -49,6 +52,17 @@ public class CompoundPredicate extends Predicate {
         if (e2 != null) {
             children.add(e2);
         }
+        this.nullable = true;
+    }
+
+    public CompoundPredicate(Operator op, Expr e1, Expr e2, boolean nullable) {
+        super();
+        this.op = op;
+        children.add(e1);
+        if (e2 != null) {
+            children.add(e2);
+        }
+        this.nullable = nullable;
     }
 
     protected CompoundPredicate(CompoundPredicate other) {
@@ -125,11 +139,6 @@ public class CompoundPredicate extends Predicate {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
-    }
-
-    @Override
-    public boolean isNullable() {
-        return hasNullableChild();
     }
 
     @Override

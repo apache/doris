@@ -962,11 +962,11 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
                                          bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Map column iterator column " << _column_name << " skip reading.";
-        dst->resize(dst->size() + *n);
+        dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
-    auto& column_map = assert_cast<vectorized::ColumnMap&>(
+    auto& column_map = assert_cast<vectorized::ColumnMap&, TypeCheckOnRelease::DISABLE>(
             dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
                                : *dst);
     auto column_offsets_ptr = column_map.get_offsets_column().assume_mutable();
@@ -1010,7 +1010,8 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
             RETURN_IF_ERROR(
                     _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+            auto& null_map = assert_cast<vectorized::ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                    *null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1022,7 +1023,7 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
                                              vectorized::MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
-        dst->resize(count);
+        dst->insert_many_defaults(count);
         return Status::OK();
     }
     if (count == 0) {
@@ -1095,7 +1096,8 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
             ordinal_t ns = 0;
             RETURN_IF_ERROR(_offsets_iterator->_peek_one_offset(&ns));
             // overwrite with sentinel
-            assert_cast<vectorized::ColumnOffset64&>(*next_starts_col).get_data()[i] = ns;
+            assert_cast<vectorized::ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*next_starts_col)
+                    .get_data()[i] = ns;
         }
     }
 
@@ -1256,11 +1258,11 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
                                             bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Struct column iterator column " << _column_name << " skip reading.";
-        dst->resize(dst->size() + *n);
+        dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
-    auto& column_struct = assert_cast<vectorized::ColumnStruct&>(
+    auto& column_struct = assert_cast<vectorized::ColumnStruct&, TypeCheckOnRelease::DISABLE>(
             dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
                                : *dst);
     for (size_t i = 0; i < column_struct.tuple_size(); i++) {
@@ -1286,7 +1288,8 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
             RETURN_IF_ERROR(
                     _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+            auto& null_map = assert_cast<vectorized::ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                    *null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1314,16 +1317,37 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
                                                 vectorized::MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Struct column iterator column " << _column_name << " skip reading.";
-        dst->resize(count);
+        dst->insert_many_defaults(count);
         return Status::OK();
     }
 
-    for (size_t i = 0; i < count; ++i) {
-        RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
-        size_t num_read = 1;
-        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
-        DCHECK(num_read == 1);
+    if (count == 0) {
+        return Status::OK();
     }
+
+    size_t this_run = 1;
+    auto start_idx = rowids[0];
+    auto last_idx = rowids[0];
+    for (size_t i = 1; i < count; ++i) {
+        if (last_idx == rowids[i] - 1) {
+            last_idx = rowids[i];
+            this_run++;
+            continue;
+        }
+        RETURN_IF_ERROR(seek_to_ordinal(start_idx));
+        size_t num_read = this_run;
+        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+        DCHECK_EQ(num_read, this_run);
+
+        start_idx = rowids[i];
+        last_idx = rowids[i];
+        this_run = 1;
+    }
+
+    RETURN_IF_ERROR(seek_to_ordinal(start_idx));
+    size_t num_read = this_run;
+    RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+    DCHECK_EQ(num_read, this_run);
     return Status::OK();
 }
 
@@ -1425,8 +1449,9 @@ Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
         _peek_tmp_col->clear();
         RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, _peek_tmp_col)); // not null
         DCHECK(_peek_tmp_col->size() == 1);
-        *offset =
-                assert_cast<const vectorized::ColumnOffset64*>(_peek_tmp_col.get())->get_element(0);
+        *offset = assert_cast<const vectorized::ColumnOffset64*, TypeCheckOnRelease::DISABLE>(
+                          _peek_tmp_col.get())
+                          ->get_element(0);
     } else {
         *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
     }
@@ -1516,7 +1541,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
                                            bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Array column iterator column " << _column_name << " skip reading.";
-        dst->resize(dst->size() + *n);
+        dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
@@ -1557,7 +1582,8 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
             RETURN_IF_ERROR(
                     _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+            auto& null_map = assert_cast<vectorized::ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                    *null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1570,7 +1596,7 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
                                                vectorized::MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Array column iterator column " << _column_name << " skip reading.";
-        dst->resize(count);
+        dst->insert_many_defaults(count);
         return Status::OK();
     }
 
@@ -1733,7 +1759,7 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
                                       bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
-        dst->resize(dst->size() + *n);
+        dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
@@ -1795,7 +1821,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                                           vectorized::MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
-        dst->resize(count);
+        dst->insert_many_defaults(count);
         return Status::OK();
     }
 
@@ -2137,7 +2163,8 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
 
 Status RowIdColumnIteratorV2::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                          bool* has_null) {
-    auto* string_column = assert_cast<vectorized::ColumnString*>(dst.get());
+    auto* string_column =
+            assert_cast<vectorized::ColumnString*, TypeCheckOnRelease::DISABLE>(dst.get());
 
     for (uint32_t i = 0; i < *n; ++i) {
         uint32_t row_id = _current_rowid + i;

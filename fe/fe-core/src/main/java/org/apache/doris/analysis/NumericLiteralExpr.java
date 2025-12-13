@@ -23,6 +23,7 @@ package org.apache.doris.analysis;
 public abstract class NumericLiteralExpr extends LiteralExpr {
     public NumericLiteralExpr() {
         super();
+        this.nullable = false;
     }
 
     public NumericLiteralExpr(NumericLiteralExpr other) {

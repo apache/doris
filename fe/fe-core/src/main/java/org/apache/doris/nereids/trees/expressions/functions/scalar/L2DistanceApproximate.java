@@ -67,4 +67,9 @@ public class L2DistanceApproximate extends ScalarFunction implements ExplicitlyC
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }
+
+    @Override
+    public boolean isDeterministic() {
+        return false;
+    }
 }

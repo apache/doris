@@ -43,6 +43,7 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -340,6 +341,15 @@ public abstract class Literal extends Expression implements LeafExpression {
                 org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
                 return new DateTimeV2Literal(
                         (DateTimeV2Type) DateType.fromCatalogType(type),
+                        dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
+                        dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond(),
+                        dateLiteral.getMicrosecond()
+                );
+            }
+            case TIMESTAMPTZ: {
+                org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
+                return new TimestampTzLiteral(
+                        (TimeStampTzType) DateType.fromCatalogType(type),
                         dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
                         dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond(),
                         dateLiteral.getMicrosecond()

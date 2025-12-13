@@ -40,9 +40,6 @@ import java.util.Objects;
  */
 public class BinaryPredicate extends Predicate {
 
-    // true if this BinaryPredicate is inferred from slot equivalences, false otherwise.
-    private boolean isInferred = false;
-
     public enum Operator {
         EQ("=", "eq", TExprOpcode.EQ),
         NE("!=", "ne", TExprOpcode.NE),
@@ -112,6 +109,9 @@ public class BinaryPredicate extends Predicate {
         super();
     }
 
+    /**
+     * NOTICE: only used for ddl and test.
+     */
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
         super();
         this.op = op;
@@ -122,7 +122,7 @@ public class BinaryPredicate extends Predicate {
         children.add(e2);
     }
 
-    public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, NullableMode nullableMode) {
+    public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, boolean nullable) {
         super();
         this.op = op;
         this.opcode = op.opcode;
@@ -131,14 +131,15 @@ public class BinaryPredicate extends Predicate {
         Preconditions.checkNotNull(e2);
         children.add(e2);
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
-                false, true, nullableMode);
+                false, true,
+                op == Operator.GT.EQ_FOR_NULL ? NullableMode.ALWAYS_NOT_NULLABLE : NullableMode.DEPEND_ON_ARGUMENT);
+        this.nullable = nullable;
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
         super(other);
         op = other.op;
         slotIsleft = other.slotIsleft;
-        isInferred = other.isInferred;
     }
 
     @Override
@@ -234,13 +235,5 @@ public class BinaryPredicate extends Predicate {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
-    }
-
-    @Override
-    public boolean isNullable() {
-        if (op == Operator.EQ_FOR_NULL) {
-            return false;
-        }
-        return hasNullableChild();
     }
 }

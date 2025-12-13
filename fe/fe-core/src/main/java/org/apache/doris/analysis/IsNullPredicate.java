@@ -43,23 +43,17 @@ public class IsNullPredicate extends Predicate {
         // use for serde only
     }
 
-    public IsNullPredicate(Expr e, boolean isNotNull) {
-        this(e, isNotNull, false);
-    }
-
     /**
      * use for Nereids ONLY
      */
-    public IsNullPredicate(Expr e, boolean isNotNull, boolean isNereids) {
+    public IsNullPredicate(Expr e, boolean isNotNull) {
         super();
         this.isNotNull = isNotNull;
         Preconditions.checkNotNull(e);
         children.add(e);
-        if (isNereids) {
-            fn = new Function(new FunctionName(isNotNull ? IS_NOT_NULL : IS_NULL),
-                    Lists.newArrayList(e.getType()), Type.BOOLEAN, false, true, NullableMode.ALWAYS_NOT_NULLABLE);
-            Preconditions.checkState(fn != null, "tupleisNull fn == NULL");
-        }
+        fn = new Function(new FunctionName(isNotNull ? IS_NOT_NULL : IS_NULL), Lists.newArrayList(e.getType()),
+                Type.BOOLEAN, false, true, NullableMode.ALWAYS_NOT_NULLABLE);
+        this.nullable = false;
     }
 
     protected IsNullPredicate(IsNullPredicate other) {
@@ -103,10 +97,5 @@ public class IsNullPredicate extends Predicate {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.FUNCTION_CALL;
-    }
-
-    @Override
-    public boolean isNullable() {
-        return false;
     }
 }

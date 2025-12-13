@@ -26,7 +26,6 @@ suite("test_prepared_stmt", "nonConcurrent") {
     """
     sql """ ADMIN SET FRONTEND CONFIG ("prepared_stmt_start_id" = "-1"); """
 
-    def tableName = "tbl_prepared_stmt"
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     // def url = context.config.jdbcUrl + "&useServerPrepStmts=true&useCursorFetch=true"
@@ -34,9 +33,9 @@ suite("test_prepared_stmt", "nonConcurrent") {
     logger.info("jdbc prepare statement url: ${url}")
     def result1 = connect(user, password, url) {
 
-        sql """DROP TABLE IF EXISTS ${tableName} """
+        sql """DROP TABLE IF EXISTS tbl_prepared_stmt """
         sql """
-             CREATE TABLE IF NOT EXISTS ${tableName} (
+             CREATE TABLE IF NOT EXISTS tbl_prepared_stmt (
                      `k1` int(11) NULL COMMENT "",
                      `k2` decimalv3(27, 9) NULL COMMENT "",
                      `k3` varchar(30) NULL COMMENT "",
@@ -56,17 +55,17 @@ suite("test_prepared_stmt", "nonConcurrent") {
                    )
                """
 
-        sql """ INSERT INTO ${tableName} VALUES(1231, 119291.11, "ddd", "laooq", null, "2020-01-01 12:36:38", null, "1022-01-01 11:30:38", "[2022-01-01 11:30:38, 2022-01-01 11:30:38, 2022-01-01 11:30:38]") """
-        sql """ INSERT INTO ${tableName} VALUES(1232, 12222.99121135, "xxx", "laooq", "2023-01-02", "2020-01-01 12:36:38", 522.762, "2022-01-01 11:30:38", "[2023-01-01 11:30:38, 2023-01-01 11:30:38]") """
-        sql """ INSERT INTO ${tableName} VALUES(1233, 1.392932911136, "yyy", "laooq", "2024-01-02", "2020-01-01 12:36:38", 52.862, "3022-01-01 11:30:38", "[2024-01-01 11:30:38, 2024-01-01 11:30:38, 2024-01-01 11:30:38]") """
-        sql """ INSERT INTO ${tableName} VALUES(1234, 12919291.129191137, "xxddd", "laooq", "2025-01-02", "2020-01-01 12:36:38", 552.872, "4022-01-01 11:30:38", "[2025-01-01 11:30:38, 2025-01-01 11:30:38, 2025-01-01 11:30:38]") """
-        sql """ INSERT INTO ${tableName} VALUES(1235, 991129292901.11138, "dd", null, "2120-01-02", "2020-01-01 12:36:38", 652.692, "5022-01-01 11:30:38", "[]") """
-        sql """ INSERT INTO ${tableName} VALUES(1236, 100320.11139, "laa    ddd", "laooq", "2220-01-02", "2020-01-01 12:36:38", 2.7692, "6022-01-01 11:30:38", "[null]") """
-        sql """ INSERT INTO ${tableName} VALUES(1237, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", "[2025-01-01 11:30:38]") """
+        sql """ INSERT INTO tbl_prepared_stmt VALUES(1231, 119291.11, "ddd", "laooq", null, "2020-01-01 12:36:38", null, "1022-01-01 11:30:38", "[2022-01-01 11:30:38, 2022-01-01 11:30:38, 2022-01-01 11:30:38]") """
+        sql """ INSERT INTO tbl_prepared_stmt VALUES(1232, 12222.99121135, "xxx", "laooq", "2023-01-02", "2020-01-01 12:36:38", 522.762, "2022-01-01 11:30:38", "[2023-01-01 11:30:38, 2023-01-01 11:30:38]") """
+        sql """ INSERT INTO tbl_prepared_stmt VALUES(1233, 1.392932911136, "yyy", "laooq", "2024-01-02", "2020-01-01 12:36:38", 52.862, "3022-01-01 11:30:38", "[2024-01-01 11:30:38, 2024-01-01 11:30:38, 2024-01-01 11:30:38]") """
+        sql """ INSERT INTO tbl_prepared_stmt VALUES(1234, 12919291.129191137, "xxddd", "laooq", "2025-01-02", "2020-01-01 12:36:38", 552.872, "4022-01-01 11:30:38", "[2025-01-01 11:30:38, 2025-01-01 11:30:38, 2025-01-01 11:30:38]") """
+        sql """ INSERT INTO tbl_prepared_stmt VALUES(1235, 991129292901.11138, "dd", null, "2120-01-02", "2020-01-01 12:36:38", 652.692, "5022-01-01 11:30:38", "[]") """
+        sql """ INSERT INTO tbl_prepared_stmt VALUES(1236, 100320.11139, "laa    ddd", "laooq", "2220-01-02", "2020-01-01 12:36:38", 2.7692, "6022-01-01 11:30:38", "[null]") """
+        sql """ INSERT INTO tbl_prepared_stmt VALUES(1237, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", "[2025-01-01 11:30:38]") """
         sql """sync"""
 
-        qt_sql """select * from  ${tableName} order by 1, 2, 3"""
-        qt_sql """select * from  ${tableName} order by 1, 2, 3"""
+        qt_sql """select * from  tbl_prepared_stmt order by 1, 2, 3"""
+        qt_sql """select * from  tbl_prepared_stmt order by 1, 2, 3"""
         sql "set global max_prepared_stmt_count = 10000"
         sql "set enable_fallback_to_original_planner = false"
         sql """set global enable_server_side_prepared_statement = true"""
@@ -78,17 +77,17 @@ suite("test_prepared_stmt", "nonConcurrent") {
             sb.append(", ?");
         }
         String sqlWithTooManyPlaceholder = sb.toString();
-        def stmt_read = prepareStatement "select * from ${tableName} where k1 in (${sqlWithTooManyPlaceholder})"
+        def stmt_read = prepareStatement "select * from tbl_prepared_stmt where k1 in (${sqlWithTooManyPlaceholder})"
         assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
 
-        stmt_read = prepareStatement "select * from ${tableName} where k1 = ? order by k1"
+        stmt_read = prepareStatement "select * from tbl_prepared_stmt where k1 = ? order by k1"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setInt(1, 1231)
         qe_select0 stmt_read
         stmt_read.setInt(1, 1232)
         qe_select0 stmt_read
         qe_select0 stmt_read
-        def stmt_read1 = prepareStatement "select hex(k3), ? \n from ${tableName} where k1 = ? order by 1"
+        def stmt_read1 = prepareStatement "select hex(k3), ? \n from tbl_prepared_stmt where k1 = ? order by 1"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read1.setString(1, "xxxx---")
         stmt_read1.setInt(2, 1231)
@@ -98,7 +97,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qe_select1 stmt_read1
         qe_select1 stmt_read1
         stmt_read1.close()
-        def stmt_read2 = prepareStatement "select * from ${tableName} as t1 join ${tableName} as t2 on t1.`k1` = t2.`k1` where t1.`k1` >= ? and t1.`k2` >= ? and size(t1.`k9`) > ? order by 1, 2, 3"
+        def stmt_read2 = prepareStatement "select * from tbl_prepared_stmt as t1 join tbl_prepared_stmt as t2 on t1.`k1` = t2.`k1` where t1.`k1` >= ? and t1.`k2` >= ? and size(t1.`k9`) > ? order by 1, 2, 3"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read2.setInt(1, 1237)
         stmt_read2.setBigDecimal(2, new BigDecimal("120939.11130"))

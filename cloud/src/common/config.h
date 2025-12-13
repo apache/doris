@@ -388,6 +388,18 @@ CONF_Bool(enable_snapshot_data_migrator, "false");
 CONF_Bool(enable_snapshot_chain_compactor, "false");
 CONF_Int32(snapshot_data_migrator_concurrent, "2");
 CONF_Int32(snapshot_chain_compactor_concurrent, "2");
+// Parallelism for snapshot migration and compaction operations
+//
+// When to adjust:
+// - Increase (to 20-50): Large-scale migrations (>10K tablets), sufficient resources
+// - Decrease (to 1-5):  Memory/CPU constrained, high FDB conflict rate
+//
+// Cost of higher parallelism:
+// - Increases memory usage (transaction buffers, caches)
+// - Increases CPU usage (proportional to parallelism)
+// - Increases FDB load and may raise conflict rate
+CONF_Int32(snapshot_migrate_parallelism, "2");
+CONF_Int32(snapshot_compact_parallelism, "2");
 
 CONF_mString(aws_credentials_provider_version, "v2");
 CONF_Validator(aws_credentials_provider_version,

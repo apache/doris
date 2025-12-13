@@ -297,15 +297,14 @@ Status AggSharedState::reset_hash_table() {
 
                         hash_table.for_each_mapped([&](auto& mapped) {
                             if (mapped) {
-                                static_cast<void>(_destroy_agg_status(mapped));
+                                _destroy_agg_status(mapped);
                                 mapped = nullptr;
                             }
                         });
 
                         if (hash_table.has_null_key_data()) {
-                            auto st = _destroy_agg_status(hash_table.template get_null_key_data<
-                                                          vectorized::AggregateDataPtr>());
-                            RETURN_IF_ERROR(st);
+                            _destroy_agg_status(hash_table.template get_null_key_data<
+                                                vectorized::AggregateDataPtr>());
                         }
 
                         aggregate_data_container.reset(new AggregateDataContainer(
@@ -415,11 +414,10 @@ int AggSharedState::get_slot_column_id(const vectorized::AggFnEvaluator* evaluat
     return ((vectorized::VSlotRef*)ctxs[0]->root().get())->column_id();
 }
 
-Status AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
+void AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
     for (int i = 0; i < aggregate_evaluators.size(); ++i) {
         aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
     }
-    return Status::OK();
 }
 
 LocalExchangeSharedState::~LocalExchangeSharedState() = default;

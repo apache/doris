@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TExprNode;
 
 import com.google.gson.annotations.SerializedName;
 
+@Deprecated
 public class EncryptKeyRef extends Expr {
     @SerializedName("ekn")
     private EncryptKeyName encryptKeyName;

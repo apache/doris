@@ -244,6 +244,7 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, 
                                        num_columns_without_result, count));
     result_column = temp_block.get_by_position(num_columns_without_result).column;
     DCHECK_EQ(result_column->size(), count);
+    RETURN_IF_ERROR(result_column->column_self_check());
     return Status::OK();
 }
 

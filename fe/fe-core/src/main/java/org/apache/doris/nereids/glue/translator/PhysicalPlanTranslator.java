@@ -19,13 +19,10 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticWindow;
-import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupingInfo;
-import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.OutFileClause;
@@ -38,11 +35,9 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
@@ -94,7 +89,6 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
-import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
@@ -2628,26 +2622,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // analytic window
         AnalyticWindow analyticWindow = physicalWindow.translateWindowFrame(windowFrame, context);
 
-        // 2. get bufferedTupleDesc from SortNode and compute isNullableMatched
-        Map<ExprId, SlotRef> bufferedSlotRefForWindow = getBufferedSlotRefForWindow(windowFrameGroup, context);
-
-        // generate predicates to check if the exprs of partitionKeys and orderKeys have matched isNullable between
-        // sortNode and analyticNode
-        Expr partitionExprsIsNullableMatched = partitionExprs.isEmpty() ? null : windowExprsHaveMatchedNullable(
-                partitionKeyList, partitionExprs, bufferedSlotRefForWindow);
-
-        Expr orderElementsIsNullableMatched = orderByElements.isEmpty() ? null : windowExprsHaveMatchedNullable(
-                orderKeyList.stream().map(UnaryNode::child).collect(Collectors.toList()),
-                orderByElements.stream().map(OrderByElement::getExpr).collect(Collectors.toList()),
-                bufferedSlotRefForWindow);
-
-        // 3. generate tupleDesc
+        // 2. generate tupleDesc
         List<Slot> windowSlotList = windowFunctionList.stream()
                 .map(NamedExpression::toSlot)
                 .collect(Collectors.toList());
         TupleDescriptor outputTupleDesc = generateTupleDesc(windowSlotList, null, context);
 
-        // 4. generate AnalyticEvalNode
+        // 3. generate AnalyticEvalNode
         AnalyticEvalNode analyticEvalNode = new AnalyticEvalNode(
                 context.nextPlanNodeId(),
                 inputPlanFragment.getPlanRoot(),
@@ -2655,9 +2636,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 partitionExprs,
                 orderByElements,
                 analyticWindow,
-                outputTupleDesc,
-                partitionExprsIsNullableMatched,
-                orderElementsIsNullableMatched
+                outputTupleDesc
         );
         analyticEvalNode.setNereidsId(physicalWindow.getId());
         context.getNereidsIdToPlanNodeIdMap().put(physicalWindow.getId(), analyticEvalNode.getId());
@@ -2981,60 +2960,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .stream()
                 .map(slot -> slot.getId().asInt())
                 .collect(ImmutableList.toImmutableList());
-    }
-
-    private Map<ExprId, SlotRef> getBufferedSlotRefForWindow(WindowFrameGroup windowFrameGroup,
-                                                             PlanTranslatorContext context) {
-        Map<ExprId, SlotRef> bufferedSlotRefForWindow = context.getBufferedSlotRefForWindow();
-
-        // set if absent
-        windowFrameGroup.getPartitionKeys().stream()
-                .map(NamedExpression.class::cast)
-                .forEach(expression -> {
-                    ExprId exprId = expression.getExprId();
-                    bufferedSlotRefForWindow.putIfAbsent(exprId, context.findSlotRef(exprId));
-                });
-        windowFrameGroup.getOrderKeys().stream()
-                .map(UnaryNode::child)
-                .map(NamedExpression.class::cast)
-                .forEach(expression -> {
-                    ExprId exprId = expression.getExprId();
-                    bufferedSlotRefForWindow.putIfAbsent(exprId, context.findSlotRef(exprId));
-                });
-        return bufferedSlotRefForWindow;
-    }
-
-    private Expr windowExprsHaveMatchedNullable(List<Expression> expressions, List<Expr> exprs,
-                                                Map<ExprId, SlotRef> bufferedSlotRef) {
-        Map<ExprId, Expr> exprIdToExpr = Maps.newHashMap();
-        for (int i = 0; i < expressions.size(); i++) {
-            NamedExpression expression = (NamedExpression) expressions.get(i);
-            exprIdToExpr.put(expression.getExprId(), exprs.get(i));
-        }
-        return windowExprsHaveMatchedNullable(exprIdToExpr, bufferedSlotRef, expressions, 0, expressions.size());
-    }
-
-    private Expr windowExprsHaveMatchedNullable(Map<ExprId, Expr> exprIdToExpr, Map<ExprId, SlotRef> exprIdToSlotRef,
-                                                List<Expression> expressions, int i, int size) {
-        if (i > size - 1) {
-            return new BoolLiteral(true);
-        }
-
-        ExprId exprId = ((NamedExpression) expressions.get(i)).getExprId();
-        Expr lhs = exprIdToExpr.get(exprId);
-        Expr rhs = exprIdToSlotRef.get(exprId);
-
-        Expr bothNull = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                new IsNullPredicate(lhs, false, true), new IsNullPredicate(rhs, false, true));
-        Expr lhsEqRhsNotNull = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                new CompoundPredicate(CompoundPredicate.Operator.AND,
-                        new IsNullPredicate(lhs, true, true), new IsNullPredicate(rhs, true, true)),
-                new BinaryPredicate(BinaryPredicate.Operator.EQ, lhs, rhs,
-                        Type.BOOLEAN, NullableMode.DEPEND_ON_ARGUMENT));
-
-        Expr remainder = windowExprsHaveMatchedNullable(exprIdToExpr, exprIdToSlotRef, expressions, i + 1, size);
-        return new CompoundPredicate(CompoundPredicate.Operator.AND,
-                new CompoundPredicate(CompoundPredicate.Operator.OR, bothNull, lhsEqRhsNotNull), remainder);
     }
 
     private PlanFragment createPlanFragment(PlanNode planNode, DataPartition dataPartition, AbstractPlan physicalPlan) {

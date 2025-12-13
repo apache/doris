@@ -230,7 +230,9 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
 bool valid_datetime(const std::string& value_str, const uint32_t scale) {
     const char* datetime_pattern =
             "((?:\\d){4})-((?:\\d){2})-((?:\\d){2})[ ]*"
-            "(((?:\\d){2}):((?:\\d){2}):((?:\\d){2})([.]*((?:\\d){0,6})))?";
+            "(((?:\\d){2}):((?:\\d){2}):((?:\\d){2})([.]*((?:\\d){0,6})))?"
+            "[ ]*([+-](?:\\d){2}:(?:\\d){2})?";
+
     std::regex e(datetime_pattern);
     std::smatch what;
 

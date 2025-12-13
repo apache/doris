@@ -19,7 +19,6 @@
 
 #include <memory>
 #include <string>
-#include <unordered_map>
 
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
 

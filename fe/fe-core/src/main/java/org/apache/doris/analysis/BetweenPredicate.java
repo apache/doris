@@ -40,14 +40,6 @@ public class BetweenPredicate extends Predicate {
         // use for serde only
     }
 
-    // First child is the comparison expr which should be in [lowerBound, upperBound].
-    public BetweenPredicate(Expr compareExpr, Expr lowerBound, Expr upperBound, boolean isNotBetween) {
-        children.add(compareExpr);
-        children.add(lowerBound);
-        children.add(upperBound);
-        this.isNotBetween = isNotBetween;
-    }
-
     protected BetweenPredicate(BetweenPredicate other) {
         super(other);
         isNotBetween = other.isNotBetween;

@@ -534,13 +534,19 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
 
     // read
     ASSERT_TRUE(reader->read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    // order are updated in batch, so wait the former batch complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
     ASSERT_TRUE(
             reader->read_at(1024 * 1024, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
                     .ok());
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
     ASSERT_TRUE(reader->read_at(1024 * 1024 * 2, Slice(buffer.data(), buffer.size()), &bytes_read,
                                 &io_ctx)
                         .ok());
-
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
     // check inital order
     std::vector<size_t> initial_offsets;
     for (auto it = cache->_normal_queue.begin(); it != cache->_normal_queue.end(); ++it) {
@@ -555,21 +561,14 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
     ASSERT_TRUE(reader->read_at(1024 * 1024 * 2, Slice(buffer.data(), buffer.size()), &bytes_read,
                                 &io_ctx)
                         .ok());
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
     ASSERT_TRUE(
             reader->read_at(1024 * 1024, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
                     .ok());
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
     ASSERT_TRUE(reader->read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
-
-    std::vector<size_t> before_updated_offsets;
-    for (auto it = cache->_normal_queue.begin(); it != cache->_normal_queue.end(); ++it) {
-        before_updated_offsets.push_back(it->offset);
-    }
-    ASSERT_EQ(before_updated_offsets.size(), 3);
-    ASSERT_EQ(before_updated_offsets[0], 0);
-    ASSERT_EQ(before_updated_offsets[1], 1024 * 1024);
-    ASSERT_EQ(before_updated_offsets[2], 1024 * 1024 * 2);
-
-    // wait LRU update
     std::this_thread::sleep_for(std::chrono::milliseconds(
             2 * config::file_cache_background_block_lru_update_interval_ms));
 

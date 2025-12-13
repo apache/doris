@@ -53,18 +53,18 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", BooleanType.INSTANCE, false);
             TryCast cast = new TryCast(child, TinyIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             child = new SlotReference("slot", BooleanType.INSTANCE, true);
             cast = new TryCast(child, TinyIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
 
             // When strict mode is false, return nullable when decimal range < 1
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", BooleanType.INSTANCE, false);
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(2, 1));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
         }
     }
 
@@ -76,14 +76,14 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", TinyIntType.INSTANCE, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
 
             // When strict mode is false, return nullable when decimal range < 1
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", TinyIntType.INSTANCE, false);
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(4, 1));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
         }
     }
 
@@ -95,21 +95,21 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", SmallIntType.INSTANCE, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             child = new SlotReference("slot", SmallIntType.INSTANCE, true);
             cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
 
             // When strict mode is false, return nullable when decimal range < 1
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", SmallIntType.INSTANCE, false);
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(6, 1));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(6, 2));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -121,21 +121,21 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", IntegerType.INSTANCE, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             child = new SlotReference("slot", IntegerType.INSTANCE, true);
             cast = new TryCast(child, IntegerType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
 
             // When strict mode is false, return nullable when decimal range < 1
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", IntegerType.INSTANCE, false);
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(11, 1));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(11, 2));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -147,21 +147,21 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", BigIntType.INSTANCE, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             child = new SlotReference("slot", BigIntType.INSTANCE, true);
             cast = new TryCast(child, LargeIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
 
             // When strict mode is false, return nullable when decimal range < 1
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", BigIntType.INSTANCE, false);
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(20, 1));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             cast = new TryCast(child, DecimalV2Type.createDecimalV2Type(20, 2));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -174,11 +174,11 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", LargeIntType.INSTANCE, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             child = new SlotReference("slot", LargeIntType.INSTANCE, true);
             cast = new TryCast(child, DoubleType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
 
             // When strict mode is false, return nullable when decimal range < 1
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
@@ -188,10 +188,10 @@ public class TryCastTest {
             child = new SlotReference("slot", LargeIntType.INSTANCE, false);
             cast = new TryCast(child, DecimalV3Type.createDecimalV3Type(40, 1));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             cast = new TryCast(child, DecimalV3Type.createDecimalV3Type(40, 2));
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -203,7 +203,7 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", FloatType.INSTANCE, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             child = new SlotReference("slot", FloatType.INSTANCE, true);
             cast = new TryCast(child, DoubleType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
@@ -214,7 +214,7 @@ public class TryCastTest {
             // To date is always nullable
             cast = new TryCast(child, DateType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -226,11 +226,11 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", DoubleType.INSTANCE, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             child = new SlotReference("slot", DoubleType.INSTANCE, true);
             cast = new TryCast(child, DoubleType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
 
             // When strict mode is false, return nullable when decimal range < 1
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
@@ -238,7 +238,7 @@ public class TryCastTest {
             // To date is always nullable
             cast = new TryCast(child, DateType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -251,11 +251,11 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", DecimalV2Type.SYSTEM_DEFAULT, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             child = new SlotReference("slot", DecimalV2Type.SYSTEM_DEFAULT, true);
             cast = new TryCast(child, DoubleType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
 
             // When strict mode is false, return nullable when decimal range < 1
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
@@ -266,7 +266,7 @@ public class TryCastTest {
             child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(4, 2), false);
             cast = new TryCast(child, TinyIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
         }
     }
 
@@ -278,7 +278,7 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", DateTimeType.INSTANCE, false);
             TryCast cast = new TryCast(child, DateTimeType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -290,7 +290,7 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", TimeV2Type.SYSTEM_DEFAULT, false);
             TryCast cast = new TryCast(child, TinyIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -302,7 +302,7 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", StringType.INSTANCE, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -314,7 +314,7 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", CharType.SYSTEM_DEFAULT, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -326,7 +326,7 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", VarcharType.MAX_VARCHAR_TYPE, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -338,14 +338,14 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", JsonType.INSTANCE, false);
             TryCast cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
 
             // When strict mode is false, always nullable.  to Json is PN
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", JsonType.INSTANCE, false);
             cast = new TryCast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 
@@ -356,22 +356,22 @@ public class TryCastTest {
             SlotReference child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, false);
             TryCast cast = new TryCast(child, ArrayType.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, true);
             cast = new TryCast(child, ArrayType.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
 
             // When strict mode is false, always nullable.  to Json is PN
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, false);
             cast = new TryCast(child, ArrayType.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertFalse(cast.parentNullable());
+            Assertions.assertFalse(cast.originCastNullable());
             child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, true);
             cast = new TryCast(child, ArrayType.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            Assertions.assertTrue(cast.parentNullable());
+            Assertions.assertTrue(cast.originCastNullable());
         }
     }
 }

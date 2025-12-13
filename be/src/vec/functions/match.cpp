@@ -96,7 +96,13 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                                        size_t input_rows_count) const {
     ColumnPtr& column_ptr = block.get_by_position(arguments[1]).column;
     DataTypePtr& type_ptr = block.get_by_position(arguments[1]).type;
-    auto match_query_str = type_ptr->to_string(*column_ptr, 0);
+
+    auto format_options = DataTypeSerDe::get_default_format_options();
+    auto time_zone = cctz::utc_time_zone();
+    format_options.timezone =
+            (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
+
+    auto match_query_str = type_ptr->to_string(*column_ptr, 0, format_options);
     std::string column_name = block.get_by_position(arguments[0]).name;
     VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
                << ", match_query_str=" << match_query_str;
@@ -181,7 +187,7 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
     }
     // parse is none and custom analyzer is empty mean no analyzer is set
     if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
-        inverted_index_ctx->custom_analyzer.empty()) {
+        inverted_index_ctx->analyzer_name.empty()) {
         query_tokens.emplace_back(match_query_str);
         return query_tokens;
     }
@@ -204,7 +210,7 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
             // parse is none and custom analyzer is empty mean no analyzer is set
             if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
-                inverted_index_ctx->custom_analyzer.empty()) {
+                inverted_index_ctx->analyzer_name.empty()) {
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
@@ -220,7 +226,7 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
         // parse is none and custom analyzer is empty mean no analyzer is set
         if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
-            inverted_index_ctx->custom_analyzer.empty()) {
+            inverted_index_ctx->analyzer_name.empty()) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(

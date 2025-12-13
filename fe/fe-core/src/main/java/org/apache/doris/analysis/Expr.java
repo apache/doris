@@ -57,16 +57,11 @@ import java.util.function.Supplier;
  */
 public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
-    public static final String AGG_STATE_SUFFIX = "_state";
-    public static final String AGG_UNION_SUFFIX = "_union";
-    public static final String AGG_MERGE_SUFFIX = "_merge";
-    public static final String AGG_FOREACH_SUFFIX = "_foreach";
     public static final String DEFAULT_EXPR_NAME = "expr";
 
     protected boolean disableTableName = false;
 
-    protected Optional<Boolean> nullableFromNereids = Optional.empty();
-    protected Optional<Boolean> originCastNullable = Optional.empty();
+    protected boolean nullable = false;
 
     @SerializedName("type")
     protected Type type;  // result of analysis
@@ -99,7 +94,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         isConstant = other.isConstant;
         fn = other.fn;
         children = Expr.cloneList(other.children);
-        nullableFromNereids = other.nullableFromNereids;
+        nullable = other.nullable;
     }
 
     public boolean isAnalyzed() {
@@ -319,7 +314,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         }
         // useless parameter, just give a number
         msg.output_scale = -1;
-        msg.setIsNullable(nullableFromNereids.isPresent() ? nullableFromNereids.get() : isNullable());
+        msg.setIsNullable(nullable);
         visitor.visit(this, msg);
         container.addToNodes(msg);
         for (Expr child : children) {
@@ -571,41 +566,11 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         this.toThrift(msg);
     }
 
-    protected boolean hasNullableChild() {
-        return hasNullableChild(children);
-    }
-
-    protected static boolean hasNullableChild(List<Expr> children) {
-        for (Expr expr : children) {
-            if (expr.isNullable()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * For excute expr the result is nullable
-     * TODO: Now only SlotRef and LiteralExpr overwrite the method, each child of Expr should
-     * overwrite this method to plan correct
      */
     public boolean isNullable() {
-        return isNullable(fn, children);
-    }
-
-    public static boolean isNullable(Function fn, List<Expr> children) {
-        if (fn == null) {
-            return true;
-        }
-        switch (fn.getNullableMode()) {
-            case DEPEND_ON_ARGUMENT:
-                return hasNullableChild(children);
-            case ALWAYS_NOT_NULLABLE:
-                return false;
-            case ALWAYS_NULLABLE:
-            default:
-                return true;
-        }
+        return nullable;
     }
 
     public static AggStateType createAggStateType(String name, List<Type> typeList,
@@ -629,16 +594,8 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         return this instanceof NullLiteral;
     }
 
-    public void setNullableFromNereids(boolean nullable) {
-        nullableFromNereids = Optional.of(nullable);
-    }
-
-    public Optional<Boolean> getNullableFromNereids() {
-        return nullableFromNereids;
-    }
-
-    public void setOriginCastNullable(boolean nullable) {
-        originCastNullable = Optional.of(nullable);
+    public void setNullable(boolean nullable) {
+        this.nullable = nullable;
     }
 
     public Set<SlotRef> getInputSlotRef() {

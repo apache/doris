@@ -27,6 +27,7 @@ public final class MaxLiteral extends LiteralExpr {
     public static final MaxLiteral MAX_VALUE = new MaxLiteral();
 
     private MaxLiteral() {
+        this.nullable = false;
     }
 
     @Override

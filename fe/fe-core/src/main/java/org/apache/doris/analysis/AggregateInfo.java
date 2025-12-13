@@ -20,17 +20,36 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public final class AggregateInfo extends AggregateInfoBase {
-    private static final Logger LOG = LogManager.getLogger(AggregateInfo.class);
+public final class AggregateInfo {
+
+    // For aggregations: All unique grouping expressions from a select block.
+    // For analytics: Empty.
+    protected ArrayList<Expr> groupingExprs;
+
+    // For aggregations: All unique aggregate expressions from a select block.
+    // For analytics: The results of AnalyticExpr.getFnCall() for the unique
+    // AnalyticExprs of a select block.
+    protected ArrayList<FunctionCallExpr> aggregateExprs;
+
+    // The tuple into which the final output of the aggregation is materialized.
+    // Contains groupingExprs.size() + aggregateExprs.size() slots, the first of which
+    // contain the values of the grouping exprs, followed by slots into which the
+    // aggregateExprs' finalize() symbol write its result, i.e., slots of the aggregate
+    // functions' output types.
+    protected TupleDescriptor outputTupleDesc;
+
+    // For aggregation: indices into aggregate exprs for that need to be materialized
+    // For analytics: indices into the analytic exprs and their corresponding aggregate
+    // exprs that need to be materialized.
+    // Populated in materializeRequiredSlots() which must be implemented by subclasses.
+    protected ArrayList<Integer> materializedSlots = Lists.newArrayList();
+    protected List<String> materializedSlotLabels = Lists.newArrayList();
 
     public enum AggPhase {
         FIRST,
@@ -48,7 +67,11 @@ public final class AggregateInfo extends AggregateInfoBase {
     // C'tor creates copies of groupingExprs and aggExprs.
     private AggregateInfo(ArrayList<Expr> groupingExprs,
                           ArrayList<FunctionCallExpr> aggExprs, AggPhase aggPhase)  {
-        super(groupingExprs, aggExprs);
+        Preconditions.checkState(groupingExprs != null || aggExprs != null);
+        this.groupingExprs =
+                groupingExprs != null ? Expr.cloneList(groupingExprs) : new ArrayList<Expr>();
+        aggregateExprs =
+                aggExprs != null ? Expr.cloneList(aggExprs) : new ArrayList<FunctionCallExpr>();
         this.aggPhase = aggPhase;
     }
 
@@ -56,7 +79,13 @@ public final class AggregateInfo extends AggregateInfoBase {
      * C'tor for cloning.
      */
     private AggregateInfo(AggregateInfo other) {
-        super(other);
+        groupingExprs =
+                (other.groupingExprs != null) ? Expr.cloneList(other.groupingExprs) : null;
+        aggregateExprs =
+                (other.aggregateExprs != null) ? Expr.cloneList(other.aggregateExprs) : null;
+        outputTupleDesc = other.outputTupleDesc;
+        materializedSlots = Lists.newArrayList(other.materializedSlots);
+        materializedSlotLabels = Lists.newArrayList(other.materializedSlotLabels);
         aggPhase = other.aggPhase;
     }
 
@@ -76,6 +105,26 @@ public final class AggregateInfo extends AggregateInfoBase {
             result.materializedSlotLabels.add(label);
         }
         return result;
+    }
+
+    public ArrayList<Expr> getGroupingExprs() {
+        return groupingExprs;
+    }
+
+    public ArrayList<FunctionCallExpr> getAggregateExprs() {
+        return aggregateExprs;
+    }
+
+    public TupleDescriptor getOutputTupleDesc() {
+        return outputTupleDesc;
+    }
+
+    public TupleId getOutputTupleId() {
+        return outputTupleDesc.getId();
+    }
+
+    public List<String> getMaterializedAggregateExprLabels() {
+        return Lists.newArrayList(materializedSlotLabels);
     }
 
     public ArrayList<FunctionCallExpr> getMaterializedAggregateExprs() {
@@ -107,19 +156,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         for (int i = groupingExprNum; i < outputSlots.size(); ++i) {
             materializedSlots.add(i - groupingExprNum);
         }
-    }
-
-    public String debugString() {
-        StringBuilder out = new StringBuilder(super.debugString());
-        out.append(MoreObjects.toStringHelper(this)
-                .add("phase", aggPhase)
-                .toString());
-        return out.toString();
-    }
-
-    @Override
-    protected String tupleDebugName() {
-        return "agg-tuple";
     }
 
     @Override

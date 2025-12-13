@@ -47,7 +47,7 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
     @Test
     public void testRollUpRange() throws AnalysisException {
         FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
-                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")));
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")), true);
         new Expectations() {
             {
                 mtmvPartitionUtil.getPartitionColumnType((MTMVRelatedTableIf) any, (String) any);
@@ -102,7 +102,7 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
     @Test
     public void testRollUpList() throws AnalysisException {
         FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
-                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")));
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")), true);
         new Expectations() {
             {
                 mtmvPartitionUtil.getPartitionColumnType((MTMVRelatedTableIf) any, (String) any);

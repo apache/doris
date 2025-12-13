@@ -29,7 +29,8 @@ namespace doris::vectorized {
 
 Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                          MysqlRowBinaryBuffer& result,
-                                                         int64_t row_idx, bool col_const) const {
+                                                         int64_t row_idx, bool col_const,
+                                                         const FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnTimeV2&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     if (UNLIKELY(0 != result.push_timev2(data[col_index], _scale))) {

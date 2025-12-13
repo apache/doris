@@ -33,7 +33,8 @@ public:
     DataTypeTimeV2SerDe(int scale = 0, int nesting_level = 1)
             : DataTypeNumberSerDe<PrimitiveType::TYPE_TIMEV2>(nesting_level), _scale(scale) {};
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
-                                        int64_t row_idx, bool col_const) const override;
+                                        int64_t row_idx, bool col_const,
+                                        const FormatOptions& options) const override;
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
