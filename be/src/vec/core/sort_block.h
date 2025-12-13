@@ -38,6 +38,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -249,6 +250,10 @@ public:
                      EqualRange& range, bool last_column) const {
         _sort_by_default(column, flags, perms, range, last_column);
     }
+    void sort_column(const ColumnVarbinary& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const {
+        _sort_by_default(column, flags, perms, range, last_column);
+    }
 
     void sort_column(const ColumnString64& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
@@ -378,6 +383,7 @@ private:
             if constexpr (!std::is_same_v<ColumnType, ColumnString> &&
                           !std::is_same_v<ColumnType, ColumnString64> &&
                           !std::is_same_v<ColumnType, ColumnArray> &&
+                          !std::is_same_v<ColumnType, ColumnVarbinary> &&
                           !std::is_same_v<ColumnType, ColumnMap> &&
                           !std::is_same_v<ColumnType, ColumnStruct>) {
                 auto value_a = column.get_data()[a];

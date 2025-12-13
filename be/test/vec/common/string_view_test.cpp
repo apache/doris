@@ -223,13 +223,13 @@ TEST_F(StringViewTest, ThreeWayComparisonOrdering) {
 TEST_F(StringViewTest, DumpHex) {
     // Empty
     StringView empty;
-    EXPECT_EQ(empty.dump_hex(), "X''");
+    EXPECT_EQ(empty.dump_hex(), "0x");
 
     // Inline with known bytes
     const unsigned char bytes_inline[] = {0x00, 0x01, 0x0A, 0x1F, 0x7F};
     StringView svi(reinterpret_cast<const char*>(bytes_inline), sizeof(bytes_inline));
     EXPECT_TRUE(svi.isInline());
-    EXPECT_EQ(svi.dump_hex(), "X'00010A1F7F'");
+    EXPECT_EQ(svi.dump_hex(), "0x00010A1F7F");
 
     // Non-inline, length > 12
     std::string big = make_bytes(16, 0x20); // bytes 0x20,0x21,...
@@ -237,12 +237,11 @@ TEST_F(StringViewTest, DumpHex) {
     EXPECT_FALSE(svb.isInline());
     // Build expected
     std::ostringstream oss;
-    oss << "X'";
+    oss << "0x";
     for (unsigned char c : big) {
         static const char* kHex = "0123456789ABCDEF";
         oss << kHex[c >> 4] << kHex[c & 0x0F];
     }
-    oss << "'";
     EXPECT_EQ(svb.dump_hex(), oss.str());
 }
 
@@ -276,7 +275,7 @@ TEST_F(StringViewTest, StringViewAndUnsignedCtorAndHighHex) {
     StringView v_unsigned(reinterpret_cast<unsigned char*>(bytes.data()),
                           static_cast<uint32_t>(bytes.size()));
     EXPECT_TRUE(v_unsigned.isInline());
-    EXPECT_EQ(v_unsigned.dump_hex(), "X'80FF007F'");
+    EXPECT_EQ(v_unsigned.dump_hex(), "0x80FF007F");
 }
 
 // Construct from nullptr with zero length should be a valid empty inline view

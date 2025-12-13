@@ -204,6 +204,61 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             sql """use `${catalog_name}`.`default`"""
             select_top50()
             sql """drop catalog if exists ${catalog_name}"""
+
+            sql """drop catalog if exists test_hive_orc_mapping_varbinary"""
+            sql """create catalog if not exists test_hive_orc_mapping_varbinary properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+                'enable.mapping.varbinary' = 'true'
+            );"""
+            sql """use `test_hive_orc_mapping_varbinary`.`default`"""
+
+            explain {
+                sql("select  binary_col from  orc_all_types order by binary_col,string_col asc limit 10;")
+                contains("TOPN OPT:1")
+            }
+            explain {
+                sql("select  binary_col from  orc_all_types order by binary_col asc limit 10;")
+                contains("TOPN OPT:1")
+            }
+            order_qt_sql_topn_binary_col1 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col asc limit 10; """
+            order_qt_sql_topn_binary_col2 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col asc ,string_col asc limit 10; """
+            order_qt_sql_topn_binary_col3 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col desc limit 10; """
+            order_qt_sql_topn_binary_col4 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col desc,string_col desc limit 10; """
+
+            sql """ switch internal; """
+            sql """ drop database if exists test_view_varbinary_db"""
+            sql """ create database if not exists test_view_varbinary_db"""
+            sql """use test_view_varbinary_db"""
+            test {
+                sql " create view test_view_varbinary as select binary_col from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`; "
+                exception " View does not support VARBINARY type: binary_col"
+            }
+
+            test {
+                sql """ CREATE MATERIALIZED VIEW test_mv_varbinary
+                        BUILD DEFERRED REFRESH AUTO ON MANUAL
+                        DISTRIBUTED BY RANDOM BUCKETS 2
+                        PROPERTIES ('replication_num' = '1')
+                        AS select binary_col from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`; """
+                exception " MTMV do not support varbinary type : binary_col"
+            }
+
+            test {
+                sql " select count() from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` group by binary_col; "
+                exception " errCode = 2"
+            }
+
+            test {
+                sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` as a join `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`  as b on a.binary_col = b.binary_col; "
+                exception " errCode = 2,"
+            }
+
+            test {
+                sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` where binary_col = X'AB'; "
+                exception " could not used in ComparisonPredicate now"
+            }
+
         } finally {
         }
     }

@@ -255,6 +255,7 @@ public class OutFileClause {
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
+            case VARBINARY:
                 orcType = "binary";
                 break;
             case DATEV2:
@@ -412,6 +413,7 @@ public class OutFileClause {
                 case HLL:
                 case BITMAP:
                 case QUANTILE_STATE:
+                case VARBINARY:
                     checkOrcType(schema.second, "binary", true, resultType.getPrimitiveType().toString());
                     break;
                 case STRUCT:

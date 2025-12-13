@@ -142,6 +142,13 @@ public class IcebergSysTableColumnValue implements ColumnValue {
 
     @Override
     public byte[] getBytes() {
+        // https://github.com/apache/iceberg/blob/8626ef5137024c1a69daaff97a832af6b0ae37ea/api/src/main/java/org/apache/iceberg/types/Type.java#L45C5-L45C30
+        if (fieldData instanceof ByteBuffer) {
+            ByteBuffer buffer = (ByteBuffer) fieldData;
+            byte[] bytes = new byte[buffer.remaining()];
+            buffer.get(bytes);
+            return bytes;
+        }
         return (byte[]) fieldData;
     }
 

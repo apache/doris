@@ -603,7 +603,8 @@ struct PrimitiveTypeTraits<TYPE_VARBINARY> {
     using ColumnItemType = doris::StringView;
     using DataType = vectorized::DataTypeVarbinary;
     using ColumnType = vectorized::ColumnVarbinary;
-    using NearestFieldType = doris::StringView;
+    // StringView is non-owning, but StringViewField wraps it with String for ownership
+    using NearestFieldType = vectorized::StringViewField;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_VARBINARY;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_VARBINARY;
 };

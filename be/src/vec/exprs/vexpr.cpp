@@ -349,6 +349,12 @@ TExprNode create_texpr_node_from(const vectorized::Field& field, const Primitive
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(&storage, &node));
         break;
     }
+    case TYPE_VARBINARY: {
+        const auto& svf = field.get<vectorized::StringViewField>();
+        const std::string& storage = svf.get_string();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARBINARY>(&storage, &node));
+        break;
+    }
     default:
         throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
                         int(type));
