@@ -5417,7 +5417,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        //Convert to vectors
+        // Convert input columns to full columns
         auto col_left =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto col_right =
@@ -5440,22 +5440,76 @@ public:
     }
 
 private:
+    // Helper: Convert UTF-8 bytes to Unicode code points
+    static void to_utf8_codepoints(const StringRef& str, std::vector<uint32_t>& result) {
+        result.clear();
+        const char* p = str.data;
+        const char* end = str.data + str.size;
+
+        while (p < end) {
+            unsigned char c = static_cast<unsigned char>(*p);
+            uint32_t code_point = 0;
+            int bytes = 0;
+
+            if (c < 0x80) { // 1-byte sequence (ASCII)
+                bytes = 1;
+                code_point = c;
+            } else if ((c & 0xE0) == 0xC0) { // 2-byte sequence
+                bytes = 2;
+                code_point = c & 0x1F;
+            } else if ((c & 0xF0) == 0xE0) { // 3-byte sequence (Chinese, etc.)
+                bytes = 3;
+                code_point = c & 0x0F;
+            } else if ((c & 0xF8) == 0xF0) { // 4-byte sequence
+                bytes = 4;
+                code_point = c & 0x07;
+            } else {
+                // Invalid UTF-8, skip 1 byte
+                p++;
+                continue;
+            }
+
+            // Boundary check
+            if (p + bytes > end) break;
+
+            // Combine remaining bytes
+            for (int i = 1; i < bytes; ++i) {
+                code_point = (code_point << 6) | (p[i] & 0x3F);
+            }
+            result.push_back(code_point);
+            p += bytes;
+        }
+    }
+
     static int32_t calculate_levenshtein(const StringRef& str1, const StringRef& str2) {
-        const size_t len1 = str1.size;
-        const size_t len2 = str2.size;
+        // Parse UTF-8 strings to code points
+        std::vector<uint32_t> source, target;
+        to_utf8_codepoints(str1, source);
+        to_utf8_codepoints(str2, target);
+
+        const size_t len1 = source.size();
+        const size_t len2 = target.size();
+
+        // Edge cases for empty strings
         if (len1 == 0) return static_cast<int32_t>(len2);
         if (len2 == 0) return static_cast<int32_t>(len1);
 
+        // DP vectors
         std::vector<int32_t> prev_dp(len2 + 1);
         std::vector<int32_t> curr_dp(len2 + 1);
 
+        // Initialize first row
         for (size_t j = 0; j <= len2; ++j) prev_dp[j] = static_cast<int32_t>(j);
 
+        // DP Calculation
         for (size_t i = 1; i <= len1; ++i) {
             curr_dp[0] = static_cast<int32_t>(i);
             for (size_t j = 1; j <= len2; ++j) {
-                int cost = (str1.data[i - 1] == str2.data[j - 1]) ? 0 : 1;
-                curr_dp[j] = std::min({prev_dp[j] + 1, curr_dp[j - 1] + 1, prev_dp[j - 1] + cost});
+                // Compare code points instead of bytes
+                int cost = (source[i - 1] == target[j - 1]) ? 0 : 1;
+                curr_dp[j] = std::min({prev_dp[j] + 1,          // Deletion
+                                       curr_dp[j - 1] + 1,      // Insertion
+                                       prev_dp[j - 1] + cost}); // Substitution
             }
             prev_dp.swap(curr_dp);
         }
