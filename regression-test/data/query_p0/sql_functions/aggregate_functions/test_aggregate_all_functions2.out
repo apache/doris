@@ -375,13 +375,43 @@ true
 -- !maxmin_array_1 --
 \N	\N
 
+-- !maxminby_array_1 --
+\N	\N
+
+-- !maxminby_map_1 --
+\N	\N
+
+-- !maxminby_struct_1 --
+\N	\N
+
 -- !maxmin_array_2 --
 [7]	[1, 2, 3]
-[1, 2, 3, 4]	[1, 2]
+[1, 2, 5]	[1, 2]
 [11, 22, 33, 44]	[3, 1]
 [10]	[]
 [11, null, null, 55]	[1, null, null, 4]
 
+-- !maxminby_array_2 --
+[1, 2, 5]	[11, 22, 33, 44]
+
+-- !maxminby_array_3 --
+{"A":10, "B":1}	{"x":50, "y":60}
+
+-- !maxminby_array_4 --
+{"a":10, "b":"tt"}	{"a":4, "b":"delta"}
+
+-- !maxminby_map_2 --
+{"foo":1, "bar":2}	{"A":10, "B":1}
+
+-- !maxminby_struct_2 --
+{"a":5, "b":"echo"}	{"a":10, "b":"tt"}
+
 -- !maxmin_array_3 --
+[[3, 4], [3, 4]]	[[1, 2], [3, 4]]
+
+-- !maxminby_array_5 --
+3	1
+
+-- !maxminby_array_6 --
 [[3, 4], [3, 4]]	[[1, 2], [3, 4]]
 

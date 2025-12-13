@@ -66,9 +66,14 @@ public class MinBy extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (getArgumentType(1).isOnlyMetricType()) {
+        if (getArgumentType(1).isOnlyMetricType() && !getArgumentType(1).isArrayType()) {
             throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
         }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
     }
 
     /**
