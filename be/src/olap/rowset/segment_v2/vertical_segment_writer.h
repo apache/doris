@@ -26,6 +26,7 @@
 #include <map>
 #include <memory> // unique_ptr
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -198,7 +199,7 @@ private:
             vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
-    Status _finalize_column_writer_and_update_meta(size_t cid);
+    Status _finalize_column_writer_and_update_meta(uint32_t cid);
 
     bool _is_mow();
     bool _is_mow_with_cluster_key();
@@ -224,7 +225,7 @@ private:
 
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
-    std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
+    std::unordered_map<uint32_t, std::unique_ptr<ColumnWriter>> _column_writers;
     std::unique_ptr<MemTracker> _mem_tracker;
 
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
