@@ -1290,6 +1290,95 @@ struct StringAppendTrailingCharIfAbsent {
     }
 };
 
+struct HammingDistanceImpl {
+    static constexpr auto name = "hamming_distance";
+    using Chars = ColumnString::Chars;
+    using Offsets = ColumnString::Offsets;
+    using ReturnType = DataTypeInt64;
+    using ColumnType = ColumnInt64;
+
+    // Calculate Hamming distance between two strings of equal length
+    static Int64 calculate_hamming_distance(const StringRef& str1, const StringRef& str2) {
+        DCHECK_EQ(str1.size, str2.size);
+        Int64 distance = 0;
+        for (size_t i = 0; i < str1.size; ++i) {
+            if (str1.data[i] != str2.data[i]) {
+                ++distance;
+            }
+        }
+        return distance;
+    }
+
+    // vector_vector: both arguments are columns
+    static void vector_vector(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
+                              const Chars& rdata, const Offsets& roffsets,
+                              PaddedPODArray<Int64>& res, NullMap& null_map_data) {
+        DCHECK_EQ(loffsets.size(), roffsets.size());
+        size_t input_rows_count = loffsets.size();
+        res.resize(input_rows_count);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            StringRef lstr = StringRef(reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]),
+                                       loffsets[i] - loffsets[i - 1]);
+            StringRef rstr = StringRef(reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]),
+                                       roffsets[i] - roffsets[i - 1]);
+
+            // Return NULL if strings have different lengths
+            if (lstr.size != rstr.size) {
+                null_map_data[i] = 1;
+                res[i] = 0;
+            } else {
+                null_map_data[i] = 0;
+                res[i] = calculate_hamming_distance(lstr, rstr);
+            }
+        }
+    }
+
+    // vector_scalar: first argument is column, second is constant
+    static void vector_scalar(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
+                              const StringRef& rstr, PaddedPODArray<Int64>& res,
+                              NullMap& null_map_data) {
+        size_t input_rows_count = loffsets.size();
+        res.resize(input_rows_count);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            StringRef lstr = StringRef(reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]),
+                                       loffsets[i] - loffsets[i - 1]);
+
+            // Return NULL if strings have different lengths
+            if (lstr.size != rstr.size) {
+                null_map_data[i] = 1;
+                res[i] = 0;
+            } else {
+                null_map_data[i] = 0;
+                res[i] = calculate_hamming_distance(lstr, rstr);
+            }
+        }
+    }
+
+    // scalar_vector: first argument is constant, second is column
+    static void scalar_vector(FunctionContext* context, const StringRef& lstr, const Chars& rdata,
+                              const Offsets& roffsets, PaddedPODArray<Int64>& res,
+                              NullMap& null_map_data) {
+        size_t input_rows_count = roffsets.size();
+        res.resize(input_rows_count);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            StringRef rstr = StringRef(reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]),
+                                       roffsets[i] - roffsets[i - 1]);
+
+            // Return NULL if strings have different lengths
+            if (lstr.size != rstr.size) {
+                null_map_data[i] = 1;
+                res[i] = 0;
+            } else {
+                null_map_data[i] = 0;
+                res[i] = calculate_hamming_distance(lstr, rstr);
+            }
+        }
+    }
+};
+
 struct StringLPad {
     static constexpr auto name = "lpad";
     static constexpr auto is_lpad = true;
@@ -1342,6 +1431,9 @@ using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =
         FunctionBinaryStringOperateToNullType<StringAppendTrailingCharIfAbsent>;
+
+using FunctionHammingDistance =
+        FunctionBinaryStringOperateToNullType<HammingDistanceImpl>;
 
 using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
@@ -1440,6 +1532,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
     factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
+    factory.register_function<FunctionHammingDistance>();
     factory.register_function<FunctionNgramSearch>();
     factory.register_function<FunctionXPathString>();
     factory.register_function<FunctionCrc32Internal>();
