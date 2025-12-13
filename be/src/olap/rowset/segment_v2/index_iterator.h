@@ -51,6 +51,7 @@ public:
     virtual ~IndexIterator() = default;
 
     virtual IndexReaderPtr get_reader(IndexReaderType reader_type) const = 0;
+    // Note: For inverted index, analyzer context is passed via InvertedIndexParam.analyzer_ctx
     virtual Status read_from_index(const IndexParam& param) = 0;
 
     virtual Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) = 0;

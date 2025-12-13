@@ -57,20 +57,29 @@ namespace doris::vectorized {
 using namespace doris::segment_v2;
 
 VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
-    _inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
-    _inverted_index_ctx->analyzer_name = node.match_predicate.analyzer_name;
-    _inverted_index_ctx->parser_type =
+    // Step 1: Create configuration (stack-allocated temporary, follows SRP)
+    InvertedIndexAnalyzerConfig config;
+    config.analyzer_name = node.match_predicate.analyzer_name;
+    config.parser_type =
             get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
-    _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
-    _inverted_index_ctx->char_filter_map = node.match_predicate.char_filter_map;
+    config.parser_mode = node.match_predicate.parser_mode;
+    config.char_filter_map = node.match_predicate.char_filter_map;
     if (node.match_predicate.parser_lowercase) {
-        _inverted_index_ctx->lower_case = INVERTED_INDEX_PARSER_TRUE;
+        config.lower_case = INVERTED_INDEX_PARSER_TRUE;
     } else {
-        _inverted_index_ctx->lower_case = INVERTED_INDEX_PARSER_FALSE;
+        config.lower_case = INVERTED_INDEX_PARSER_FALSE;
     }
-    _inverted_index_ctx->stop_words = node.match_predicate.parser_stopwords;
-    _analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(_inverted_index_ctx.get());
-    _inverted_index_ctx->analyzer = _analyzer.get();
+    config.stop_words = node.match_predicate.parser_stopwords;
+
+    // Step 2: Use config to create analyzer (factory method)
+    _analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
+
+    // Step 3: Create runtime context (only extract runtime-needed info)
+    _analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+    _analyzer_ctx->analyzer_name = config.analyzer_name;
+    _analyzer_ctx->parser_type = config.parser_type;
+    _analyzer_ctx->char_filter_map = std::move(config.char_filter_map);
+    _analyzer_ctx->analyzer = _analyzer.get();
 }
 
 VMatchPredicate::~VMatchPredicate() = default;
@@ -115,7 +124,7 @@ Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::THREAD_LOCAL || scope == FunctionContext::FRAGMENT_LOCAL) {
-        context->fn_context(_fn_context_index)->set_function_state(scope, _inverted_index_ctx);
+        context->fn_context(_fn_context_index)->set_function_state(scope, _analyzer_ctx);
     }
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
@@ -131,6 +140,9 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 
 Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_EQ(get_num_children(), 2);
+    if (context != nullptr && context->get_index_context() != nullptr && _analyzer_ctx != nullptr) {
+        context->get_index_context()->set_analyzer_ctx_for_expr(this, _analyzer_ctx);
+    }
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 

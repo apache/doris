@@ -45,6 +45,10 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
 
+namespace doris {
+struct InvertedIndexAnalyzerCtx;
+} // namespace doris
+
 namespace doris::vectorized {
 
 struct FunctionAttr {
@@ -191,6 +195,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return Status::OK();
     }
@@ -458,9 +463,10 @@ public:
             const ColumnsWithTypeAndName& args,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
-                                                 bitmap_result);
+                                                 analyzer_ctx, bitmap_result);
     }
 
     bool is_use_default_implementation_for_constants() const override {

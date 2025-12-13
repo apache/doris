@@ -45,18 +45,34 @@ enum class InvertedIndexParserType {
 
 using CharFilterMap = std::map<std::string, std::string>;
 
-struct InvertedIndexCtx {
+// Configuration for creating analyzer (SRP: only used during analyzer creation)
+// This is typically a stack-allocated temporary object, discarded after use
+struct InvertedIndexAnalyzerConfig {
     std::string analyzer_name;
-    InvertedIndexParserType parser_type;
+    InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
     std::string parser_mode;
-    std::string support_phrase;
-    CharFilterMap char_filter_map;
     std::string lower_case;
     std::string stop_words;
-    lucene::analysis::Analyzer* analyzer = nullptr;
+    CharFilterMap char_filter_map;
 };
 
-using InvertedIndexCtxSPtr = std::shared_ptr<InvertedIndexCtx>;
+// Runtime context for analyzer (SRP: only used during query execution)
+// Contains only the fields needed at runtime
+struct InvertedIndexAnalyzerCtx {
+    // Used by execute_column path to determine if tokenization should be skipped
+    std::string analyzer_name;
+    InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
+
+    // Used for creating reader and tokenization
+    CharFilterMap char_filter_map;
+    lucene::analysis::Analyzer* analyzer = nullptr;
+
+    // Helper method: returns true if tokenization should be performed
+    bool should_tokenize() const {
+        return !(parser_type == InvertedIndexParserType::PARSER_NONE && analyzer_name.empty());
+    }
+};
+using InvertedIndexAnalyzerCtxSPtr = std::shared_ptr<InvertedIndexAnalyzerCtx>;
 
 const std::string INVERTED_INDEX_PARSER_TRUE = "true";
 const std::string INVERTED_INDEX_PARSER_FALSE = "false";

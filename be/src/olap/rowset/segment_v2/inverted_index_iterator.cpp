@@ -65,9 +65,10 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
         }
     }
 
+    // Note: analyzer_ctx is now passed via i_param->analyzer_ctx
     auto execute_query = [&]() {
         return reader->query(_context, i_param->column_name, i_param->query_value,
-                             i_param->query_type, i_param->roaring);
+                             i_param->query_type, i_param->roaring, i_param->analyzer_ctx);
     };
 
     if (runtime_state->query_options().enable_profile) {

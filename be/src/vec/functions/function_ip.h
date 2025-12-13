@@ -647,6 +647,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -720,7 +721,7 @@ public:
         res_param.query_value = query_param->get_value();
         res_param.num_rows = num_rows;
         res_param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_index(&res_param));
+        RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&res_param}));
 
         // <= max ip
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
@@ -732,7 +733,7 @@ public:
         max_param.query_value = query_param->get_value();
         max_param.num_rows = num_rows;
         max_param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_index(&max_param));
+        RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&max_param}));
 
         DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(

@@ -416,10 +416,10 @@ TEST_F(VectorSearchTest, TestAnnIndexIteratorSuccessCases) {
     doris::segment_v2::IndexParam param = &ann_param;
 
     // Mock the query method to return OK
-    EXPECT_CALL(*mock_iterator, read_from_index(testing::_))
+    EXPECT_CALL(*mock_iterator, read_from_index(testing::_, testing::_))
             .WillOnce(testing::Return(Status::OK()));
 
-    auto status = mock_iterator->read_from_index(param);
+    auto status = mock_iterator->read_from_index(param, nullptr);
     EXPECT_TRUE(status.ok());
 
     // Test range_search with valid parameters

@@ -199,7 +199,7 @@ public:
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(iterator->read_from_index(&param));
+            RETURN_IF_ERROR(iterator->read_from_index(segment_v2::IndexParam {&param}));
             indices |= *param.roaring;
             iter->next();
         }
