@@ -266,8 +266,16 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 }
             }
         } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
-            // filter all
-            if (!const_column->get_bool(0)) {
+            // if colum not nullable column
+            // const bool result =
+            // accept_null ? (false || const_column->get_bool(0))
+            //             : (!false && const_column->get_bool(0));
+            // same as directly use const_column->get_bool(0)
+            const bool result =
+                    accept_null ? (const_column->is_null_at(0) || const_column->get_bool(0))
+                                : (!const_column->is_null_at(0) && const_column->get_bool(0));
+            if (!result) {
+                // filter all
                 *can_filter_all = true;
                 memset(result_filter_data, 0, result_filter->size());
                 return Status::OK();
