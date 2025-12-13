@@ -232,6 +232,8 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+    int64_t _last_bytes_read_from_local = 0;
+    int64_t _last_bytes_read_from_remote = 0;
 
 private:
     Status _init_expr_ctxes();
