@@ -158,6 +158,8 @@ public:
 
     Status execute_post_request(const std::string& payload, std::string* response);
 
+    Status execute_put_request(const std::string& payload, std::string* response);
+
     Status execute_delete_request(const std::string& payload, std::string* response);
 
     // execute a simple method, and its response is saved in response argument

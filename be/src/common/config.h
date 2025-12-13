@@ -650,6 +650,12 @@ DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DECLARE_mBool(enable_stream_load_record);
+// Whether to enable stream load record to audit log table, the default is true.
+DECLARE_mBool(enable_stream_load_record_to_audit_log_table);
+// the maximum bytes of a batch of stream load records to audit log table
+DECLARE_mInt64(stream_load_record_batch_bytes);
+// the interval to send a batch of stream load records to audit log table
+DECLARE_mInt64(stream_load_record_batch_interval_secs);
 // batch size of stream load record reported to FE
 DECLARE_mInt32(stream_load_record_batch_size);
 // expire time of stream load record in rocksdb.
