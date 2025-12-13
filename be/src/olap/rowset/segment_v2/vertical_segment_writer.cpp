@@ -446,6 +446,12 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     return Status::OK();
 }
 
+Status VerticalSegmentWriter::_finalize_column_writer_and_update_meta(size_t cid) {
+    RETURN_IF_ERROR(_column_writers[cid]->finish());
+    RETURN_IF_ERROR(_column_writers[cid]->write_data());
+    return Status::OK();
+}
+
 Status VerticalSegmentWriter::_partial_update_preconditions_check(size_t row_pos,
                                                                   bool is_flexible_update) {
     if (!_is_mow()) {
@@ -535,6 +541,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         }
         RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                      data.num_rows));
+        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
     }
 
     bool has_default_or_nullable = false;
@@ -624,6 +631,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         }
         RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                      data.num_rows));
+        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
     }
 
     _num_rows_updated += stats.num_rows_updated;
@@ -721,6 +729,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                      data.num_rows));
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written + data.num_rows);
+        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
     }
 
     // 5. genreate read plan
@@ -766,6 +775,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                      data.num_rows));
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written + data.num_rows);
+        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
     }
 
     _num_rows_updated += stats.num_rows_updated;
@@ -927,10 +937,6 @@ Status VerticalSegmentWriter::write_batch() {
                 RETURN_IF_ERROR(_append_block_with_partial_content(data, full_block));
             }
         }
-        for (auto& column_writer : _column_writers) {
-            RETURN_IF_ERROR(column_writer->finish());
-            RETURN_IF_ERROR(column_writer->write_data());
-        }
         return Status::OK();
     }
     // Row column should be filled here when it's a directly write from memtable
@@ -980,8 +986,7 @@ Status VerticalSegmentWriter::write_batch() {
             return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
                                                             _data_dir->path_hash());
         }
-        RETURN_IF_ERROR(_column_writers[cid]->finish());
-        RETURN_IF_ERROR(_column_writers[cid]->write_data());
+        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
     }
 
     for (auto& data : _batched_blocks) {
