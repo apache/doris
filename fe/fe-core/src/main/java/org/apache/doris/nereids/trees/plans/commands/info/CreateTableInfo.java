@@ -1316,6 +1316,10 @@ public class CreateTableInfo {
         return partitionDesc;
     }
 
+    public List<ColumnDefinition> getColumnDefinitions() {
+        return columns;
+    }
+
     public List<Column> getColumns() {
         return columns.stream()
             .map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
