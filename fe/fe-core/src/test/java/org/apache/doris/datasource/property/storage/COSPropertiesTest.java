@@ -56,7 +56,7 @@ public class COSPropertiesTest {
         origProps.put("test_non_storage_param", "6000");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
         origProps.put("cos.endpoint", "cos.ap-beijing-1.myqcloud.com");
-        COSProperties cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(0);
+        COSProperties cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(1);
         Map<String, String> cosConfig = cosProperties.getMatchedProperties();
         Assertions.assertTrue(!cosConfig.containsKey("test_non_storage_param"));
 
@@ -90,7 +90,7 @@ public class COSPropertiesTest {
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
         //origProps.put("cos.region", "ap-beijing");
 
-        COSProperties cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(0);
+        COSProperties cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(1);
         Map<String, String> s3Props = cosProperties.generateBackendS3Configuration();
         Map<String, String> cosConfig = cosProperties.getMatchedProperties();
         Assertions.assertTrue(!cosConfig.containsKey("test_non_storage_param"));
@@ -110,7 +110,8 @@ public class COSPropertiesTest {
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
         origProps.put("cos.use_path_style", "true");
-        cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(0);
+        cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(1);
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createAll(origProps).get(0).getClass());
         s3Props = cosProperties.generateBackendS3Configuration();
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         // Add any additional assertions for other properties if needed
