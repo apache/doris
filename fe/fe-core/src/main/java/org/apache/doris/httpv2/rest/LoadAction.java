@@ -500,15 +500,11 @@ public class LoadAction extends RestBaseController {
             throw new LoadException("Invalid header host: " + reqHostStr);
         }
 
-        String reqHost = "";
-        String[] pair = reqHostStr.split(":");
-        if (pair.length == 1) {
-            reqHost = pair[0];
-        } else if (pair.length == 2) {
-            reqHost = pair[0];
-        } else {
+        URI reqURI = URI.create("http://" + reqHostStr);
+        String reqHost = reqURI.getHost();
+        if (reqHost == null) {
             LOG.info("Invalid header host: {}", reqHostStr);
-            throw new LoadException("Invalid header host: " + reqHost);
+            throw new LoadException("Invalid header host: " + reqHostStr);
         }
 
         // User specified redirect policy
