@@ -457,6 +457,16 @@ void RuntimeFilterMergeControllerEntity::release_undone_filters(QueryContext* qu
     _filter_map.clear();
 }
 
+Status GlobalMergeContext::reset(QueryContext* query_ctx) {
+    int producer_size = merger->get_expected_producer_num();
+    RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &runtime_filter_desc, &merger));
+    merger->set_expected_producer_num(producer_size);
+    arrive_id.clear();
+    source_addrs.clear();
+    done = false;
+    return Status::OK();
+}
+
 Status RuntimeFilterMergeControllerEntity::reset_global_rf(
         QueryContext* query_ctx, const google::protobuf::RepeatedField<int32_t>& filter_ids) {
     for (const auto& filter_id : filter_ids) {
@@ -465,13 +475,7 @@ Status RuntimeFilterMergeControllerEntity::reset_global_rf(
             std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
             cnt_val = &_filter_map[filter_id]; // may inplace construct default object
         }
-        int producer_size = cnt_val->merger->get_expected_producer_num();
-        RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &cnt_val->runtime_filter_desc,
-                                                    &cnt_val->merger));
-        cnt_val->merger->set_expected_producer_num(producer_size);
-        cnt_val->arrive_id.clear();
-        cnt_val->source_addrs.clear();
-        cnt_val->done = false;
+        RETURN_IF_ERROR(cnt_val->reset(query_ctx));
     }
     return Status::OK();
 }

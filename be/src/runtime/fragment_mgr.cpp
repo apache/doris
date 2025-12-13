@@ -1437,18 +1437,16 @@ Status FragmentMgr::rerun_fragment(const TUniqueId& query_id, int fragment,
 
         if (stage == PRerunFragmentParams::wait) {
             return fragment_ctx->wait_close(false);
-        }
-        if (stage == PRerunFragmentParams::release) {
+        } else if (stage == PRerunFragmentParams::release) {
             return fragment_ctx->set_to_rerun();
-        }
-        if (stage == PRerunFragmentParams::rebuild) {
+        } else if (stage == PRerunFragmentParams::rebuild) {
             return fragment_ctx->rebuild(_thread_pool.get());
-        }
-        if (stage == PRerunFragmentParams::submit) {
+        } else if (stage == PRerunFragmentParams::submit) {
             return fragment_ctx->submit();
-        }
-        if (stage == PRerunFragmentParams::close) {
+        } else if (stage == PRerunFragmentParams::close) {
             return fragment_ctx->wait_close(true);
+        } else {
+            return Status::InvalidArgument("Unknown rerun fragment opcode: {}", stage);
         }
     } else {
         return Status::NotFound(

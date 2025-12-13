@@ -58,8 +58,6 @@ private:
     friend class RecCTESourceOperatorX;
     friend class OperatorX<RecCTESourceLocalState>;
 
-    vectorized::VExprContextSPtrs _child_expr;
-
     std::shared_ptr<Dependency> _anchor_dependency = nullptr;
 };
 
@@ -135,13 +133,13 @@ public:
 
 private:
     Status _send_close(RuntimeState* state) {
-        if (!_aready_send_close && !_is_used_by_other_rec_cte) {
-            RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::close));
-            _aready_send_close = true;
-
+        if (!_already_send_close && !_is_used_by_other_rec_cte) {
+            _already_send_close = true;
             auto* round_counter = ADD_COUNTER(get_local_state(state).Base::custom_profile(),
                                               "RecursiveRound", TUnit::UNIT);
             round_counter->set(int64_t(get_local_state(state)._shared_state->current_round));
+
+            RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::close));
         }
         return Status::OK();
     }
@@ -179,10 +177,6 @@ private:
 
     Status _send_rerun_fragments(RuntimeState* state, PRerunFragmentParams_Opcode stage) const {
         for (auto fragment : _fragments_to_reset) {
-            if (state->fragment_id() == fragment.fragment_id) {
-                return Status::InternalError("Fragment {} contains a recursive CTE node",
-                                             fragment.fragment_id);
-            }
             auto stub =
                     state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(
                             fragment.addr);
@@ -202,14 +196,16 @@ private:
                 return Status::InternalError(controller.ErrorText());
             }
 
-            RETURN_IF_ERROR(Status::create(result.status()));
+            auto rpc_st = Status::create(result.status());
+            if (!rpc_st.ok()) {
+                return rpc_st;
+            }
         }
         return Status::OK();
     }
 
     friend class RecCTESourceLocalState;
-
-    vectorized::VExprContextSPtrs _child_expr;
+    std::vector<vectorized::DataTypePtr> _hash_table_key_types;
 
     const bool _is_union_all = false;
     std::vector<TRecCTETarget> _targets;
@@ -218,7 +214,7 @@ private:
 
     int _max_recursion_depth = 0;
 
-    bool _aready_send_close = false;
+    bool _already_send_close = false;
 
     bool _is_used_by_other_rec_cte = false;
 };

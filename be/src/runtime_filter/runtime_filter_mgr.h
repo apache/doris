@@ -28,13 +28,11 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
-#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "util/runtime_profile.h"
 #include "util/uid_util.h"
 
 namespace butil {
@@ -73,6 +71,8 @@ struct GlobalMergeContext {
     std::unordered_set<UniqueId> arrive_id;
     std::vector<PNetworkAddress> source_addrs;
     std::atomic<bool> done = false;
+
+    Status reset(QueryContext* query_ctx);
 };
 
 // owned by RuntimeState

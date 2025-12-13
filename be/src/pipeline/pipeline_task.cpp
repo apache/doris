@@ -32,6 +32,7 @@
 #include "pipeline/dependency.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/rec_cte_source_operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_fragment_context.h"
@@ -553,6 +554,10 @@ Status PipelineTask::execute(bool* done) {
                 }
             }
 
+            if (_eos && !_sink->need_rerun(_state)) {
+                RETURN_IF_ERROR(close(Status::OK(), false));
+            }
+
             DBUG_EXECUTE_IF("PipelineTask::execute.sink_eos_sleep", {
                 auto required_pipeline_id =
                         DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -602,8 +607,6 @@ Status PipelineTask::execute(bool* done) {
                                 "Only ExchangeSourceOperatorX can be rerun, real is {}",
                                 _root->get_name());
                     }
-                } else {
-                    RETURN_IF_ERROR(close(Status::OK(), false));
                 }
             }
 
@@ -739,7 +742,7 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
         for (auto& op : _operators) {
             auto tem = op->close(_state);
             if (!tem.ok() && s.ok()) {
-                s = tem;
+                s = std::move(tem);
             }
         }
     }

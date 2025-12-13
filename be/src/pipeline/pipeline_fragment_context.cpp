@@ -320,7 +320,7 @@ Status PipelineFragmentContext::prepare(ThreadPool* thread_pool) {
 
         auto* fragment_context = this;
 
-        if (!_need_notify_close && _params.query_options.__isset.is_report_success) {
+        if (_params.query_options.__isset.is_report_success) {
             fragment_context->set_is_report_success(_params.query_options.is_report_success);
         }
 
@@ -1793,10 +1793,16 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
     Defer defer_op {[&]() {
         _is_fragment_instance_closed = true;
-        _close_cv.notify_all();
+        _notify_cv.notify_all();
     }};
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
-    static_cast<void>(send_report(true));
+    if (!_need_notify_close) {
+        auto st = send_report(true);
+        if (!st) {
+            LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
+                                        print_id(_query_id), _fragment_id, st.to_string());
+        }
+    }
     // Print profile content in info log is a tempoeray solution for stream load and external_connector.
     // Since stream load does not have someting like coordinator on FE, so
     // backend can not report profile to FE, ant its profile can not be shown
@@ -1971,8 +1977,11 @@ std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const 
 std::string PipelineFragmentContext::debug_string() {
     std::lock_guard<std::mutex> l(_task_mutex);
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "PipelineFragmentContext Info:\nneed_notify_close: {}\n",
-                   _need_notify_close);
+    fmt::format_to(debug_string_buffer,
+                   "PipelineFragmentContext Info: _closed_tasks={}, _total_tasks={}, "
+                   "need_notify_close={}, has_task_execution_ctx_ref_count={}\n",
+                   _closed_tasks, _total_tasks, _need_notify_close,
+                   _has_task_execution_ctx_ref_count);
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
@@ -2057,10 +2066,17 @@ Status PipelineFragmentContext::wait_close(bool close) {
 
     {
         std::unique_lock<std::mutex> lock(_task_mutex);
-        _close_cv.wait(lock, [this] { return _is_fragment_instance_closed.load(); });
+        _notify_cv.wait(lock, [this] {
+            return _is_fragment_instance_closed.load() && !_has_task_execution_ctx_ref_count;
+        });
     }
 
     if (close) {
+        auto st = send_report(true);
+        if (!st) {
+            LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
+                                        print_id(_query_id), _fragment_id, st.to_string());
+        }
         _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
     }
     return Status::OK();
