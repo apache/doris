@@ -513,6 +513,22 @@ TEST(MathFunctionTest, bin_test) {
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
+TEST(MathFunctionTest, bin_string_test) {
+    std::string func_name = "bin";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+    DataSet data_set = {{{std::string("10")}, std::string("1010")},
+                        {{std::string("1")}, std::string("1")},
+                        {{std::string("A1")}, std::string("0")},
+                        {{std::string("1A")}, std::string("1")},
+                        {{std::string("\t\t1")}, std::string("1")},
+                        {{std::string("0")}, std::string("0")},
+                        {{Null()}, Null()}};
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
 TEST(MathFunctionTest, hex_test) {
     std::string func_name = "hex"; // hex(int)
 

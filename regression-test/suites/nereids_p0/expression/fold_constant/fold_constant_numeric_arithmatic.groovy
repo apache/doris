@@ -148,6 +148,14 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT BIN(-9223372036854775808)") // Min bigint
     testFoldConst("SELECT BIN(2147483647)") // Max int
     testFoldConst("SELECT BIN(-2147483648)") // Min int
+    testFoldConst("SELECT BIN('1234')")
+    testFoldConst("SELECT BIN('  123')")
+    testFoldConst("SELECT BIN('\t123')")
+    testFoldConst("SELECT BIN('-123')")
+    testFoldConst("SELECT BIN('  -123')")
+    testFoldConst("SELECT BIN('123abc')")
+    testFoldConst("SELECT BIN('abc')")
+    testFoldConst("SELECT BIN('')")
 
 //BitCount function cases
     testFoldConst("SELECT BIT_COUNT(5) AS bitcount_case_1") //bitcount(5) = 2 (101 has two 1s)

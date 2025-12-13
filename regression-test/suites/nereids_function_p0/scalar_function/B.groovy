@@ -21,6 +21,10 @@ suite("nereids_scalar_fn_B") {
 	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_bin_BigInt "select bin(kbint) from fn_test order by kbint"
 	qt_sql_bin_BigInt_notnull "select bin(kbint) from fn_test_not_nullable order by kbint"
+	qt_sql_bin_Varchar "select bin(kvchrs1) from fn_test order by kvchrs1"
+	qt_sql_bin_Varchar_notnull "select bin(kvchrs1) from fn_test_not_nullable order by kvchrs1"
+	qt_sql_bin_String "select bin(kstr) from fn_test order by kstr"
+	qt_sql_bin_String_notnull "select bin(kstr) from fn_test_not_nullable order by kstr"
 	qt_sql_bit_length_Varchar "select bit_length(kvchrs1) from fn_test order by kvchrs1"
 	qt_sql_bit_length_Varchar_notnull "select bit_length(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_bit_length_String "select bit_length(kstr) from fn_test order by kstr"

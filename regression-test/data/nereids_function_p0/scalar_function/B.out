@@ -28,6 +28,64 @@
 1011
 1100
 
+-- !sql_bin_Varchar --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_bin_Varchar_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_bin_String --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_bin_String_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
 -- !sql_bit_length_Varchar --
 32
 72

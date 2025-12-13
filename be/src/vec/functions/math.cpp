@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 // IWYU pragma: no_include <bits/std_abs.h>
@@ -32,6 +33,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/string_utils/string_utils.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
@@ -572,14 +574,34 @@ struct NameDegrees {
 
 using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl<double>, NameDegrees, TYPE_DOUBLE>;
 
-struct NameBin {
-    static constexpr auto name = "bin";
-};
 struct BinImpl {
-    using ReturnType = DataTypeString;
-    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_BIGINT;
-    using Type = Int64;
-    using ReturnColumnType = ColumnString;
+    static int64_t get_number(StringRef& ref) {
+        size_t pos = 0;
+        while (pos < ref.size && is_whitespace_ascii(ref.data[pos])) {
+            ++pos;
+        }
+
+        bool negative = false;
+        if (pos < ref.size && ref.data[pos] == '-') {
+            negative = true;
+            ++pos;
+        }
+
+        int64_t num = 0;
+        bool has_digits = false;
+        while (pos < ref.size && std::isdigit(ref.data[pos])) {
+            num = num * 10 + (ref.data[pos] - '0');
+            has_digits = true;
+            ++pos;
+        }
+        if (negative) {
+            num = -num;
+        }
+        if (!has_digits) {
+            num = 0;
+        }
+        return num;
+    }
 
     static std::string bin_impl(Int64 value) {
         auto n = static_cast<uint64_t>(value);
@@ -592,19 +614,62 @@ struct BinImpl {
         return std::string(result + index, max_bits - index);
     }
 
-    static Status vector(const ColumnInt64::Container& data, ColumnString::Chars& res_data,
-                         ColumnString::Offsets& res_offsets) {
-        res_offsets.resize(data.size());
-        size_t input_size = res_offsets.size();
-
-        for (size_t i = 0; i < input_size; ++i) {
-            StringOP::push_value_string(bin_impl(data[i]), i, res_data, res_offsets);
+    static Status vector(ColumnPtr argument_column, size_t input_rows_count,
+                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        if (const auto* int_col = check_and_get_column<ColumnInt64>(argument_column.get())) {
+            res_offsets.resize(input_rows_count);
+            const auto& data = int_col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                StringOP::push_value_string(bin_impl(data[i]), i, res_data, res_offsets);
+            }
+        } else if (const auto* str_col =
+                           check_and_get_column<ColumnString>(argument_column.get())) {
+            const auto& data = str_col->get_chars();
+            const auto& offsets = str_col->get_offsets();
+            res_offsets.resize(input_rows_count);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                size_t start = (i == 0 ? 0 : offsets[i - 1]);
+                size_t end = offsets[i];
+                StringRef str_ref(&data[start], end - start);
+                int64_t num = get_number(str_ref);
+                std::string bin_str = bin_impl(num);
+                StringOP::push_value_string(bin_str, i, res_data, res_offsets);
+            }
+        } else {
+            return Status::InvalidArgument("Unsupported column type {} for function bin",
+                                           argument_column->get_name());
         }
         return Status::OK();
     }
 };
 
-using FunctionBin = FunctionUnaryToType<BinImpl, NameBin>;
+class FunctionBin : public IFunction {
+public:
+    static constexpr auto name = "bin";
+    static FunctionPtr create() { return std::make_shared<FunctionBin>(); }
+
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
+
+        auto result_data_column = ColumnString::create();
+        auto& result_data = result_data_column->get_chars();
+        auto& result_offset = result_data_column->get_offsets();
+
+        RETURN_IF_ERROR(
+                BinImpl::vector(argument_column, input_rows_count, result_data, result_offset));
+
+        block.replace_by_position(result, std::move(result_data_column));
+        return Status::OK();
+    }
+};
 
 struct PowImpl {
     static constexpr PrimitiveType type = TYPE_DOUBLE;
@@ -973,6 +1038,7 @@ private:
 using FunctionIsNan = FunctionFloatingPointNumberJudgment<ImplIsNan>;
 using FunctionIsInf = FunctionFloatingPointNumberJudgment<ImplIsInf>;
 
+// NOLINTBEGIN(readability-function-size)
 void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAcosh>();
@@ -1056,4 +1122,5 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsNan>();
     factory.register_function<FunctionIsInf>();
 }
+// NOLINTEND(readability-function-size)
 } // namespace doris::vectorized

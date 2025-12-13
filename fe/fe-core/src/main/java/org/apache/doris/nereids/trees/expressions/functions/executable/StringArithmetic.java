@@ -426,6 +426,43 @@ public class StringArithmetic {
     }
 
     /**
+     * Executable arithmetic functions Bin (StringLike)
+     */
+    @ExecFunction(name = "bin")
+    public static Expression bin(StringLikeLiteral first) {
+        String str = first.getValue();
+        if (str == null || str.isEmpty()) {
+            return castStringLikeLiteral(first, "0");
+        }
+
+        // Skip whitespaces
+        int pos = 0;
+        while (pos < str.length() && Character.isWhitespace(str.charAt(pos))) {
+            pos++;
+        }
+        boolean negative = false;
+        if (pos < str.length() && str.charAt(pos) == '-') {
+            negative = true;
+            pos++;
+        }
+
+        long num = 0;
+        boolean hasDigits = false;
+        while (pos < str.length() && Character.isDigit(str.charAt(pos))) {
+            num = num * 10 + (str.charAt(pos) - '0');
+            hasDigits = true;
+            pos++;
+        }
+        if (negative) {
+            num = -num;
+        }
+        if (!hasDigits) {
+            num = 0;
+        }
+        return castStringLikeLiteral(first, Long.toBinaryString(num));
+    }
+
+    /**
      * Executable arithmetic functions ConcatWs
      */
     @ExecFunction(name = "concat_ws")
