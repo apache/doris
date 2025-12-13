@@ -114,6 +114,9 @@ struct RecCTESharedState : public BasicSharedState {
     }
 
     Status send_data_to_targets(RuntimeState* state, size_t round_offset) const {
+        if (targets.size() == 0) {
+            return Status::OK();
+        }
         int send_multi_blocks_byte_size = state->query_options().exchange_multi_blocks_byte_size;
         int block_number_per_target =
                 int(blocks.size() - round_offset + targets.size() - 1) / targets.size();

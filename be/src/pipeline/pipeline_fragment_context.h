@@ -196,7 +196,6 @@ private:
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
     std::mutex _task_mutex;
-    std::condition_variable _close_cv;
     int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
