@@ -42,25 +42,25 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
 
     @Override
     public Plan visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink,
-                                       StatementContext context) {
+            StatementContext context) {
         return createCteForRootNode(unboundResultSink, context);
     }
 
     @Override
     public Plan visitUnboundTableSink(UnboundTableSink<? extends Plan> unboundTableSink,
-                                      StatementContext context) {
+            StatementContext context) {
         return createCteForRootNode(unboundTableSink, context);
     }
 
     @Override
     public Plan visitLogicalFileSink(LogicalFileSink<? extends Plan> logicalFileSink,
-                                     StatementContext context) {
+            StatementContext context) {
         return createCteForRootNode(logicalFileSink, context);
     }
 
     @Override
     public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
-                                          StatementContext context) {
+            StatementContext context) {
         if (findLeadingHintIgnoreSortAndLimit(alias.child())) {
             aliasQueries.add((LogicalSubQueryAlias<Plan>) alias);
             List<String> tableName = new ArrayList<>();
@@ -83,7 +83,8 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
             subQueryAliasesOfCte.addAll(logicalCTE.getAliasQueries());
             subQueryAliasesOfCte.addAll(aliasQueries);
             aliasQueries = new ArrayList<>();
-            return new LogicalCTE<>(subQueryAliasesOfCte, (LogicalPlan) newLogicalCTE.child());
+            return new LogicalCTE<>(newLogicalCTE.isRecursiveCte(), subQueryAliasesOfCte,
+                    (LogicalPlan) newLogicalCTE.child());
         }
         return cte;
     }
@@ -97,10 +98,11 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
                 subQueryAliases.addAll(logicalCTE.getAliasQueries());
                 subQueryAliases.addAll(aliasQueries);
                 return topPlan.withChildren(
-                        new LogicalCTE<>(subQueryAliases, (LogicalPlan) topPlan.child(0)));
+                        new LogicalCTE<>(logicalCTE.isRecursiveCte(), subQueryAliases,
+                                (LogicalPlan) topPlan.child(0)));
             }
             return topPlan.withChildren(
-                    new LogicalCTE<>(aliasQueries, (LogicalPlan) topPlan.child(0)));
+                    new LogicalCTE<>(false, aliasQueries, (LogicalPlan) topPlan.child(0)));
         }
         return topPlan;
     }
