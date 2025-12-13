@@ -1638,6 +1638,8 @@ DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
 
 DEFINE_mBool(enable_fuzzy_storage_encoding, "false");
 
+DEFINE_mInt64(rowid_conversion_max_bytes, "-1");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
