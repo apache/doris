@@ -132,6 +132,7 @@ public class SummaryProfile {
     public static final String RPC_WORK_TIME = "RPC Work Time";
     public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
     public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
+    public static final String ICEBERG_SCAN_METRICS = "Iceberg Scan Metrics";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
@@ -164,6 +165,7 @@ public class SummaryProfile {
             GET_PARTITION_FILES_TIME,
             SINK_SET_PARTITION_VALUES_TIME,
             CREATE_SCAN_RANGE_TIME,
+            ICEBERG_SCAN_METRICS,
             NEREIDS_DISTRIBUTE_TIME,
             GET_META_VERSION_TIME,
             GET_PARTITION_VERSION_TIME,
@@ -215,6 +217,7 @@ public class SummaryProfile {
             .put(GET_PARTITION_FILES_TIME, 3)
             .put(SINK_SET_PARTITION_VALUES_TIME, 3)
             .put(CREATE_SCAN_RANGE_TIME, 2)
+            .put(ICEBERG_SCAN_METRICS, 3)
             .put(GET_PARTITION_VERSION_TIME, 1)
             .put(GET_PARTITION_VERSION_COUNT, 1)
             .put(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, 1)
