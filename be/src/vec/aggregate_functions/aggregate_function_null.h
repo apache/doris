@@ -216,13 +216,13 @@ public:
                 for (int i = 0; i != num_rows; ++i) {
                     buf.read_binary(*(bool*)(rhs + size_of_data * i));
                     if (get_flag(rhs + size_of_data * i)) {
-                        set_flag(places[i] + offset);
                         nested_function->deserialize(nested_place(rhs + size_of_data * i), buf,
                                                      arena);
                     }
                 }
                 for (size_t i = 0; i != num_rows; ++i) {
                     if (get_flag(rhs + size_of_data * i)) {
+                        set_flag(places[i] + offset);
                         nested_function->merge(nested_place(places[i] + offset),
                                                nested_place(rhs + size_of_data * i), arena);
                     }
@@ -247,9 +247,34 @@ public:
         if (nested_function->is_trivial()) {
             BufferReadable buf({column->get_data_at(0).data, 0});
             size_t size_of_data = this->size_of_data();
-            for (size_t i = 0; i != num_rows; ++i) {
-                if (places[i]) {
-                    deserialize_and_merge(places[i] + offset, rhs + size_of_data * i, buf, arena);
+            if constexpr (result_is_nullable) {
+                for (int i = 0; i != num_rows; ++i) {
+                    if (!places[i]) {
+                        continue;
+                    }
+                    buf.read_binary(*(bool*)(rhs + size_of_data * i));
+                    if (get_flag(rhs + size_of_data * i)) {
+                        nested_function->deserialize(nested_place(rhs + size_of_data * i), buf,
+                                                     arena);
+                    }
+                }
+                for (size_t i = 0; i != num_rows; ++i) {
+                    if (places[i] && get_flag(rhs + size_of_data * i)) {
+                        set_flag(places[i] + offset);
+                        nested_function->merge(nested_place(places[i] + offset),
+                                               nested_place(rhs + size_of_data * i), arena);
+                    }
+                }
+            } else {
+                for (size_t i = 0; i != num_rows; ++i) {
+                    if (places[i]) {
+                        nested_function->deserialize(rhs + size_of_data * i, buf, arena);
+                    }
+                }
+                for (size_t i = 0; i != num_rows; ++i) {
+                    if (places[i]) {
+                        nested_function->merge(places[i] + offset, rhs + size_of_data * i, arena);
+                    }
                 }
             }
         } else {
