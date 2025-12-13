@@ -32,6 +32,7 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/hybrid_sorter.h"
 #include "vec/core/sort_block.h"
 #include "vec/core/sort_description.h"
 #include "vec/core/types.h"
@@ -110,7 +111,10 @@ struct AggregateFunctionSortData {
         }
     }
 
-    void sort() { sort_block(block, block, sort_desc, block.rows()); }
+    void sort() {
+        HybridSorter hybrid_sorter {SortAlgo::kAuto};
+        sort_block(block, block, sort_desc, hybrid_sorter, block.rows());
+    }
 };
 
 template <typename Data>

@@ -414,7 +414,7 @@ struct ColumnStruct::less {
 };
 
 void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                   IColumn::Permutation& res) const {
+                                   HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -422,9 +422,9 @@ void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), ColumnStruct::less<false>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnStruct::less<false>(*this, nan_direction_hint));
     } else {
-        pdqsort(res.begin(), res.end(), ColumnStruct::less<true>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnStruct::less<true>(*this, nan_direction_hint));
     }
 }
 

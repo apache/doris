@@ -57,7 +57,7 @@ Status HeapSorter::append_block(Block* block) {
         for (auto& d : rev_desc) {
             d.direction *= -1;
         }
-        sort_block(*tmp_block, *sorted_block, rev_desc, 0 /*limit*/);
+        sort_block(*tmp_block, *sorted_block, rev_desc, _hybrid_sorter, 0 /*limit*/);
         _queue_row_num += sorted_block->rows();
         _data_size += sorted_block->allocated_bytes();
         _queue.push(MergeSortCursor(MergeSortCursorImpl::create_shared(sorted_block, rev_desc)));
