@@ -58,8 +58,9 @@ public:
     size_t block_count() const { return block_count_; }
 
     void set_counters(RuntimeProfile* operator_profile) {
-        RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
-        DCHECK(custom_profile != nullptr);
+        auto custom_profile_opt = operator_profile->get_child("CustomCounters");
+        DCHECK(custom_profile_opt.has_value());
+        RuntimeProfile* custom_profile = *custom_profile_opt;
         _read_file_timer = custom_profile->get_counter("SpillReadFileTime");
         _deserialize_timer = custom_profile->get_counter("SpillReadDerializeBlockTime");
         _read_block_count = custom_profile->get_counter("SpillReadBlockCount");

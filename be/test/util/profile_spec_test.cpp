@@ -173,8 +173,8 @@ TEST_F(ProfileSpecTest, CommonCountersCustomCounters) {
     std::ignore = local_state->init(runtime_state.get(), info);
 
     ASSERT_TRUE(local_state->operator_profile() != nullptr);
-    ASSERT_TRUE(local_state->operator_profile()->get_child("CustomCounters") != nullptr);
-    ASSERT_TRUE(local_state->operator_profile()->get_child("CommonCounters") != nullptr);
+    ASSERT_TRUE(local_state->operator_profile()->get_child("CustomCounters").has_value());
+    ASSERT_TRUE(local_state->operator_profile()->get_child("CommonCounters").has_value());
 }
 
 } // namespace doris::pipeline

@@ -48,8 +48,9 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
           batch_bytes_(batch_bytes),
           query_id_(state->query_id()),
           profile_(operator_profile) {
-    RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
-    DCHECK(custom_profile != nullptr);
+    auto custom_profile_opt = operator_profile->get_child("CustomCounters");
+    DCHECK(custom_profile_opt.has_value());
+    RuntimeProfile* custom_profile = *custom_profile_opt;
     _total_file_count = custom_profile->get_counter("SpillWriteFileTotalCount");
     _current_file_count = custom_profile->get_counter("SpillWriteFileCurrentCount");
     _current_file_size = custom_profile->get_counter("SpillWriteFileCurrentBytes");
