@@ -37,7 +37,8 @@ public enum AggregateType {
     NONE("NONE"),
     BITMAP_UNION("BITMAP_UNION"),
     QUANTILE_UNION("QUANTILE_UNION"),
-    GENERIC("GENERIC");
+    GENERIC("GENERIC"),
+    FIRST("FIRST");
 
     private static EnumMap<AggregateType, EnumSet<PrimitiveType>> compatibilityMap;
 
@@ -53,6 +54,7 @@ public enum AggregateType {
         aggTypeMap.put("HLL_UNION", AggregateType.HLL_UNION);
         aggTypeMap.put("BITMAP_UNION", AggregateType.BITMAP_UNION);
         aggTypeMap.put("QUANTILE_UNION", AggregateType.QUANTILE_UNION);
+        aggTypeMap.put("FIRST", AggregateType.FIRST);
     }
 
     static {
@@ -136,6 +138,8 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.QUANTILE_STATE);
         compatibilityMap.put(QUANTILE_UNION, EnumSet.copyOf(primitiveTypeList));
 
+        compatibilityMap.put(FIRST, EnumSet.copyOf(excObjectStored));
+
         compatibilityMap.put(NONE, EnumSet.copyOf(excObjectStored));
     }
 
@@ -164,6 +168,7 @@ public enum AggregateType {
 
     public boolean isReplaceFamily() {
         switch (this) {
+            case FIRST:
             case REPLACE:
             case REPLACE_IF_NOT_NULL:
                 return true;
@@ -192,6 +197,8 @@ public enum AggregateType {
                 return TAggregationType.BITMAP_UNION;
             case QUANTILE_UNION:
                 return TAggregationType.QUANTILE_UNION;
+            case FIRST:
+                return TAggregationType.FIRST;
             default:
                 return null;
         }

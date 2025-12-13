@@ -170,6 +170,31 @@ TEST_F(TabletSchemaTest, test_tablet_index_init_from_thrift) {
     EXPECT_EQ("unicode", props.at("parser"));
 }
 
+TEST_F(TabletSchemaTest, test_first_aggregation_type_from_string) {
+    auto agg = TabletColumn::get_aggregation_type_by_string("first");
+    EXPECT_EQ(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_FIRST, agg);
+    auto agg2 = TabletColumn::get_aggregation_type_by_string("FIRST");
+    EXPECT_EQ(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_FIRST, agg2);
+}
+
+TEST_F(TabletSchemaTest, test_first_aggregation_type_thrift_and_string) {
+    TColumn tcolumn;
+    tcolumn.__set_column_name("first_col");
+    TColumnType column_type;
+    column_type.__set_type(TPrimitiveType::INT);
+    column_type.__set_len(4);
+    tcolumn.__set_column_type(column_type);
+    tcolumn.__set_is_key(false);
+    tcolumn.__set_is_allow_null(true);
+    tcolumn.__set_aggregation_type(TAggregationType::FIRST);
+
+    TabletColumn tablet_column;
+    tablet_column.init_from_thrift(tcolumn);
+
+    EXPECT_EQ(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_FIRST, tablet_column.aggregation());
+    EXPECT_EQ("FIRST", TabletColumn::get_string_by_aggregation_type(tablet_column.aggregation()));
+}
+
 TEST_F(TabletSchemaTest, test_tablet_schema_inverted_indexs) {
     TabletSchema schema;
 

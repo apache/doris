@@ -181,7 +181,8 @@ enum class FieldAggregationMethod {
     // Replace if and only if added value is not null
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
     OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9,
-    OLAP_FIELD_AGGREGATION_GENERIC = 10
+    OLAP_FIELD_AGGREGATION_GENERIC = 10,
+    OLAP_FIELD_AGGREGATION_FIRST = 11
 };
 
 enum class PushType {

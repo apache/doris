@@ -301,6 +301,8 @@ FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::s
         aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_BITMAP_UNION;
     } else if (0 == upper_str.compare("QUANTILE_UNION")) {
         aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_QUANTILE_UNION;
+    } else if (0 == upper_str.compare("FIRST")) {
+        aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_FIRST;
     } else if (!upper_str.empty()) {
         aggregation_type = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC;
     } else {
@@ -453,6 +455,9 @@ std::string TabletColumn::get_string_by_aggregation_type(FieldAggregationMethod 
 
     case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
         return "QUANTILE_UNION";
+
+    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_FIRST:
+        return "FIRST";
 
     default:
         return "UNKNOWN";

@@ -33,6 +33,8 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
 
 void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
 
+void register_aggregate_function_first_reader_load(AggregateFunctionSimpleFactory& factory);
+
 } // namespace doris::vectorized
 
 #include "common/compile_check_end.h"
