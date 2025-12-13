@@ -131,10 +131,11 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
+    Status st = Status::OK();
     if (in_block->rows() > 0) {
         {
             SCOPED_TIMER(local_state._append_blocks_timer);
-            RETURN_IF_ERROR(local_state._shared_state->sorter->append_block(in_block));
+            st = local_state._shared_state->sorter->append_block(in_block);
         }
         int64_t data_size = local_state._shared_state->sorter->data_size();
         COUNTER_SET(local_state._sort_blocks_memory_usage, data_size);
@@ -159,11 +160,11 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
         }
     }
 
-    if (eos) {
+    if (eos || st.is<ErrorCode::END_OF_FILE>()) {
         RETURN_IF_ERROR(local_state._shared_state->sorter->prepare_for_read(false));
         local_state._dependency->set_ready_to_read();
     }
-    return Status::OK();
+    return st;
 }
 
 size_t SortSinkOperatorX::get_reserve_mem_size_for_next_sink(RuntimeState* state, bool eos) {
