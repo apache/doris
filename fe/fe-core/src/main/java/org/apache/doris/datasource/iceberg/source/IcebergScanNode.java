@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -37,6 +38,7 @@ import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -114,6 +116,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
+    // Planner for Iceberg file scan tasks with optional manifest cache support
+    private final IcebergFileScanPlanner fileScanPlanner = new IcebergFileScanPlanner();
 
     // for test
     @VisibleForTesting
@@ -359,7 +363,40 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
         long targetSplitSize = getRealFileSplitSize(0);
-        return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+
+        if (!Config.enable_iceberg_manifest_cache) {
+            // Cache disabled, use original logic
+            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+        }
+
+        // Use cache logic
+        try {
+            IcebergManifestCache manifestCache = Env.getCurrentEnv()
+                    .getExtMetaCacheMgr()
+                    .getIcebergMetadataCache()
+                    .getManifestCache();
+
+            Snapshot snapshot = scan.snapshot();
+            if (snapshot == null) {
+                return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+            }
+
+            String tableName = resolveTableName();
+            IcebergFileScanPlanner.PlanContext ctx = new IcebergFileScanPlanner.PlanContext(
+                    scan, icebergTable, snapshot, manifestCache, tableName);
+
+            CloseableIterable<FileScanTask> tasks = fileScanPlanner.planWithCache(ctx);
+            return TableScanUtil.splitFiles(tasks, targetSplitSize);
+        } catch (Exception e) {
+            LOG.warn("Failed to use manifest cache, fallback to normal plan", e);
+            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+        }
+    }
+
+    private String resolveTableName() {
+        // Use the same key format as manifest cache invalidation: catalogId.db.table
+        ExternalTable table = (ExternalTable) desc.getTable();
+        return table.getCatalog().getId() + "." + table.getDbName() + "." + table.getName();
     }
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {
@@ -667,4 +704,3 @@ public class IcebergScanNode extends FileQueryScanNode {
         return Optional.empty();
     }
 }
-
