@@ -334,5 +334,10 @@ suite("cte") {
     sql """
         WITH cte_0 AS ( SELECT 1 AS a ), cte_1 AS ( SELECT 1 AS a ) select * from cte_0, cte_1 union select * from cte_0, cte_1
     """
+
+    // test more than one project on cte consumer
+    sql """
+        with a as (select 1 c1) select *, uuid() from a union all select c2, c2 from (select c1 + 1, uuid() c2 from a) x ;
+    """
 }
 
