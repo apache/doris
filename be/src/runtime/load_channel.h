@@ -82,7 +82,7 @@ protected:
     Status _handle_eos(BaseTabletsChannel* channel, const PTabletWriterAddBlockRequest& request,
                        PTabletWriterAddBlockResult* response);
 
-    void _init_profile();
+    void _init_profile(int64_t sender_id);
     // thread safety
     void _report_profile(PTabletWriterAddBlockResult* response);
 
