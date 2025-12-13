@@ -130,33 +130,44 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
         return;
     }
 
-    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
-    if (start + length > src_concrete.offsets.size()) {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "Parameter out of bound in "
-                               "IColumnStr<T>::insert_range_from_ignore_overflow method.");
-    }
-
-    auto nested_offset = src_concrete.offset_at(start);
-    auto nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
-
-    size_t old_chars_size = chars.size();
-    chars.resize(old_chars_size + nested_length);
-    memcpy(&chars[old_chars_size], &src_concrete.chars[nested_offset], nested_length);
-
-    if (start == 0 && offsets.empty()) {
-        offsets.assign(src_concrete.offsets.begin(), src_concrete.offsets.begin() + length);
-    } else {
-        size_t old_size = offsets.size();
-        auto prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
-        offsets.resize(old_size + length);
-
-        for (size_t i = 0; i < length; ++i) {
-            // unsinged integer overflow is well defined in C++,
-            // so we don't need to check the overflow here.
-            offsets[old_size + i] =
-                    src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
+    auto do_insert = [&](const auto& src_concrete) {
+        const auto& src_offsets = src_concrete.get_offsets();
+        const auto& src_chars = src_concrete.get_chars();
+        if (start + length > src_offsets.size()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Parameter out of bound in "
+                                   "IColumnStr<T>::insert_range_from_ignore_overflow method.");
         }
+
+        auto nested_offset = src_offsets[static_cast<ssize_t>(start) - 1];
+        auto nested_length = src_offsets[start + length - 1] - nested_offset;
+
+        size_t old_chars_size = chars.size();
+        chars.resize(old_chars_size + nested_length);
+        memcpy(&chars[old_chars_size], &src_chars[nested_offset], nested_length);
+
+        using OffsetsType = std::decay_t<decltype(src_offsets)>;
+        if (std::is_same_v<T, typename OffsetsType::value_type> && start == 0 && offsets.empty()) {
+            offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
+        } else {
+            size_t old_size = offsets.size();
+            auto prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
+            offsets.resize(old_size + length);
+
+            for (size_t i = 0; i < length; ++i) {
+                // unsinged integer overflow is well defined in C++,
+                // so we don't need to check the overflow here.
+                offsets[old_size + i] =
+                        static_cast<T>(src_offsets[start + i] - nested_offset) + prev_max_offset;
+            }
+        }
+    };
+
+    // needed when dst_column has been converted to uint64_t but src is still uint32_t
+    if (src.is_column_string64()) {
+        do_insert(assert_cast<const ColumnStr<uint64_t>&>(src));
+    } else {
+        do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
 
 #ifndef NDEBUG
