@@ -16,33 +16,53 @@
 // under the License.
 
 suite("test_string_function_levenshtein") {
-    qt_select "SELECT levenshtein('kitten', 'sitting')"
-    qt_select "SELECT levenshtein('hello', 'hello')"
-    qt_select "SELECT levenshtein('a', '')"
-    qt_select "SELECT levenshtein('', 'a')"
-    qt_select "SELECT levenshtein('', '')"
-    qt_select "SELECT levenshtein('abc', 'abdc')"
-    qt_select "SELECT levenshtein('abcd', 'abc')"
-    qt_select "SELECT levenshtein('abc', 'def')"
-    qt_select "SELECT levenshtein('abc', 'ABC')"
-    qt_select "SELECT levenshtein('测试', '测试')"
-    qt_select "SELECT levenshtein('测试', '测验')"
-    qt_select "SELECT levenshtein(NULL, 'abc')"
-    qt_select "SELECT levenshtein('abc', NULL)"
+    // 1. Constant Value Tests (Sanity Check)
+    qt_select_const "SELECT levenshtein('kitten', 'sitting')"
+    qt_select_const "SELECT levenshtein('hello', 'hello')"
+    qt_select_const "SELECT levenshtein('abc', '')"
+    qt_select_const "SELECT levenshtein('', 'def')"
+    // UTF-8 fix check: '中国' (2 chars) vs '中' (1 char) -> Distance 1
+    qt_select_const "SELECT levenshtein('中国', '中')"
+    // UTF-8 fix check: '测试' (2 chars) vs '测验' (2 chars) -> Distance 1
+    qt_select_const "SELECT levenshtein('测试', '测验')"
+    qt_select_const "SELECT levenshtein(NULL, 'abc')"
 
+    // 2. Prepare Table Data for Column Tests
     def tableName = "test_levenshtein_tbl"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
         CREATE TABLE ${tableName} (
             `id` int,
-            `col1` string,
-            `col2` string
+            `s1` string,
+            `s2` string
         ) DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1"
         )
     """
-    sql "INSERT INTO ${tableName} VALUES (1, 'apple', 'app'), (2, 'book', 'back'), (3, NULL, 'abc')"
-    qt_select "SELECT id, levenshtein(col1, col2) FROM ${tableName} ORDER BY id"
+
+    // Insert data covering boundary and UTF-8 cases
+    sql """
+        INSERT INTO ${tableName} VALUES 
+        (1, 'kitten', 'sitting'),
+        (2, 'rosettacode', 'raisethysword'),
+        (3, 'abc', 'abc'),
+        (4, '', 'abc'),
+        (5, 'abc', ''),
+        (6, '中国', '中'),
+        (7, '测试', '测验'),
+        (8, NULL, 'abc'),
+        (9, 'abc', NULL)
+    """
+
+    // 3. Column vs Column Test
+    qt_select_col_col "SELECT id, levenshtein(s1, s2) FROM ${tableName} ORDER BY id"
+
+    // 4. Partial Constant Test: Column vs Constant (Reviewer Request)
+    qt_select_col_const "SELECT id, levenshtein(s1, 'abc') FROM ${tableName} ORDER BY id"
+
+    // 5. Partial Constant Test: Constant vs Column (Reviewer Request)
+    qt_select_const_col "SELECT id, levenshtein('kitten', s2) FROM ${tableName} ORDER BY id"
+
     sql "DROP TABLE ${tableName}"
 }
