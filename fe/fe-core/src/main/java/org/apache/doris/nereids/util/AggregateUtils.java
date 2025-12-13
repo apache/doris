@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
@@ -85,7 +86,8 @@ public class AggregateUtils {
         ConnectContext ctx = ConnectContext.get();
         return ctx != null && !ctx.getSessionVariable().disableStreamPreaggregations
                 && !groupExpressions.isEmpty()
-                && param.aggPhase.isLocal();
+                && param.aggPhase.isLocal()
+                && param.aggMode == AggMode.INPUT_TO_BUFFER;
     }
 
     /**hasUnknownStatistics*/
