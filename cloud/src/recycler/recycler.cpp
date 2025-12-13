@@ -36,8 +36,10 @@
 #include <initializer_list>
 #include <memory>
 #include <numeric>
+#include <random>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -77,6 +79,22 @@
 namespace doris::cloud {
 
 using namespace std::chrono;
+
+namespace {
+
+int64_t packed_file_retry_sleep_ms() {
+    const int64_t min_ms = std::max<int64_t>(0, config::packed_file_txn_retry_sleep_min_ms);
+    const int64_t max_ms = std::max<int64_t>(min_ms, config::packed_file_txn_retry_sleep_max_ms);
+    thread_local std::mt19937_64 gen(std::random_device {}());
+    std::uniform_int_distribution<int64_t> dist(min_ms, max_ms);
+    return dist(gen);
+}
+
+void sleep_for_packed_file_retry() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(packed_file_retry_sleep_ms()));
+}
+
+} // namespace
 
 // return 0 for success get a key, 1 for key not found, negative for error
 [[maybe_unused]] static int txn_get(TxnKv* txn_kv, std::string_view key, std::string& val) {
@@ -1190,132 +1208,160 @@ int InstanceRecycler::correct_packed_file_info(cloud::PackedFileInfoPB* packed_i
 int InstanceRecycler::process_single_packed_file(const std::string& packed_key,
                                                  const std::string& packed_file_path,
                                                  PackedFileRecycleStats* stats) {
-    if (stopped()) {
-        LOG_WARNING("recycler stopped before processing packed file")
-                .tag("instance_id", instance_id_)
-                .tag("packed_file_path", packed_file_path);
-        return -1;
-    }
-
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to create txn when processing packed file")
-                .tag("instance_id", instance_id_)
-                .tag("packed_file_path", packed_file_path)
-                .tag("err", err);
-        return -1;
-    }
-
-    std::string packed_val;
-    err = txn->get(packed_key, &packed_val);
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        return 0;
-    }
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to get packed file kv")
-                .tag("instance_id", instance_id_)
-                .tag("packed_file_path", packed_file_path)
-                .tag("err", err);
-        return -1;
-    }
-
+    const int max_retry_times = std::max(1, config::packed_file_txn_retry_times);
+    bool correction_ok = false;
     cloud::PackedFileInfoPB packed_info;
-    if (!packed_info.ParseFromString(packed_val)) {
-        LOG_WARNING("failed to parse packed file info")
-                .tag("instance_id", instance_id_)
-                .tag("packed_file_path", packed_file_path);
-        return -1;
-    }
 
-    int64_t now_sec = ::time(nullptr);
-    bool corrected = packed_info.corrected();
-    bool due =
-            config::force_immediate_recycle ||
-            now_sec - packed_info.created_at_sec() >= config::packed_file_correction_delay_seconds;
-
-    if (!corrected && due) {
-        bool changed = false;
-        if (correct_packed_file_info(&packed_info, &changed, packed_file_path, stats) != 0) {
-            LOG_WARNING("correct_packed_file_info failed")
+    for (int attempt = 1; attempt <= max_retry_times; ++attempt) {
+        if (stopped()) {
+            LOG_WARNING("recycler stopped before processing packed file")
                     .tag("instance_id", instance_id_)
-                    .tag("packed_file_path", packed_file_path);
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("attempt", attempt);
             return -1;
         }
-        if (changed) {
-            std::string updated;
-            if (!packed_info.SerializeToString(&updated)) {
-                LOG_WARNING("failed to serialize packed file info after correction")
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to create txn when processing packed file")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("attempt", attempt)
+                    .tag("err", err);
+            return -1;
+        }
+
+        std::string packed_val;
+        err = txn->get(packed_key, &packed_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            return 0;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get packed file kv")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("attempt", attempt)
+                    .tag("err", err);
+            return -1;
+        }
+
+        if (!packed_info.ParseFromString(packed_val)) {
+            LOG_WARNING("failed to parse packed file info")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("attempt", attempt);
+            return -1;
+        }
+
+        int64_t now_sec = ::time(nullptr);
+        bool corrected = packed_info.corrected();
+        bool due = config::force_immediate_recycle ||
+                   now_sec - packed_info.created_at_sec() >=
+                           config::packed_file_correction_delay_seconds;
+
+        if (!corrected && due) {
+            bool changed = false;
+            if (correct_packed_file_info(&packed_info, &changed, packed_file_path, stats) != 0) {
+                LOG_WARNING("correct_packed_file_info failed")
                         .tag("instance_id", instance_id_)
-                        .tag("packed_file_path", packed_file_path);
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("attempt", attempt);
                 return -1;
             }
-            txn->put(packed_key, updated);
-            err = txn->commit();
-            if (err == TxnErrorCode::TXN_OK) {
-                if (stats) {
-                    ++stats->num_corrected;
-                }
-            } else {
-                if (err == TxnErrorCode::TXN_CONFLICT) {
-                    LOG_WARNING("failed to commit correction for packed file due to conflict")
+            if (changed) {
+                std::string updated;
+                if (!packed_info.SerializeToString(&updated)) {
+                    LOG_WARNING("failed to serialize packed file info after correction")
                             .tag("instance_id", instance_id_)
-                            .tag("packed_file_path", packed_file_path);
+                            .tag("packed_file_path", packed_file_path)
+                            .tag("attempt", attempt);
+                    return -1;
+                }
+                txn->put(packed_key, updated);
+                err = txn->commit();
+                if (err == TxnErrorCode::TXN_OK) {
+                    if (stats) {
+                        ++stats->num_corrected;
+                    }
                 } else {
+                    if (err == TxnErrorCode::TXN_CONFLICT && attempt < max_retry_times) {
+                        LOG_WARNING(
+                                "failed to commit correction for packed file due to conflict, "
+                                "retrying")
+                                .tag("instance_id", instance_id_)
+                                .tag("packed_file_path", packed_file_path)
+                                .tag("attempt", attempt);
+                        sleep_for_packed_file_retry();
+                        packed_info.Clear();
+                        continue;
+                    }
                     LOG_WARNING("failed to commit correction for packed file")
                             .tag("instance_id", instance_id_)
                             .tag("packed_file_path", packed_file_path)
+                            .tag("attempt", attempt)
                             .tag("err", err);
+                    return -1;
                 }
-                return -1;
             }
         }
+
+        correction_ok = true;
+        break;
     }
 
-    txn.reset();
+    if (!correction_ok) {
+        return -1;
+    }
 
-    if (packed_info.state() == cloud::PackedFileInfoPB::RECYCLING && packed_info.ref_cnt() == 0) {
-        if (!packed_info.has_resource_id() || packed_info.resource_id().empty()) {
-            LOG_WARNING("packed file missing resource id when recycling")
-                    .tag("instance_id", instance_id_)
-                    .tag("packed_file_path", packed_file_path);
-            return -1;
-        }
-        auto [resource_id, accessor] = resolve_packed_file_accessor(packed_info.resource_id());
-        if (!accessor) {
-            LOG_WARNING("no accessor available to delete packed file")
-                    .tag("instance_id", instance_id_)
-                    .tag("packed_file_path", packed_file_path)
-                    .tag("resource_id", packed_info.resource_id());
-            return -1;
-        }
-        int del_ret = accessor->delete_file(packed_file_path);
-        if (del_ret != 0 && del_ret != 1) {
-            LOG_WARNING("failed to delete packed file")
-                    .tag("instance_id", instance_id_)
-                    .tag("packed_file_path", packed_file_path)
-                    .tag("resource_id", resource_id)
-                    .tag("ret", del_ret);
-            return -1;
-        }
-        if (del_ret == 1) {
-            LOG_INFO("packed file already removed")
-                    .tag("instance_id", instance_id_)
-                    .tag("packed_file_path", packed_file_path)
-                    .tag("resource_id", resource_id);
-        } else {
-            LOG_INFO("deleted packed file")
-                    .tag("instance_id", instance_id_)
-                    .tag("packed_file_path", packed_file_path)
-                    .tag("resource_id", resource_id);
-        }
+    if (!(packed_info.state() == cloud::PackedFileInfoPB::RECYCLING &&
+          packed_info.ref_cnt() == 0)) {
+        return 0;
+    }
 
+    if (!packed_info.has_resource_id() || packed_info.resource_id().empty()) {
+        LOG_WARNING("packed file missing resource id when recycling")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path);
+        return -1;
+    }
+    auto [resource_id, accessor] = resolve_packed_file_accessor(packed_info.resource_id());
+    if (!accessor) {
+        LOG_WARNING("no accessor available to delete packed file")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("resource_id", packed_info.resource_id());
+        return -1;
+    }
+    int del_ret = accessor->delete_file(packed_file_path);
+    if (del_ret != 0 && del_ret != 1) {
+        LOG_WARNING("failed to delete packed file")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("resource_id", resource_id)
+                .tag("ret", del_ret);
+        return -1;
+    }
+    if (del_ret == 1) {
+        LOG_INFO("packed file already removed")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("resource_id", resource_id);
+    } else {
+        LOG_INFO("deleted packed file")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("resource_id", resource_id);
+    }
+
+    for (int del_attempt = 1; del_attempt <= max_retry_times; ++del_attempt) {
         std::unique_ptr<Transaction> del_txn;
-        err = txn_kv_->create_txn(&del_txn);
+        TxnErrorCode err = txn_kv_->create_txn(&del_txn);
         if (err != TxnErrorCode::TXN_OK) {
             LOG_WARNING("failed to create txn when removing packed file kv")
                     .tag("instance_id", instance_id_)
                     .tag("packed_file_path", packed_file_path)
+                    .tag("del_attempt", del_attempt)
                     .tag("err", err);
             return -1;
         }
@@ -1329,6 +1375,7 @@ int InstanceRecycler::process_single_packed_file(const std::string& packed_key,
             LOG_WARNING("failed to re-read packed file kv before removal")
                     .tag("instance_id", instance_id_)
                     .tag("packed_file_path", packed_file_path)
+                    .tag("del_attempt", del_attempt)
                     .tag("err", err);
             return -1;
         }
@@ -1337,7 +1384,8 @@ int InstanceRecycler::process_single_packed_file(const std::string& packed_key,
         if (!latest_info.ParseFromString(latest_val)) {
             LOG_WARNING("failed to parse packed file info before removal")
                     .tag("instance_id", instance_id_)
-                    .tag("packed_file_path", packed_file_path);
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("del_attempt", del_attempt);
             return -1;
         }
 
@@ -1345,7 +1393,8 @@ int InstanceRecycler::process_single_packed_file(const std::string& packed_key,
               latest_info.ref_cnt() == 0)) {
             LOG_INFO("packed file state changed before removal, skip deleting kv")
                     .tag("instance_id", instance_id_)
-                    .tag("packed_file_path", packed_file_path);
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("del_attempt", del_attempt);
             return 0;
         }
 
@@ -1371,19 +1420,29 @@ int InstanceRecycler::process_single_packed_file(const std::string& packed_key,
             return 0;
         }
         if (err == TxnErrorCode::TXN_CONFLICT) {
-            LOG_WARNING("failed to remove packed file kv due to conflict")
+            if (del_attempt >= max_retry_times) {
+                LOG_WARNING("failed to remove packed file kv due to conflict after max retry")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("del_attempt", del_attempt);
+                return -1;
+            }
+            LOG_WARNING("failed to remove packed file kv due to conflict, retrying")
                     .tag("instance_id", instance_id_)
-                    .tag("packed_file_path", packed_file_path);
-            return -1;
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("del_attempt", del_attempt);
+            sleep_for_packed_file_retry();
+            continue;
         }
         LOG_WARNING("failed to remove packed file kv")
                 .tag("instance_id", instance_id_)
                 .tag("packed_file_path", packed_file_path)
+                .tag("del_attempt", del_attempt)
                 .tag("err", err);
         return -1;
     }
 
-    return 0;
+    return -1;
 }
 
 int InstanceRecycler::handle_packed_file_kv(std::string_view key, std::string_view /*value*/,
@@ -2603,6 +2662,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
         return 0;
     }
 
+    const int max_retry_times = std::max(1, config::decrement_packed_file_ref_counts_retry_times);
     int ret = 0;
     for (auto& [packed_file_path, small_files] : packed_file_updates) {
         if (small_files.empty()) {
@@ -2610,7 +2670,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
         }
 
         bool success = false;
-        do {
+        for (int attempt = 1; attempt <= max_retry_times; ++attempt) {
             std::unique_ptr<Transaction> txn;
             TxnErrorCode err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
@@ -2763,14 +2823,26 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
                 break;
             }
             if (err == TxnErrorCode::TXN_CONFLICT) {
-                LOG_WARNING("packed file info update conflict, not retrying")
+                if (attempt >= max_retry_times) {
+                    LOG_WARNING("packed file info update conflict after max retry")
+                            .tag("instance_id", instance_id_)
+                            .tag("packed_file_path", packed_file_path)
+                            .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                            .tag("tablet_id", rs_meta_pb.tablet_id())
+                            .tag("changed_files", changed_files)
+                            .tag("attempt", attempt);
+                    ret = -1;
+                    break;
+                }
+                LOG_WARNING("packed file info update conflict, retrying")
                         .tag("instance_id", instance_id_)
                         .tag("packed_file_path", packed_file_path)
                         .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                         .tag("tablet_id", rs_meta_pb.tablet_id())
-                        .tag("changed_files", changed_files);
-                ret = -1;
-                break;
+                        .tag("changed_files", changed_files)
+                        .tag("attempt", attempt);
+                sleep_for_packed_file_retry();
+                continue;
             }
 
             LOG_WARNING("failed to commit packed file info update")
@@ -2782,7 +2854,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
                     .tag("changed_files", changed_files);
             ret = -1;
             break;
-        } while (false);
+        }
 
         if (!success) {
             ret = -1;
@@ -2832,63 +2904,81 @@ int InstanceRecycler::delete_packed_file_and_kv(const std::string& packed_file_p
                 .tag("resource_id", resource_id);
     }
 
-    std::unique_ptr<Transaction> del_txn;
-    TxnErrorCode err = txn_kv_->create_txn(&del_txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to create txn when removing packed file kv")
+    const int max_retry_times = std::max(1, config::packed_file_txn_retry_times);
+    for (int attempt = 1; attempt <= max_retry_times; ++attempt) {
+        std::unique_ptr<Transaction> del_txn;
+        TxnErrorCode err = txn_kv_->create_txn(&del_txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to create txn when removing packed file kv")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("attempt", attempt)
+                    .tag("err", err);
+            return -1;
+        }
+
+        std::string latest_val;
+        err = del_txn->get(packed_key, &latest_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            return 0;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to re-read packed file kv before removal")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("attempt", attempt)
+                    .tag("err", err);
+            return -1;
+        }
+
+        cloud::PackedFileInfoPB latest_info;
+        if (!latest_info.ParseFromString(latest_val)) {
+            LOG_WARNING("failed to parse packed file info before removal")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("attempt", attempt);
+            return -1;
+        }
+
+        if (!(latest_info.state() == cloud::PackedFileInfoPB::RECYCLING &&
+              latest_info.ref_cnt() == 0)) {
+            LOG_INFO("packed file state changed before removal, skip deleting kv")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("attempt", attempt);
+            return 0;
+        }
+
+        del_txn->remove(packed_key);
+        err = del_txn->commit();
+        if (err == TxnErrorCode::TXN_OK) {
+            LOG_INFO("removed packed file metadata")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path);
+            return 0;
+        }
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            if (attempt >= max_retry_times) {
+                LOG_WARNING("failed to remove packed file kv due to conflict after max retry")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("attempt", attempt);
+                return -1;
+            }
+            LOG_WARNING("failed to remove packed file kv due to conflict, retrying")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("attempt", attempt);
+            sleep_for_packed_file_retry();
+            continue;
+        }
+        LOG_WARNING("failed to remove packed file kv")
                 .tag("instance_id", instance_id_)
                 .tag("packed_file_path", packed_file_path)
+                .tag("attempt", attempt)
                 .tag("err", err);
         return -1;
     }
-
-    std::string latest_val;
-    err = del_txn->get(packed_key, &latest_val);
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        return 0;
-    }
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to re-read packed file kv before removal")
-                .tag("instance_id", instance_id_)
-                .tag("packed_file_path", packed_file_path)
-                .tag("err", err);
-        return -1;
-    }
-
-    cloud::PackedFileInfoPB latest_info;
-    if (!latest_info.ParseFromString(latest_val)) {
-        LOG_WARNING("failed to parse packed file info before removal")
-                .tag("instance_id", instance_id_)
-                .tag("packed_file_path", packed_file_path);
-        return -1;
-    }
-
-    if (!(latest_info.state() == cloud::PackedFileInfoPB::RECYCLING &&
-          latest_info.ref_cnt() == 0)) {
-        LOG_INFO("packed file state changed before removal, skip deleting kv")
-                .tag("instance_id", instance_id_)
-                .tag("packed_file_path", packed_file_path);
-        return 0;
-    }
-
-    del_txn->remove(packed_key);
-    err = del_txn->commit();
-    if (err == TxnErrorCode::TXN_OK) {
-        LOG_INFO("removed packed file metadata")
-                .tag("instance_id", instance_id_)
-                .tag("packed_file_path", packed_file_path);
-        return 0;
-    }
-    if (err == TxnErrorCode::TXN_CONFLICT) {
-        LOG_WARNING("failed to remove packed file kv due to conflict")
-                .tag("instance_id", instance_id_)
-                .tag("packed_file_path", packed_file_path);
-        return -1;
-    }
-    LOG_WARNING("failed to remove packed file kv")
-            .tag("instance_id", instance_id_)
-            .tag("packed_file_path", packed_file_path)
-            .tag("err", err);
     return -1;
 }
 
@@ -2907,8 +2997,11 @@ int InstanceRecycler::delete_rowset_data(
         // due to aborted schema change.
         if (is_formal_rowset) {
             std::lock_guard lock(recycled_tablets_mtx_);
-            if (recycled_tablets_.count(rs.tablet_id())) {
-                continue; // Rowset data has already been deleted
+            if (recycled_tablets_.count(rs.tablet_id()) && rs.packed_slice_locations_size() == 0) {
+                // Tablet has been recycled and this rowset has no packed slices, so file data
+                // should already be gone; skip to avoid redundant deletes. Rowsets with packed
+                // slice info must still run to decrement packed file ref counts.
+                continue;
             }
         }
 
@@ -5245,8 +5338,8 @@ int InstanceRecycler::recycle_expired_txn_label() {
             concurrent_delete_executor.add([&]() {
                 int ret = delete_recycle_txn_kv(k);
                 if (ret == 1) {
-                    constexpr int MAX_RETRY = 10;
-                    for (size_t i = 1; i <= MAX_RETRY; ++i) {
+                    const int max_retry = std::max(1, config::recycle_txn_delete_max_retry_times);
+                    for (int i = 1; i <= max_retry; ++i) {
                         LOG(WARNING) << "txn conflict, retry times=" << i << " key=" << hex(k);
                         ret = delete_recycle_txn_kv(k);
                         // clang-format off
