@@ -509,6 +509,10 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    // Maximum total number of splits to prevent OOM when file_split_size is too small.
+    // The system will automatically adjust file_split_size if the estimated total split count exceeds this limit.
+    public static final String MAX_FILE_SPLITS_NUM = "max_file_splits_num";
+
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
 
@@ -2170,6 +2174,21 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    // Maximum total number of splits across all files. If the estimated total split count exceeds this value,
+    // the file_split_size will be automatically increased to limit the total split count.
+    // Default value 1000000 means at most 1000000 splits will be generated for the entire query.
+    // Set to 0 to disable this limit.
+    @VariableMgr.VarAttr(
+            name = MAX_FILE_SPLITS_NUM,
+            fuzzy = true,
+            description = {"所有文件的最大 split 总数，用于防止 file_split_size 设置过小时产生过多 split 导致 OOM。"
+                    + "系统会在 split 前估算总数，如果超过限制会自动增大 file_split_size。默认值 1000000。设置为 0 表示不限制。",
+                    "Maximum total number of splits across all files to prevent OOM when file_split_size is too small. "
+                    + "The system will estimate the total split count before splitting and automatically increase "
+                    + "file_split_size if needed. Default value is 1000000. Set to 0 to disable this limit."},
+            needForward = true)
+    public int maxFileSplitsNum = 1000000;
 
     // Target file size for Iceberg write operations
     // Default 0 means use config::iceberg_sink_max_file_size
@@ -4193,6 +4212,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFileSplitSize(long fileSplitSize) {
         this.fileSplitSize = fileSplitSize;
+    }
+
+    public int getMaxFileSplitsNum() {
+        return maxFileSplitsNum;
+    }
+
+    public void setMaxFileSplitsNum(int maxFileSplitsNum) {
+        this.maxFileSplitsNum = maxFileSplitsNum;
     }
 
     public long getIcebergWriteTargetFileSizeBytes() {
