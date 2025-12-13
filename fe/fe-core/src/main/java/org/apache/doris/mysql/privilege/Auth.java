@@ -257,6 +257,18 @@ public class Auth implements Writable {
         return roles;
     }
 
+    public Set<String> getRoleNamesByUserWithLdap(UserIdentity user, boolean showUserDefaultRole) {
+        Set<Role> rolesByUserWithLdap = getRolesByUserWithLdap(user);
+        Set<String> res = Sets.newHashSetWithExpectedSize(rolesByUserWithLdap.size());
+        for (Role role : rolesByUserWithLdap) {
+            String roleName = role.getRoleName();
+            if (showUserDefaultRole || !roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
+                res.add(roleName);
+            }
+        }
+        return res;
+    }
+
     public List<UserIdentity> getUserIdentityForLdap(String remoteUser, String remoteHost) {
         return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
     }
@@ -1333,8 +1345,8 @@ public class Auth implements Writable {
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
             // ============== Roles ==============
-            userAuthInfo.add(ldapUserInfo.getRoles().stream().map(role -> role.getRoleName())
-                    .collect(Collectors.joining(",")));
+            userAuthInfo.add(Joiner.on(",").join(getRoleNamesByUserWithLdap(userIdent,
+                    ConnectContext.get().getSessionVariable().showUserDefaultRole)));
         } else {
             User user = userManager.getUserByUserIdentity(userIdent);
             if (user == null) {
