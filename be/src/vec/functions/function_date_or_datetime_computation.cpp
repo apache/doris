@@ -19,6 +19,7 @@
 
 #include "runtime/define_primitive_type.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
+#include "vec/functions/function_needs_to_handle_null.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -119,10 +120,19 @@ using FunctionDatetimeSubQuarters =
 using FunctionDatetimeSubYears =
         FunctionDateOrDateTimeComputation<SubtractYearsImpl<TYPE_DATETIMEV2>>;
 
-using FunctionAddTimeDatetime = FunctionAddTime<TYPE_DATETIMEV2, AddTimeImpl>;
-using FunctionAddTimeTime = FunctionAddTime<TYPE_TIMEV2, AddTimeImpl>;
-using FunctionSubTimeDatetime = FunctionAddTime<TYPE_DATETIMEV2, SubTimeImpl>;
-using FunctionSubTimeTime = FunctionAddTime<TYPE_TIMEV2, SubTimeImpl>;
+using FunctionAddTimeDatetime =
+        FunctionNeedsToHandleNull<FunctionAddTimeImpl<TYPE_DATETIMEV2, AddTimeImpl>,
+                                  TYPE_DATETIMEV2>;
+using FunctionAddTimeTime =
+        FunctionNeedsToHandleNull<FunctionAddTimeImpl<TYPE_TIMEV2, AddTimeImpl>, TYPE_TIMEV2>;
+using FunctionSubTimeDatetime =
+        FunctionNeedsToHandleNull<FunctionAddTimeImpl<TYPE_DATETIMEV2, SubTimeImpl>,
+                                  TYPE_DATETIMEV2>;
+using FunctionSubTimeTime =
+        FunctionNeedsToHandleNull<FunctionAddTimeImpl<TYPE_TIMEV2, SubTimeImpl>, TYPE_TIMEV2>;
+using FunctionTimestampTwoArgs =
+        FunctionNeedsToHandleNull<FunctionAddTimeImpl<TYPE_DATETIMEV2, TimestampTwoArgsImpl>,
+                                  TYPE_DATETIMEV2>;
 
 #define FUNCTION_TIME_DIFF(NAME, IMPL, TYPE) using NAME##_##TYPE = FunctionTimeDiff<IMPL<TYPE>>;
 
@@ -223,6 +233,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddTimeTime>();
     factory.register_function<FunctionSubTimeDatetime>();
     factory.register_function<FunctionSubTimeTime>();
+    factory.register_function<FunctionTimestampTwoArgs>();
 
 #define REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE) factory.register_function<NAME##_##TYPE>();
 

@@ -1829,31 +1829,52 @@ struct SubTimeImpl {
     static bool is_negative() { return true; }
 };
 
+struct TimestampTwoArgsImpl {
+    static constexpr auto name = "timestamp";
+    static bool is_negative() { return false; }
+};
+
+// Due to the use of default NULL handling
+// When the first arg is NULL (the default handling will replace it with 0)
+// The return result of `date_add_interval` in the `compute` function is fixed to false, and throw an Exception.
+// Therefore, it is necessary to handle NULL values here by oneself
+// Used for Function (arg0<PType>, arg1<TIME>) -> arg0 + arg1<PType>
 template <PrimitiveType PType, typename Impl>
-class FunctionAddTime : public IFunction {
+class FunctionAddTimeImpl {
+    using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
+    using InputType1 = typename PrimitiveTypeTraits<PType>::ColumnItemType;
+    using InputType2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnItemType;
+    using ReturnType = InputType1;
+
 public:
     static constexpr auto name = Impl::name;
-    static constexpr PrimitiveType ReturnType = PType;
-    static constexpr PrimitiveType ArgType1 = PType;
-    static constexpr PrimitiveType ArgType2 = TYPE_TIMEV2;
-    using ColumnType1 = typename PrimitiveTypeTraits<PType>::ColumnType;
-    using ColumnType2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnType;
-    using InputType1 = typename PrimitiveTypeTraits<PType>::DataType::FieldType;
-    using InputType2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType::FieldType;
-    using ReturnNativeType = InputType1;
-    using ReturnDataType = typename PrimitiveTypeTraits<PType>::DataType;
-
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 2; }
-    DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
-                std::make_shared<typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType>()};
-    }
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return std::make_shared<ReturnDataType>();
+    static size_t get_number_of_arguments() { return 2; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>();
     }
 
-    ReturnNativeType compute(const InputType1& arg1, const InputType2& arg2) const {
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& columns_info,
+                        ColumnType::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
+                        size_t input_rows_count) {
+        const auto& arg0_col =
+                assert_cast<const ColumnType&>(*columns_info[0].nested_col).get_data();
+        const auto& arg1_col =
+                assert_cast<const ColumnTimeV2&>(*columns_info[1].nested_col).get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (columns_info[0].is_null_at(i) || columns_info[1].is_null_at(i)) {
+                res_col->insert_default();
+                res_null_map_data[i] = 1;
+                continue;
+            }
+
+            res_col->insert_value(
+                    compute(arg0_col[index_check_const(i, columns_info[0].is_const)],
+                            arg1_col[index_check_const(i, columns_info[1].is_const)]));
+        }
+    }
+
+private:
+    static ReturnType compute(const InputType1& arg1, const InputType2& arg2) {
         if constexpr (PType == TYPE_DATETIMEV2) {
             DateV2Value<DateTimeV2ValueType> dtv1 =
                     binary_cast<InputType1, DateV2Value<DateTimeV2ValueType>>(arg1);
@@ -1864,7 +1885,7 @@ public:
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "datetime value is out of range in function {}", name);
             }
-            return binary_cast<DateV2Value<DateTimeV2ValueType>, ReturnNativeType>(dtv1);
+            return binary_cast<DateV2Value<DateTimeV2ValueType>, ReturnType>(dtv1);
         } else if constexpr (PType == TYPE_TIMEV2) {
             auto tv1 = static_cast<TimeValue::TimeType>(arg1);
             auto tv2 = static_cast<TimeValue::TimeType>(arg2);
@@ -1874,63 +1895,7 @@ public:
             throw Exception(ErrorCode::FATAL_ERROR, "not support type for function {}", name);
         }
     }
-
-    static FunctionPtr create() { return std::make_shared<FunctionAddTime>(); }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        DCHECK_EQ(arguments.size(), 2);
-        const auto& [left_col, left_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& [right_col, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
-        ColumnPtr nest_col1 = remove_nullable(left_col);
-        ColumnPtr nest_col2 = remove_nullable(right_col);
-        auto res = ColumnVector<ReturnType>::create(input_rows_count, 0);
-
-        if (left_const) {
-            execute_constant_vector(assert_cast<const ColumnType1&>(*nest_col1).get_element(0),
-                                    assert_cast<const ColumnType2&>(*nest_col2).get_data(),
-                                    res->get_data(), input_rows_count);
-        } else if (right_const) {
-            execute_vector_constant(assert_cast<const ColumnType1&>(*nest_col1).get_data(),
-                                    assert_cast<const ColumnType2&>(*nest_col2).get_element(0),
-                                    res->get_data(), input_rows_count);
-        } else {
-            execute_vector_vector(assert_cast<const ColumnType1&>(*nest_col1).get_data(),
-                                  assert_cast<const ColumnType2&>(*nest_col2).get_data(),
-                                  res->get_data(), input_rows_count);
-        }
-
-        block.replace_by_position(result, std::move(res));
-        return Status::OK();
-    }
-    void execute_vector_vector(const PaddedPODArray<InputType1>& left_col,
-                               const PaddedPODArray<InputType2>& right_col,
-                               PaddedPODArray<ReturnNativeType>& res_data,
-                               size_t input_rows_count) const {
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            res_data[i] = compute(left_col[i], right_col[i]);
-        }
-    }
-
-    void execute_vector_constant(const PaddedPODArray<InputType1>& left_col,
-                                 const InputType2 right_value,
-                                 PaddedPODArray<ReturnNativeType>& res_data,
-                                 size_t input_rows_count) const {
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            res_data[i] = compute(left_col[i], right_value);
-        }
-    }
-
-    void execute_constant_vector(const InputType1 left_value,
-                                 const PaddedPODArray<InputType2>& right_col,
-                                 PaddedPODArray<ReturnNativeType>& res_data,
-                                 size_t input_rows_count) const {
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            res_data[i] = compute(left_value, right_col[i]);
-        }
-    }
 };
+
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized
