@@ -17,26 +17,23 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
-import org.apache.doris.thrift.BackendService.AsyncProcessor.publish_cluster_state;
-import org.apache.doris.nereids.types.MapType;
 
-import com.amazonaws.services.glue.model.Datatype;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.security.cert.PKIXRevocationChecker.Option;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -84,26 +81,33 @@ public class MapConcat extends ScalarFunction
             for (int i = 0; i < children.size(); i++){
                 DataType argType = children.get(i).getDataType();
                 if (!(argType instanceof MapType)){
-                    return MapType.SYSTEM_DEFAULT;
+                    if (!(argType instanceof NullType)){
+                        throw new AnalysisException("mapconcat function cannot process non-map and non-null child elements. Invalid SQL: " + this.toSql());
+                    }
+                    continue;
                 }
                 MapType mapType = (MapType) argType;
                 keyTypes.add(mapType.getKeyType());
                 valueTypes.add(mapType.getValueType());
             }
 
+            if (keyTypes.isEmpty() && valueTypes.isEmpty()) {
+                return MapType.of(NullType.INSTANCE, NullType.INSTANCE);
+            }
+
             Optional<DataType> commonKeyType = TypeCoercionUtils.findWiderCommonType(keyTypes, true, true);
             Optional<DataType> commonValueType = TypeCoercionUtils.findWiderCommonType(valueTypes, true, true);
-            if (commonKeyType.isPresent() && commonValueType.isPresent()){
-                DataType keyType = commonKeyType.get();
-                DataType valueType = commonValueType.get();
-                return MapType.of(keyType, valueType);
-            }
+            
             if (!commonKeyType.isPresent()) {
                 throw new AnalysisException("mapconcat cannot find the common key type of " + this.toSql());
             }
             if (!commonValueType.isPresent()) {
                 throw new AnalysisException("mapconcat cannot find the common value type of " + this.toSql());
             }
+            
+            DataType keyType = commonKeyType.get();
+            DataType valueType = commonValueType.get();
+            return MapType.of(keyType, valueType);
         }
         throw new RuntimeException("unreachable");
     }

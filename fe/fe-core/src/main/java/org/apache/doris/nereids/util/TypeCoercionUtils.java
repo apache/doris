@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapConcat;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -710,8 +711,51 @@ public class TypeCoercionUtils {
             return processCreateMap((CreateMap) boundFunction);
         }
 
+        if (boundFunction instanceof MapConcat) {
+            return processMapConcat((MapConcat) boundFunction);
+        }
+
         // type coercion
         return implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
+    }
+
+    private static Expression processMapConcat(MapConcat mapConcat) {
+        List<DataType> keyTypes = new ArrayList<>();
+        List<DataType> valueTypes = new ArrayList<>();
+        List<Expression> children = mapConcat.children();
+        for (int i = 0; i < children.size(); i++){
+            DataType argType = children.get(i).getDataType();
+            if (!(argType instanceof MapType)){
+                if (!(argType instanceof NullType)){
+                    throw new AnalysisException("mapconcat function cannot process non-map and non-null child elements. Invalid SQL: " + mapConcat.toSql());
+                }
+                continue;
+            }
+            MapType mapType = (MapType) argType;
+            keyTypes.add(mapType.getKeyType());
+            valueTypes.add(mapType.getValueType());
+        }
+        Optional<DataType> commonKeyType = TypeCoercionUtils.findWiderCommonType(keyTypes, true, true);
+        Optional<DataType> commonValueType = TypeCoercionUtils.findWiderCommonType(valueTypes, true, true);
+        if (!commonKeyType.isPresent()) {
+            throw new AnalysisException("mapconcat cannot find the common key type of " + mapConcat.toSql());
+        }
+        if (!commonValueType.isPresent()) {
+            throw new AnalysisException("mapconcat cannot find the common value type of " + mapConcat.toSql());
+        }
+        DataType keyType = commonKeyType.get();
+        DataType valueType = commonValueType.get();
+        DataType targetMapType = MapType.of(keyType, valueType);
+        ImmutableList.Builder<Expression> newChildren = ImmutableList.builder();
+        for (int i = 0; i < mapConcat.arity(); i++) {
+            DataType argType = children.get(i).getDataType();
+            if (!(argType instanceof MapType)){
+                newChildren.add(mapConcat.child(i));
+            } else {
+                newChildren.add(castIfNotSameType(mapConcat.child(i), targetMapType));
+            }
+        }
+        return mapConcat.withChildren(newChildren.build());
     }
 
     private static Expression processCreateMap(CreateMap createMap) {
