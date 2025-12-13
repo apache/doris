@@ -66,6 +66,12 @@ public:
                          PythonUDAFClientPtr* client);
 
     /**
+     * Get unique client ID (based on pointer address)
+     * @return Client ID
+     */
+    int64_t get_client_id() const { return reinterpret_cast<int64_t>(this); }
+
+    /**
      * Create aggregate state for a place
      * @param place_id Unique identifier for the aggregate state
      * @return Status
@@ -175,11 +181,13 @@ private:
                            std::shared_ptr<arrow::RecordBatch>* output);
 
     // Track created states for cleanup
+    // Thread-local client: each thread has its own instance, no concurrent access
     std::unordered_set<int64_t> _created_states;
 
-    // Thread safety: protect concurrent RPC calls
-    // Arrow Flight client (gRPC-based) is not fully thread-safe,
-    // so we need to serialize all operations through this mutex
+    // Thread safety: protect gRPC stream operations
+    // CRITICAL: gRPC ClientReaderWriter does NOT support concurrent Write() calls
+    // Even within same thread, multiple pipeline tasks may trigger concurrent operations
+    // (e.g., normal accumulate() + cleanup destroy() during task finalization)
     mutable std::mutex _operation_mutex;
 };
 

@@ -39,7 +39,6 @@ import pandas as pd
 import pyarrow as pa
 from pyarrow import flight
 
-
 class ServerState:
     """Global server state container."""
 
@@ -162,11 +161,9 @@ class ServerState:
             # Check every 2 seconds
             time.sleep(2)
 
-
 ServerState.setup_logging()
 monitor_thread = threading.Thread(target=ServerState.monitor_parent_exit, daemon=True)
 monitor_thread.start()
-
 
 @contextmanager
 def temporary_sys_path(path: str):
@@ -190,7 +187,6 @@ def temporary_sys_path(path: str):
     finally:
         if path_added and path in sys.path:
             sys.path.remove(path)
-
 
 class VectorType(Enum):
     """Enum representing supported vector types."""
@@ -238,7 +234,6 @@ class VectorType(Enum):
 
         return None
 
-
 class ClientType(Enum):
     """Enum representing Python client types."""
 
@@ -255,7 +250,6 @@ class ClientType(Enum):
     def __str__(self) -> str:
         """Return string representation of the client type."""
         return self.name
-
 
 class PythonUDFMeta:
     """Metadata container for a Python UDF."""
@@ -321,7 +315,6 @@ class PythonUDFMeta:
             f"input_types={self.input_types}, output_type={self.output_type})"
         )
 
-
 class AdaptivePythonUDF:
     """
     A wrapper around a UDF function that supports both scalar and vectorized execution modes.
@@ -357,10 +350,8 @@ class AdaptivePythonUDF:
             return pa.array([], type=self._get_output_type())
 
         if self._should_use_vectorized():
-            logging.info("Using vectorized mode for UDF: %s", self.python_udf_meta.name)
             return self._vectorized_call(record_batch)
 
-        logging.info("Using scalar mode for UDF: %s", self.python_udf_meta.name)
         return self._scalar_call(record_batch)
 
     @staticmethod
@@ -546,7 +537,6 @@ class AdaptivePythonUDF:
         """
         return self.python_udf_meta.output_type or pa.null()
 
-
 class UDFLoader(ABC):
     """Abstract base class for loading UDFs from different sources."""
 
@@ -563,7 +553,6 @@ class UDFLoader(ABC):
     def load(self) -> AdaptivePythonUDF:
         """Load the UDF and return an AdaptivePythonUDF wrapper."""
         raise NotImplementedError("Subclasses must implement load().")
-
 
 class InlineUDFLoader(UDFLoader):
     """Loads a UDF defined directly in inline code."""
@@ -616,9 +605,33 @@ class InlineUDFLoader(UDFLoader):
 
         return AdaptivePythonUDF(self.python_udf_meta, func)
 
-
 class ModuleUDFLoader(UDFLoader):
     """Loads a UDF from a Python module file (.py)."""
+
+    # Class-level lock dictionary for thread-safe module imports
+    # Using RLock allows the same thread to acquire the lock multiple times
+    _import_locks: Dict[str, threading.RLock] = {}
+    _import_locks_lock = threading.Lock()
+
+    @classmethod
+    def _get_import_lock(cls, module_name: str) -> threading.RLock:
+        """
+        Get or create a reentrant lock for the given module name.
+
+        Uses double-checked locking pattern for optimal performance:
+        - Fast path: return existing lock without acquiring global lock
+        - Slow path: create new lock under global lock protection
+        """
+        # Fast path: check without lock (read-only, safe for most cases)
+        if module_name in cls._import_locks:
+            return cls._import_locks[module_name]
+
+        # Slow path: create lock under protection
+        with cls._import_locks_lock:
+            # Double-check: another thread might have created it while we waited
+            if module_name not in cls._import_locks:
+                cls._import_locks[module_name] = threading.RLock()
+            return cls._import_locks[module_name]
 
     def load(self) -> AdaptivePythonUDF:
         """
@@ -694,15 +707,35 @@ class ModuleUDFLoader(UDFLoader):
             raise ValueError(f"Location is not a directory: {location}")
 
     def _get_or_import_module(self, location: str, full_module_name: str) -> Any:
-        """Get module from cache or import it."""
-        if full_module_name in sys.modules:
-            logging.warning(
-                "Module '%s' already loaded, using cached version", full_module_name
-            )
-            return sys.modules[full_module_name]
+        """Get module from cache or import it (thread-safe)."""
+        # Use a per-module lock to prevent race conditions during import
+        import_lock = ModuleUDFLoader._get_import_lock(full_module_name)
 
-        with temporary_sys_path(location):
-            return importlib.import_module(full_module_name)
+        with import_lock:
+            # Double-check pattern: verify module is still not loaded after acquiring lock
+            if full_module_name in sys.modules:
+                cached_module = sys.modules[full_module_name]
+                # Verify the cached module is valid (has __file__ or __path__ attribute)
+                # This prevents using broken/incomplete modules from failed imports
+                if cached_module is not None and (
+                    hasattr(cached_module, "__file__")
+                    or hasattr(cached_module, "__path__")
+                ):
+                    return cached_module
+                else:
+                    del sys.modules[full_module_name]
+
+            # Import the module (only one thread will reach here per module)
+            with temporary_sys_path(location):
+                try:
+                    module = importlib.import_module(full_module_name)
+                    return module
+                except Exception as e:
+                    # Clean up any partially-imported modules from sys.modules
+                    # This prevents broken modules from being cached
+                    if full_module_name in sys.modules:
+                        del sys.modules[full_module_name]
+                    raise
 
     def _extract_function(
         self, module: Any, func_name: str, module_name: str
@@ -710,6 +743,33 @@ class ModuleUDFLoader(UDFLoader):
         """Extract and validate function from module."""
         func = getattr(module, func_name, None)
         if func is None:
+            # Diagnostic info: log module details to understand why function is missing
+            module_attrs = dir(module)
+            module_file = getattr(module, "__file__", "N/A")
+            module_dict_keys = (
+                list(module.__dict__.keys()) if hasattr(module, "__dict__") else []
+            )
+
+            logging.error(
+                "Function '%s' not found in module '%s'. "
+                "Module file: %s, "
+                "Public attributes: %s, "
+                "All dict keys: %s",
+                func_name,
+                module_name,
+                module_file,
+                [a for a in module_attrs if not a.startswith("_")][:20],
+                module_dict_keys[:20],
+            )
+
+            # Check if module has import errors stored
+            if hasattr(module, "__import_error__"):
+                logging.error(
+                    "Module '%s' has stored import error: %s",
+                    module_name,
+                    module.__import_error__,
+                )
+
             raise AttributeError(
                 f"Function '{func_name}' not found in module '{module_name}'"
             )
@@ -825,7 +885,6 @@ class ModuleUDFLoader(UDFLoader):
                 location, package_name, module_name, func_name
             )
 
-
 class UDFLoaderFactory:
     """Factory to select the appropriate loader based on UDF location."""
 
@@ -905,7 +964,6 @@ class UDFLoaderFactory:
         if not path.is_dir():
             return False
         return any(path.rglob("*.py"))
-
 
 class UDAFClassLoader:
     """
@@ -1038,25 +1096,26 @@ class UDAFClassLoader:
                 f"Missing in {udaf_class.__name__}"
             )
 
-
 class UDAFStateManager:
     """
     Manages UDAF aggregate states for Python UDAF execution.
 
-    This class maintains a mapping from place_id to UDAF instances,
+    This class maintains a mapping from (client_id, place_id) to UDAF instances,
     following the Snowflake UDAF pattern:
     - __init__(): Initialize state
     - aggregate_state: Property returning serializable state
     - accumulate(*args): Add input values
     - merge(other_state): Merge two states
     - finish(): Return final result
+    
+    Each client has its own private states dictionary to eliminate lock contention.
     """
 
     def __init__(self):
         """Initialize the state manager."""
-        self.states: Dict[int, Any] = {}  # place_id -> UDAF instance
+        self.client_states: Dict[int, Dict[int, Any]] = {}  # client_id -> {place_id -> UDAF instance}
+        self.lock = threading.Lock()  # Only protects client_states dictionary creation
         self.udaf_class = None  # UDAF class to instantiate
-        self.lock = threading.Lock()  # Thread-safe state access
 
     def set_udaf_class(self, udaf_class: type):
         """
@@ -1070,71 +1129,89 @@ class UDAFStateManager:
         """
         self.udaf_class = udaf_class
 
-    def create_state(self, place_id: int) -> None:
+    def _get_or_create_client_states(self, client_id: int) -> Dict[int, Any]:
+        """Get or create the private states dictionary for a client."""
+        if client_id not in self.client_states:
+            with self.lock:
+                if client_id not in self.client_states:
+                    self.client_states[client_id] = {}
+        return self.client_states[client_id]
+
+    def create_state(self, client_id: int, place_id: int) -> None:
         """
-        Create a new UDAF state for the given place_id.
+        Create a new UDAF state for the given client_id and place_id.
 
         Args:
+            client_id: Unique identifier for the client
             place_id: Unique identifier for this aggregate state
 
         Raises:
             RuntimeError: If state already exists for this place_id or UDAF class not set
         """
-        with self.lock:
-            if place_id in self.states:
-                # This should never happen
-                error_msg = (
-                    f"State for place_id {place_id} already exists. "
-                    f"CREATE should only be called once per place_id. "
-                    f"This indicates a bug in C++ side or state management."
-                )
-                logging.error(error_msg)
-                raise RuntimeError(error_msg)
+        states = self._get_or_create_client_states(client_id)
+        
+        if place_id in states:
+            # This should never happen
+            error_msg = (
+                f"State for client_id {client_id}, place_id {place_id} already exists. "
+                f"CREATE should only be called once per place_id. "
+                f"This indicates a bug in C++ side or state management."
+            )
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
 
-            if self.udaf_class is None:
-                raise RuntimeError("UDAF class not set. Call set_udaf_class() first.")
+        if self.udaf_class is None:
+            raise RuntimeError("UDAF class not set. Call set_udaf_class() first.")
 
-            try:
-                self.states[place_id] = self.udaf_class()
-            except Exception as e:
-                logging.error("Failed to create UDAF state: %s", e)
-                raise RuntimeError(f"Failed to create UDAF state: {e}") from e
+        try:
+            states[place_id] = self.udaf_class()
+        except Exception as e:
+            logging.error("Failed to create UDAF state: %s", e)
+            raise RuntimeError(f"Failed to create UDAF state: {e}") from e
 
-    def get_state(self, place_id: int) -> Any:
+    def get_state(self, client_id: int, place_id: int) -> Any:
         """
-        Get the UDAF state for the given place_id.
+        Get the UDAF state for the given client_id and place_id.
 
         Args:
+            client_id: Unique identifier for the client
             place_id: Unique identifier for the aggregate state
 
         Returns:
             The UDAF instance
         """
-        with self.lock:
-            if place_id not in self.states:
-                raise KeyError(f"State for place_id {place_id} not found")
-            return self.states[place_id]
+        states = self._get_or_create_client_states(client_id)
+        if place_id not in states:
+            raise KeyError(f"State for client_id {client_id}, place_id {place_id} not found")
+        return states[place_id]
 
-    def accumulate(self, place_id: int, *args) -> None:
+    def accumulate(self, client_id: int, place_id: int, *args) -> None:
         """
         Accumulate input values into the aggregate state.
 
         Args:
+            client_id: Unique identifier for the client
             place_id: Unique identifier for the aggregate state
             *args: Input values to accumulate
         """
-        state = self.get_state(place_id)
+        states = self._get_or_create_client_states(client_id)
+        
+        if place_id not in states:
+            raise KeyError(f"State for client_id {client_id}, place_id {place_id} not found")
+        state = states[place_id]
+        
         try:
             state.accumulate(*args)
         except Exception as e:
-            logging.error("Error in accumulate for place_id %s: %s", place_id, e)
+            logging.error("Error in accumulate for client_id %s, place_id %s: %s", client_id, place_id, e)
             raise RuntimeError(f"Error in accumulate: {e}") from e
 
-    def serialize(self, place_id: int) -> bytes:
+    def serialize(self, client_id: int, place_id: int) -> bytes:
         """
         Serialize the aggregate state to bytes.
 
         Args:
+            client_id: Unique identifier for the client
             place_id: Unique identifier for the aggregate state
 
         Returns:
@@ -1144,46 +1221,43 @@ class UDAFStateManager:
             If the state doesn't exist, creates an empty state and serializes it.
             This can happen in distributed scenarios where a node receives no data.
         """
-        with self.lock:
-            if place_id not in self.states:
-                # State doesn't exist - create empty state and serialize it
-                logging.warning(
-                    "SERIALIZE: State for place_id %s not found, creating empty state",
-                    place_id,
+        states = self._get_or_create_client_states(client_id)
+        
+        if place_id not in states:
+            # State doesn't exist - create empty state and serialize it
+            logging.warning(
+                "SERIALIZE: State for client_id %s, place_id %s not found, creating empty state",
+                client_id,
+                place_id,
+            )
+            if self.udaf_class is None:
+                raise RuntimeError(
+                    "UDAF class not set. Call set_udaf_class() first before serialize operation."
                 )
-                if self.udaf_class is None:
-                    raise RuntimeError(
-                        "UDAF class not set. Call set_udaf_class() first before serialize operation."
-                    )
-                try:
-                    self.states[place_id] = self.udaf_class()
-                except Exception as e:
-                    logging.error("Failed to create UDAF state for serialize: %s", e)
-                    raise RuntimeError(
-                        f"Failed to create UDAF state for serialize: {e}"
-                    ) from e
+            try:
+                states[place_id] = self.udaf_class()
+            except Exception as e:
+                logging.error("Failed to create UDAF state for serialize: %s", e)
+                raise RuntimeError(
+                    f"Failed to create UDAF state for serialize: {e}"
+                ) from e
 
-            state = self.states[place_id]
+        state = states[place_id]
 
         try:
             aggregate_state = state.aggregate_state
             serialized = pickle.dumps(aggregate_state)
-            logging.info(
-                "SERIALIZE: place_id=%s state=%s bytes=%d",
-                place_id,
-                aggregate_state,
-                len(serialized),
-            )
             return serialized
         except Exception as e:
-            logging.error("Error serializing state for place_id %s: %s", place_id, e)
+            logging.error("Error serializing state for client_id %s, place_id %s: %s", client_id, place_id, e)
             raise RuntimeError(f"Error serializing state: {e}") from e
 
-    def merge(self, place_id: int, other_state_bytes: bytes) -> None:
+    def merge(self, client_id: int, place_id: int, other_state_bytes: bytes) -> None:
         """
         Merge another serialized state into this state.
 
         Args:
+            client_id: Unique identifier for the client
             place_id: Unique identifier for the aggregate state
             other_state_bytes: Serialized state to merge (pickle bytes)
 
@@ -1194,61 +1268,45 @@ class UDAFStateManager:
         # Deserialize the incoming state
         try:
             other_state = pickle.loads(other_state_bytes)
-            logging.info(
-                "MERGE: Deserialized state for place_id %s: %s", place_id, other_state
-            )
         except Exception as e:
             logging.error("Error deserializing state bytes: %s", e)
             raise RuntimeError(f"Error deserializing state: {e}") from e
 
-        with self.lock:
-            if place_id not in self.states:
-                # Create state if it doesn't exist
-                # This can happen in shuffle scenarios where deserialize_and_merge
-                # is called before any local aggregation
-                logging.info(
-                    "MERGE: Creating new state for place_id %s (state doesn't exist)",
-                    place_id,
+        states = self._get_or_create_client_states(client_id)
+        
+        if place_id not in states:
+            # Create state if it doesn't exist
+            # This can happen in shuffle scenarios where deserialize_and_merge
+            # is called before any local aggregation
+            if self.udaf_class is None:
+                raise RuntimeError(
+                    "UDAF class not set. Call set_udaf_class() first before merge operation."
                 )
-                if self.udaf_class is None:
-                    raise RuntimeError(
-                        "UDAF class not set. Call set_udaf_class() first before merge operation."
-                    )
-                try:
-                    self.states[place_id] = self.udaf_class()
-                    logging.info(
-                        "MERGE: Created new state, initial value: %s",
-                        self.states[place_id].aggregate_state,
-                    )
-                except Exception as e:
-                    logging.error("Failed to create UDAF state for merge: %s", e)
-                    raise RuntimeError(
-                        f"Failed to create UDAF state for merge: {e}"
-                    ) from e
+            try:
+                states[place_id] = self.udaf_class()
+            except Exception as e:
+                logging.error("Failed to create UDAF state for merge: %s", e)
+                raise RuntimeError(
+                    f"Failed to create UDAF state for merge: {e}"
+                ) from e
 
-            state = self.states[place_id]
-            before_merge = state.aggregate_state
+        state = states[place_id]
+        before_merge = state.aggregate_state
 
         # Merge the deserialized state
         try:
             state.merge(other_state)
             after_merge = state.aggregate_state
-            logging.info(
-                "MERGE: place_id=%s before=%s + other=%s → after=%s",
-                place_id,
-                before_merge,
-                other_state,
-                after_merge,
-            )
         except Exception as e:
-            logging.error("Error in merge for place_id %s: %s", place_id, e)
+            logging.error("Error in merge for client_id %s, place_id %s: %s", client_id, place_id, e)
             raise RuntimeError(f"Error in merge: {e}") from e
 
-    def finalize(self, place_id: int) -> Any:
+    def finalize(self, client_id: int, place_id: int) -> Any:
         """
         Get the final result from the aggregate state.
 
         Args:
+            client_id: Unique identifier for the client
             place_id: Unique identifier for the aggregate state
 
         Returns:
@@ -1258,93 +1316,92 @@ class UDAFStateManager:
             If the state doesn't exist, creates an empty state and returns its finish() result.
             This can happen in distributed scenarios where a node receives no data for aggregation.
         """
-        with self.lock:
-            if place_id not in self.states:
-                # State doesn't exist - create empty state and finalize it
-                logging.warning(
-                    "FINALIZE: State for place_id %s not found, creating empty state",
-                    place_id,
+        states = self._get_or_create_client_states(client_id)
+        
+        if place_id not in states:
+            # State doesn't exist - create empty state and finalize it
+            if self.udaf_class is None:
+                raise RuntimeError(
+                    "UDAF class not set. Call set_udaf_class() first before finalize operation."
                 )
-                if self.udaf_class is None:
-                    raise RuntimeError(
-                        "UDAF class not set. Call set_udaf_class() first before finalize operation."
-                    )
-                try:
-                    self.states[place_id] = self.udaf_class()
-                except Exception as e:
-                    logging.error("Failed to create UDAF state for finalize: %s", e)
-                    raise RuntimeError(
-                        f"Failed to create UDAF state for finalize: {e}"
-                    ) from e
+            try:
+                states[place_id] = self.udaf_class()
+            except Exception as e:
+                logging.error("Failed to create UDAF state for finalize: %s", e)
+                raise RuntimeError(
+                    f"Failed to create UDAF state for finalize: {e}"
+                ) from e
 
-            state = self.states[place_id]
+        state = states[place_id]
 
         try:
             result = state.finish()
-            logging.info("FINALIZE: place_id=%s result=%s", place_id, result)
             return result
         except Exception as e:
-            logging.error("Error finalizing state for place_id %s: %s", place_id, e)
+            logging.error("Error finalizing state for client_id %s, place_id %s: %s", client_id, place_id, e)
             raise RuntimeError(f"Error finalizing state: {e}") from e
 
-    def reset(self, place_id: int) -> None:
+    def reset(self, client_id: int, place_id: int) -> None:
         """
         Reset the aggregate state (for window functions).
 
         Args:
+            client_id: Unique identifier for the client
             place_id: Unique identifier for the aggregate state
 
         Raises:
             RuntimeError: If state does not exist for this place_id or UDAF class not set
         """
-        with self.lock:
-            if place_id not in self.states:
-                error_msg = (
-                    f"Attempted to reset non-existent state for place_id {place_id}. "
-                    f"RESET should only be called on existing states. "
-                    f"This indicates a bug in state lifecycle management."
-                )
-                logging.error(error_msg)
-                raise RuntimeError(error_msg)
+        states = self._get_or_create_client_states(client_id)
+        
+        if place_id not in states:
+            error_msg = (
+                f"Attempted to reset non-existent state for client_id {client_id}, place_id {place_id}. "
+                f"RESET should only be called on existing states. "
+                f"This indicates a bug in state lifecycle management."
+            )
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
 
-            if self.udaf_class is None:
-                raise RuntimeError("UDAF class not set. Call set_udaf_class() first.")
+        if self.udaf_class is None:
+            raise RuntimeError("UDAF class not set. Call set_udaf_class() first.")
 
-            try:
-                self.states[place_id] = self.udaf_class()
-            except Exception as e:
-                logging.error("Error resetting state for place_id %s: %s", place_id, e)
-                raise RuntimeError(f"Error resetting state: {e}") from e
+        try:
+            states[place_id] = self.udaf_class()
+        except Exception as e:
+            logging.error("Error resetting state for client_id %s, place_id %s: %s", client_id, place_id, e)
+            raise RuntimeError(f"Error resetting state: {e}") from e
 
-    def destroy(self, place_id: int) -> None:
+    def destroy(self, client_id: int, place_id: int) -> None:
         """
         Destroy the aggregate state and free resources.
 
         Args:
+            client_id: Unique identifier for the client
             place_id: Unique identifier for the aggregate state
 
         Raises:
             RuntimeError: If state does not exist for this place_id
         """
-        with self.lock:
-            if place_id not in self.states:
-                error_msg = (
-                    f"Attempted to destroy non-existent state for place_id {place_id}. "
-                    f"State was either never created or already destroyed. "
-                    f"This indicates a bug in state lifecycle management."
-                )
-                logging.error(error_msg)
-                raise RuntimeError(error_msg)
+        states = self._get_or_create_client_states(client_id)
+        
+        if place_id not in states:
+            error_msg = (
+                f"Attempted to destroy non-existent state for client_id {client_id}, place_id {place_id}. "
+                f"State was either never created or already destroyed. "
+                f"This indicates a bug in state lifecycle management."
+            )
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
 
-            del self.states[place_id]
+        del states[place_id]
 
     def clear_all(self) -> None:
         """Clear all states (for cleanup)."""
         with self.lock:
-            count = len(self.states)
-            self.states.clear()
-            logging.info("Cleared all %d UDAF states", count)
-
+            total_count = sum(len(states) for states in self.client_states.values())
+            self.client_states.clear()
+            logging.info("Cleared all %d UDAF states from all clients", total_count)
 
 class FlightServer(flight.FlightServerBase):
     """Arrow Flight server for executing Python UDFs, UDAFs, and UDTFs."""
@@ -1503,17 +1560,18 @@ class FlightServer(flight.FlightServerBase):
         )
 
     def _handle_udaf_create(
-        self, place_id: int, state_manager: UDAFStateManager
+        self, client_id: int, place_id: int, state_manager: UDAFStateManager
     ) -> pa.RecordBatch:
         """Handle UDAF CREATE operation.
 
         Returns: [success: bool]
         """
         try:
-            state_manager.create_state(place_id)
+            state_manager.create_state(client_id, place_id)
             success = True
         except Exception as e:
-            logging.error("CREATE operation failed for place_id=%s: %s", place_id, e)
+            logging.error("CREATE operation failed for client_id=%s, place_id=%s: %s", 
+                         client_id, place_id, e)
             success = False
 
         return pa.RecordBatch.from_arrays(
@@ -1522,6 +1580,7 @@ class FlightServer(flight.FlightServerBase):
 
     def _handle_udaf_accumulate(
         self,
+        client_id: int,
         place_id: int,
         metadata_binary: bytes,
         data_binary: bytes,
@@ -1535,6 +1594,7 @@ class FlightServer(flight.FlightServerBase):
 
         Returns: [rows_processed: int64] (0 if failed)
         """
+
         rows_processed = 0
         try:
             # Validate inputs
@@ -1542,94 +1602,59 @@ class FlightServer(flight.FlightServerBase):
                 raise ValueError(
                     f"ACCUMULATE requires both metadata and data, got metadata={metadata_binary is not None}, data={data_binary is not None}"
                 )
-
-            logging.info(
-                "ACCUMULATE: Starting deserialization, metadata size=%d, data size=%d",
-                len(metadata_binary),
-                len(data_binary),
-            )
-
-            # Deserialize metadata
             metadata_reader = pa.ipc.open_stream(metadata_binary)
             metadata_batch = metadata_reader.read_next_batch()
-
             is_single_place = metadata_batch.column(0)[0].as_py()
             row_start = metadata_batch.column(1)[0].as_py()
             row_end = metadata_batch.column(2)[0].as_py()
-            # place_offset = metadata_batch.column(3)[0].as_py()  # Not used currently
-
-            # Deserialize data (input columns + optional places)
             data_reader = pa.ipc.open_stream(data_binary)
             data_batch = data_reader.read_next_batch()
-
-            logging.info(
-                "ACCUMULATE: place_id=%s, is_single_place=%s, row_start=%s, row_end=%s, data_rows=%s, data_cols=%s",
-                place_id,
-                is_single_place,
-                row_start,
-                row_end,
-                data_batch.num_rows,
-                data_batch.num_columns,
-            )
-
-            # Check if there's a places column
             has_places = (
                 data_batch.schema.field(data_batch.num_columns - 1).name == "places"
             )
             num_input_cols = (
                 data_batch.num_columns - 1 if has_places else data_batch.num_columns
             )
-
-            logging.info(
-                "ACCUMULATE: has_places=%s, num_input_cols=%s",
-                has_places,
-                num_input_cols,
-            )
-
-            # Calculate loop range
             loop_start = row_start
             loop_end = min(row_end, data_batch.num_rows)
-            logging.info(
-                "ACCUMULATE: Loop range [%d, %d), will process %d rows",
-                loop_start,
-                loop_end,
-                loop_end - loop_start,
-            )
-
+            column_lists = [
+                data_batch.column(j).to_pylist() for j in range(num_input_cols)
+            ]
+            rows_processed = 0
             if is_single_place:
-                # Single place: accumulate all rows to the same state
+                states = state_manager._get_or_create_client_states(client_id)
+                if place_id not in states:
+                    raise KeyError(f"State for client_id {client_id}, place_id {place_id} not found")
+                state = states[place_id]
                 for i in range(loop_start, loop_end):
-                    args = [
-                        data_batch.column(j)[i].as_py() for j in range(num_input_cols)
-                    ]
-                    state_manager.accumulate(place_id, *args)
-                    rows_processed += 1
+                    args = [col_list[i] for col_list in column_lists]
+                    try:
+                        state.accumulate(*args)
+                        rows_processed += 1
+                    except Exception as e:
+                        logging.error("Error in accumulate for client_id %s, place_id %s at row %d: %s", client_id, place_id, i, e)
+                        raise RuntimeError(f"Error in accumulate: {e}") from e
             else:
-                # Multiple places: get place_ids from the last column
-                places_col = data_batch.column(data_batch.num_columns - 1)
-                logging.info(
-                    "ACCUMULATE: Multiple places mode, places column data: %s",
-                    [places_col[i].as_py() for i in range(data_batch.num_rows)],
-                )
+                places_list = data_batch.column(data_batch.num_columns - 1).to_pylist()
+                unique_place_ids = set(places_list[loop_start:loop_end])
+                states = state_manager._get_or_create_client_states(client_id)
+                states_cache = {}
+                for pid in unique_place_ids:
+                    if pid not in states:
+                        # Lazy creation: auto-create missing states in GROUP BY scenario
+                        state_manager.create_state(client_id, pid)
+                    states_cache[pid] = states[pid]
 
                 for i in range(loop_start, loop_end):
-                    row_place_id = places_col[i].as_py()
-                    args = [
-                        data_batch.column(j)[i].as_py() for j in range(num_input_cols)
-                    ]
-                    logging.info(
-                        "ACCUMULATE: Processing row %d, row_place_id=%s, args=%s",
-                        i,
-                        row_place_id,
-                        args,
-                    )
+                    row_place_id = places_list[i]
+                    args = [col_list[i] for col_list in column_lists]
 
-                    state_manager.accumulate(row_place_id, *args)
-                    rows_processed += 1
-
-            logging.info(
-                "ACCUMULATE: Completed successfully, rows_processed=%d", rows_processed
-            )
+                    try:
+                        states_cache[row_place_id].accumulate(*args)
+                        rows_processed += 1
+                    except Exception as e:
+                        logging.error("Error in accumulate for client_id %s, place_id %s at row %d: %s", client_id, row_place_id, i, e)
+                        raise RuntimeError(f"Error in accumulate: {e}") from e
 
         except Exception as e:
             logging.error(
@@ -1644,16 +1669,17 @@ class FlightServer(flight.FlightServerBase):
         )
 
     def _handle_udaf_serialize(
-        self, place_id: int, state_manager: UDAFStateManager
+        self, client_id: int, place_id: int, state_manager: UDAFStateManager
     ) -> pa.RecordBatch:
         """Handle UDAF SERIALIZE operation.
 
         Returns: [serialized_state: binary] (empty if failed)
         """
         try:
-            serialized = state_manager.serialize(place_id)
+            serialized = state_manager.serialize(client_id, place_id)
         except Exception as e:
-            logging.error("SERIALIZE operation failed for place_id=%s: %s", place_id, e)
+            logging.error("SERIALIZE operation failed for client_id=%s, place_id=%s: %s",
+                         client_id, place_id, e)
             serialized = b""  # Return empty binary on failure
 
         return pa.RecordBatch.from_arrays(
@@ -1661,7 +1687,7 @@ class FlightServer(flight.FlightServerBase):
         )
 
     def _handle_udaf_merge(
-        self, place_id: int, data_binary: bytes, state_manager: UDAFStateManager
+        self, client_id: int, place_id: int, data_binary: bytes, state_manager: UDAFStateManager
     ) -> pa.RecordBatch:
         """Handle UDAF MERGE operation.
 
@@ -1673,10 +1699,11 @@ class FlightServer(flight.FlightServerBase):
             if data_binary is None:
                 raise ValueError(f"MERGE requires data_binary, got None")
 
-            state_manager.merge(place_id, data_binary)
+            state_manager.merge(client_id, place_id, data_binary)
             success = True
         except Exception as e:
-            logging.error("MERGE operation failed for place_id=%s: %s", place_id, e)
+            logging.error("MERGE operation failed for client_id=%s, place_id=%s: %s",
+                         client_id, place_id, e)
             success = False
 
         return pa.RecordBatch.from_arrays(
@@ -1684,16 +1711,17 @@ class FlightServer(flight.FlightServerBase):
         )
 
     def _handle_udaf_finalize(
-        self, place_id: int, output_type: pa.DataType, state_manager: UDAFStateManager
+        self, client_id: int, place_id: int, output_type: pa.DataType, state_manager: UDAFStateManager
     ) -> pa.RecordBatch:
         """Handle UDAF FINALIZE operation.
 
         Returns: [result: output_type] (null if failed)
         """
         try:
-            result = state_manager.finalize(place_id)
+            result = state_manager.finalize(client_id, place_id)
         except Exception as e:
-            logging.error("FINALIZE operation failed for place_id=%s: %s", place_id, e)
+            logging.error("FINALIZE operation failed for client_id=%s, place_id=%s: %s",
+                         client_id, place_id, e)
             result = None  # Return null on failure
 
         return pa.RecordBatch.from_arrays(
@@ -1701,17 +1729,18 @@ class FlightServer(flight.FlightServerBase):
         )
 
     def _handle_udaf_reset(
-        self, place_id: int, state_manager: UDAFStateManager
+        self, client_id: int, place_id: int, state_manager: UDAFStateManager
     ) -> pa.RecordBatch:
         """Handle UDAF RESET operation.
 
         Returns: [success: bool]
         """
         try:
-            state_manager.reset(place_id)
+            state_manager.reset(client_id, place_id)
             success = True
         except Exception as e:
-            logging.error("RESET operation failed for place_id=%s: %s", place_id, e)
+            logging.error("RESET operation failed for client_id=%s, place_id=%s: %s",
+                         client_id, place_id, e)
             success = False
 
         return pa.RecordBatch.from_arrays(
@@ -1719,17 +1748,18 @@ class FlightServer(flight.FlightServerBase):
         )
 
     def _handle_udaf_destroy(
-        self, place_id: int, state_manager: UDAFStateManager
+        self, client_id: int, place_id: int, state_manager: UDAFStateManager
     ) -> pa.RecordBatch:
         """Handle UDAF DESTROY operation.
 
         Returns: [success: bool]
         """
         try:
-            state_manager.destroy(place_id)
+            state_manager.destroy(client_id, place_id)
             success = True
         except Exception as e:
-            logging.error("DESTROY operation failed for place_id=%s: %s", place_id, e)
+            logging.error("DESTROY operation failed for client_id=%s, place_id=%s: %s", 
+                         client_id, place_id, e)
             success = False
 
         return pa.RecordBatch.from_arrays(
@@ -1790,6 +1820,7 @@ class FlightServer(flight.FlightServerBase):
         Request Schema (unified for ALL operations):
         - operation: int8 - UDAFOperationType enum value
         - place_id: int64 - Unique identifier for the aggregate state
+        - client_id: int64 - Unique identifier for the client
         - metadata: binary - Serialized metadata (operation-specific)
         - data: binary - Serialized data (operation-specific)
 
@@ -1811,51 +1842,46 @@ class FlightServer(flight.FlightServerBase):
             batch = chunk.data
 
             # Validate unified request schema
-            if batch.num_columns != 4:
+            if batch.num_columns != 5:
                 raise ValueError(
-                    f"Expected 4 columns in unified schema, got {batch.num_columns}"
+                    f"Expected 5 columns in unified schema, got {batch.num_columns}"
                 )
 
             # Extract metadata from unified schema
             operation_type = UDAFOperationType(batch.column(0)[0].as_py())
             place_id = batch.column(1)[0].as_py()
+            client_id = batch.column(2)[0].as_py()
 
             # Check if metadata/data columns are null
-            metadata_col = batch.column(2)
-            data_col = batch.column(3)
+            metadata_col = batch.column(3)
+            data_col = batch.column(4)
 
             metadata_binary = (
                 metadata_col[0].as_py() if metadata_col[0].is_valid else None
             )
             data_binary = data_col[0].as_py() if data_col[0].is_valid else None
 
-            logging.info(
-                "Processing UDAF operation: %s, place_id: %s",
-                operation_type.name,
-                place_id,
-            )
-
             # Handle different operations - get operation-specific result
             if operation_type == UDAFOperationType.CREATE:
-                result_batch = self._handle_udaf_create(place_id, state_manager)
+                result_batch = self._handle_udaf_create(client_id, place_id, state_manager)
             elif operation_type == UDAFOperationType.ACCUMULATE:
                 result_batch = self._handle_udaf_accumulate(
-                    place_id, metadata_binary, data_binary, state_manager
+                    client_id, place_id, metadata_binary, data_binary, state_manager
                 )
             elif operation_type == UDAFOperationType.SERIALIZE:
-                result_batch = self._handle_udaf_serialize(place_id, state_manager)
+                result_batch = self._handle_udaf_serialize(client_id, place_id, state_manager)
             elif operation_type == UDAFOperationType.MERGE:
                 result_batch = self._handle_udaf_merge(
-                    place_id, data_binary, state_manager
+                    client_id, place_id, data_binary, state_manager
                 )
             elif operation_type == UDAFOperationType.FINALIZE:
                 result_batch = self._handle_udaf_finalize(
-                    place_id, python_udaf_meta.output_type, state_manager
+                    client_id, place_id, python_udaf_meta.output_type, state_manager
                 )
             elif operation_type == UDAFOperationType.RESET:
-                result_batch = self._handle_udaf_reset(place_id, state_manager)
+                result_batch = self._handle_udaf_reset(client_id, place_id, state_manager)
             elif operation_type == UDAFOperationType.DESTROY:
-                result_batch = self._handle_udaf_destroy(place_id, state_manager)
+                result_batch = self._handle_udaf_destroy(client_id, place_id, state_manager)
             else:
                 raise ValueError(f"Unsupported operation type: {operation_type}")
 
@@ -1866,7 +1892,6 @@ class FlightServer(flight.FlightServerBase):
             if not started:
                 writer.begin(unified_response_schema)
                 started = True
-                logging.info("Initialized UDAF response stream with unified schema")
 
             writer.write_batch(unified_response)
 
@@ -1981,7 +2006,9 @@ class FlightServer(flight.FlightServerBase):
                                 raise ValueError(
                                     f"Single-field UDTF should yield 1-tuples or scalars, got {len(output_value)}-tuple"
                                 )
-                            row_outputs.append(output_value[0])  # Extract scalar from tuple
+                            row_outputs.append(
+                                output_value[0]
+                            )  # Extract scalar from tuple
                         else:
                             # User provided scalar - use directly
                             row_outputs.append(output_value)
@@ -2018,7 +2045,9 @@ class FlightServer(flight.FlightServerBase):
             list_array = pa.array(all_results, type=pa.list_(expected_output_type))
         except Exception as e:
             logging.error(
-                "Failed to create ListArray: %s, element_type: %s", e, expected_output_type
+                "Failed to create ListArray: %s, element_type: %s",
+                e,
+                expected_output_type,
             )
             raise RuntimeError(f"Failed to create ListArray: {e}") from e
 
@@ -2053,7 +2082,6 @@ class FlightServer(flight.FlightServerBase):
         else:
             raise ValueError(f"Unsupported client type: {python_udf_meta.client_type}")
 
-
 class UDAFOperationType(Enum):
     """Enum representing UDAF operation types."""
 
@@ -2064,7 +2092,6 @@ class UDAFOperationType(Enum):
     FINALIZE = 4
     RESET = 5
     DESTROY = 6
-
 
 def check_unix_socket_path(unix_socket_path: str) -> bool:
     """Validates the Unix domain socket path format."""
@@ -2081,7 +2108,6 @@ def check_unix_socket_path(unix_socket_path: str) -> bool:
         return False
 
     return True
-
 
 def main(unix_socket_path: str) -> None:
     """
@@ -2122,7 +2148,6 @@ def main(unix_socket_path: str) -> None:
         if len(tb_lines) > 1:
             print(f"DETAIL: {tb_lines[-2].strip()}", flush=True)
         sys.exit(1)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

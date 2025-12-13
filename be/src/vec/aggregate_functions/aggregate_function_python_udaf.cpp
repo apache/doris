@@ -28,7 +28,6 @@
 #include "runtime/user_function_cache.h"
 #include "udf/python/python_env.h"
 #include "udf/python/python_server.h"
-#include "udf/python/python_udf_runtime.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
 #include "util/timezone_utils.h"
@@ -40,7 +39,7 @@
 namespace doris::vectorized {
 
 Status AggregatePythonUDAFData::create(int64_t place) {
-    DCHECK(client != nullptr) << "Client must be set before calling create";
+    DCHECK(client) << "Client must be set before calling create";
     RETURN_IF_ERROR(client->create(place));
     return Status::OK();
 }
@@ -48,7 +47,7 @@ Status AggregatePythonUDAFData::create(int64_t place) {
 Status AggregatePythonUDAFData::add(int64_t place_id, const IColumn** columns,
                                     int64_t row_num_start, int64_t row_num_end,
                                     const DataTypes& argument_types) {
-    DCHECK(client != nullptr) << "Client must be set before calling add";
+    DCHECK(client) << "Client must be set before calling add";
 
     Block input_block;
     for (size_t i = 0; i < argument_types.size(); ++i) {
@@ -73,7 +72,7 @@ Status AggregatePythonUDAFData::add(int64_t place_id, const IColumn** columns,
 }
 
 Status AggregatePythonUDAFData::merge(const AggregatePythonUDAFData& rhs, int64_t place) {
-    DCHECK(client != nullptr) << "Client must be set before calling merge";
+    DCHECK(client) << "Client must be set before calling merge";
 
     // Get serialized state from rhs (already stored in serialize_data by read())
     auto serialized_state = arrow::Buffer::Wrap(
@@ -84,7 +83,7 @@ Status AggregatePythonUDAFData::merge(const AggregatePythonUDAFData& rhs, int64_
 }
 
 Status AggregatePythonUDAFData::write(BufferWritable& buf, int64_t place) const {
-    DCHECK(client != nullptr) << "Client must be set before calling write";
+    DCHECK(client) << "Client must be set before calling write";
 
     // Serialize state from Python server
     std::shared_ptr<arrow::Buffer> serialized_state;
@@ -103,20 +102,20 @@ void AggregatePythonUDAFData::read(BufferReadable& buf) {
 }
 
 Status AggregatePythonUDAFData::reset(int64_t place) {
-    DCHECK(client != nullptr) << "Client must be set before calling reset";
+    DCHECK(client) << "Client must be set before calling reset";
     RETURN_IF_ERROR(client->reset(place));
     return Status::OK();
 }
 
 Status AggregatePythonUDAFData::destroy(int64_t place) {
-    DCHECK(client != nullptr) << "Client must be set before calling destroy";
+    DCHECK(client) << "Client must be set before calling destroy";
     RETURN_IF_ERROR(client->destroy(place));
     return Status::OK();
 }
 
 Status AggregatePythonUDAFData::get(IColumn& to, const DataTypePtr& result_type,
                                     int64_t place) const {
-    DCHECK(client != nullptr) << "Client must be set before calling get";
+    DCHECK(client) << "Client must be set before calling get";
 
     // Get final result from Python server
     std::shared_ptr<arrow::RecordBatch> result;
@@ -200,18 +199,17 @@ void AggregatePythonUDAF::create(AggregateDataPtr __restrict place) const {
     new (place) Data();
     DCHECK(reinterpret_cast<Data*>(place)) << "Place must not be null";
 
-    // Get or initialize shared client (thread-safe)
-    PythonUDAFClient* client = _get_shared_client();
+    // Get or create thread-local client (thread-safe)
+    PythonUDAFClientPtr client = _get_client();
     if (UNLIKELY(!client)) {
         this->data(place).~Data();
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Failed to get shared Python UDAF client");
+                               "Failed to get thread-local Python UDAF client");
     }
 
-    // Set client pointer in data (all places share the same client)
-    this->data(place).set_client(client);
+    this->data(place).client = client;
 
-    // Initialize UDAF state in Python server using shared client
+    // Initialize UDAF state in Python server
     int64_t place_id = reinterpret_cast<int64_t>(place);
     Status st = this->data(place).create(place_id);
     if (UNLIKELY(!st.ok())) {
@@ -221,18 +219,25 @@ void AggregatePythonUDAF::create(AggregateDataPtr __restrict place) const {
 }
 
 void AggregatePythonUDAF::destroy(AggregateDataPtr __restrict place) const noexcept {
-    int64_t place_id = reinterpret_cast<int64_t>(place);
+    try {
+        int64_t place_id = reinterpret_cast<int64_t>(place);
 
-    // Destroy state in Python server (client is stored in data)
-    if (this->data(place).client) {
-        Status st = this->data(place).destroy(place_id);
-        if (UNLIKELY(!st.ok())) {
-            LOG(WARNING) << "Failed to destroy Python UDAF state: " << st.to_string();
+        // Destroy state in Python server
+        if (this->data(place).client) {
+            Status st = this->data(place).destroy(place_id);
+            if (UNLIKELY(!st.ok())) {
+                LOG(WARNING) << "Failed to destroy Python UDAF state for place_id=" << place_id
+                             << ", function=" << _func_meta.name << ": " << st.to_string();
+            }
         }
-    }
 
-    // Destroy C++ data structure
-    this->data(place).~Data();
+        // Destroy C++ data structure
+        this->data(place).~Data();
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Exception in AggregatePythonUDAF::destroy: " << e.what();
+    } catch (...) {
+        LOG(ERROR) << "Unknown exception in AggregatePythonUDAF::destroy";
+    }
 }
 
 void AggregatePythonUDAF::add(AggregateDataPtr __restrict place, const IColumn** columns,
@@ -247,15 +252,53 @@ void AggregatePythonUDAF::add(AggregateDataPtr __restrict place, const IColumn**
 void AggregatePythonUDAF::add_batch(size_t batch_size, AggregateDataPtr* places,
                                     size_t place_offset, const IColumn** columns, Arena&,
                                     bool /*agg_many*/) const {
-    // With shared client optimization, all places use the same Python process
-    // We still need to add each row individually because they go to different place_ids
+    // Build places array for this batch
+    std::vector<int64_t> places_array(batch_size);
     for (size_t i = 0; i < batch_size; ++i) {
-        int64_t place_id = reinterpret_cast<int64_t>(places[i] + place_offset);
-        Status st = this->data(places[i] + place_offset)
-                            .add(place_id, columns, i, i + 1, argument_types);
-        if (UNLIKELY(!st.ok())) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
+        places_array[i] = reinterpret_cast<int64_t>(places[i] + place_offset);
+    }
+
+    // Build input block for entire batch
+    Block input_block;
+    for (size_t i = 0; i < argument_types.size(); ++i) {
+        input_block.insert(
+                ColumnWithTypeAndName(columns[i]->get_ptr(), argument_types[i], std::to_string(i)));
+    }
+
+    std::shared_ptr<arrow::Schema> schema;
+    cctz::time_zone timezone_obj;
+    std::call_once(_cache_init_flag, [this, &input_block]() {
+        DCHECK(!this->argument_types.empty()) << "Argument types must not be empty";
+        Status schema_status = get_arrow_schema_from_block(input_block, &this->_cached_arrow_schema,
+                                                           TimezoneUtils::default_time_zone);
+        if (UNLIKELY(!schema_status.ok())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, schema_status.to_string());
         }
+
+        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone,
+                                           this->_cached_timezone);
+    });
+
+    schema = _cached_arrow_schema;
+    timezone_obj = _cached_timezone;
+
+    std::shared_ptr<arrow::RecordBatch> batch;
+    Status batch_status = convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
+                                                 &batch, timezone_obj);
+    if (UNLIKELY(!batch_status.ok())) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, batch_status.to_string());
+    }
+
+    // Get client from first place (all places in same thread share the same client)
+    auto client = this->data(places[0] + place_offset).client;
+    DCHECK(client) << "Client must be set";
+
+    // Single RPC call with multi-place mode (is_single_place=false)
+    // Use place_id=0 as dummy since we're passing the full places array
+    Status st =
+            client->accumulate(0, false, *batch, 0, batch_size, places_array.data(), place_offset);
+    if (UNLIKELY(!st.ok())) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
     }
 }
 
@@ -337,31 +380,36 @@ void AggregatePythonUDAF::insert_result_into(ConstAggregateDataPtr __restrict pl
     }
 }
 
-Status AggregatePythonUDAF::_init_shared_client() const {
-    if (_shared_client) {
-        return Status::OK();
+PythonUDAFClientPtr AggregatePythonUDAF::_get_client() const {
+    // Thread-local cache of clients indexed by PythonUDFMeta
+    // Each thread maintains its own map of function metadata -> client
+    // This avoids locking and allows efficient multi-threaded execution
+    static thread_local std::unordered_map<PythonUDFMeta, PythonUDAFClientPtr> tls_clients;
+
+    // Check if client already exists for this function in current thread
+    auto it = tls_clients.find(_func_meta);
+    if (it != tls_clients.end() && it->second) {
+        return it->second;
     }
 
-    RETURN_IF_ERROR(PythonServerManager::instance().get_client(_func_meta, _python_version,
-                                                               &_shared_client));
-    LOG(INFO) << "Initialized shared Python UDAF client for function: " << _func_meta.name;
-    return Status::OK();
-}
-
-PythonUDAFClient* AggregatePythonUDAF::_get_shared_client() const {
-    // Double-checked locking for thread-safe lazy initialization
-    if (!_client_initialized) {
-        std::lock_guard<std::mutex> lock(_client_init_mutex);
-        if (!_client_initialized) {
-            Status st = _init_shared_client();
-            if (!st.ok()) {
-                LOG(ERROR) << "Failed to initialize shared Python UDAF client: " << st.to_string();
-                return nullptr;
-            }
-            _client_initialized = true;
-        }
+    // Create new client for this function
+    PythonUDAFClientPtr new_client;
+    Status st =
+            PythonServerManager::instance().get_client(_func_meta, _python_version, &new_client);
+    if (!st.ok()) {
+        LOG(ERROR) << "Failed to create thread-local Python UDAF client for function "
+                   << _func_meta.name << ", thread_id=" << std::this_thread::get_id() << ": "
+                   << st.to_string();
+        return nullptr;
     }
-    return _shared_client.get();
+
+    // Store in thread-local cache
+    tls_clients[_func_meta] = new_client;
+
+    LOG(INFO) << "Created thread-local Python UDAF client for function " << _func_meta.name
+              << ", thread_id=" << std::this_thread::get_id();
+
+    return new_client;
 }
 
 } // namespace doris::vectorized
