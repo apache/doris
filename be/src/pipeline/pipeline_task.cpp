@@ -739,7 +739,7 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
         for (auto& op : _operators) {
             auto tem = op->close(_state);
             if (!tem.ok() && s.ok()) {
-                s = tem;
+                s = std::move(tem);
             }
         }
     }
