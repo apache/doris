@@ -158,6 +158,9 @@ message RowsetMetaPB {
     optional int64 visible_ts_ms = 1010;
     optional string reference_instance_id = 1011;  // For cluster snapshot
     map<string, PackedSliceLocationPB> packed_slice_locations = 1012;
+    
+    optional bool recycled_marked = 1013;
+    optional string job_id = 1014;
 }
 
 message SchemaDictKeyList {
@@ -257,6 +260,9 @@ message RowsetMetaCloudPB {
     optional int64 visible_ts_ms = 109;
     optional string reference_instance_id = 110;  // For cluster snapshot
     map<string, PackedSliceLocationPB> packed_slice_locations = 111;
+
+    optional bool recycled_marked = 112;
+    optional string job_id = 113;
 }
 
 message SegmentStatisticsPB {

@@ -40,6 +40,11 @@
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
+#include "mock_accessor.h"
+#include "recycler/recycler.h"
+
+extern doris::cloud::RecyclerThreadPoolGroup thread_group;
+const std::string RESOURCE_ID = "mock_resource_id";
 
 namespace doris::cloud {
 // External functions from meta_service_test.cpp
@@ -114,6 +119,23 @@ void start_compaction_job(MetaService* meta_service, int64_t tablet_id, const st
     }
     meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
 };
+
+void finish_compaction_job(MetaService* meta_service, int64_t tablet_id, const std::string& job_id,
+                           const std::string& initiator, int base_compaction_cnt,
+                           int cumu_compaction_cnt, TabletCompactionJobPB::CompactionType type,
+                           FinishTabletJobResponse& res,
+                           std::pair<int64_t, int64_t> input_version = {0, 0}) {
+    brpc::Controller cntl;
+    FinishTabletJobRequest req;
+    req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+    auto* compaction = req.mutable_job()->add_compaction();
+    compaction->set_id(job_id);
+    compaction->set_initiator(initiator);
+    compaction->set_base_compaction_cnt(base_compaction_cnt);
+    compaction->set_cumulative_compaction_cnt(cumu_compaction_cnt);
+    compaction->set_type(type);
+    meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+}
 
 void get_tablet_stats(MetaService* meta_service, int64_t tablet_id, TabletStatsPB& stats) {
     brpc::Controller cntl;
@@ -5399,6 +5421,238 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().offset(), "second_reset_offset");
+    }
+}
+
+TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest) {
+    auto meta_service = get_meta_service();
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        config::enable_recycle_rowset_key_check = false;
+        config::force_immediate_recycle = false;
+    };
+    config::force_immediate_recycle = true;
+    config::enable_recycle_rowset_key_check = true;
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t db_id = 1;
+    int64_t table_id = 12340;
+    int64_t index_id = 12350;
+    int64_t partition_id = 12360;
+    int64_t tablet_id = 12370;
+
+    // Create tablet first
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+
+    // Test: Complete flow - begin_txn -> prepare_rowset -> recycle -> abort -> verify commit fails
+    {
+        LOG(INFO) << "Test: Complete flow with abort_txn_for_related_rowset";
+
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+
+        // Step 1: begin_txn
+        int64_t txn_id = -1;
+        std::string label = "test_abort_txn_label";
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            BeginTxnResponse res;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            auto txn_info = req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label(label);
+            txn_info->add_table_ids(table_id);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            txn_id = res.txn_id();
+            LOG(INFO) << "Step 1: Transaction started, txn_id=" << txn_id;
+        }
+
+        // Step 2: prepare_rowset
+        doris::RowsetMetaCloudPB rowset_meta;
+        {
+            rowset_meta = create_rowset(txn_id, tablet_id, partition_id, -1, 100);
+            rowset_meta.mutable_load_id()->CopyFrom(PUniqueId());
+            rowset_meta.mutable_load_id()->set_hi(11111);
+            rowset_meta.mutable_load_id()->set_lo(22222);
+            rowset_meta.set_rowset_state(RowsetStatePB::PREPARED);
+            rowset_meta.set_resource_id(std::string(RESOURCE_ID));
+
+            brpc::Controller cntl;
+            CreateRowsetResponse res;
+            auto arena = res.GetArena();
+            auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->mutable_rowset_meta()->CopyFrom(rowset_meta);
+            meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+            if (!arena) delete req;
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            LOG(INFO) << "Step 2: Rowset prepared";
+        }
+
+        // Step 4: Abort transaction via abort_txn_for_related_rowset
+        {
+            InstanceInfoPB instance_info;
+            instance_info.set_instance_id(instance_id);
+
+            InstanceRecycler recycler(meta_service->txn_kv(), instance_info, thread_group,
+                                      std::make_shared<TxnLazyCommitter>(meta_service->txn_kv()));
+            ASSERT_EQ(recycler.init(), 0);
+            std::shared_ptr<StorageVaultAccessor> accessor = std::make_shared<MockAccessor>();
+            recycler.TEST_add_accessor(RESOURCE_ID, accessor);
+
+            // first for set recycle_marked false
+            // second for set recycle_marked true
+            // third for abort txn and recycle data
+            for (size_t i = 0; i < 3; i++) {
+                int ret = recycler.recycle_rowsets();
+                ASSERT_EQ(ret, 0);
+            }
+
+            LOG(INFO) << "Step 4: Transaction aborted via recycler";
+        }
+
+        // Step 5: Try to commit_rowset (should fail because txn is aborted)
+        {
+            brpc::Controller cntl;
+            CreateRowsetResponse res;
+            auto arena = res.GetArena();
+            auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->mutable_rowset_meta()->CopyFrom(rowset_meta);
+            meta_service->commit_rowset(&cntl, req, &res, nullptr);
+            if (!arena) delete req;
+            // Should fail because transaction is aborted
+            ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+            LOG(INFO) << "Step 5: commit_rowset correctly failed for aborted txn";
+        }
+
+        // Step 6: Try to commit_txn (should also fail)
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            CommitTxnResponse res;
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            // Should fail because transaction is already aborted
+            ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+            LOG(INFO) << "Step 6: commit_txn correctly failed for aborted txn";
+        }
+    }
+}
+
+TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest) {
+    auto meta_service = get_meta_service();
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        config::enable_recycle_rowset_key_check = false;
+        config::force_immediate_recycle = false;
+    };
+    config::enable_recycle_rowset_key_check = true;
+    config::force_immediate_recycle = true;
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t table_id = 12440;
+    int64_t index_id = 12450;
+    int64_t partition_id = 12460;
+    int64_t tablet_id = 12470;
+
+    // Create tablet first
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+
+    // Test: Complete flow - start job -> prepare_rowset -> recycle -> abort job -> verify
+    {
+        LOG(INFO) << "Test: Complete flow with abort_job_for_related_rowset";
+
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+
+        std::string job_id = "test_complete_flow_job_456";
+
+        // Step 1: Start a compaction job
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, job_id, "test_initiator", 0, 0,
+                                 TabletCompactionJobPB::CUMULATIVE, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            LOG(INFO) << "Step 1: Compaction job started, job_id=" << job_id;
+        }
+
+        // Step 2: prepare_rowset with job_id
+        doris::RowsetMetaCloudPB rowset_meta;
+        {
+            int64_t txn_id = 77777;
+            rowset_meta = create_rowset(txn_id, tablet_id, partition_id, 2, 100);
+            rowset_meta.set_job_id(job_id);
+            rowset_meta.set_resource_id(std::string(RESOURCE_ID));
+
+            brpc::Controller cntl;
+            CreateRowsetResponse res;
+            auto arena = res.GetArena();
+            auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->mutable_rowset_meta()->CopyFrom(rowset_meta);
+            meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+            if (!arena) delete req;
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            LOG(INFO) << "Step 2: Rowset with job_id prepared";
+        }
+
+        // Step 4: Abort job via abort_job_for_related_rowset
+        {
+            InstanceInfoPB instance_info;
+            instance_info.set_instance_id(instance_id);
+
+            InstanceRecycler recycler(meta_service->txn_kv(), instance_info, thread_group,
+                                      std::make_shared<TxnLazyCommitter>(meta_service->txn_kv()));
+            ASSERT_EQ(recycler.init(), 0);
+            std::shared_ptr<StorageVaultAccessor> accessor = std::make_shared<MockAccessor>();
+            recycler.TEST_add_accessor(RESOURCE_ID, accessor);
+
+            // first for set recycle_marked false
+            // second for set recycle_marked true
+            // third for abort txn and recycle data
+            for (size_t i = 0; i < 3; i++) {
+                int ret = recycler.recycle_rowsets();
+                ASSERT_EQ(ret, 0);
+            }
+
+            LOG(INFO) << "Step 4: Job aborted via recycler";
+        }
+
+        // Step 5: Try to commit_rowset (may succeed but job is aborted)
+        {
+            brpc::Controller cntl;
+            CreateRowsetResponse res;
+            auto arena = res.GetArena();
+            auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->mutable_rowset_meta()->CopyFrom(rowset_meta);
+            meta_service->commit_rowset(&cntl, req, &res, nullptr);
+            if (!arena) delete req;
+            // commit_rowset may succeed, but the job itself is aborted
+            LOG(INFO) << "Step 5: commit_rowset executed with code=" << res.status().code();
+        }
+
+        // Step 6: Try to finish tablet job
+        {
+            FinishTabletJobResponse res;
+            finish_compaction_job(meta_service.get(), tablet_id, job_id, "test_initiator", 0, 0,
+                                  TabletCompactionJobPB::CUMULATIVE, res);
+            ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+            LOG(INFO) << "Step 6: Tablet job finished with code=" << res.status().code();
+        }
     }
 }
 
