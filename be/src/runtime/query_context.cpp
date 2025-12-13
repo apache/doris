@@ -23,7 +23,6 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -32,7 +31,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "olap/olap_common.h"
 #include "pipeline/dependency.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
@@ -43,10 +41,8 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/query_task_controller.h"
-#include "runtime_filter/runtime_filter_definitions.h"
 #include "util/mem_info.h"
 #include "util/uid_util.h"
-#include "vec/spill/spill_stream_manager.h"
 
 namespace doris {
 
@@ -92,23 +88,19 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
                            bool is_nereids, TNetworkAddress current_connect_fe,
                            QuerySource query_source)
-        : _timeout_second(-1),
-          _query_id(std::move(query_id)),
+        : _query_id(std::move(query_id)),
           _exec_env(exec_env),
           _is_nereids(is_nereids),
           _query_options(query_options),
           _query_source(query_source) {
     _init_resource_context();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
-    _query_watcher.start();
     _execution_dependency =
             pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
             pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(true);
-
-    _timeout_second = query_options.execution_timeout;
 
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
                                query_options.query_type == TQueryType::LOAD ||
@@ -193,53 +185,18 @@ void QueryContext::init_query_task_controller() {
 
 QueryContext::~QueryContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
-    // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
-    // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
-    // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
-    // on query mem tracker, released on other trackers.
-    std::string mem_tracker_msg;
-    if (query_mem_tracker()->peak_consumption() != 0) {
-        mem_tracker_msg = fmt::format(
-                "deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
-                "PeakUsed={}",
-                print_id(_query_id), PrettyPrinter::print_bytes(query_mem_tracker()->limit()),
-                PrettyPrinter::print_bytes(query_mem_tracker()->consumption()),
-                PrettyPrinter::print_bytes(query_mem_tracker()->peak_consumption()));
-    }
-    [[maybe_unused]] uint64_t group_id = 0;
-    if (workload_group()) {
-        group_id = workload_group()->id(); // before remove
-    }
-
-    _resource_ctx->task_controller()->finish();
-
     if (enable_profile()) {
         _report_query_profile();
     }
 
-#ifndef BE_TEST
-    if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
-        try {
-            ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
-        } catch (std::exception& e) {
-            LOG(WARNING) << "Dump trace log failed bacause " << e.what();
-        }
-    }
-#endif
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
-    if (_merge_controller_handler) {
-        _merge_controller_handler->release_undone_filters(this);
-    }
-    _merge_controller_handler.reset();
 
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
-    // the only one msg shows query's end. any other msg should append to it if need.
-    LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {
@@ -495,6 +452,14 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status() {
             /*is_done=*/false);
 
     return exec_status;
+}
+
+bool QueryContext::is_timeout(timespec now) const {
+    return _coordinator_context->is_timeout(now);
+}
+
+int64_t QueryContext::get_remaining_query_time_seconds() const {
+    return _coordinator_context->get_remaining_query_time_seconds();
 }
 
 } // namespace doris
