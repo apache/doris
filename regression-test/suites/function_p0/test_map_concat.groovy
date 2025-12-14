@@ -71,7 +71,6 @@ suite("test_map_concat") {
                 id,
                 map_concat(map1, map2, map3) as all_maps_merged
             from ${testTable}
-            where id = 1
             order by id;
         """
 
@@ -97,7 +96,6 @@ suite("test_map_concat") {
                 map_concat({}, map2) as merged_with_empty2,
                 map_concat({}, {}) as empty_with_empty
             from ${testTable}
-            where id = 3
             order by id;
         """
 
@@ -109,7 +107,6 @@ suite("test_map_concat") {
                 map_concat(NULL, map2) as null_with_map,
                 map_concat(NULL, NULL) as null_with_null
             from ${testTable}
-            where id = 4
             order by id;
         """
 
@@ -154,7 +151,6 @@ suite("test_map_concat") {
                 map_size(map_concat(map1, map1)) as self_concat_size,
                 map_size(map_concat(map1, map2)) as two_maps_size
             from ${testTable}
-            where id = 1
             order by id;
         """
 
@@ -207,19 +203,13 @@ suite("test_map_concat") {
         """
 
         // Test 5.4: Error case - type mismatch (expected to fail)
-        try {
-            qt_sql """
-                select 
-                    map_concat(
-                        CAST({'a': 1} AS MAP<VARCHAR, INT>),
-                        CAST({'b': '2'} AS MAP<VARCHAR, VARCHAR>)
-                    ) as type_mismatch;
-            """
-            println "WARNING: Type mismatch test passed unexpectedly"
-        } catch (Exception e) {
-            println "Test 5.4 expected to fail for type mismatch: ${e.message}"
-        }
-
+        qt_sql """
+            select 
+                map_concat(
+                    CAST({'a': 1} AS MAP<VARCHAR, INT>),
+                    CAST({'b': '2'} AS MAP<VARCHAR, VARCHAR>)
+                ) as type_mismatch;
+        """
     } finally {
         // Clean up
         try {

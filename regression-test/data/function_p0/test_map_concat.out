@@ -5,3 +5,57 @@
 3	{"extra_key":"extra_value"}
 4	\N
 
+-- !sql --
+1	{"a":"apple", "b":"banana", "x":"10", "y":"20", "1":"one", "2":"two"}
+2	{"c":"cherry", "z":"30", "3":"three"}
+3	{}
+4	\N
+
+-- !sql --
+{"a":"apple", "b":"banana", "c":"cherry"}
+
+-- !sql --
+1	{"a":"apple", "b":"banana"}	{"x":10, "y":20}	{}
+2	{"c":"cherry"}	{"z":30}	{}
+3	{}	{}	{}
+4	\N	\N	{}
+
+-- !sql --
+1	\N	\N	\N
+2	\N	\N	\N
+3	\N	\N	\N
+4	\N	\N	\N
+
+-- !sql --
+\N	\N
+
+-- !sql --
+{"a":"apple", "b":"blueberry", "c":"cherry"}
+
+-- !sql --
+{"a":"first", "b":"second", "c":"third", "d":"third"}
+
+-- !sql --
+1	2	4
+2	1	2
+3	0	0
+4	\N	\N
+
+-- !sql --
+{"a":1, "b":2, "c":3, "d":4}
+
+-- !sql --
+["x", "y"]	[10, 20]
+
+-- !sql --
+{"a":"1", "b":"2"}
+
+-- !sql --
+{1:"one", 2:"two", 3:"three", 4:"four"}
+
+-- !sql --
+{"p1":"v1", "p2":"v2", "p3":"v3", "p4":"v4", "p5":"v5", "p6":"v6", "p7":"v7", "p8":"v8", "p9":"v9"}
+
+-- !sql --
+{"a":"1", "b":"2"}
+
