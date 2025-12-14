@@ -210,6 +210,249 @@ suite("test_map_concat") {
                     CAST({'b': '2'} AS MAP<VARCHAR, VARCHAR>)
                 ) as type_mismatch;
         """
+
+        // ============================================
+        // Group 6: Additional edge cases and extended testing
+        // ============================================
+        
+        // Test 6.1: Single argument (should return the same map)
+        qt_sql """
+            select 
+                map_concat({'single': 'argument'}) as single_argument;
+        """
+
+        // Test 6.2: Map with NULL values inside
+        qt_sql """
+            select 
+                map_concat(
+                    {'a': 'value', 'b': NULL},
+                    {'c': 'another', 'd': NULL}
+                ) as maps_with_null_values;
+        """
+
+        // Test 6.3: Mixed NULL maps and empty maps
+        qt_sql """
+            select 
+                map_concat(NULL, {'a': 1}, {}, NULL, {'b': 2}) as mixed_nulls_empties;
+        """
+
+        // Test 6.4: More numeric types testing
+        qt_sql """
+            select 
+                map_concat(
+                    CAST({'tiny': 127} AS MAP<VARCHAR, TINYINT>),
+                    CAST({'small': 32767} AS MAP<VARCHAR, SMALLINT>),
+                    CAST({'int': 2147483647} AS MAP<VARCHAR, INT>)
+                ) as more_numeric_types;
+        """
+
+        // Test 6.5: Boolean type values
+        qt_sql """
+            select 
+                map_concat(
+                    {'flag1': true, 'flag2': false},
+                    {'flag3': true}
+                ) as boolean_values;
+        """
+
+        // Test 6.6: Date type values
+        qt_sql """
+            select 
+                map_concat(
+                    {'date1': DATE '2023-01-01'},
+                    {'date2': DATE '2023-12-31'}
+                ) as date_values;
+        """
+
+        // Test 6.7: Array as map values
+        qt_sql """
+            select 
+                map_concat(
+                    {'arr1': [1, 2, 3]},
+                    {'arr2': [4, 5, 6]}
+                ) as array_values;
+        """
+
+        // Test 6.8: Very many parameters (more than 9)
+        qt_sql """
+            select 
+                map_concat(
+                    {'k01': 'v01'}, {'k02': 'v02'}, {'k03': 'v03'},
+                    {'k04': 'v04'}, {'k05': 'v05'}, {'k06': 'v06'},
+                    {'k07': 'v07'}, {'k08': 'v08'}, {'k09': 'v09'},
+                    {'k10': 'v10'}, {'k11': 'v11'}, {'k12': 'v12'}
+                ) as many_parameters;
+        """
+
+        // Test 6.9: Nested map_concat operations (deep nesting)
+        qt_sql """
+            select 
+                map_concat(
+                    map_concat({'a': 1}, {'b': 2}),
+                    map_concat(
+                        map_concat({'c': 3}, {'d': 4}),
+                        map_concat({'e': 5}, {'f': 6})
+                    )
+                ) as deeply_nested;
+        """
+
+        // Test 6.10: map_concat with map_contains_key combination
+        qt_sql """
+            select 
+                map_contains_key(
+                    map_concat({'a': 1, 'b': 2}, {'c': 3, 'd': 4}),
+                    'c'
+                ) as contains_key_c,
+                map_contains_key(
+                    map_concat({'a': 1, 'b': 2}, {'c': 3, 'd': 4}),
+                    'e'
+                ) as contains_key_e;
+        """
+
+        // Test 6.11: map_concat in WHERE clause
+        qt_sql """
+            select 
+                id,
+                map_concat(map1, map2) as merged
+            from ${testTable}
+            where map_size(map_concat(map1, map2)) > 0
+            order by id;
+        """
+
+        // Test 6.12: Key order consistency test
+        qt_sql """
+            select 
+                map_keys(map_concat({'z': 1, 'a': 2}, {'m': 3})) as keys_order1,
+                map_keys(map_concat({'a': 2, 'z': 1}, {'m': 3})) as keys_order2;
+        """
+
+        // ============================================
+        // Group 7: Advanced edge cases - interface, charset, and nested scenarios
+        // ============================================
+        
+        // Test 7.1: Interface-related test - map_concat with map_entries
+        qt_sql """
+            select 
+                map_entries(map_concat({'a': 1, 'b': 2}, {'c': 3, 'd': 4})) as entries_result;
+        """
+
+        // Test 7.2: Interface-related test - map_concat with map_contains_value
+        qt_sql """
+            select 
+                map_contains_value(map_concat({'a': 1, 'b': 2}, {'c': 3, 'd': 4}), 3) as contains_value_3,
+                map_contains_value(map_concat({'a': 1, 'b': 2}, {'c': 3, 'd': 4}), 5) as contains_value_5;
+        """
+
+        // Test 7.3: Different charset test - UTF-8 special characters
+        qt_sql """
+            select 
+                map_concat(
+                    {'中文键': '中文值', 'key with emoji 🔥': 'value with emoji 🚀'},
+                    {'key with accents café': 'value with accents naïve'}
+                ) as utf8_charset_test;
+        """
+
+        // Test 7.4: Different charset test - mixed language keys
+        qt_sql """
+            select 
+                map_concat(
+                    {'English key': 'value1', '日本語キー': '値1'},
+                    {'한국어 키': '값1', 'русский ключ': 'значение1'}
+                ) as mixed_language_test;
+        """
+
+        // Test 7.5: Nested map_concat - complex nesting
+        qt_sql """
+            select 
+                map_concat(
+                    map_concat(
+                        map_concat({'a': 1}, {'b': 2}),
+                        map_concat({'c': 3}, {'d': 4})
+                    ),
+                    map_concat(
+                        map_concat(
+                            map_concat({'e': 5}, {'f': 6}),
+                            map_concat({'g': 7}, {'h': 8})
+                        ),
+                        map_concat({'i': 9}, {'j': 10})
+                    )
+                ) as complex_nested_concat;
+        """
+
+        // Test 7.6: Nested map_concat with different key types
+        qt_sql """
+            select 
+                map_concat(
+                    map_concat({1: 'one', 2: 'two'}, {3: 'three', 4: 'four'}),
+                    map_concat({'five': 5, 'six': 6}, {'seven': 7, 'eight': 8})
+                ) as mixed_key_types_nested;
+        """
+
+        // Test 7.7: Interface test - map_concat in subquery
+        qt_sql """
+            select 
+                id,
+                (select map_concat({'static': 'value'}, map1) from ${testTable} where id = t.id) as subquery_concat
+            from ${testTable} t
+            order by id;
+        """
+
+        // Test 7.8: Interface test - map_concat with CASE expression
+        qt_sql """
+            select 
+                id,
+                map_concat(
+                    CASE WHEN id % 2 = 0 THEN {'even': 'true'} ELSE {'odd': 'true'} END,
+                    CASE WHEN id = 1 THEN {'id': '1'} 
+                         WHEN id = 2 THEN {'id': '2'} 
+                         WHEN id = 3 THEN {'id': '3'} 
+                         ELSE {'id': '4'} END
+                ) as case_expr_concat
+            from ${testTable}
+            order by id;
+        """
+
+        // Test 7.9: Special characters in keys and values
+        qt_sql """
+            select 
+                map_concat(
+                    {'key with "double quotes"': 'value with ''single quotes'''},
+                    {'key with \\\\backslashes\\\\': 'value with \\\\n newline'},
+                    {'key with , comma': 'value with ; semicolon'},
+                    {'key with {} braces': 'value with [] brackets'}
+                ) as special_chars_test;
+        """
+
+        // Test 7.10: Empty string as key and value
+        qt_sql """
+            select 
+                map_concat(
+                    {'': 'empty key', 'empty value': ''},
+                    {'': 'another empty key', 'key': ''}
+                ) as empty_string_test;
+        """
+
+        // Test 7.11: Very long strings as keys and values
+        qt_sql """
+            select 
+                map_concat(
+                    {'very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_': 
+                     'very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_'},
+                    {'another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_': 
+                     'another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_'}
+                ) as long_strings_test;
+        """
+
+        // Test 7.12: map_concat with COALESCE to handle NULLs
+        qt_sql """
+            select 
+                map_concat(
+                    COALESCE(map1, {}),
+                    COALESCE(map2, {})
+                ) as coalesce_handled
+            from ${testTable}
+            order by id;
+        """
     } finally {
         // Clean up
         try {

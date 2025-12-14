@@ -59,3 +59,85 @@
 -- !sql --
 {"a":"1", "b":"2"}
 
+-- !sql --
+{"single":"argument"}
+
+-- !sql --
+{"a":"value", "b":null, "c":"another", "d":null}
+
+-- !sql --
+\N
+
+-- !sql --
+{"tiny":127, "small":32767, "int":2147483647}
+
+-- !sql --
+{"flag1":1, "flag2":0, "flag3":1}
+
+-- !sql --
+{"date1":"2023-01-01", "date2":"2023-12-31"}
+
+-- !sql --
+{"arr1":[1, 2, 3], "arr2":[4, 5, 6]}
+
+-- !sql --
+{"k01":"v01", "k02":"v02", "k03":"v03", "k04":"v04", "k05":"v05", "k06":"v06", "k07":"v07", "k08":"v08", "k09":"v09", "k10":"v10", "k11":"v11", "k12":"v12"}
+
+-- !sql --
+{"a":1, "b":2, "c":3, "d":4, "e":5, "f":6}
+
+-- !sql --
+true	false
+
+-- !sql --
+1	{"a":"apple", "b":"banana", "x":"10", "y":"20"}
+2	{"c":"cherry", "z":"30"}
+
+-- !sql --
+["z", "a", "m"]	["a", "z", "m"]
+
+-- !sql --
+[{"key":"a", "value":1}, {"key":"b", "value":2}, {"key":"c", "value":3}, {"key":"d", "value":4}]
+
+-- !sql --
+true	false
+
+-- !sql --
+{"中文键":"中文值", "key with emoji 🔥":"value with emoji 🚀", "key with accents café":"value with accents naïve"}
+
+-- !sql --
+{"English key":"value1", "日本語キー":"値1", "한국어 키":"값1", "русский ключ":"значение1"}
+
+-- !sql --
+{"a":1, "b":2, "c":3, "d":4, "e":5, "f":6, "g":7, "h":8, "i":9, "j":10}
+
+-- !sql --
+{"1":"one", "2":"two", "3":"three", "4":"four", "five":"5", "six":"6", "seven":"7", "eight":"8"}
+
+-- !sql --
+1	{"static":"value", "a":"apple", "b":"banana"}
+2	{"static":"value", "c":"cherry"}
+3	{"static":"value"}
+4	\N
+
+-- !sql --
+1	{"odd":"true", "id":"1"}
+2	{"even":"true", "id":"2"}
+3	{"odd":"true", "id":"3"}
+4	{"even":"true", "id":"4"}
+
+-- !sql --
+{"key with "double quotes"":"value with 'single quotes'", "key with \\backslashes\\":"value with \\n newline", "key with , comma":"value with ; semicolon", "key with {} braces":"value with [] brackets"}
+
+-- !sql --
+{"empty value":"", "":"another empty key", "key":""}
+
+-- !sql --
+{"very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_very_long_key_":"very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_very_long_value_", "another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_another_long_key_":"another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_another_long_value_"}
+
+-- !sql --
+{"a":"apple", "b":"banana", "x":"10", "y":"20"}
+{"c":"cherry", "z":"30"}
+{}
+{}
+
