@@ -2809,7 +2809,7 @@ int InstanceChecker::do_packed_file_check() {
                 collect_packed_refs(rs_meta);
             }
             start_key.push_back('\x00'); // Update to next smallest key for iteration
-        } while (it->more() && !stopped());
+        }
     }
 
     // Rowsets in recycle keys may still hold packed file references while ref count
@@ -2819,11 +2819,7 @@ int InstanceChecker::do_packed_file_check() {
         std::string end_key = recycle_rowset_key({instance_id_, INT64_MAX, "\xff"});
 
         std::unique_ptr<RangeGetIterator> it;
-        do {
-            if (stopped()) {
-                return -1;
-            }
-
+        while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
             std::unique_ptr<Transaction> txn;
             TxnErrorCode err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
