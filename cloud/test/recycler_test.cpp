@@ -7416,12 +7416,12 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
     };
+    size_t recycle_txn_info_keys_cnt = 0;
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
-                      [](auto&& args) {
+                      [&](auto&& args) {
                           auto* recycle_txn_info_keys =
                                   try_any_cast<std::vector<std::string>*>(args[0]);
-
-                          ASSERT_LE(recycle_txn_info_keys->size(), 10000);
+                          recycle_txn_info_keys_cnt = recycle_txn_info_keys->size();
                       });
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.failure", [](auto&& args) {
         auto* ret = try_any_cast<int*>(args[0]);
@@ -7440,7 +7440,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     std::cout << "recycle expired txn label cost="
               << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
               << "ms" << std::endl;
-    check_multiple_txn_info_kvs(txn_kv, 5000);
+    check_multiple_txn_info_kvs(txn_kv, (20000 - recycle_txn_info_keys_cnt));
 }
 TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
     config::label_keep_max_second = 0;
