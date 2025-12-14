@@ -509,7 +509,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
         std::string storage_vault_start = storage_vault_key({instance.instance_id(), ""});
         std::string storage_vault_end = storage_vault_key({instance.instance_id(), "\xff"});
         std::unique_ptr<RangeGetIterator> it;
-        do {
+        while (it == nullptr /* may be not init */ || it->more()) {
             TxnErrorCode err = txn->get(storage_vault_start, storage_vault_end, &it);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
@@ -533,7 +533,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
                 }
             }
             storage_vault_start.push_back('\x00'); // Update to next smallest key for iteration
-        } while (it->more());
+        }
     }
     for (auto& vault : *response->mutable_storage_vault()) {
         if (vault.has_obj_info()) {
@@ -4416,7 +4416,7 @@ void MetaServiceImpl::get_copy_files(google::protobuf::RpcController* controller
     copy_job_key(key_info0, &key0);
     copy_job_key(key_info1, &key1);
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(key0, key1, &it);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -4440,7 +4440,7 @@ void MetaServiceImpl::get_copy_files(google::protobuf::RpcController* controller
             }
         }
         key0.push_back('\x00');
-    } while (it->more());
+    }
 }
 
 void MetaServiceImpl::filter_copy_files(google::protobuf::RpcController* controller,

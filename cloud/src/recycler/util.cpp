@@ -48,7 +48,7 @@ int get_all_instances(TxnKv* txn_kv, std::vector<InstanceInfoPB>& res) {
     }
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(key0, key1, &it);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get instance, err=" << err;
@@ -67,7 +67,7 @@ int get_all_instances(TxnKv* txn_kv, std::vector<InstanceInfoPB>& res) {
             res.push_back(std::move(instance_info));
         }
         key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
 
     return 0;
 }

@@ -50,7 +50,7 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
             7); // aggregate + data_size + num_rows + num_rowsets + num_segments + index_size + segment_size
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(begin_key, end_key, &it, snapshot);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -64,7 +64,7 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
                                    std::string {v.data(), v.size()});
         }
         begin_key = it->next_begin_key();
-    } while (it->more());
+    }
 
     if (stats_kvs.empty()) {
         code = MetaServiceCode::TABLET_NOT_FOUND;

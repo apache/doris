@@ -303,13 +303,14 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
         std::string end_key = key + "\xff";
         std::unique_ptr<RangeGetIterator> it;
         bool more = false;
-        do {
+        while (it == nullptr /* may be not init */ || more) {
             err = txn->get(begin_key, end_key, &it, true);
             if (err != TxnErrorCode::TXN_OK) break;
             begin_key = it->next_begin_key();
             more = it->more();
             value.iters.push_back(std::move(it));
-        } while (more);
+            if (!more) break;
+        }
     } else {
         err = cloud::blob_get(txn.get(), key, &value, true);
     }

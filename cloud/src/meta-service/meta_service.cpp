@@ -1319,7 +1319,7 @@ void scan_restore_job_rowset(
             });
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(restore_job_rs_key0, restore_job_rs_key1, &it, true);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -1346,7 +1346,7 @@ void scan_restore_job_rowset(
             if (!it->has_next()) restore_job_rs_key0 = k;
         }
         restore_job_rs_key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     return;
 }
 
@@ -2863,7 +2863,7 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
     };
 
     std::stringstream ss;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(key0, key1, &it);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -2900,7 +2900,7 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
             }
         }
         key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
 }
 
 std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, int64_t bc_cnt,
@@ -4155,7 +4155,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             int64_t last_ver = -1;
             int64_t last_seg_id = -1;
             int64_t round = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 if (test) {
                     LOG(INFO) << "test";
                     err = txn->get(start_key, end_key, &it, false, 2);
@@ -4233,7 +4233,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                 if (code != MetaServiceCode::OK) return;
                 round++;
                 start_key = it->next_begin_key(); // Update to next smallest key for iteration
-            } while (it->more());
+            }
             LOG(INFO) << "get delete bitmap for tablet=" << tablet_id
                       << ", rowset=" << rowset_ids[i] << ", start version=" << begin_versions[i]
                       << ", end version=" << end_versions[i] << ", internal round=" << round
@@ -4872,7 +4872,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                     MowTabletJobPB mow_tablet_job;
                     std::unique_ptr<RangeGetIterator> it;
                     int64_t expired_job_num = 0;
-                    do {
+                    while (it == nullptr /* may be not init */ ||
+                           (it->more() && !has_unexpired_compaction)) {
                         err = txn->get(key0, key1, &it);
                         if (err != TxnErrorCode::TXN_OK) {
                             code = cast_as<ErrCategory::READ>(err);
@@ -4903,7 +4904,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                             }
                         }
                         key0 = it->next_begin_key(); // Update to next smallest key for iteration
-                    } while (it->more() && !has_unexpired_compaction);
+                    }
                     if (has_unexpired_compaction) {
                         // TODO print initiator
                         ss << "already be locked by lock_id=" << lock_info.lock_id()

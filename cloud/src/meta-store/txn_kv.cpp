@@ -881,7 +881,7 @@ TxnErrorCode Transaction::get_conflicting_range(
 
     FDBKeyValue const* out_kvs;
     int out_kvs_count;
-    fdb_bool_t out_more;
+    fdb_bool_t out_more = false;
     do {
         fdb_error_t err =
                 fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);

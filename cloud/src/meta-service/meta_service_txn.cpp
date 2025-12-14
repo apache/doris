@@ -1134,7 +1134,7 @@ void scan_tmp_rowset(
     };
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(rs_tmp_key0, rs_tmp_key1, &it, true);
         if (err == TxnErrorCode::TXN_TOO_OLD) {
             err = txn_kv->create_txn(&txn);
@@ -1169,7 +1169,7 @@ void scan_tmp_rowset(
             if (!it->has_next()) rs_tmp_key0 = k;
         }
         rs_tmp_key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
 
     VLOG_DEBUG << "txn_id=" << txn_id << " tmp_rowsets_meta.size()=" << tmp_rowsets_meta->size();
     return;
@@ -3805,7 +3805,7 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
     int64_t abort_txn_cnt = 0;
     int64_t total_iteration_cnt = 0;
     bool need_commit = false;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(begin_info_key, end_info_key, &it, true);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -3847,7 +3847,7 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
             }
         }
         begin_info_key.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     LOG(INFO) << "abort txn count: " << abort_txn_cnt
               << " total iteration count: " << total_iteration_cnt;
     if (need_commit) {
@@ -3924,7 +3924,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
     int64_t skip_timeout_txn_cnt = 0;
     int total_iteration_cnt = 0;
     bool finished = true;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(begin_running_key, end_running_key, &it, true);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -4002,7 +4002,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
             }
         }
         begin_running_key.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     LOG(INFO) << "skip timeout txn count: " << skip_timeout_txn_cnt
               << " conflict txn count: " << response->conflict_txns_size()
               << " total iteration count: " << total_iteration_cnt;
@@ -4195,7 +4195,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
         bool snapshot = true;
         int limit = 1000;
         TEST_SYNC_POINT_CALLBACK("clean_txn_label:limit", &limit);
-        do {
+        while (it == nullptr /* may be not init */ || it->more()) {
             std::unique_ptr<Transaction> txn;
             auto err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
@@ -4241,7 +4241,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                 }
             }
             begin_label_key.push_back('\x00');
-        } while (it->more());
+        }
     } else {
         const std::string& label = request->labels(0);
         const std::string label_key = txn_label_key({instance_id, db_id, label});

@@ -754,7 +754,7 @@ int InstanceChecker::do_check() {
     auto end_key = meta_rowset_key({instance_id_, INT64_MAX, 0});
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -784,7 +784,7 @@ int InstanceChecker::do_check() {
             check_rowset_objects(rs_meta, k);
         }
         start_key.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more() && !stopped());
+    }
 
     return num_rowset_loss > 0 ? 1 : check_ret;
 }
@@ -899,7 +899,7 @@ int InstanceChecker::do_inverted_check() {
         std::unique_ptr<RangeGetIterator> it;
         auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
         auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
-        do {
+        while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
             TxnErrorCode err = txn->get(begin, end, &it);
             if (err != TxnErrorCode::TXN_OK) {
                 LOG(WARNING) << "failed to get rowset kv, err=" << err;
@@ -923,7 +923,7 @@ int InstanceChecker::do_inverted_check() {
                     break;
                 }
             }
-        } while (it->more() && !stopped());
+        }
 
         if (!tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
             // Garbage data leak
@@ -1025,7 +1025,7 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t, bool)>
     std::unique_ptr<RangeGetIterator> it;
     auto begin = meta_rowset_key({instance_id_, 0, 0});
     auto end = meta_rowset_key({instance_id_, std::numeric_limits<int64_t>::max(), 0});
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1077,7 +1077,7 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t, bool)>
                 }
             }
         }
-    } while (it->more() && !stopped());
+    }
     return 0;
 }
 
@@ -1089,7 +1089,7 @@ int InstanceChecker::traverse_rowset_delete_bitmaps(
     auto end = meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id,
                                        std::numeric_limits<int64_t>::max(),
                                        std::numeric_limits<int64_t>::max()});
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1125,7 +1125,7 @@ int InstanceChecker::traverse_rowset_delete_bitmaps(
                 break;
             }
         }
-    } while (it->more() && !stopped());
+    }
 
     return 0;
 }
@@ -1143,7 +1143,7 @@ int InstanceChecker::collect_tablet_rowsets(
     auto end = meta_rowset_key({instance_id_, tablet_id + 1, 0});
 
     int64_t rowsets_num {0};
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         TxnErrorCode err = txn->get(begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get rowset kv, err=" << err;
@@ -1169,7 +1169,7 @@ int InstanceChecker::collect_tablet_rowsets(
                 break;
             }
         }
-    } while (it->more() && !stopped());
+    }
 
     LOG(INFO) << fmt::format(
             "[delete bitmap checker] successfully collect rowsets for instance_id={}, "
@@ -1225,7 +1225,7 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
     auto begin = meta_delete_bitmap_key({instance_id_, 0, "", 0, 0});
     auto end =
             meta_delete_bitmap_key({instance_id_, std::numeric_limits<int64_t>::max(), "", 0, 0});
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1327,7 +1327,7 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
                         instance_id_, tablet_id, rowset_id, version, segment_id);
             }
         }
-    } while (it->more() && !stopped());
+    }
 
     return (leaked_delete_bitmaps > 0 || abnormal_delete_bitmaps > 0) ? 1 : 0;
 }
@@ -1409,7 +1409,7 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
     std::unique_ptr<RangeGetIterator> it;
     auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
     auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         TxnErrorCode err = txn->get(begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get rowset kv, err=" << err;
@@ -1470,7 +1470,7 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
                 break;
             }
         }
-    } while (it->more() && !stopped());
+    }
 
     if (!rowset_index_cache_v1.segment_ids.contains(segment_id)) {
         // Garbage data leak
@@ -1533,7 +1533,7 @@ int InstanceChecker::check_inverted_index_file_storage_format_v2(
     std::unique_ptr<RangeGetIterator> it;
     auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
     auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         TxnErrorCode err = txn->get(begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get rowset kv, err=" << err;
@@ -1561,7 +1561,7 @@ int InstanceChecker::check_inverted_index_file_storage_format_v2(
                 break;
             }
         }
-    } while (it->more() && !stopped());
+    }
 
     if (!rowset_index_cache_v2.segment_ids.contains(segment_id)) {
         // Garbage data leak
@@ -1655,7 +1655,7 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
     };
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1728,7 +1728,7 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
             }
             last_failed_version = version;
         }
-    } while (it->more() && !stopped());
+    }
     if (!failed_versions.empty()) {
         print_failed_versions();
     }
@@ -1792,7 +1792,7 @@ int InstanceChecker::do_mow_job_key_check() {
     std::string begin = mow_tablet_job_key({instance_id_, 0, 0});
     std::string end = mow_tablet_job_key({instance_id_, INT64_MAX, 0});
     MowTabletJobPB mow_tablet_job;
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1855,7 +1855,7 @@ int InstanceChecker::do_mow_job_key_check() {
             }
         }
         begin = it->next_begin_key(); // Update to next smallest key for iteration
-    } while (it->more() && !stopped());
+    }
     return 0;
 }
 int InstanceChecker::do_tablet_stats_key_check() {
@@ -2110,7 +2110,7 @@ int InstanceChecker::scan_and_handle_kv(
     std::unique_ptr<RangeGetIterator> it;
     int limit = 10000;
     TEST_SYNC_POINT_CALLBACK("InstanceChecker:scan_and_handle_kv:limit", &limit);
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         err = txn->get(start_key, end_key, &it, false, limit);
         TEST_SYNC_POINT_CALLBACK("InstanceChecker:scan_and_handle_kv:get_err", &err);
         if (err == TxnErrorCode::TXN_TOO_OLD) {
@@ -2140,29 +2140,29 @@ int InstanceChecker::scan_and_handle_kv(
             }
         }
         start_key = it->next_begin_key();
-    } while (it->more() && !stopped());
+    }
     return ret;
 }
 
 int InstanceChecker::do_version_key_check() {
-    std::unique_ptr<RangeGetIterator> it;
+    std::unique_ptr<RangeGetIterator> table_it;
     std::string begin = table_version_key({instance_id_, 0, 0});
     std::string end = table_version_key({instance_id_, INT64_MAX, 0});
     bool check_res = true;
-    do {
+    while (table_it == nullptr /* may be not init */ || (table_it->more() && !stopped())) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to create txn";
             return -1;
         }
-        err = txn->get(begin, end, &it);
+        err = txn->get(begin, end, &table_it);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
             return -1;
         }
-        while (it->has_next() && !stopped()) {
-            auto [k, v] = it->next();
+        while (table_it->has_next() && !stopped()) {
+            auto [k, v] = table_it->next();
             std::string_view k1 = k;
             k1.remove_prefix(1);
             std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
@@ -2181,20 +2181,21 @@ int InstanceChecker::do_version_key_check() {
                     partition_version_key({instance_id_, db_id, table_id, INT64_MAX});
             VersionPB partition_version_pb;
 
-            do {
+            std::unique_ptr<RangeGetIterator> part_it;
+            while (part_it == nullptr /* may be not init */ || (part_it->more() && !stopped())) {
                 std::unique_ptr<Transaction> txn;
                 TxnErrorCode err = txn_kv_->create_txn(&txn);
                 if (err != TxnErrorCode::TXN_OK) {
                     LOG(WARNING) << "failed to create txn";
                     return -1;
                 }
-                err = txn->get(partition_version_key_begin, partition_version_key_end, &it);
+                err = txn->get(partition_version_key_begin, partition_version_key_end, &part_it);
                 if (err != TxnErrorCode::TXN_OK) {
                     LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
                     return -1;
                 }
-                while (it->has_next() && !stopped()) {
-                    auto [k, v] = it->next();
+                while (part_it->has_next() && !stopped()) {
+                    auto [k, v] = part_it->next();
                     // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id}
                     std::string_view k1 = k;
                     k1.remove_prefix(1);
@@ -2215,11 +2216,11 @@ int InstanceChecker::do_version_key_check() {
                                 << " partition_version: " << partition_version;
                     }
                 }
-                partition_version_key_begin = it->next_begin_key();
-            } while (it->more() && !stopped());
+                partition_version_key_begin = part_it->next_begin_key();
+            }
         }
-        begin = it->next_begin_key(); // Update to next smallest key for iteration
-    } while (it->more() && !stopped());
+        begin = table_it->next_begin_key(); // Update to next smallest key for iteration
+    }
     return check_res ? 0 : -1;
 }
 
@@ -2259,7 +2260,7 @@ int InstanceChecker::do_restore_job_check() {
     job_restore_tablet_key(restore_job_key_info0, &begin);
     job_restore_tablet_key(restore_job_key_info1, &end);
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -2323,7 +2324,7 @@ int InstanceChecker::do_restore_job_check() {
                 break;
             }
         }
-    } while (it->more() && !stopped());
+    }
     return 0;
 }
 
@@ -2753,7 +2754,7 @@ int InstanceChecker::do_packed_file_check() {
         std::string end_key = meta_rowset_key({instance_id_, INT64_MAX, 0});
 
         std::unique_ptr<RangeGetIterator> it;
-        do {
+        while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
             if (stopped()) {
                 return -1;
             }
@@ -2799,7 +2800,7 @@ int InstanceChecker::do_packed_file_check() {
                 }
             }
             start_key.push_back('\x00'); // Update to next smallest key for iteration
-        } while (it->more() && !stopped());
+        }
     }
 
     // Step 2: Scan all packed file metadata and verify

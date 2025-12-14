@@ -801,7 +801,7 @@ std::pair<MetaServiceCode, std::string> scan_compaction_input_rowsets(
     };
 
     auto rs_start1 = rs_start;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(rs_start1, rs_end, &it);
         if (err != TxnErrorCode::TXN_OK) {
             return {cast_as<ErrCategory::READ>(err),
@@ -827,7 +827,7 @@ std::pair<MetaServiceCode, std::string> scan_compaction_input_rowsets(
             if (!it->has_next()) rs_start1 = k;
         }
         rs_start1.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     return {MetaServiceCode::OK, ""};
 }
 
@@ -1325,7 +1325,7 @@ std::pair<MetaServiceCode, std::string> scan_schema_change_input_rowsets(
         std::string& rs_start, std::string& rs_end, auto&& callback) {
     std::unique_ptr<RangeGetIterator> it;
     auto rs_start1 = rs_start;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         TxnErrorCode err = txn->get(rs_start1, rs_end, &it);
         if (err != TxnErrorCode::TXN_OK) {
             return {MetaServiceCode::KV_TXN_GET_ERR,
@@ -1351,7 +1351,7 @@ std::pair<MetaServiceCode, std::string> scan_schema_change_input_rowsets(
             if (!it->has_next()) rs_start1 = k;
         }
         rs_start1.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     return {MetaServiceCode::OK, ""};
 }
 
