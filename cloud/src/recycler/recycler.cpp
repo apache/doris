@@ -2967,11 +2967,11 @@ int InstanceRecycler::scan_and_recycle(
     };
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         if (get_range_retried > 1000) {
-            err = "txn_get exceeds max retry, may not scan all keys";
-            ret = -1;
-            return -1;
+            err = "txn_get exceeds max retry(1000), may not scan all keys";
+            ret = -2;
+            return ret;
         }
         int get_ret = txn_get(txn_kv_.get(), begin, end, it);
         if (get_ret != 0) { // txn kv may complain "Request for future version"
@@ -2995,18 +2995,24 @@ int InstanceRecycler::scan_and_recycle(
                 VLOG_DEBUG << "iterator has no more kvs. key=" << hex(k);
             }
             // if we want to continue scanning, the recycle_func should not return non-zero
-            if (recycle_func(k, v) != 0) {
-                err = "recycle_func error";
+            int recycle_func_ret = recycle_func(k, v);
+            if (recycle_func_ret != 0) {
+                err = "recycle_func error, ret=" + std::to_string(recycle_func_ret);
                 ret = -1;
+                return ret;
             }
         }
         begin.push_back('\x00'); // Update to next smallest key for iteration
-        // if we want to continue scanning, the recycle_func should not return non-zero
-        if (loop_done && loop_done() != 0) {
-            err = "loop_done error";
-            ret = -1;
+        // if we want to continue scanning, the loop_done should not return non-zero
+        if (loop_done) {
+            int loop_done_ret = loop_done();
+            if (loop_done_ret != 0) {
+                err = "loop_done error, ret=" + std::to_string(loop_done_ret);
+                ret = -1;
+                return ret;
+            }
         }
-    } while (it->more() && !stopped());
+    }
     return ret;
 }
 
