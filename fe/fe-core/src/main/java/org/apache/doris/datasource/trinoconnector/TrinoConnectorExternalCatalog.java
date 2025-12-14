@@ -108,7 +108,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     private ImmutableMap<String, String> trinoProperties;
 
     public TrinoConnectorExternalCatalog(long catalogId, String name, String resource,
-            Map<String, String> props, String comment) {
+                                         Map<String, String> props, String comment) {
         super(catalogId, name, Type.TRINO_CONNECTOR, comment);
         Objects.requireNonNull(name, "catalogName is null");
         catalogProperty = new CatalogProperty(resource, props);
@@ -192,6 +192,50 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         return tables.stream().map(field -> field.getObjectName()).collect(Collectors.toList());
     }
 
+    /**
+     * Hadoop unconditionally registers a JVM shutdown hook in
+     * {@link org.apache.hadoop.util.ShutdownHookManager}.
+     * <p>
+     * In a plugin-based environment (such as Trino connectors), the plugin
+     * classloader may be closed before the JVM shutdown phase. However,
+     * Hadoop's shutdown hook lazily loads anonymous inner classes
+     * (e.g. ShutdownHookManager$1, ShutdownHookManager$2) when the hook
+     * is executed.
+     * <p>
+     * If these inner classes are loaded for the first time during JVM shutdown,
+     * after the plugin classloader has been torn down, a
+     * {@link NoClassDefFoundError} will be thrown.
+     * <p>
+     * To avoid this classloader lifecycle issue without modifying Hadoop
+     * or affecting other HDFS instances, we proactively preload the relevant
+     * ShutdownHookManager inner classes while the connector plugin
+     * classloader is still alive.
+     * <p>
+     * This method ONLY forces class loading and does NOT:
+     * - execute shutdown hooks
+     * - close any FileSystem instances
+     * - affect other connectors or catalogs
+     */
+    private void tryPreloadHadoopShutdownInnerClasses(ClassLoader cl) {
+        if (cl == null) {
+            return;
+        }
+        String[] classesToPreload = new String[]{
+                "org.apache.hadoop.util.ShutdownHookManager$1",
+                "org.apache.hadoop.util.ShutdownHookManager$2"
+        };
+        for (String className : classesToPreload) {
+            try {
+                Class.forName(className, true, cl);
+                LOG.info("Preloaded class {}", className);
+            } catch (ClassNotFoundException e) {
+                LOG.warn("Could not preload class {} with classloader {}", className, cl, e);
+            } catch (LinkageError e) {
+                LOG.warn("LinkageError while preloading class {} with classloader {}", className, cl, e);
+            }
+        }
+    }
+
     private ConnectorServicesProvider createConnectorServicesProvider() {
         // 1. check and create ConnectorName
         if (!trinoProperties.containsKey("connector.name")) {
@@ -236,12 +280,16 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
             throw new RuntimeException("Can not find connectorFactory, did you forget to install plugins?");
         }
         catalogFactory.addConnectorFactory(connectorFactory.get());
-
         // 3. create TrinoConnectorServicesProvider
         TrinoConnectorServicesProvider trinoConnectorServicesProvider = new TrinoConnectorServicesProvider(
                 trinoCatalogHandle.getCatalogName(), connectorNameString, catalogFactory,
                 trinoConnectorProperties, MoreExecutors.directExecutor());
         trinoConnectorServicesProvider.loadInitialCatalogs();
+        try (ThreadContextClassLoader ignored =
+                     new ThreadContextClassLoader(connector.getClass().getClassLoader())) {
+            tryPreloadHadoopShutdownInnerClasses(
+                    connector.getClass().getClassLoader());
+        }
         return trinoConnectorServicesProvider;
     }
 
