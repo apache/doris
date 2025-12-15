@@ -320,7 +320,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public Offset deserializeOffsetProperty(String offset) {
-        // todo: use for alter offset for job
+        // no need
         return null;
     }
 

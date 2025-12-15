@@ -302,6 +302,10 @@ public class StreamingJobUtils {
             CreateTableCommand createtblCmd = new CreateTableCommand(Optional.empty(), createtblInfo);
             createtblCmds.add(createtblCmd);
         }
+        if (createtblCmds.isEmpty()) {
+            throw new JobException("Can not found match table in database " + database);
+        }
+
         return createtblCmds;
     }
 

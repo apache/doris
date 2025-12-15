@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 import java.util.Optional;
@@ -72,7 +73,7 @@ public class CreateJobInfo {
     private final String executeSql;
     private final boolean streamingJob;
     private final Map<String, String> jobProperties;
-    private final Optional<String> sourceType;
+    private final String sourceType;
     private final String targetDb;
     private final Map<String, String> sourceProperties;
     private final Map<String, String> targetProperties;
@@ -94,7 +95,7 @@ public class CreateJobInfo {
                          Optional<Long> intervalOptional, Optional<String> intervalTimeUnitOptional,
                          Optional<String> startsTimeStampOptional, Optional<String> endsTimeStampOptional,
                          Optional<Boolean> immediateStartOptional, String comment, String executeSql,
-                         boolean streamingJob, Map<String, String> jobProperties, Optional<String> sourceType,
+                         boolean streamingJob, Map<String, String> jobProperties, String sourceType,
                          String targetDb, Map<String, String> sourceProperties, Map<String, String> targetProperties) {
         this.labelNameOptional = labelNameOptional;
         this.onceJobStartTimestampOptional = onceJobStartTimestampOptional;
@@ -155,15 +156,15 @@ public class CreateJobInfo {
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
         // set source type
         if (streamingJob) {
-            if (sourceType.isPresent()) {
-                DataSourceType dataSourceType = DataSourceType.valueOf(sourceType.get());
+            if (StringUtils.isNotEmpty(sourceType)) {
+                DataSourceType dataSourceType = DataSourceType.valueOf(sourceType.toUpperCase());
                 return analyzeAndCreateFromSourceJob(dbName, jobExecutionConfiguration,
                         jobProperties, targetDb, dataSourceType, sourceProperties, targetProperties);
             } else {
                 return analyzeAndCreateStreamingInsertJob(executeSql, dbName, jobExecutionConfiguration, jobProperties);
             }
         } else {
-            if (sourceType.isPresent()) {
+            if (sourceType != null) {
                 throw new AnalysisException("From..To Database is only supported in streaming job");
             }
             return analyzeAndCreateInsertJob(executeSql, dbName, jobExecutionConfiguration);
@@ -379,5 +380,21 @@ public class CreateJobInfo {
 
     public boolean streamingJob() {
         return streamingJob;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public String getTargetDb() {
+        return targetDb;
+    }
+
+    public Map<String, String> getSourceProperties() {
+        return sourceProperties;
+    }
+
+    public Map<String, String> getTargetProperties() {
+        return targetProperties;
     }
 }

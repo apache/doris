@@ -362,6 +362,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             modifyPropertiesInternal(alterJobCommand.getProperties());
             logParts.add("properties: " + alterJobCommand.getProperties());
         }
+
+        // update source properties
+        if (!alterJobCommand.getSourceProperties().isEmpty()) {
+            this.sourceProperties.putAll(alterJobCommand.getSourceProperties());
+            logParts.add("source properties: " + alterJobCommand.getSourceProperties());
+        }
+
+        // update target properties
+        if (!alterJobCommand.getTargetProperties().isEmpty()) {
+            this.sourceProperties.putAll(alterJobCommand.getTargetProperties());
+            logParts.add("target properties: " + alterJobCommand.getTargetProperties());
+        }
         log.info("Alter streaming job {}, {}", getJobId(), String.join(", ", logParts));
     }
 
@@ -662,7 +674,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
-        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
+        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty()) && this.tvfType != null) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
             if (Config.isCloudMode()) {
