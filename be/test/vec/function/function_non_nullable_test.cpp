@@ -59,6 +59,9 @@ TEST(function_non_nullable_test, test) {
         auto st = function->execute(nullptr, block, {0}, 1, 3);
 
         std::cout << st.to_string() << std::endl;
+        EXPECT_EQ(st.to_string(),
+                  "[INVALID_ARGUMENT]There's NULL value in column column which is illegal for "
+                  "non_nullable , null map: 0,1,0,");
         EXPECT_FALSE(st.ok());
     }
 }
