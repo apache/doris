@@ -762,19 +762,9 @@ Status VExpr::get_const_col(VExprContext* context,
         return Status::OK();
     }
 
-    int result = -1;
-    Block block;
-    // If block is empty, some functions will produce no result. So we insert a column with
-    // single value here.
-    block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
-
-    _getting_const_col = true;
-    RETURN_IF_ERROR(execute(context, &block, &result));
-    _getting_const_col = false;
-
-    DCHECK(result != -1);
-    const auto& column = block.get_by_position(result).column;
-    _constant_col = std::make_shared<ColumnPtrWrapper>(column);
+    ColumnPtr result;
+    RETURN_IF_ERROR(execute_column(context, nullptr, 1, result));
+    _constant_col = std::make_shared<ColumnPtrWrapper>(result);
     if (column_wrapper != nullptr) {
         *column_wrapper = _constant_col;
     }
