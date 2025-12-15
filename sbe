@@ -1,7 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-
-unset http_proxy
-unset https_proxy
-cd /mnt/disk1/chenjunwei/doris_build/doris/output/be
-./bin/start_be.sh --daemon
