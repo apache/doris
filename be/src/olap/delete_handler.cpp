@@ -782,8 +782,8 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             const auto& column = tablet_schema->column_by_uid(col_unique_id);
             uint32_t index = tablet_schema->field_index(col_unique_id);
             std::shared_ptr<ColumnPredicate> predicate;
-            RETURN_IF_ERROR(parse_to_in_predicate(index, column.get_vec_type(),
-                                                  condition, _predicate_arena, predicate));
+            RETURN_IF_ERROR(parse_to_in_predicate(index, column.get_vec_type(), condition,
+                                                  _predicate_arena, predicate));
             temp.column_predicate_vec.push_back(predicate);
         }
 
