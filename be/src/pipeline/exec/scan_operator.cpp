@@ -336,7 +336,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
         CHECK(slot != nullptr);
         *slot_desc =
                 _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot->slot_id()];
-        return _is_predicate_acting_on_slot(slot, children[0], range);
+        return _is_predicate_acting_on_slot(slot, range);
     };
 
     if (expr_root != nullptr) {
