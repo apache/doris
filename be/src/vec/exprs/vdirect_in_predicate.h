@@ -117,7 +117,7 @@ public:
 private:
     Status _do_execute(VExprContext* context, const Block* block, size_t count,
                        ColumnPtr& result_column, ColumnPtr* arg_column) const {
-        DCHECK(_open_finished || _getting_const_col);
+        DCHECK(_open_finished || block == nullptr);
 
         ColumnPtr argument_column;
         RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, argument_column));
