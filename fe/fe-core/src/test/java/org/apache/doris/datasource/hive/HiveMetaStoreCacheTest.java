@@ -77,8 +77,8 @@ public class HiveMetaStoreCacheTest {
             String dbName, String tbName) {
         NameMapping nameMapping = NameMapping.createForTest(dbName, tbName);
         long fileId = Util.genIdByName(dbName, tbName);
-        HiveMetaStoreCache.FileCacheKey fileCacheKey1 = new HiveMetaStoreCache.FileCacheKey(fileId, tbName, "", new ArrayList<>());
-        HiveMetaStoreCache.FileCacheKey fileCacheKey2 = HiveMetaStoreCache.FileCacheKey.createDummyCacheKey(fileId, tbName, "");
+        HiveMetaStoreCache.FileCacheKey fileCacheKey1 = new HiveMetaStoreCache.FileCacheKey(fileId, tbName, "", "", null);
+        HiveMetaStoreCache.FileCacheKey fileCacheKey2 = HiveMetaStoreCache.FileCacheKey.createDummyCacheKey(fileId, tbName, "", "");
         fileCache.put(fileCacheKey1, new HiveMetaStoreCache.FileCacheValue());
         fileCache.put(fileCacheKey2, new HiveMetaStoreCache.FileCacheValue());
 

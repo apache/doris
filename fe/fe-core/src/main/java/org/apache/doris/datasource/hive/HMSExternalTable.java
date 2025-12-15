@@ -1132,9 +1132,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             hivePartitions = cache.getAllPartitionsWithoutCache(this, partitionValuesList);
             LOG.info("Partition list size for hive partition table {} is {}", name, hivePartitions.size());
         } else {
+            org.apache.hadoop.hive.metastore.api.StorageDescriptor sd = getRemoteTable().getSd();
             hivePartitions.add(new HivePartition(getOrBuildNameMapping(), true,
-                    getRemoteTable().getSd().getInputFormat(),
-                    getRemoteTable().getSd().getLocation(), null, Maps.newHashMap()));
+                    sd.getInputFormat(), sd.getLocation(), null, Maps.newHashMap(),
+                    sd.getOutputFormat(), sd.getSerdeInfo().getSerializationLib(), sd.getCols()));
         }
         // Get files for all partitions.
         if (LOG.isDebugEnabled()) {
@@ -1206,27 +1207,32 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public TFileFormatType getFileFormatType(SessionVariable sessionVariable) throws UserException {
-        TFileFormatType type = null;
         Table table = getRemoteTable();
         String inputFormatName = table.getSd().getInputFormat();
+        String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
+        return getTFileFormatType(inputFormatName, serDeLib, sessionVariable, firstColumnIsString(), getName());
+    }
+
+    public static TFileFormatType getTFileFormatType(String inputFormatName, String serDeLib,
+            SessionVariable sessionVariable, boolean firstColumnIsString, String tableName) throws UserException {
+        TFileFormatType type = null;
         String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
         if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
             type = TFileFormatType.FORMAT_PARQUET;
         } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
             type = TFileFormatType.FORMAT_ORC;
         } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
-            String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
             if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
                     || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
                 type = TFileFormatType.FORMAT_JSON;
             } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
                 if (!sessionVariable.isReadHiveJsonInOneColumn()) {
                     type = TFileFormatType.FORMAT_JSON;
-                } else if (sessionVariable.isReadHiveJsonInOneColumn() && firstColumnIsString()) {
+                } else if (sessionVariable.isReadHiveJsonInOneColumn() && firstColumnIsString) {
                     type = TFileFormatType.FORMAT_CSV_PLAIN;
                 } else {
                     throw new UserException("You set read_hive_json_in_one_column = true, but the first column of "
-                            + "table " + getName()
+                            + "table " + tableName
                             + " is not a string column.");
                 }
             } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_TEXT_SERDE)) {
