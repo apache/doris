@@ -2224,7 +2224,7 @@ public class Config extends ConfigBase {
      * The default connection timeout for hive metastore.
      * hive.metastore.client.socket.timeout
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = false, masterOnly = false)
     public static long hive_metastore_client_timeout_second = 10;
 
     /**

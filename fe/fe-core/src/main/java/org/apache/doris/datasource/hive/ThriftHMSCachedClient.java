@@ -37,7 +37,6 @@ import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
@@ -98,10 +97,6 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
-        if (hiveConf != null) {
-            HiveConf.setVar(hiveConf, ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
-                    String.valueOf(Config.hive_metastore_client_timeout_second));
-        }
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
         this.isClosed = false;
