@@ -595,7 +595,6 @@ void SegmentIterator::_init_segment_prefetchers() {
                 const auto* tablet_column = _schema->column(cid);
                 SegmentPrefetchParams params {
                         .config = prefetch_config,
-                        .row_bitmap = _row_bitmap,
                         .read_options = _opts,
                 };
                 LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
@@ -613,29 +612,24 @@ void SegmentIterator::_init_segment_prefetchers() {
                 }
             }
 
-            std::vector<SegmentPrefetcher*> prefetchers;
+            // for compaction, it's guaranteed that all rows are read, so we can prefetch all data blocks
+            PrefetcherInitMethod init_method = (is_query && _row_bitmap.cardinality() < num_rows())
+                                                       ? PrefetcherInitMethod::FROM_ROWIDS
+                                                       : PrefetcherInitMethod::ALL_DATA_BLOCKS;
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
             for (const auto& column_iter : _column_iterators) {
                 if (column_iter != nullptr) {
-                    column_iter->collect_prefetchers(prefetchers);
+                    column_iter->collect_prefetchers(prefetchers, init_method);
                 }
             }
-
-            int batch_size = config::segment_file_cache_consume_rowids_batch_size;
-            std::vector<rowid_t> rowids(batch_size);
-            roaring::api::roaring_uint32_iterator_t iter;
-            roaring::api::roaring_init_iterator(&_row_bitmap.roaring, &iter);
-            uint32_t num =
-                    roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size);
-
-            for (; num > 0; num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(),
-                                                                             batch_size)) {
-                for (auto* prefetcher : prefetchers) {
-                    prefetcher->add_rowids(rowids.data(), num);
+            for (auto& [method, prefetcher_vec] : prefetchers) {
+                if (method == PrefetcherInitMethod::ALL_DATA_BLOCKS) {
+                    for (auto* prefetcher : prefetcher_vec) {
+                        prefetcher->build_all_data_blocks();
+                    }
+                } else if (method == PrefetcherInitMethod::FROM_ROWIDS && !prefetcher_vec.empty()) {
+                    SegmentPrefetcher::build_blocks_by_rowids(_row_bitmap, prefetcher_vec);
                 }
-            }
-
-            for (auto* prefetcher : prefetchers) {
-                prefetcher->finish_build_blocks();
             }
         }
     }
