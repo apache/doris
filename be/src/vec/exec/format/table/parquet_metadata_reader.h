@@ -47,6 +47,8 @@ class ParquetMetadataReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetMetadataReader);
 
 public:
+    class ModeHandler;
+
     ParquetMetadataReader(std::vector<SlotDescriptor*> slots, RuntimeState* state,
                           RuntimeProfile* profile, TMetaScanRange scan_range);
     ~ParquetMetadataReader() override;
@@ -56,7 +58,7 @@ public:
     Status close() override;
 
 private:
-    class ModeHandler;
+
 
     Status _init_from_scan_range(const TMetaScanRange& scan_range);
     Status _build_rows(std::vector<MutableColumnPtr>& columns);
