@@ -54,6 +54,7 @@
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/segment_prefetcher.h"
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/rowset/segment_v2/variant_column_writer_impl.h"
@@ -899,6 +900,29 @@ Status MapFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     return Status::OK();
 }
 
+Status MapFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    RETURN_IF_ERROR(_offsets_iterator->init_prefetcher(params));
+    if (_map_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+    }
+    RETURN_IF_ERROR(_key_iterator->init_prefetcher(params));
+    RETURN_IF_ERROR(_val_iterator->init_prefetcher(params));
+    return Status::OK();
+}
+
+void MapFileColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    _offsets_iterator->collect_prefetchers(prefetchers, init_method);
+    if (_map_reader->is_nullable()) {
+        _null_iterator->collect_prefetchers(prefetchers, init_method);
+    }
+    // the actual data pages to read of key/value column depends on the read result of offset column,
+    // so we can't init prefetch blocks according to rowids, just prefetch all data blocks here.
+    _key_iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::ALL_DATA_BLOCKS);
+    _val_iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::ALL_DATA_BLOCKS);
+}
+
 Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                          bool* has_null) {
     const auto* column_map = vectorized::check_and_get_column<vectorized::ColumnMap>(
@@ -1128,6 +1152,27 @@ Status StructFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     return Status::OK();
 }
 
+Status StructFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    for (auto& column_iterator : _sub_column_iterators) {
+        RETURN_IF_ERROR(column_iterator->init_prefetcher(params));
+    }
+    if (_struct_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+    }
+    return Status::OK();
+}
+
+void StructFileColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    for (auto& column_iterator : _sub_column_iterators) {
+        column_iterator->collect_prefetchers(prefetchers, init_method);
+    }
+    if (_struct_reader->is_nullable()) {
+        _null_iterator->collect_prefetchers(prefetchers, init_method);
+    }
+}
+
 Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                 vectorized::MutableColumnPtr& dst) {
     for (size_t i = 0; i < count; ++i) {
@@ -1165,6 +1210,16 @@ Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
         *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
     }
     return Status::OK();
+}
+
+Status OffsetFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    return _offset_iterator->init_prefetcher(params);
+}
+
+void OffsetFileColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    _offset_iterator->collect_prefetchers(prefetchers, init_method);
 }
 
 /**
@@ -1282,6 +1337,27 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     }
 
     return Status::OK();
+}
+
+Status ArrayFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    RETURN_IF_ERROR(_offset_iterator->init_prefetcher(params));
+    RETURN_IF_ERROR(_item_iterator->init_prefetcher(params));
+    if (_array_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+    }
+    return Status::OK();
+}
+
+void ArrayFileColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    _offset_iterator->collect_prefetchers(prefetchers, init_method);
+    // the actual data pages to read of item column depends on the read result of offset column,
+    // so we can't init prefetch blocks according to rowids, just prefetch all data blocks here.
+    _item_iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::ALL_DATA_BLOCKS);
+    if (_array_reader->is_nullable()) {
+        _null_iterator->collect_prefetchers(prefetchers, init_method);
+    }
 }
 
 Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
@@ -1646,13 +1722,15 @@ Status FileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) 
     }
     _enable_prefetch = true;
     _prefetcher = std::make_unique<SegmentPrefetcher>(params.config);
-    RETURN_IF_ERROR(_prefetcher->init(params.row_bitmap, _reader, params.read_options));
+    RETURN_IF_ERROR(_prefetcher->init(_reader, params.read_options));
     return Status::OK();
 }
 
-void FileColumnIterator::collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) {
+void FileColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
     if (_prefetcher) {
-        prefetchers.emplace_back(_prefetcher.get());
+        prefetchers[init_method].emplace_back(_prefetcher.get());
     }
 }
 

@@ -39,12 +39,16 @@ void SegmentPrefetcher::add_rowids(const rowid_t* rowids, uint32_t num) {
         rowid_t rowid = rowids[i];
 
         if (_is_forward) {
-            // Forward reading: iterate bitmap in ascending order using batch by batch
             while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
                 page_idx++;
             }
 
-            size_t block_id = _offset_to_block_id(pages[page_idx].offset);
+            const auto& page = pages[page_idx];
+            size_t page_start_block = _offset_to_block_id(page.offset);
+            size_t page_end_block = _offset_to_block_id(page.offset + page.size - 1);
+
+            // If page spans two blocks, assign it to the next block (page_end_block)
+            size_t block_id = (page_start_block != page_end_block) ? page_end_block : page_start_block;
 
             if (block_id != last_block_id) {
                 if (last_block_id != static_cast<size_t>(-1)) {
@@ -75,7 +79,89 @@ void SegmentPrefetcher::add_rowids(const rowid_t* rowids, uint32_t num) {
     }
 }
 
-void SegmentPrefetcher::finish_build_blocks() {
+void SegmentPrefetcher::build_all_data_blocks() {
+    if (ordinal_index == nullptr) {
+        return;
+    }
+    reset_blocks();
+    const auto& ordinals = ordinal_index->_ordinals; // ordinals[i] = first ordinal of page i
+    const auto& pages = ordinal_index->_pages;       // pages[i] = page pointer of page i
+    const int num_pages = ordinal_index->_num_pages;
+
+    size_t last_block_id = static_cast<size_t>(-1);
+    rowid_t current_block_first_rowid = 0;
+
+    for (int page_idx = 0; page_idx < num_pages; ++page_idx) {
+        const auto& page = pages[page_idx];
+
+        if (_is_forward) {
+            size_t page_start_block = _offset_to_block_id(page.offset);
+            size_t page_end_block = _offset_to_block_id(page.offset + page.size - 1);
+
+            // If page spans two blocks, assign it to the next block (page_end_block)
+            size_t block_id = (page_start_block != page_end_block) ? page_end_block : page_start_block;
+
+            if (block_id != last_block_id) {
+                if (last_block_id != static_cast<size_t>(-1)) {
+                    _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+                }
+                last_block_id = block_id;
+                current_block_first_rowid = ordinals[page_idx];
+            }
+        } else {
+            // Backward: use the last ordinal in each block as first_rowid
+            size_t block_id = _offset_to_block_id(page.offset);
+            if (block_id != last_block_id) {
+                if (last_block_id != static_cast<size_t>(-1)) {
+                    _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+                }
+                last_block_id = block_id;
+            }
+            current_block_first_rowid = ordinals[page_idx];
+        }
+    }
+
+    // Add the last block
+    if (last_block_id != static_cast<size_t>(-1)) {
+        _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+    }
+
+    // Reverse for backward reading
+    if (!_is_forward && !_block_sequence.empty()) {
+        std::ranges::reverse(_block_sequence);
+    }
+}
+
+void SegmentPrefetcher::build_blocks_by_rowids(const roaring::Roaring& row_bitmap,
+                                               const std::vector<SegmentPrefetcher*>& prefetchers) {
+    for (auto* prefetcher : prefetchers) {
+        prefetcher->begin_build_blocks_by_rowids();
+    }
+
+    int batch_size = config::segment_file_cache_consume_rowids_batch_size;
+    std::vector<rowid_t> rowids(batch_size);
+    roaring::api::roaring_uint32_iterator_t iter;
+    roaring::api::roaring_init_iterator(&row_bitmap.roaring, &iter);
+    uint32_t num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size);
+
+    for (; num > 0;
+         num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size)) {
+        for (auto* prefetcher : prefetchers) {
+            prefetcher->add_rowids(rowids.data(), num);
+        }
+    }
+
+    for (auto* prefetcher : prefetchers) {
+        prefetcher->finish_build_blocks_by_rowids();
+    }
+}
+
+void SegmentPrefetcher::begin_build_blocks_by_rowids() {
+    reset_blocks();
+    page_idx = 0;
+}
+
+void SegmentPrefetcher::finish_build_blocks_by_rowids() {
     if (ordinal_index == nullptr) {
         return;
     }
@@ -97,27 +183,21 @@ void SegmentPrefetcher::finish_build_blocks() {
                       ","));
 }
 
-Status SegmentPrefetcher::init(const roaring::Roaring& row_bitmap,
-                               std::shared_ptr<ColumnReader> column_reader,
-                               const StorageReadOptions& read_options) {
-    DCHECK(column_reader != nullptr);
-
+void SegmentPrefetcher::reset_blocks() {
     _block_sequence.clear();
     _current_block_index = 0;
     _prefetched_index = -1;
+}
+
+Status SegmentPrefetcher::init(std::shared_ptr<ColumnReader> column_reader,
+                               const StorageReadOptions& read_options) {
+    DCHECK(column_reader != nullptr);
+
+    reset_blocks();
     _is_forward = !read_options.read_orderby_key_reverse;
     _path = column_reader->_file_reader->path().filename().native();
 
-    if (row_bitmap.isEmpty()) {
-        return Status::OK();
-    }
-
     RETURN_IF_ERROR(column_reader->get_ordinal_index_reader(ordinal_index, read_options.stats));
-
-    if (ordinal_index == nullptr) {
-        return Status::OK();
-    }
-
     return Status::OK();
 }
 

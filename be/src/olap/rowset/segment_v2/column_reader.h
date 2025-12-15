@@ -383,7 +383,9 @@ public:
 
     virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
 
-    virtual void collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) {}
+    virtual void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) {}
 
 protected:
     ColumnIteratorOptions _opts;
@@ -433,8 +435,9 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
-
-    void collect_prefetchers(std::vector<SegmentPrefetcher*>& prefetchers) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
 
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
@@ -517,6 +520,11 @@ public:
         return _offset_iterator->read_by_rowids(rowids, count, dst);
     }
 
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
+
 private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
     // reuse a tiny column for peek to avoid frequent allocations
@@ -555,6 +563,10 @@ public:
     ordinal_t get_current_ordinal() const override {
         return _offsets_iterator->get_current_ordinal();
     }
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
 
 private:
     std::shared_ptr<ColumnReader> _map_reader = nullptr;
@@ -595,6 +607,11 @@ public:
         return _sub_column_iterators[0]->get_current_ordinal();
     }
 
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
+
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -631,6 +648,11 @@ public:
     ordinal_t get_current_ordinal() const override {
         return _offset_iterator->get_current_ordinal();
     }
+
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;
