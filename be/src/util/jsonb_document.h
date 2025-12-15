@@ -1100,30 +1100,6 @@ private:
     ArrayVal();
 };
 
-inline Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
-                                                    JsonbDocument** doc) {
-    *doc = nullptr;
-    if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
-        return Status::InvalidArgument("Invalid JSONB document: too small size({}) or null pointer",
-                                       size);
-    }
-
-    auto* doc_ptr = (JsonbDocument*)pb;
-    if (doc_ptr->header_.ver_ != JSONB_VER) {
-        return Status::InvalidArgument("Invalid JSONB document: invalid version({})",
-                                       doc_ptr->header_.ver_);
-    }
-
-    auto* val = (JsonbValue*)doc_ptr->payload_;
-    if (val->type() < JsonbType::T_Null || val->type() >= JsonbType::NUM_TYPES ||
-        size != sizeof(JsonbHeader) + val->numPackedBytes()) {
-        return Status::InvalidArgument("Invalid JSONB document: invalid type({}) or size({})",
-                                       static_cast<JsonbTypeUnder>(val->type()), size);
-    }
-
-    *doc = doc_ptr;
-    return Status::OK();
-}
 inline void JsonbDocument::setValue(const JsonbValue* value) {
     memcpy(payload_, value, value->numPackedBytes());
 }
