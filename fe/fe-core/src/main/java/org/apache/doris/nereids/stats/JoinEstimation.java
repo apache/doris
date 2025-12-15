@@ -397,12 +397,11 @@ public class JoinEstimation {
             StatisticsBuilder builder;
             if (join.getJoinType().isAsofLeftInnerJoin()) {
                 builder = new StatisticsBuilder(leftStats);
-                builder.setRowCount(rowCount);
             } else {
                 //asof right inner join
                 builder = new StatisticsBuilder(rightStats);
-                builder.setRowCount(rowCount);
             }
+            builder.setRowCount(rowCount);
             Statistics outputStats = builder.build();
             outputStats.normalizeColumnStatistics();
             return outputStats;
@@ -535,7 +534,7 @@ public class JoinEstimation {
             if (eqRight instanceof Cast) {
                 eqRight = eqRight.child(0);
             }
-            if (joinType == JoinType.INNER_JOIN) {
+            if (joinType.isInnerJoin()) {
                 ColumnStatisticBuilder builder = new ColumnStatisticBuilder(leftColStats);
                 builder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
                 // update hot values
@@ -555,7 +554,7 @@ public class JoinEstimation {
                 }
                 updatedCols.put(eqLeft, builder.build());
                 updatedCols.put(eqRight, builder.build());
-            } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
+            } else if (joinType.isLeftOuterJoin()) {
                 ColumnStatisticBuilder rightBuilder = new ColumnStatisticBuilder(rightColStats);
                 rightBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
                 // update hot values
@@ -574,13 +573,11 @@ public class JoinEstimation {
                     }
                 }
                 updatedCols.put(eqRight, rightBuilder.build());
-            } else if (joinType == JoinType.LEFT_SEMI_JOIN
-                    || joinType == JoinType.LEFT_ANTI_JOIN
-                    || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN) {
+            } else if (joinType.isLeftSemiOrAntiJoin()) {
                 ColumnStatisticBuilder leftBuilder = new ColumnStatisticBuilder(leftColStats);
                 leftBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
                 updatedCols.put(eqLeft, leftBuilder.build());
-            } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
+            } else if (joinType.isRightOuterJoin()) {
                 ColumnStatisticBuilder leftBuilder = new ColumnStatisticBuilder(leftColStats);
                 leftBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
                 // update hot values
@@ -599,12 +596,11 @@ public class JoinEstimation {
                     }
                 }
                 updatedCols.put(eqLeft, leftBuilder.build());
-            } else if (joinType == JoinType.RIGHT_SEMI_JOIN
-                    || joinType == JoinType.RIGHT_ANTI_JOIN) {
+            } else if (joinType.isRightSemiOrAntiJoin()) {
                 ColumnStatisticBuilder rightBuilder = new ColumnStatisticBuilder(rightColStats);
                 rightBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
                 updatedCols.put(eqRight, rightBuilder.build());
-            } else if (joinType == JoinType.FULL_OUTER_JOIN || joinType == JoinType.CROSS_JOIN) {
+            } else if (joinType.isFullOuterJoin() || joinType.isCrossJoin()) {
                 // ignore
             }
 

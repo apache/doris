@@ -582,9 +582,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             // TODO disable function dependence calculation for mark join, but need re-think this in future.
             return;
         }
-        if (joinType.isLeftSemiOrAntiJoin()) {
+        if (joinType.isLeftSemiOrAntiJoin() || joinType.isAsofLeftJoin()) {
             builder.addUniqueSlot(left().getLogicalProperties().getTrait());
-        } else if (joinType.isRightSemiOrAntiJoin()) {
+        } else if (joinType.isRightSemiOrAntiJoin() || joinType.isAsofRightJoin()) {
             builder.addUniqueSlot(right().getLogicalProperties().getTrait());
         }
         // if there is non-equal join conditions, don't propagate unique
@@ -607,11 +607,11 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // left/right outer join propagate left/right uniforms slots
         // And if the right/left hash keys is unique,
         // join can propagate left/right functional dependencies
-        if (joinType.isLeftOuterJoin() && isRightUnique) {
+        if (joinType == JoinType.LEFT_OUTER_JOIN && isRightUnique) {
             builder.addUniqueSlot(left().getLogicalProperties().getTrait());
-        } else if (joinType.isRightOuterJoin() && isLeftUnique) {
+        } else if (joinType == JoinType.RIGHT_OUTER_JOIN && isLeftUnique) {
             builder.addUniqueSlot(right().getLogicalProperties().getTrait());
-        } else if (joinType.isInnerJoin() && isLeftUnique && isRightUnique) {
+        } else if (joinType == JoinType.INNER_JOIN && isLeftUnique && isRightUnique) {
             // inner join propagate uniforms slots
             // And if the hash keys is unique, inner join can propagate all functional dependencies
             builder.addDataTrait(left().getLogicalProperties().getTrait());
@@ -627,6 +627,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         }
         switch (joinType) {
             case INNER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
             case CROSS_JOIN:
                 builder.addUniformSlot(left().getLogicalProperties().getTrait());
                 builder.addUniformSlot(right().getLogicalProperties().getTrait());
@@ -641,10 +643,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 builder.addUniformSlot(right().getLogicalProperties().getTrait());
                 break;
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 builder.addUniformSlot(left().getLogicalProperties().getTrait());
                 builder.addUniformSlotForOuterJoinNullableSide(right().getLogicalProperties().getTrait());
                 break;
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 builder.addUniformSlot(right().getLogicalProperties().getTrait());
                 builder.addUniformSlotForOuterJoinNullableSide(left().getLogicalProperties().getTrait());
                 break;

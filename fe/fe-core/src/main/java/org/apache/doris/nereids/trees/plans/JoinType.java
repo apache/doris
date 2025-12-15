@@ -258,6 +258,14 @@ public enum JoinType {
         return this == ASOF_LEFT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
     }
 
+    public final boolean isAsofLeftJoin() {
+        return this == ASOF_LEFT_INNER_JOIN || this == ASOF_LEFT_OUTER_JOIN;
+    }
+
+    public final boolean isAsofRightJoin() {
+        return this == ASOF_RIGHT_INNER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
+    }
+
     public final boolean isAsofJoin() {
         return this == ASOF_LEFT_INNER_JOIN || this == ASOF_RIGHT_INNER_JOIN
                 || this == ASOF_LEFT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;

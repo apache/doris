@@ -252,7 +252,9 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                         predicates.addAll(join.getOtherJoinConjuncts());
                     }
                     break;
-                case INNER_JOIN: {
+                case INNER_JOIN:
+                case ASOF_LEFT_INNER_JOIN:
+                case ASOF_RIGHT_INNER_JOIN: {
                     predicates.addAll(leftPredicates.get());
                     predicates.addAll(rightPredicates.get());
                     predicates.addAll(join.getHashJoinConjuncts());
@@ -260,6 +262,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 }
                 case LEFT_OUTER_JOIN:
+                case ASOF_LEFT_OUTER_JOIN:
                     predicates.addAll(leftPredicates.get());
                     predicates.addAll(
                             generateNullTolerantPredicates(rightPredicates.get(), join.right().getOutputSet()));
@@ -271,6 +274,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 }
                 case RIGHT_OUTER_JOIN:
+                case ASOF_RIGHT_OUTER_JOIN:
                     predicates.addAll(rightPredicates.get());
                     predicates.addAll(
                             generateNullTolerantPredicates(leftPredicates.get(), join.left().getOutputSet()));

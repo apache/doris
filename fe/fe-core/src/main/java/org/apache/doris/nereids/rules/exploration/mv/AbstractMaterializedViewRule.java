@@ -105,7 +105,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.LEFT_ANTI_JOIN,
             JoinType.RIGHT_ANTI_JOIN,
-            JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
+            JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
+            JoinType.ASOF_LEFT_INNER_JOIN,
+            JoinType.ASOF_RIGHT_INNER_JOIN,
+            JoinType.ASOF_LEFT_OUTER_JOIN,
+            JoinType.ASOF_RIGHT_OUTER_JOIN);
 
     /**
      * The abstract template method for query rewrite, it contains the main logic, try to rewrite query by

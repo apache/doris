@@ -4398,16 +4398,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 } else {
                     joinType = JoinType.RIGHT_ANTI_JOIN;
                 }
+            } else if (join.joinType().ASOF() != null) {
+                joinType = join.joinType().INNER() != null
+                        ? JoinType.ASOF_LEFT_INNER_JOIN : JoinType.ASOF_LEFT_OUTER_JOIN;
+                isAsofJoin = true;
             } else if (join.joinType().LEFT() != null) {
                 joinType = JoinType.LEFT_OUTER_JOIN;
             } else if (join.joinType().RIGHT() != null) {
                 joinType = JoinType.RIGHT_OUTER_JOIN;
             } else if (join.joinType().INNER() != null) {
                 joinType = JoinType.INNER_JOIN;
-            } else if (join.joinType().ASOF() != null) {
-                joinType = join.joinType().INNER() != null ?
-                        JoinType.ASOF_LEFT_INNER_JOIN : JoinType.ASOF_LEFT_OUTER_JOIN;
-                isAsofJoin = true;
             } else if (join.joinCriteria() != null) {
                 joinType = JoinType.INNER_JOIN;
             } else {
@@ -4450,14 +4450,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             .collect(ImmutableList.toImmutableList());
                 }
             } else {
+                if (isAsofJoin) {
+                    throw new ParseException("ASOF JOIN must have on or using clause", join);
+                }
                 // keep same with original planner, allow cross/inner join
                 if (!joinType.isInnerOrCrossJoin()) {
                     throw new ParseException("on mustn't be empty except for cross/inner join", join);
                 }
             }
-            if (isAsofJoin && !condition.isPresent()) {
-                throw new ParseException("ASOF JOIN can't be used without ON clause", join);
-            }
+
             if (ids == null) {
                 LogicalPlan right = plan(join.relationPrimary());
                 if (right instanceof LogicalGenerate
