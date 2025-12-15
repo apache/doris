@@ -65,6 +65,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.DeleteFileIndex;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestContent;
@@ -84,13 +85,13 @@ import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
-import org.apache.iceberg.util.StructLikeWrapper;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -412,7 +413,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 ResidualEvaluator.of(spec, filterExpr == null ? Expressions.alwaysTrue() : filterExpr,
                         caseSensitive)));
 
-        Map<StructLikeWrapper, List<DeleteFile>> deletesByPartition = new HashMap<>();
+        List<DeleteFile> deleteFiles = new ArrayList<>();
         // Load delete manifests
         List<ManifestFile> deleteManifests = snapshot.deleteManifests(icebergTable.io());
         for (ManifestFile manifest : deleteManifests) {
@@ -430,12 +431,12 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache, manifest,
                     icebergTable);
-            StructLikeWrapper wrapper = StructLikeWrapper.forType(spec.partitionType());
-            for (DeleteFile deleteFile : value.getDeleteFiles()) {
-                StructLikeWrapper key = wrapper.copyFor(deleteFile.partition());
-                deletesByPartition.computeIfAbsent(key, k -> new ArrayList<>()).add(deleteFile);
-            }
+            deleteFiles.addAll(value.getDeleteFiles());
         }
+        DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
+                .specsById(specsById)
+                .caseSensitive(caseSensitive)
+                .build();
 
         List<FileScanTask> tasks = new ArrayList<>();
         try (CloseableIterable<ManifestFile> dataManifests =
@@ -452,17 +453,14 @@ public class IcebergScanNode extends FileQueryScanNode {
                 ResidualEvaluator residualEvaluator = residualEvaluators.get(manifest.partitionSpecId());
                 ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache, manifest,
                         icebergTable);
-                StructLikeWrapper wrapper = StructLikeWrapper.forType(spec.partitionType());
                 for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {
                     if (residualEvaluator != null) {
-                        org.apache.iceberg.expressions.Expression residual = residualEvaluator
-                                .residualFor(dataFile.partition());
-                        if (Expressions.alwaysFalse().equals(residual)) {
+                        if (residualEvaluator.residualFor(dataFile.partition()).equals(Expressions.alwaysFalse())) {
                             continue;
                         }
                     }
-                    List<DeleteFile> deletes = deletesByPartition
-                            .getOrDefault(wrapper.copyFor(dataFile.partition()), Collections.emptyList());
+                    List<DeleteFile> deletes = Arrays.asList(
+                            deleteIndex.forDataFile(dataFile.dataSequenceNumber(), dataFile));
                     tasks.add(new BaseFileScanTask(
                             dataFile,
                             deletes.toArray(new DeleteFile[0]),
