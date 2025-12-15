@@ -152,7 +152,7 @@ suite("materialized_view_switch") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_2"""
 
     sql "SET enable_materialized_view_rewrite=true"
-    async_mv_rewrite_success(db, mv_name, query, "mv_name_3")
+    async_mv_rewrite_success(db, mv_name, query, "mv_name_1")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_3"""
 
     // test when materialized_view_relation_mapping_max_count is 8
@@ -167,7 +167,7 @@ suite("materialized_view_switch") {
         inner join lineitem t2 on t1.L_ORDERKEY = t2.L_ORDERKEY;
     """
     order_qt_query1_0_before "${query1_0}"
-    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success(db, mv_name, query, "mv_name_1")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 

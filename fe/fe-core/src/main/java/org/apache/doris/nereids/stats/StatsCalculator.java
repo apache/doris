@@ -1199,7 +1199,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getState().isInternal()) {
+        if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {
             return ColumnStatistic.UNKNOWN;
         }
         long catalogId;
@@ -1230,7 +1230,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId, List<String> partitionNames) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getState().isInternal()) {
+        if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {
             return ColumnStatistic.UNKNOWN;
         }
         long catalogId;
