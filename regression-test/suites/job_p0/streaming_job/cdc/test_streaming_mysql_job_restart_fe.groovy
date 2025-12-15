@@ -15,104 +15,112 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.suite.ClusterOptions
 import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_mysql_job_restart_fe", "docker,external,mysql,external_docker,external_docker_mysql") {
+suite("test_streaming_mysql_job_restart_fe", "docker,mysql,external_docker,external_docker_mysql") {
     def jobName = "test_streaming_mysql_job_restart_fe"
-    def currentDb = (sql "select database()")[0][0]
-    def table1 = "restart_user_info"
-    def mysqlDb = "test_cdc_db"
+    def options = new ClusterOptions()
+    options.setFeNum(1)
+    // run in cloud and not cloud
+    options.cloudMode = null
 
-    sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
-    sql """drop table if exists ${currentDb}.${table1} force"""
+    docker(options) {
+        def currentDb = (sql "select database()")[0][0]
+        def table1 = "restart_user_info"
+        def mysqlDb = "test_cdc_db"
 
-    String enabled = context.config.otherConfigs.get("enableJdbcTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String mysql_port = context.config.otherConfigs.get("mysql_57_port");
-        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        String s3_endpoint = getS3Endpoint()
-        String bucket = getS3BucketName()
-        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
+        sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
+        sql """drop table if exists ${currentDb}.${table1} force"""
 
-        // create test
-        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
-            sql """CREATE DATABASE IF NOT EXISTS ${mysqlDb}"""
-            sql """DROP TABLE IF EXISTS ${mysqlDb}.${table1}"""
-            sql """CREATE TABLE ${mysqlDb}.${table1} (
-                  `name` varchar(200) NOT NULL,
-                  `age` int DEFAULT NULL,
-                  PRIMARY KEY (`name`)
-                ) ENGINE=InnoDB"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('A1', 1);"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('B1', 2);"""
-        }
+        String enabled = context.config.otherConfigs.get("enableJdbcTest")
+        if (enabled != null && enabled.equalsIgnoreCase("true")) {
+            String mysql_port = context.config.otherConfigs.get("mysql_57_port");
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+            String s3_endpoint = getS3Endpoint()
+            String bucket = getS3BucketName()
+            String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
-        sql """CREATE JOB ${jobName}
-                ON STREAMING
-                FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}", 
-                    "offset" = "initial"
+            // create test
+            connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+                sql """CREATE DATABASE IF NOT EXISTS ${mysqlDb}"""
+                sql """DROP TABLE IF EXISTS ${mysqlDb}.${table1}"""
+                sql """CREATE TABLE ${mysqlDb}.${table1} (
+                    `name` varchar(200) NOT NULL,
+                    `age` int DEFAULT NULL,
+                    PRIMARY KEY (`name`)
+                    ) ENGINE=InnoDB"""
+                sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('A1', 1);"""
+                sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('B1', 2);"""
+            }
+
+            sql """CREATE JOB ${jobName}
+                    ON STREAMING
+                    FROM MYSQL (
+                        "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                        "driver_url" = "${driver_url}",
+                        "driver_class" = "com.mysql.cj.jdbc.Driver",
+                        "user" = "root",
+                        "password" = "123456",
+                        "database" = "${mysqlDb}",
+                        "include_tables" = "${table1}", 
+                        "offset" = "initial"
+                    )
+                    TO DATABASE ${currentDb} (
+                    "table.create.properties.replication_num" = "1"
+                    )
+                """
+            // check table created
+            def showTables = sql """ show tables from ${currentDb} like '${table1}'; """
+            assert showTables.size() == 1
+
+            // check job running
+            try {
+                Awaitility.await().atMost(300, SECONDS)
+                        .pollInterval(1, SECONDS).until(
+                        {
+                            def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                            log.info("jobSuccendCount: " + jobSuccendCount)
+                            // check job status and succeed task count larger than 2
+                            jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                        }
                 )
-                TO DATABASE ${currentDb} (
-                  "table.create.properties.replication_num" = "1"
-                )
-            """
-        // check table created
-        def showTables = sql """ show tables from ${currentDb} like '${table1}'; """
-        assert showTables.size() == 1
+            } catch (Exception ex){
+                def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+                def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+                log.info("show job: " + showjob)
+                log.info("show task: " + showtask)
+                throw ex;
+            }
 
-        // check job running
-        try {
-            Awaitility.await().atMost(300, SECONDS)
-                    .pollInterval(1, SECONDS).until(
-                    {
-                        def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
-                        log.info("jobSuccendCount: " + jobSuccendCount)
-                        // check job status and succeed task count larger than 2
-                        jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
-                    }
-            )
-        } catch (Exception ex){
-            def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
-            def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
-            log.info("show job: " + showjob)
-            log.info("show task: " + showtask)
-            throw ex;
-        }
-
-        def jobInfoBeforeRestart = sql """
-        select loadStatistic, status, currentOffset from jobs("type"="insert") where Name='${jobName}'
-        """
-        log.info("jobInfoBeforeRestart: " + jobInfoBeforeRestart)
-        assert jobInfoBeforeRestart.get(0).get(0) == "{\"scannedRows\":2,\"loadBytes\":94,\"fileNumber\":0,\"fileSize\":0}"
-        assert jobInfoBeforeRestart.get(0).get(1) == "RUNNING"
-
-        // Restart FE
-        cluster.restartFrontends()
-        sleep(30000)
-        context.reconnectFe()
-
-        // check is it consistent after restart
-        def jobAfterRestart = sql """
+            def jobInfoBeforeRestart = sql """
             select loadStatistic, status, currentOffset from jobs("type"="insert") where Name='${jobName}'
-        """
-        log.info("jobAfterRestart: " + jobAfterRestart)
-        assert jobAfterRestart.get(0).get(0) == "{\"scannedRows\":2,\"loadBytes\":94,\"fileNumber\":0,\"fileSize\":0}"
-        assert jobAfterRestart.get(0).get(1) == "PAUSED"
-        assert jobAfterRestart.get(0).get(2) == jobInfoBeforeRestart.get(0).get(2)
+            """
+            log.info("jobInfoBeforeRestart: " + jobInfoBeforeRestart)
+            assert jobInfoBeforeRestart.get(0).get(0) == "{\"scannedRows\":2,\"loadBytes\":94,\"fileNumber\":0,\"fileSize\":0}"
+            assert jobInfoBeforeRestart.get(0).get(1) == "RUNNING"
 
-        sql """
-            DROP JOB IF EXISTS where jobname =  '${jobName}'
-        """
-        def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
-        assert jobCountRsp.get(0).get(0) == 0
+            // Restart FE
+            cluster.restartFrontends()
+            sleep(60000)
+            context.reconnectFe()
+
+            // check is it consistent after restart
+            def jobAfterRestart = sql """
+                select loadStatistic, status, currentOffset from jobs("type"="insert") where Name='${jobName}'
+            """
+            log.info("jobAfterRestart: " + jobAfterRestart)
+            assert jobAfterRestart.get(0).get(0) == "{\"scannedRows\":2,\"loadBytes\":94,\"fileNumber\":0,\"fileSize\":0}"
+            assert jobAfterRestart.get(0).get(1) == "RUNNING"
+            assert jobAfterRestart.get(0).get(2) == jobInfoBeforeRestart.get(0).get(2)
+
+            sql """
+                DROP JOB IF EXISTS where jobname =  '${jobName}'
+            """
+            def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
+            assert jobCountRsp.get(0).get(0) == 0
+        }
     }
 }
