@@ -114,6 +114,23 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
     }
 }
 
+void ColumnNullable::update_crc32cs_with_value(uint32_t* __restrict hashes, uint32_t rows,
+                                               uint32_t offset,
+                                               const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    auto s = rows;
+    DCHECK(s == size());
+    const auto* __restrict real_null_data =
+            assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+    if (!has_null()) {
+        _nested_column->update_crc32cs_with_value(hashes, rows, offset, nullptr);
+    } else {
+        // nullmap process is slow, replace null data to zero to avoid nullmap process
+        _nested_column->assume_mutable()->replace_column_null_data(real_null_data);
+        _nested_column->update_crc32cs_with_value(hashes, rows, offset, nullptr);
+    }
+}
+
 void ColumnNullable::update_hashes_with_value(uint64_t* __restrict hashes,
                                               const uint8_t* __restrict null_data) const {
     DCHECK(null_data == nullptr);

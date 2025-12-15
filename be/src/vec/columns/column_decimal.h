@@ -173,6 +173,9 @@ public:
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
+    void update_crc32cs_with_value(uint32_t* __restrict hashes, uint32_t rows, uint32_t offset,
+                                   const uint8_t* __restrict null_data = nullptr) const override;
+
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
