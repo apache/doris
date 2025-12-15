@@ -357,7 +357,11 @@ public class IcebergFileScanPlanner {
             List<DeleteFile> eqPartitionList = partitionEqDeletes.get(dataFile.partition());
             if (eqPartitionList != null) {
                 for (DeleteFile deleteFile : eqPartitionList) {
-                    if (deleteFile.dataSequenceNumber() >= dataFile.dataSequenceNumber()) {
+                    // Iceberg applies equality deletes to data files with a lower sequence number
+                    // (applySequenceNumber = dataSequenceNumber - 1). Keep the same semantics here
+                    // to avoid deleting rows written in the same snapshot.
+                    long applySequence = deleteFile.dataSequenceNumber() - 1;
+                    if (applySequence >= dataFile.dataSequenceNumber()) {
                         out.add(deleteFile);
                     }
                 }
