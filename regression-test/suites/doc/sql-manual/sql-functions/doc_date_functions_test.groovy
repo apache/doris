@@ -1417,6 +1417,11 @@ suite("doc_date_functions_test") {
                                     TIMESTAMP(dt, NULL) AS all_null_1,
                                     TIMESTAMP(dttm, NULL) AS all_null_2
                                 FROM test_timestamp;"""
+    explain {
+        sql """SELECT TIMESTAMP(dt, '65:43:21') FROM test_timestamp;"""
+        contains "add_time"
+    }
+    
     test {
         sql """SELECT TIMESTAMP('9999-12-31', '65:43:21');"""
         exception "out of range";

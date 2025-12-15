@@ -130,9 +130,6 @@ using FunctionSubTimeDatetime =
                                   TYPE_DATETIMEV2>;
 using FunctionSubTimeTime =
         FunctionNeedsToHandleNull<FunctionAddTimeImpl<TYPE_TIMEV2, SubTimeImpl>, TYPE_TIMEV2>;
-using FunctionTimestampTwoArgs =
-        FunctionNeedsToHandleNull<FunctionAddTimeImpl<TYPE_DATETIMEV2, TimestampTwoArgsImpl>,
-                                  TYPE_DATETIMEV2>;
 
 #define FUNCTION_TIME_DIFF(NAME, IMPL, TYPE) using NAME##_##TYPE = FunctionTimeDiff<IMPL<TYPE>>;
 
@@ -233,7 +230,6 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddTimeTime>();
     factory.register_function<FunctionSubTimeDatetime>();
     factory.register_function<FunctionSubTimeTime>();
-    factory.register_function<FunctionTimestampTwoArgs>();
 
 #define REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE) factory.register_function<NAME##_##TYPE>();
 

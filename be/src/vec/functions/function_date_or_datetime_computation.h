@@ -1829,11 +1829,6 @@ struct SubTimeImpl {
     static bool is_negative() { return true; }
 };
 
-struct TimestampTwoArgsImpl {
-    static constexpr auto name = "timestamp";
-    static bool is_negative() { return false; }
-};
-
 // Due to the use of default NULL handling
 // When the first arg is NULL (the default handling will replace it with 0)
 // The return result of `date_add_interval` in the `compute` function is fixed to false, and throw an Exception.
@@ -1851,6 +1846,11 @@ public:
     static size_t get_number_of_arguments() { return 2; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>();
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
+                std::make_shared<typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType>()};
     }
 
     static void execute(const std::vector<ColumnWithConstAndNullMap>& columns_info,
