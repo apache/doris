@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <utility>
+
 #include "common/status.h"
 #include "operator.h"
 #include "vec/exprs/table_function/table_function.h"
@@ -56,7 +58,8 @@ private:
 
     MOCK_FUNCTION Status _clone_table_function(RuntimeState* state);
 
-    void _copy_output_slots(std::vector<vectorized::MutableColumnPtr>& columns);
+    void _copy_output_slots(std::vector<vectorized::MutableColumnPtr>& columns,
+                            const TableFunctionOperatorX& p);
     bool _roll_table_functions(int last_eos_idx);
     // return:
     //  0: all fns are eos
@@ -67,6 +70,8 @@ private:
 
     std::vector<vectorized::TableFunction*> _fns;
     vectorized::VExprContextSPtrs _vfn_ctxs;
+    vectorized::VExprContextSPtrs _expand_conjuncts_ctxs;
+    bool _need_to_handle_outer_conjuncts = false;
     int64_t _cur_child_offset = -1;
     std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
@@ -150,6 +155,7 @@ private:
     std::vector<SlotDescriptor*> _output_slots;
 
     vectorized::VExprContextSPtrs _vfn_ctxs;
+    vectorized::VExprContextSPtrs _expand_conjuncts_ctxs;
 
     std::vector<vectorized::TableFunction*> _fns;
     int _fn_num = 0;

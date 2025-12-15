@@ -431,6 +431,7 @@ West	Mouse	2023	1	800.00
 -- !sql_select --
 1	Laptop	Electronics	5999.99
 1	Laptop	High-End	5999.99
+1	Laptop	Laptop	5999.99
 1	Laptop	Office	5999.99
 2	Mechanical Keyboard	Accessories	399.99
 2	Mechanical Keyboard	Electronics	399.99
@@ -445,6 +446,7 @@ West	Mouse	2023	1	800.00
 1	Laptop	0	Electronics
 1	Laptop	1	Office
 1	Laptop	2	High-End
+1	Laptop	3	Laptop
 2	Mechanical Keyboard	0	Electronics
 2	Mechanical Keyboard	1	Accessories
 3	Basketball	0	Sports
@@ -480,6 +482,7 @@ Clothing	1	259.0000
 Electronics	2	3199.9900
 Equipment	1	299.9900
 High-End	1	5999.9900
+Laptop	1	5999.9900
 Office	2	3129.4950
 Outdoor	1	199.9900
 Sports	2	249.9900
@@ -487,6 +490,7 @@ Sports	2	249.9900
 -- !sql_order_by --
 1	Laptop	Electronics	5999.99
 1	Laptop	High-End	5999.99
+1	Laptop	Laptop	5999.99
 1	Laptop	Office	5999.99
 2	Mechanical Keyboard	Accessories	399.99
 2	Mechanical Keyboard	Electronics	399.99
@@ -500,6 +504,7 @@ Sports	2	249.9900
 -- !sql_window --
 1	Laptop	Electronics	5999.99	1
 1	Laptop	High-End	5999.99	1
+1	Laptop	Laptop	5999.99	1
 1	Laptop	Office	5999.99	1
 2	Mechanical Keyboard	Accessories	399.99	1
 2	Mechanical Keyboard	Electronics	399.99	2
@@ -516,6 +521,7 @@ Clothing
 Electronics
 Equipment
 High-End
+Laptop
 Office
 Outdoor
 Sports
@@ -536,9 +542,10 @@ Badminton Racket	["Sports", "Equipment"]	Equipment	2
 Badminton Racket	["Sports", "Equipment"]	Sports	2
 Basketball	["Sports", "Outdoor"]	Outdoor	2
 Basketball	["Sports", "Outdoor"]	Sports	2
-Laptop	["Electronics", "Office", "High-End"]	Electronics	3
-Laptop	["Electronics", "Office", "High-End"]	High-End	3
-Laptop	["Electronics", "Office", "High-End"]	Office	3
+Laptop	["Electronics", "Office", "High-End", "Laptop"]	Electronics	4
+Laptop	["Electronics", "Office", "High-End", "Laptop"]	High-End	4
+Laptop	["Electronics", "Office", "High-End", "Laptop"]	Laptop	4
+Laptop	["Electronics", "Office", "High-End", "Laptop"]	Office	4
 Mechanical Keyboard	["Electronics", "Accessories"]	Accessories	2
 Mechanical Keyboard	["Electronics", "Accessories"]	Electronics	2
 Shirt	["Clothing", "Office"]	Clothing	2
@@ -551,4 +558,11 @@ Laptop	[1, 2]	1	3
 Laptop	[1, 2]	2	3
 Mechanical Keyboard	[1]	1	1
 Shirt	[4]	4	4
+
+-- !sql_join_complex --
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Laptop
+2	Mechanical Keyboard	["Electronics", "Accessories"]	\N
+3	Basketball	["Sports", "Outdoor"]	\N
+4	Badminton Racket	["Sports", "Equipment"]	\N
+5	Shirt	["Clothing", "Office"]	\N
 

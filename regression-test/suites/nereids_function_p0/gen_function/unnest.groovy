@@ -117,7 +117,7 @@ suite("nereids_unnest_fn") {
         );
 
         INSERT INTO items_dict_unnest_t (id, name, tags, price, category_ids) VALUES
-        (1, 'Laptop', ['Electronics', 'Office', 'High-End'], 5999.99, [1, 2]),
+        (1, 'Laptop', ['Electronics', 'Office', 'High-End', 'Laptop'], 5999.99, [1, 2]),
         (2, 'Mechanical Keyboard', ['Electronics', 'Accessories'], 399.99, [1]),
         (3, 'Basketball', ['Sports', 'Outdoor'], 199.99, [3]),
         (4, 'Badminton Racket', ['Sports', 'Equipment'], 299.99, [3]),
@@ -354,12 +354,14 @@ suite("nereids_unnest_fn") {
         name, category_ids, unnest(category_ids);
     '''
 
-    // order_qt_sql_join_complex '''
-    // SELECT
-    //     id,
-    //     tags
-    // FROM
-    //     items_dict_unnest_t
-    //     LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
-    // '''
+    order_qt_sql_join_complex '''
+    SELECT
+        id,
+        name,
+        tags,
+        t.tag
+    FROM
+        items_dict_unnest_t
+        LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
 }
