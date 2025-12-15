@@ -115,6 +115,11 @@ CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
 // log a warning if a recycle task takes longer than this duration
 CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
+CONF_mInt32(decrement_packed_file_ref_counts_retry_times, "10");
+CONF_mInt32(packed_file_txn_retry_times, "10");
+// randomized interval to reduce conflict storms in FoundationDB, default 5-50ms
+CONF_mInt64(packed_file_txn_retry_sleep_min_ms, "5");
+CONF_mInt64(packed_file_txn_retry_sleep_max_ms, "50");
 
 // force recycler to recycle all useless object.
 // **just for TEST**
