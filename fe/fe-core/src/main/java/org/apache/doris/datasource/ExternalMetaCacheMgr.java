@@ -31,6 +31,7 @@ import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
 import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
 import org.apache.doris.datasource.hudi.source.HudiPartitionProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergManifestCacheMgr;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCacheMgr;
@@ -101,6 +102,7 @@ public class ExternalMetaCacheMgr {
     private FileSystemCache fsCache;
     // all external table row count cache.
     private ExternalRowCountCache rowCountCache;
+    private final IcebergManifestCacheMgr icebergManifestCacheMgr;
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
     private final PaimonMetadataCacheMgr paimonMetadataCacheMgr;
     private final DorisExternalMetaCacheMgr dorisExternalMetaCacheMgr;
@@ -132,6 +134,7 @@ public class ExternalMetaCacheMgr {
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
 
         hudiMetadataCacheMgr = new HudiMetadataCacheMgr(commonRefreshExecutor);
+        icebergManifestCacheMgr = new IcebergManifestCacheMgr();
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
         paimonMetadataCacheMgr = new PaimonMetadataCacheMgr(commonRefreshExecutor);
         dorisExternalMetaCacheMgr = new DorisExternalMetaCacheMgr(commonRefreshExecutor);
@@ -214,6 +217,10 @@ public class ExternalMetaCacheMgr {
             }
         }
         return cache;
+    }
+
+    public IcebergManifestCacheMgr getIcebergManifestCacheMgr() {
+        return icebergManifestCacheMgr;
     }
 
     public PaimonMetadataCache getPaimonMetadataCache() {
