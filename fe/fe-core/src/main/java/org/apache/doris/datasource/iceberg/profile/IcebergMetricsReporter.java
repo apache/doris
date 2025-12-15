@@ -37,7 +37,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 /**
@@ -47,7 +46,6 @@ import java.util.regex.Pattern;
 public class IcebergMetricsReporter implements MetricsReporter {
 
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
-    private static final AtomicInteger SCAN_METRICS_ID = new AtomicInteger(1);
 
     @Override
     public void report(MetricsReport report) {
@@ -90,7 +88,7 @@ public class IcebergMetricsReporter implements MetricsReporter {
     }
 
     private String buildScanProfileName(ScanReport report) {
-        return "Scan #" + SCAN_METRICS_ID.getAndIncrement() + " (" + report.tableName() + ")";
+        return "Table Scan (" + report.tableName() + ")";
     }
 
     private void appendScanDetails(RuntimeProfile scanProfile, ScanReport report, ScanMetricsResult metrics) {
