@@ -59,7 +59,6 @@
 namespace doris::pipeline {
 
 #include "common/compile_check_begin.h"
-const static int32_t ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT = 10000;
 
 #define RETURN_IF_PUSH_DOWN(stmt, status)    \
     if (pdt == PushDownType::UNACCEPTABLE) { \
@@ -213,6 +212,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     M(DATETIME)                     \
     M(DATEV2)                       \
     M(DATETIMEV2)                   \
+    M(TIMESTAMPTZ)                  \
     M(VARCHAR)                      \
     M(STRING)                       \
     M(HLL)                          \
@@ -302,32 +302,28 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
     static constexpr auto is_leaf = [](auto&& expr) { return !expr->is_and_expr(); };
     auto in_predicate_checker = [&](const vectorized::VExprSPtrs& children,
                                     SlotDescriptor** slot_desc, ColumnValueRangeType** range) {
-        if (children.empty() || vectorized::VExpr::expr_without_cast(children[0])->node_type() !=
-                                        TExprNodeType::SLOT_REF) {
+        if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
             return false;
         }
         std::shared_ptr<vectorized::VSlotRef> slot =
-                std::dynamic_pointer_cast<vectorized::VSlotRef>(
-                        vectorized::VExpr::expr_without_cast(children[0]));
+                std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
         *slot_desc =
                 _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot->slot_id()];
-        return _is_predicate_acting_on_slot(slot, children[0], range);
+        return _is_predicate_acting_on_slot(slot, range);
     };
     auto eq_predicate_checker = [&](const vectorized::VExprSPtrs& children,
                                     SlotDescriptor** slot_desc, ColumnValueRangeType** range) {
-        if (children.empty() || vectorized::VExpr::expr_without_cast(children[0])->node_type() !=
-                                        TExprNodeType::SLOT_REF) {
+        if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
             return false;
         }
         std::shared_ptr<vectorized::VSlotRef> slot =
-                std::dynamic_pointer_cast<vectorized::VSlotRef>(
-                        vectorized::VExpr::expr_without_cast(children[0]));
+                std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
         CHECK(slot != nullptr);
         *slot_desc =
                 _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot->slot_id()];
-        return _is_predicate_acting_on_slot(slot, children[0], range);
+        return _is_predicate_acting_on_slot(slot, range);
     };
 
     if (expr_root != nullptr) {
@@ -528,8 +524,7 @@ Status ScanLocalState<Derived>::_normalize_function_filters(vectorized::VExprCon
 
 template <typename Derived>
 bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
-        const std::shared_ptr<vectorized::VSlotRef>& slot_ref,
-        const vectorized::VExprSPtr& child_contains_slot, ColumnValueRangeType** range) {
+        const std::shared_ptr<vectorized::VSlotRef>& slot_ref, ColumnValueRangeType** range) {
     auto entry = _slot_id_to_predicates.find(slot_ref->slot_id());
     if (_slot_id_to_predicates.end() == entry) {
         return false;
@@ -537,29 +532,11 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
     if (is_complex_type(slot_ref->data_type()->get_primitive_type())) {
         return false;
     }
-    auto& p = _parent->cast<typename Derived::Parent>();
     auto sid_to_range = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
     *range = &(sid_to_range->second);
-    SlotDescriptor* src_slot_desc = p._slot_id_to_slot_desc[slot_ref->slot_id()];
-    DCHECK(child_contains_slot != nullptr);
-    if (child_contains_slot->data_type()->get_primitive_type() !=
-                src_slot_desc->type()->get_primitive_type() ||
-        child_contains_slot->data_type()->get_precision() !=
-                src_slot_desc->type()->get_precision() ||
-        child_contains_slot->data_type()->get_scale() != src_slot_desc->type()->get_scale()) {
-        return _ignore_cast(src_slot_desc, child_contains_slot.get());
-    }
-    if ((child_contains_slot->data_type()->get_primitive_type() == PrimitiveType::TYPE_DATETIME ||
-         child_contains_slot->data_type()->get_primitive_type() ==
-                 PrimitiveType::TYPE_DATETIMEV2) &&
-        child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
-        // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
-        // push down.
-        return false;
-    }
     return true;
 }
 
@@ -578,17 +555,6 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     }
 
     return fmt::to_string(debug_string_buffer);
-}
-
-template <typename Derived>
-bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr) {
-    // only one level cast expr could push down for variant type
-    // check if expr is cast and it's children is slot
-    if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        return expr->node_type() == TExprNodeType::CAST_EXPR &&
-               expr->children().at(0)->is_slot_ref();
-    }
-    return false;
 }
 
 template <typename Derived>
@@ -992,7 +958,8 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                          (PrimitiveType == TYPE_IPV6) || (PrimitiveType == TYPE_DECIMAL32) ||
                          (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||
-                         (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
+                         (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2) ||
+                         (PrimitiveType == TYPE_TIMESTAMPTZ)) {
         if constexpr (IsFixed) {
             func(temp_range,
                  reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
@@ -1333,27 +1300,17 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         _topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
     }
 
-    // The first branch is kept for compatibility with the old version of the FE
-    if (!query_options.__isset.enable_adaptive_pipeline_task_serial_read_on_limit) {
-        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
-            // Which means the request could be fullfilled in a single segment iterator request.
+    // Which means the request could be fullfilled in a single segment iterator request.
+    // the unique_table has a condition of delete_sign = 0 awalys, so it's not have plan for one instance to scan table,
+    // now add some check for unique_table let running only one instance for select limit n.
+    if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
+        DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
+        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty() ||
+            (tnode.conjuncts.size() == 1 && tnode.__isset.olap_scan_node &&
+             tnode.olap_scan_node.keyType == TKeysType::UNIQUE_KEYS)) {
             if (tnode.limit > 0 &&
-                tnode.limit <= ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT) {
+                tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
                 _should_run_serial = true;
-            }
-        }
-    } else {
-        // The set of enable_adaptive_pipeline_task_serial_read_on_limit
-        // is checked in previous branch.
-        if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
-            DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
-            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty() ||
-                (tnode.conjuncts.size() == 1 && tnode.__isset.olap_scan_node &&
-                 tnode.olap_scan_node.keyType == TKeysType::UNIQUE_KEYS)) {
-                if (tnode.limit > 0 &&
-                    tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
-                    _should_run_serial = true;
-                }
             }
         }
     }

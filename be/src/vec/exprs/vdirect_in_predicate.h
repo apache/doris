@@ -106,12 +106,18 @@ public:
         return true;
     }
 
-    uint64_t get_digest(uint64_t seed) const override { return _filter->get_digest(seed); }
+    uint64_t get_digest(uint64_t seed) const override {
+        seed = _children[0]->get_digest(seed);
+        if (seed) {
+            return _filter->get_digest(seed);
+        }
+        return seed;
+    }
 
 private:
     Status _do_execute(VExprContext* context, const Block* block, size_t count,
                        ColumnPtr& result_column, ColumnPtr* arg_column) const {
-        DCHECK(_open_finished || _getting_const_col);
+        DCHECK(_open_finished || block == nullptr);
 
         ColumnPtr argument_column;
         RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, argument_column));

@@ -22,14 +22,12 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -111,17 +109,6 @@ public class AliasFunction extends Function {
                 .append(originFunction.toSqlWithoutTbl())
                 .append(";");
         return sb.toString();
-    }
-
-    @Override
-    public String getProperties() {
-        Map<String, String> properties = new HashMap<>();
-        properties.put("parameter", getParamsSting(parameters));
-        setSlotRefLabel(originFunction);
-        String functionStr = originFunction.toSqlWithoutTbl();
-        functionStr = functionStr.replaceAll("'", "`");
-        properties.put("origin_function", functionStr);
-        return new Gson().toJson(properties);
     }
 
     /**

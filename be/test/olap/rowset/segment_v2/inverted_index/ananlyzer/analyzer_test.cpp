@@ -159,7 +159,7 @@ TEST_F(AnalyzerTest, TestCreateAnalyzer) {
     // Test Case 1: Empty custom_analyzer, use builtin parser_type
     {
         InvertedIndexCtx ctx;
-        ctx.custom_analyzer = "";
+        ctx.analyzer_name = "";
         ctx.parser_type = InvertedIndexParserType::PARSER_STANDARD;
         ctx.parser_mode = "";
         ctx.lower_case = INVERTED_INDEX_PARSER_TRUE;
@@ -172,7 +172,7 @@ TEST_F(AnalyzerTest, TestCreateAnalyzer) {
     // Test Case 2: custom_analyzer is a builtin name (using one that doesn't need dict)
     {
         InvertedIndexCtx ctx;
-        ctx.custom_analyzer = INVERTED_INDEX_PARSER_ENGLISH;
+        ctx.analyzer_name = INVERTED_INDEX_PARSER_ENGLISH;
         ctx.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
         ctx.parser_mode = "";
         ctx.lower_case = INVERTED_INDEX_PARSER_FALSE;
@@ -195,7 +195,7 @@ TEST_F(AnalyzerTest, TestCreateAnalyzer) {
 
     for (const auto& [name, requires_dict] : builtin_names) {
         InvertedIndexCtx ctx;
-        ctx.custom_analyzer = name;
+        ctx.analyzer_name = name;
         ctx.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
         ctx.parser_mode = "";
         ctx.lower_case = "";
@@ -227,7 +227,7 @@ TEST_F(AnalyzerTest, TestCreateAnalyzer) {
 
     for (const auto& [parser_type, requires_dict] : parser_types) {
         InvertedIndexCtx ctx;
-        ctx.custom_analyzer = "";
+        ctx.analyzer_name = "";
         ctx.parser_type = parser_type;
         ctx.parser_mode = "";
         ctx.lower_case = "";
@@ -256,7 +256,7 @@ TEST_F(AnalyzerTest, TestCreateAnalyzerWithCustomPolicy) {
     // Test when index_policy_mgr is null - should throw exception
     {
         InvertedIndexCtx ctx;
-        ctx.custom_analyzer = "non_existent_custom";
+        ctx.analyzer_name = "non_existent_custom";
         ctx.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
         ctx.parser_mode = "";
         ctx.lower_case = "";
@@ -287,7 +287,7 @@ TEST_F(AnalyzerTest, TestCreateAnalyzerWithCustomPolicy) {
         // Test successful custom analyzer retrieval
         {
             InvertedIndexCtx ctx;
-            ctx.custom_analyzer = "test_custom_analyzer";
+            ctx.analyzer_name = "test_custom_analyzer";
             ctx.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
             ctx.parser_mode = "";
             ctx.lower_case = "";
@@ -300,7 +300,7 @@ TEST_F(AnalyzerTest, TestCreateAnalyzerWithCustomPolicy) {
         // Test non-existent custom analyzer throws exception
         {
             InvertedIndexCtx ctx;
-            ctx.custom_analyzer = "non_existent_analyzer";
+            ctx.analyzer_name = "non_existent_analyzer";
             ctx.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
             ctx.parser_mode = "";
             ctx.lower_case = "";
@@ -316,7 +316,7 @@ TEST_F(AnalyzerTest, TestCreateAnalyzerWithCustomPolicy) {
 TEST_F(AnalyzerTest, TestAnalyzerFunctionality) {
     // Create an analyzer and test it can tokenize text properly
     InvertedIndexCtx ctx;
-    ctx.custom_analyzer = "";
+    ctx.analyzer_name = "";
     ctx.parser_type = InvertedIndexParserType::PARSER_STANDARD;
     ctx.parser_mode = "";
     ctx.lower_case = INVERTED_INDEX_PARSER_TRUE;

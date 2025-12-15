@@ -309,8 +309,20 @@ public class PlanTranslatorContext {
         }
         slotDescriptor.setLabel(slotReference.getName());
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
+        slotDescriptor.setIsNullable(slotReference.nullable());
+
+        if (column.isPresent()) {
+            slotDescriptor.setAutoInc(column.get().isAutoInc());
+        }
+        if (slotReference.getAllAccessPaths().isPresent()) {
+            slotDescriptor.setAllAccessPaths(slotReference.getAllAccessPaths().get());
+            slotDescriptor.setPredicateAccessPaths(slotReference.getPredicateAccessPaths().get());
+            slotDescriptor.setDisplayAllAccessPaths(slotReference.getDisplayAllAccessPaths().get());
+            slotDescriptor.setDisplayPredicateAccessPaths(slotReference.getDisplayPredicateAccessPaths().get());
+        }
         SlotRef slotRef;
         slotRef = new SlotRef(slotDescriptor);
+        slotRef.setLabel(slotReference.getName());
         if (slotReference.hasSubColPath() && slotReference.getOriginalColumn().isPresent()) {
             slotDescriptor.setSubColLables(slotReference.getSubPath());
             // use lower case name for variant's root, since backend treat parent column as lower case
@@ -318,19 +330,7 @@ public class PlanTranslatorContext {
             slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
                     + "." + String.join(".", slotReference.getSubPath()));
         }
-        slotRef.setLabel(slotReference.getName());
-        if (column.isPresent()) {
-            slotDescriptor.setAutoInc(column.get().isAutoInc());
-        }
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
-        slotDescriptor.setIsNullable(slotReference.nullable());
-
-        if (slotReference.getAllAccessPaths().isPresent()) {
-            slotDescriptor.setAllAccessPaths(slotReference.getAllAccessPaths().get());
-            slotDescriptor.setPredicateAccessPaths(slotReference.getPredicateAccessPaths().get());
-            slotDescriptor.setDisplayAllAccessPaths(slotReference.getDisplayAllAccessPaths().get());
-            slotDescriptor.setDisplayPredicateAccessPaths(slotReference.getDisplayPredicateAccessPaths().get());
-        }
         return slotDescriptor;
     }
 

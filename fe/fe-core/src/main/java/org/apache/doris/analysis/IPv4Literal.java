@@ -47,6 +47,7 @@ public class IPv4Literal extends LiteralExpr {
         super();
         this.value = value;
         this.type = Type.IPV4;
+        this.nullable = false;
         analysisDone();
     }
 
@@ -54,6 +55,7 @@ public class IPv4Literal extends LiteralExpr {
         super();
         this.value = parseIPv4toLong(value);
         this.type = Type.IPV4;
+        this.nullable = false;
         analysisDone();
     }
 

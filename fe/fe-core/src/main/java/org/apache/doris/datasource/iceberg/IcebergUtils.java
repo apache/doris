@@ -1385,7 +1385,7 @@ public class IcebergUtils {
         }
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         Column c = partitionColumns.get(0);
-        Preconditions.checkState(c.getDataType().isDateType(), "Only support date type partition column");
+        Preconditions.checkState(c.getDataType().isDateLikeType(), "Only support date type partition column");
         if (c.getType().isDate() || c.getType().isDateV2()) {
             formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         }

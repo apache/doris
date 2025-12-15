@@ -127,7 +127,7 @@ public:
         size_t get_non_null_value_size() const;
 
         size_t serialize_text_json(size_t n, BufferWritable& output,
-                                   DataTypeSerDe::FormatOptions opt = {}) const;
+                                   DataTypeSerDe::FormatOptions opt) const;
 
         const DataTypeSerDeSPtr& get_least_common_type_serde() const {
             return least_common_type.get_serde();
@@ -314,12 +314,15 @@ public:
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
     }
 
-    void serialize_one_row_to_string(int64_t row, std::string* output) const;
+    void serialize_one_row_to_string(int64_t row, std::string* output,
+                                     const DataTypeSerDe::FormatOptions& options) const;
 
-    void serialize_one_row_to_string(int64_t row, BufferWritable& output) const;
+    void serialize_one_row_to_string(int64_t row, BufferWritable& output,
+                                     const DataTypeSerDe::FormatOptions& options) const;
 
     // serialize one row to json format
-    void serialize_one_row_to_json_format(int64_t row, BufferWritable& output, bool* is_null) const;
+    void serialize_one_row_to_json_format(int64_t row, BufferWritable& output, bool* is_null,
+                                          const DataTypeSerDe::FormatOptions& options) const;
 
     // Fill the `serialized_sparse_column`
     Status serialize_sparse_columns(std::map<std::string_view, Subcolumn>&& remaing_subcolumns);

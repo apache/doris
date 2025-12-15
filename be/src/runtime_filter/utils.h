@@ -28,6 +28,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -70,6 +71,10 @@ auto get_convertor() {
             value->set_intval(data.to_date_int_val());
         };
     } else if constexpr (std::is_same_v<T, DateV2Value<DateTimeV2ValueType>>) {
+        return [](PColumnValue* value, const T& data) {
+            value->set_longval(data.to_date_int_val());
+        };
+    } else if constexpr (std::is_same_v<T, TimestampTzValue>) {
         return [](PColumnValue* value, const T& data) {
             value->set_longval(data.to_date_int_val());
         };

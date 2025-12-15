@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-public class ImportDeleteOnStmt extends StatementBase implements NotFallbackInParser {
+public class ImportDeleteOnStmt extends StatementBase {
     private Expr expr;
 
     public ImportDeleteOnStmt(Expr expr) {
