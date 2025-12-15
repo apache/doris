@@ -15,33 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.thrift.TExprNode;
+suite("test_bind_slot") {
+    sql """
+      drop table if exists t; 
+       CREATE TABLE t (
+      `id` int COMMENT '',
+      `status` string COMMENT '',
+      `time_created` string COMMENT '',
+    )  properties("replication_num" = "1");
 
-//
-public class DefaultValueExpr extends Expr {
-
-    @Override
-    protected String toSqlImpl() {
-        return null;
-    }
-
-    @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return null;
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-
-    }
-
-    @Override
-    public Expr clone() {
-        return null;
-    }
+  """
+  // if scope is not deduplicated, time_created wil be bound twice, causing a slot ambigious error
+  sql """select
+          from_unixtime(time_created / 1000, 'yyyyMMdd') as date1,
+          status,
+          count(distinct id) as cnt
+          from
+            (
+              select
+                from_unixtime(time_created / 1001) as created_date,
+                time_created,
+                *
+              from
+                t
+            ) t1
+          group by
+          from_unixtime(time_created / 1000, 'yyyyMMdd'),
+          status;
+  """
 }

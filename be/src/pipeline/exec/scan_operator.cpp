@@ -302,32 +302,28 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
     static constexpr auto is_leaf = [](auto&& expr) { return !expr->is_and_expr(); };
     auto in_predicate_checker = [&](const vectorized::VExprSPtrs& children,
                                     SlotDescriptor** slot_desc, ColumnValueRangeType** range) {
-        if (children.empty() || vectorized::VExpr::expr_without_cast(children[0])->node_type() !=
-                                        TExprNodeType::SLOT_REF) {
+        if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
             return false;
         }
         std::shared_ptr<vectorized::VSlotRef> slot =
-                std::dynamic_pointer_cast<vectorized::VSlotRef>(
-                        vectorized::VExpr::expr_without_cast(children[0]));
+                std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
         *slot_desc =
                 _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot->slot_id()];
-        return _is_predicate_acting_on_slot(slot, children[0], range);
+        return _is_predicate_acting_on_slot(slot, range);
     };
     auto eq_predicate_checker = [&](const vectorized::VExprSPtrs& children,
                                     SlotDescriptor** slot_desc, ColumnValueRangeType** range) {
-        if (children.empty() || vectorized::VExpr::expr_without_cast(children[0])->node_type() !=
-                                        TExprNodeType::SLOT_REF) {
+        if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
             return false;
         }
         std::shared_ptr<vectorized::VSlotRef> slot =
-                std::dynamic_pointer_cast<vectorized::VSlotRef>(
-                        vectorized::VExpr::expr_without_cast(children[0]));
+                std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
         CHECK(slot != nullptr);
         *slot_desc =
                 _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot->slot_id()];
-        return _is_predicate_acting_on_slot(slot, children[0], range);
+        return _is_predicate_acting_on_slot(slot, range);
     };
 
     if (expr_root != nullptr) {
@@ -528,8 +524,7 @@ Status ScanLocalState<Derived>::_normalize_function_filters(vectorized::VExprCon
 
 template <typename Derived>
 bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
-        const std::shared_ptr<vectorized::VSlotRef>& slot_ref,
-        const vectorized::VExprSPtr& child_contains_slot, ColumnValueRangeType** range) {
+        const std::shared_ptr<vectorized::VSlotRef>& slot_ref, ColumnValueRangeType** range) {
     auto entry = _slot_id_to_predicates.find(slot_ref->slot_id());
     if (_slot_id_to_predicates.end() == entry) {
         return false;
@@ -537,30 +532,11 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
     if (is_complex_type(slot_ref->data_type()->get_primitive_type())) {
         return false;
     }
-    auto& p = _parent->cast<typename Derived::Parent>();
     auto sid_to_range = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
     *range = &(sid_to_range->second);
-    SlotDescriptor* src_slot_desc = p._slot_id_to_slot_desc[slot_ref->slot_id()];
-    DCHECK(child_contains_slot != nullptr);
-    if (child_contains_slot->data_type()->get_primitive_type() !=
-                src_slot_desc->type()->get_primitive_type() ||
-        child_contains_slot->data_type()->get_precision() !=
-                src_slot_desc->type()->get_precision() ||
-        child_contains_slot->data_type()->get_scale() != src_slot_desc->type()->get_scale()) {
-        return _ignore_cast(src_slot_desc, child_contains_slot.get());
-    }
-    if ((child_contains_slot->data_type()->get_primitive_type() == PrimitiveType::TYPE_DATETIME ||
-         child_contains_slot->data_type()->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2 ||
-         child_contains_slot->data_type()->get_primitive_type() ==
-                 PrimitiveType::TYPE_TIMESTAMPTZ) &&
-        child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
-        // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
-        // push down.
-        return false;
-    }
     return true;
 }
 
@@ -579,17 +555,6 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     }
 
     return fmt::to_string(debug_string_buffer);
-}
-
-template <typename Derived>
-bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr) {
-    // only one level cast expr could push down for variant type
-    // check if expr is cast and it's children is slot
-    if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        return expr->node_type() == TExprNodeType::CAST_EXPR &&
-               expr->children().at(0)->is_slot_ref();
-    }
-    return false;
 }
 
 template <typename Derived>

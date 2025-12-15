@@ -386,27 +386,24 @@ private:
     vectorized::MutableColumns _get_keys_hash_table();
 
     void _close_with_serialized_key() {
-        std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
-                                             // Do nothing
-                                         },
-                                         [&](auto& agg_method) -> void {
-                                             auto& data = *agg_method.hash_table;
-                                             data.for_each_mapped([&](auto& mapped) {
-                                                 if (mapped) {
-                                                     static_cast<void>(_destroy_agg_status(mapped));
-                                                     mapped = nullptr;
-                                                 }
-                                             });
-                                             if (data.has_null_key_data()) {
-                                                 auto st = _destroy_agg_status(
-                                                         data.template get_null_key_data<
-                                                                 vectorized::AggregateDataPtr>());
-                                                 if (!st) {
-                                                     throw Exception(st.code(), st.to_string());
-                                                 }
-                                             }
-                                         }},
-                   agg_data->method_variant);
+        std::visit(
+                vectorized::Overload {[&](std::monostate& arg) -> void {
+                                          // Do nothing
+                                      },
+                                      [&](auto& agg_method) -> void {
+                                          auto& data = *agg_method.hash_table;
+                                          data.for_each_mapped([&](auto& mapped) {
+                                              if (mapped) {
+                                                  _destroy_agg_status(mapped);
+                                                  mapped = nullptr;
+                                              }
+                                          });
+                                          if (data.has_null_key_data()) {
+                                              _destroy_agg_status(data.template get_null_key_data<
+                                                                  vectorized::AggregateDataPtr>());
+                                          }
+                                      }},
+                agg_data->method_variant);
     }
 
     void _close_without_key() {
@@ -414,11 +411,11 @@ private:
         //but finally call close to destory agg data, if agg data has bitmapValue
         //will be core dump, it's not initialized
         if (agg_data_created_without_key) {
-            static_cast<void>(_destroy_agg_status(agg_data->without_key));
+            _destroy_agg_status(agg_data->without_key);
             agg_data_created_without_key = false;
         }
     }
-    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
+    void _destroy_agg_status(vectorized::AggregateDataPtr data);
 };
 
 struct BasicSpillSharedState {
