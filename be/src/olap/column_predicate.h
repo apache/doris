@@ -151,8 +151,7 @@ inline std::string type_to_op_str(PredicateType type) {
         return "is";
 
     default:
-        throw Exception(Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                "invalid condition operator. operator={}", type_to_string(type)));
+        break;
     };
 
     return "";
