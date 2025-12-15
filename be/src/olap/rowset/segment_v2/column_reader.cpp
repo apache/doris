@@ -1106,6 +1106,7 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     auto& next_starts_data = assert_cast<vectorized::ColumnOffset64&>(*next_starts_col).get_data();
     std::vector<size_t> sizes(count, 0);
     size_t acc = base;
+    const auto original_size = offsets.get_data().back();
     offsets.get_data().reserve(offsets.get_data().size() + count);
     for (size_t i = 0; i < count; ++i) {
         size_t sz = static_cast<size_t>(next_starts_data[i] - starts_data[i]);
@@ -1121,21 +1122,65 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     auto keys_ptr = column_map->get_keys().assume_mutable();
     auto vals_ptr = column_map->get_values().assume_mutable();
 
-    for (size_t i = 0; i < count; ++i) {
+    size_t this_run = sizes[0];
+    auto start_idx = starts_data[0];
+    auto last_idx = starts_data[0] + this_run;
+    for (size_t i = 1; i < count; ++i) {
         size_t sz = sizes[i];
         if (sz == 0) {
             continue;
         }
-        ordinal_t start = static_cast<ordinal_t>(starts_data[i]);
-        RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start));
-        RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start));
-        size_t n = sz;
-        bool dummy_has_null = false;
-        RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
-        DCHECK(n == sz);
-        n = sz;
-        RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
-        DCHECK(n == sz);
+        auto start = static_cast<ordinal_t>(starts_data[i]);
+        if (start != last_idx) {
+            size_t n = this_run;
+            bool dummy_has_null = false;
+
+            if (this_run != 0) {
+                if (_key_iterator->reading_flag() != ReadingFlag::SKIP_READING) {
+                    RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start_idx));
+                    RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
+                    DCHECK(n == this_run);
+                }
+
+                if (_val_iterator->reading_flag() != ReadingFlag::SKIP_READING) {
+                    n = this_run;
+                    RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start_idx));
+                    RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
+                    DCHECK(n == this_run);
+                }
+            }
+            start_idx = start;
+            this_run = sz;
+            last_idx = start + sz;
+            continue;
+        }
+
+        this_run += sz;
+        last_idx += sz;
+    }
+
+    size_t n = this_run;
+    const size_t total_count = offsets.get_data().back() - original_size;
+    bool dummy_has_null = false;
+    if (_key_iterator->reading_flag() != ReadingFlag::SKIP_READING) {
+        if (this_run != 0) {
+            RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start_idx));
+            RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
+            DCHECK(n == this_run);
+        }
+    } else {
+        keys_ptr->insert_many_defaults(total_count);
+    }
+
+    if (_val_iterator->reading_flag() != ReadingFlag::SKIP_READING) {
+        if (this_run != 0) {
+            n = this_run;
+            RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start_idx));
+            RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
+            DCHECK(n == this_run);
+        }
+    } else {
+        vals_ptr->insert_many_defaults(total_count);
     }
 
     return Status::OK();
