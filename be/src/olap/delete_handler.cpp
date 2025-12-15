@@ -252,22 +252,28 @@ Status convert(const vectorized::DataTypePtr& data_type, const std::list<std::st
         v.size = sizeof(tmp);                                                                     \
         switch (res.condition_op) {                                                               \
         case PredicateType::EQ:                                                                   \
-            res = create_comparison_predicate0<PredicateType::EQ>(index, type, v, true, arena);   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::EQ>(index, type, v, true, arena); \
             return Status::OK();                                                                  \
         case PredicateType::NE:                                                                   \
-            res = create_comparison_predicate0<PredicateType::NE>(index, type, v, true, arena);   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::NE>(index, type, v, true, arena); \
             return Status::OK();                                                                  \
         case PredicateType::GT:                                                                   \
-            res = create_comparison_predicate0<PredicateType::GT>(index, type, v, true, arena);   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::GT>(index, type, v, true, arena); \
             return Status::OK();                                                                  \
         case PredicateType::GE:                                                                   \
-            res = create_comparison_predicate0<PredicateType::GE>(index, type, v, true, arena);   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::GE>(index, type, v, true, arena); \
             return Status::OK();                                                                  \
         case PredicateType::LT:                                                                   \
-            res = create_comparison_predicate0<PredicateType::LT>(index, type, v, true, arena);   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::LT>(index, type, v, true, arena); \
             return Status::OK();                                                                  \
         case PredicateType::LE:                                                                   \
-            res = create_comparison_predicate0<PredicateType::LE>(index, type, v, true, arena);   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::LE>(index, type, v, true, arena); \
             return Status::OK();                                                                  \
         default:                                                                                  \
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(                                    \
@@ -276,12 +282,12 @@ Status convert(const vectorized::DataTypePtr& data_type, const std::list<std::st
     }
 Status parse_to_predicate(const uint32_t index, const vectorized::DataTypePtr& type,
                           DeleteHandler::ConditionParseResult& res, vectorized::Arena& arena,
-                          std::shared_ptr<ColumnPredicate>& res) {
+                          std::shared_ptr<ColumnPredicate>& predicate) {
     DCHECK_EQ(res.value_str.size(), 1);
     if (res.condition_op == PredicateType::IS_NULL ||
         res.condition_op == PredicateType::IS_NOT_NULL) {
-        res = NullPredicate::create_shared(index, res.condition_op == PredicateType::IS_NOT_NULL,
-                                           type->get_primitive_type());
+        predicate = NullPredicate::create_shared(
+                index, res.condition_op == PredicateType::IS_NOT_NULL, type->get_primitive_type());
         return Status::OK();
     }
     StringRef v;
@@ -309,25 +315,31 @@ Status parse_to_predicate(const uint32_t index, const vectorized::DataTypePtr& t
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        v = convert<TYPE_STRING>(type, res.value_str.front(), arena);
+        RETURN_IF_ERROR(convert<TYPE_STRING>(type, res.value_str.front(), arena, v));
         switch (res.condition_op) {
         case PredicateType::EQ:
-            res = create_comparison_predicate0<PredicateType::EQ>(index, type, v, true, arena);
+            predicate =
+                    create_comparison_predicate0<PredicateType::EQ>(index, type, v, true, arena);
             return Status::OK();
         case PredicateType::NE:
-            res = create_comparison_predicate0<PredicateType::NE>(index, type, v, true, arena);
+            predicate =
+                    create_comparison_predicate0<PredicateType::NE>(index, type, v, true, arena);
             return Status::OK();
         case PredicateType::GT:
-            res = create_comparison_predicate0<PredicateType::GT>(index, type, v, true, arena);
+            predicate =
+                    create_comparison_predicate0<PredicateType::GT>(index, type, v, true, arena);
             return Status::OK();
         case PredicateType::GE:
-            res = create_comparison_predicate0<PredicateType::GE>(index, type, v, true, arena);
+            predicate =
+                    create_comparison_predicate0<PredicateType::GE>(index, type, v, true, arena);
             return Status::OK();
         case PredicateType::LT:
-            res = create_comparison_predicate0<PredicateType::LT>(index, type, v, true, arena);
+            predicate =
+                    create_comparison_predicate0<PredicateType::LT>(index, type, v, true, arena);
             return Status::OK();
         case PredicateType::LE:
-            res = create_comparison_predicate0<PredicateType::LE>(index, type, v, true, arena);
+            predicate =
+                    create_comparison_predicate0<PredicateType::LE>(index, type, v, true, arena);
             return Status::OK();
         default:
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
@@ -349,17 +361,23 @@ Status parse_to_in_predicate(const uint32_t index, const vectorized::DataTypePtr
                              std::shared_ptr<ColumnPredicate>& predicate) {
     DCHECK_GT(res.value_str.size(), 1);
     switch (res.condition_op) {
-    case PredicateType::IN_LIST:
-        return create_in_list_predicate<PredicateType::IN_LIST>(
-                index, type, convert(type, res.value_str, arena, predicate), true);
-    case PredicateType::NOT_IN_LIST:
-        return create_in_list_predicate<PredicateType::NOT_IN_LIST>(
-                index, type, convert(type, res.value_str, arena, predicate), true);
-    default:
-        throw Exception(Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                "invalid condition operator. operator={}", type_to_op_str(res.condition_op)));
-        return nullptr;
+    case PredicateType::IN_LIST: {
+        std::shared_ptr<HybridSetBase> set;
+        RETURN_IF_ERROR(convert(type, res.value_str, arena, set));
+        predicate = create_in_list_predicate<PredicateType::IN_LIST>(index, type, set, true);
+        break;
     }
+    case PredicateType::NOT_IN_LIST: {
+        std::shared_ptr<HybridSetBase> set;
+        RETURN_IF_ERROR(convert(type, res.value_str, arena, set));
+        predicate = create_in_list_predicate<PredicateType::NOT_IN_LIST>(index, type, set, true);
+        break;
+    }
+    default:
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>("invalid condition operator. operator={}",
+                                                          type_to_op_str(res.condition_op));
+    }
+    return Status::OK();
 }
 
 // construct sub condition from TCondition
