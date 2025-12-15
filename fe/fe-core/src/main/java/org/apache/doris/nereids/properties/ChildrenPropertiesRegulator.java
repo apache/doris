@@ -710,7 +710,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
 
                 DistributionSpecHash notShuffleSideRequireDistribution
                         = (DistributionSpecHash) requiredProperties.get(distributeToChildIndex).getDistributionSpec();
-                boolean basicIsNature = notShuffleSideRequireDistribution.getShuffleType() == ShuffleType.NATURAL;
                 for (int i = 0; i < originChildrenProperties.size(); i++) {
                     DistributionSpecHash current
                             = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
