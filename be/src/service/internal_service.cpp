@@ -84,7 +84,7 @@
 #include "olap/txn_manager.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/cache/result_cache.h"
-#include "runtime/cdc_client_manager.h"
+#include "runtime/cdc_client_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"

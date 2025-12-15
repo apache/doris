@@ -70,7 +70,7 @@
 #include "pipeline/task_scheduler.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/cache/result_cache.h"
-#include "runtime/cdc_client_manager.h"
+#include "runtime/cdc_client_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"

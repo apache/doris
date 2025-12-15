@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/cdc_client_manager.h"
+#include "runtime/cdc_client_mgr.h"
 
 #include <brpc/closure_guard.h>
 #include <fmt/core.h>

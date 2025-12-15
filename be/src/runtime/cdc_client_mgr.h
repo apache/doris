@@ -43,12 +43,12 @@ public:
     void request_cdc_client_impl(const PRequestCdcClientRequest* request,
                                  PRequestCdcClientResult* result, google::protobuf::Closure* done);
 
-private:
     Status send_request_to_cdc_client(const std::string& api, const std::string& params_body,
                                       std::string* response);
 
     Status start_cdc_client(PRequestCdcClientResult* result);
 
+private:
     std::mutex _start_mutex;
     std::atomic<pid_t> _child_pid {0};
 };
