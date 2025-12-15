@@ -163,11 +163,21 @@ public class FileCacheAdmissionManager {
         private final Map<Long, RulePattern> idToRulePattern = new ConcurrentHashMap<>();
 
         static List<String> reasons = new ArrayList<>(Arrays.asList(
-                "global-level rule",
-                "catalog-level rule",
-                "database-level rule",
-                "table-level rule",
-                "default rule"
+                "common catalog-level blacklist rule",      // 0
+                "common catalog-level whitelist rule",      // 1
+                "common database-level blacklist rule",     // 2
+                "common database-level whitelist rule",     // 3
+                "common table-level blacklist rule",        // 4
+                "common table-level whitelist rule",        // 5
+                "user global-level blacklist rule",         // 6
+                "user global-level whitelist rule",         // 7
+                "user catalog-level blacklist rule",        // 8
+                "user catalog-level whitelist rule",        // 9
+                "user database-level blacklist rule",       // 10
+                "user database-level whitelist rule",       // 11
+                "user table-level blacklist rule",          // 12
+                "user table-level whitelist rule",          // 13
+                "default rule"                              // 14
         ));
 
         public boolean isAllowed(String userIdentity, String catalog, String database, String table,
@@ -176,12 +186,12 @@ public class FileCacheAdmissionManager {
             String catalogTable = catalog + "." + database;
 
             if (containsKeyValue(excludeTableRules, table, catalogTable)) {
-                reason.set(reasons.get(3));
+                reason.set(reasons.get(4));
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (containsKeyValue(includeTableRules, table, catalogTable)) {
-                reason.set(reasons.get(3));
+                reason.set(reasons.get(5));
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
@@ -191,12 +201,12 @@ public class FileCacheAdmissionManager {
                 return false;
             }
             if (containsKeyValue(includeDatabaseRules, database, catalog)) {
-                reason.set(reasons.get(2));
+                reason.set(reasons.get(3));
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
             if (excludeCatalogRules.contains(catalog)) {
-                reason.set(reasons.get(1));
+                reason.set(reasons.get(0));
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
@@ -205,18 +215,94 @@ public class FileCacheAdmissionManager {
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
-            if (excludeGlobal.get()) {
+
+            // TODO: Implementing partition-level rules
+
+            reason.set(reasons.get(14));
+            logAdmission(Config.file_cache_admission_control_default_allow,
+                    userIdentity, catalog, database, table, reason.get());
+            return Config.file_cache_admission_control_default_allow;
+        }
+
+        public boolean isAllowed(ConcurrentRuleCollection userCollection, String userIdentity, String catalog,
+                                 String database, String table, AtomicReference<String> reason) {
+
+            String catalogTable = catalog + "." + database;
+
+            if (containsKeyValue(excludeTableRules, table, catalogTable)) {
+                reason.set(reasons.get(4));
+                logAdmission(false, userIdentity, catalog, database, table, reason.get());
+                return false;
+            }
+            if (containsKeyValue(userCollection.excludeTableRules, table, catalogTable)) {
+                reason.set(reasons.get(12));
+                logAdmission(false, userIdentity, catalog, database, table, reason.get());
+                return false;
+            }
+            if (containsKeyValue(includeTableRules, table, catalogTable)) {
+                reason.set(reasons.get(5));
+                logAdmission(true, userIdentity, catalog, database, table, reason.get());
+                return true;
+            }
+            if (containsKeyValue(userCollection.includeTableRules, table, catalogTable)) {
+                reason.set(reasons.get(13));
+                logAdmission(true, userIdentity, catalog, database, table, reason.get());
+                return true;
+            }
+            if (containsKeyValue(excludeDatabaseRules, database, catalog)) {
+                reason.set(reasons.get(2));
+                logAdmission(false, userIdentity, catalog, database, table, reason.get());
+                return false;
+            }
+            if (containsKeyValue(userCollection.excludeDatabaseRules, database, catalog)) {
+                reason.set(reasons.get(10));
+                logAdmission(false, userIdentity, catalog, database, table, reason.get());
+                return false;
+            }
+            if (containsKeyValue(includeDatabaseRules, database, catalog)) {
+                reason.set(reasons.get(3));
+                logAdmission(true, userIdentity, catalog, database, table, reason.get());
+                return true;
+            }
+            if (containsKeyValue(userCollection.includeDatabaseRules, database, catalog)) {
+                reason.set(reasons.get(11));
+                logAdmission(true, userIdentity, catalog, database, table, reason.get());
+                return true;
+            }
+            if (excludeCatalogRules.contains(catalog)) {
                 reason.set(reasons.get(0));
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
-            if (includeGlobal.get()) {
-                reason.set(reasons.get(0));
+            if (userCollection.excludeCatalogRules.contains(catalog)) {
+                reason.set(reasons.get(8));
+                logAdmission(false, userIdentity, catalog, database, table, reason.get());
+                return false;
+            }
+            if (includeCatalogRules.contains(catalog)) {
+                reason.set(reasons.get(1));
+                logAdmission(true, userIdentity, catalog, database, table, reason.get());
+                return true;
+            }
+            if (userCollection.includeCatalogRules.contains(catalog)) {
+                reason.set(reasons.get(9));
+                logAdmission(true, userIdentity, catalog, database, table, reason.get());
+                return true;
+            }
+            if (userCollection.excludeGlobal.get()) {
+                reason.set(reasons.get(6));
+                logAdmission(false, userIdentity, catalog, database, table, reason.get());
+                return false;
+            }
+            if (userCollection.includeGlobal.get()) {
+                reason.set(reasons.get(7));
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
 
-            reason.set(reasons.get(4));
+            // TODO: Implementing partition-level rules
+
+            reason.set(reasons.get(14));
             logAdmission(Config.file_cache_admission_control_default_allow,
                     userIdentity, catalog, database, table, reason.get());
             return Config.file_cache_admission_control_default_allow;
@@ -311,7 +397,7 @@ public class FileCacheAdmissionManager {
                             .add(catalogDatabase);
                     break;
                 case PARTITION:
-                    // TODO: 分区级规则实现
+                    // TODO: Implementing partition-level rules
                     break;
                 default:
                     break;
@@ -365,7 +451,7 @@ public class FileCacheAdmissionManager {
                     }
                     break;
                 case PARTITION:
-                    // TODO: 分区级规则实现
+                    // TODO: Implementing partition-level rules
                     break;
                 default:
                     break;
@@ -383,18 +469,20 @@ public class FileCacheAdmissionManager {
         }
     }
 
-    public static class ConcurrentRulePartitionHashMap {
+    public static class ConcurrentRuleManager {
         private static final int PARTITION_COUNT = 58; // A-Z + a-z + 其他字符
         private final List<Map<String, ConcurrentRuleCollection>> maps;
+        private final ConcurrentRuleCollection commonCollection;
 
         static List<String> reasons = new ArrayList<>(Arrays.asList(
                 "empty user_identity",
-                "invalid user_identity",
-                "user_identity not found"
+                "invalid user_identity"
         ));
 
-        public ConcurrentRulePartitionHashMap() {
+        public ConcurrentRuleManager() {
             maps = new ArrayList<>(PARTITION_COUNT);
+            commonCollection = new ConcurrentRuleCollection();
+
             for (int i = 0; i < PARTITION_COUNT; i++) {
                 maps.add(new ConcurrentHashMap<>());
             }
@@ -406,7 +494,12 @@ public class FileCacheAdmissionManager {
 
         public void initialize(List<AdmissionRule> rules) {
             for (AdmissionRule rule : rules) {
-                if (!rule.isEnabled() || rule.getUserIdentity().isEmpty()) {
+                if (!rule.isEnabled()) {
+                    continue;
+                }
+
+                if (rule.getUserIdentity().isEmpty()) {
+                    commonCollection.add(rule.getRulePattern());
                     continue;
                 }
 
@@ -424,6 +517,7 @@ public class FileCacheAdmissionManager {
         public void remove(AdmissionRule rule) {
             String userIdentity = rule.getUserIdentity();
             if (userIdentity.isEmpty()) {
+                commonCollection.remove(rule.getRulePattern());
                 return;
             }
 
@@ -439,6 +533,7 @@ public class FileCacheAdmissionManager {
         public void update(AdmissionRule rule) {
             String userIdentity = rule.getUserIdentity();
             if (userIdentity.isEmpty()) {
+                commonCollection.update(rule.getRulePattern());
                 return;
             }
 
@@ -471,14 +566,11 @@ public class FileCacheAdmissionManager {
 
             int index = getIndex(firstChar);
             ConcurrentRuleCollection collection = maps.get(index).get(userIdentity);
-            if (collection != null) {
-                return collection.isAllowed(userIdentity, catalog, database, table, reason);
+            if (collection == null) {
+                return commonCollection.isAllowed(userIdentity, catalog, database, table, reason);
+            } else {
+                return commonCollection.isAllowed(collection, userIdentity, catalog, database, table, reason);
             }
-
-            // no rules found
-            reason.set(reasons.get(2));
-            logDefaultAdmission(userIdentity, catalog, database, table, reason.get());
-            return Config.file_cache_admission_control_default_allow;
         }
 
         private void logDefaultAdmission(String userIdentity, String catalog,
@@ -495,14 +587,15 @@ public class FileCacheAdmissionManager {
         }
     }
 
-    private final ConcurrentRulePartitionHashMap partitionMap;
+    private final ConcurrentRuleManager ruleManager;
+
     private long maxUpdatedTime;
     private static final FileCacheAdmissionManager INSTANCE = new FileCacheAdmissionManager();
 
     private ScheduledExecutorService executorService;
 
     public FileCacheAdmissionManager() {
-        this.partitionMap = new ConcurrentRulePartitionHashMap();
+        this.ruleManager = new ConcurrentRuleManager();
         this.maxUpdatedTime = 0;
     }
 
@@ -515,16 +608,16 @@ public class FileCacheAdmissionManager {
     }
 
     public void initialize(List<AdmissionRule> rules, long maxUpdatedTime) {
-        partitionMap.initialize(rules);
+        ruleManager.initialize(rules);
         this.maxUpdatedTime = Math.max(this.maxUpdatedTime, maxUpdatedTime);
     }
 
     public void update(List<AdmissionRule> rules, long maxUpdatedTime) {
         for (AdmissionRule rule : rules) {
             if (rule.isEnabled()) {
-                partitionMap.update(rule);
+                ruleManager.update(rule);
             } else {
-                partitionMap.remove(rule);
+                ruleManager.remove(rule);
             }
         }
         this.maxUpdatedTime = Math.max(this.maxUpdatedTime, maxUpdatedTime);
@@ -532,7 +625,7 @@ public class FileCacheAdmissionManager {
 
     public boolean isAllowed(String userIdentity, String catalog, String database, String table,
                              AtomicReference<String> reason) {
-        return partitionMap.isAllowed(userIdentity, catalog, database, table, reason);
+        return ruleManager.isAllowed(userIdentity, catalog, database, table, reason);
     }
 
     public void loadOnStartup() {
