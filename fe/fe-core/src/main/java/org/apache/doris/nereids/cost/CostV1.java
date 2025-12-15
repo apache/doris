@@ -19,7 +19,10 @@ package org.apache.doris.nereids.cost;
 
 import org.apache.doris.qe.SessionVariable;
 
-class CostV1 implements Cost {
+/**
+ * Cost V1.
+ */
+public class CostV1 implements Cost {
     private static final CostV1 INFINITE = new CostV1(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY,
             Double.POSITIVE_INFINITY,
             Double.POSITIVE_INFINITY);
