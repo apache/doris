@@ -17,6 +17,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+## 🌍 Read this in other languages
+
+[English](README.md) • [العربية](docs/ar-SA/README.md) • [বাংলা](docs/bn-BD/README.md) • [Deutsch](docs/de-DE/README.md) • [Español](docs/es-ES/README.md) • [فارسی](docs/fa-IR/README.md) • [Français](docs/fr-FR/README.md) • [हिन्दी](docs/hi-IN/README.md) • [Bahasa Indonesia](docs/id-ID/README.md) • [Italiano](docs/it-IT/README.md) • [日本語](docs/ja-JP/README.md) • [한국어](docs/ko-KR/README.md) • [Polski](docs/pl-PL/README.md) • [Português](docs/pt-BR/README.md) • [Română](docs/ro-RO/README.md) • [Русский](docs/ru-RU/README.md) • [Slovenščina](docs/sl-SI/README.md) • [ไทย](docs/th-TH/README.md) • [Türkçe](docs/tr-TR/README.md) • [Українська](docs/uk-UA/README.md) • [Tiếng Việt](docs/vi-VN/README.md) • [简体中文](docs/zh-CN/README.md) • [繁體中文](docs/zh-TW/README.md)
+
 <div align="center">
 
 # Apache Doris
@@ -51,6 +55,12 @@ under the License.
 </div>
 
 ---
+
+<p align="center">
+
+  <a href="https://trendshift.io/repositories/1156" target="_blank"><img src="https://trendshift.io/api/badge/repositories/1156" alt="apache%2Fdoris | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
+</p>
 
 
 

@@ -24,6 +24,7 @@
 
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/data_types/data_type_timestamptz.h"
 
 namespace doris::vectorized {
 
@@ -88,6 +89,8 @@ bool call_on_index_and_data_type(PrimitiveType number, F&& f) {
         return f(TypePair<DataTypeDateTime, T>());
     case PrimitiveType::TYPE_TIMEV2:
         return f(TypePair<DataTypeTimeV2, T>());
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return f(TypePair<DataTypeTimeStampTz, T>());
 
     case PrimitiveType::TYPE_IPV4:
         return f(TypePair<DataTypeIPv4, T>());
@@ -239,6 +242,8 @@ bool dispatch_type_base(PrimitiveType number, F&& f) {
             return f(DispatchDataType<TYPE_DATETIME>());
         case PrimitiveType::TYPE_TIMEV2:
             return f(DispatchDataType<TYPE_TIMEV2>());
+        case PrimitiveType::TYPE_TIMESTAMPTZ:
+            return f(DispatchDataType<TYPE_TIMESTAMPTZ>());
         default:
             break;
         }

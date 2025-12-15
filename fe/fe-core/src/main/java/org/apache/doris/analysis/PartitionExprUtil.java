@@ -256,7 +256,8 @@ public class PartitionExprUtil {
         if (partitionColumnType.isDate() || partitionColumnType.isDateV2()) {
             timeString = String.format(DATE_FORMATTER, dateLiteral.getYear(), dateLiteral.getMonth(),
                     dateLiteral.getDay());
-        } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()) {
+        } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()
+                || partitionColumnType.isTimeStampTz()) {
             timeString = String.format(DATETIME_FORMATTER,
                     dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
                     dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond());

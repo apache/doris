@@ -216,6 +216,7 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
     case FieldType::OLAP_FIELD_TYPE_DATEV2:
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return valid_datetime(value_str, column.frac());
     case FieldType::OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
@@ -369,7 +370,7 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
         condition.__set_column_unique_id(col_unique_id);
         const auto& column = complete_schema->column_by_uid(col_unique_id);
         uint32_t index = complete_schema->field_index(col_unique_id);
-        auto* predicate =
+        auto predicate =
                 parse_to_predicate(column.get_vec_type(), index, condition, _predicate_arena, true);
         if (predicate != nullptr) {
             delete_conditions->column_predicate_vec.push_back(predicate);
@@ -457,19 +458,13 @@ DeleteHandler::~DeleteHandler() {
         return;
     }
 
-    for (auto& cond : _del_conds) {
-        for (const auto* pred : cond.column_predicate_vec) {
-            delete pred;
-        }
-    }
-
     _del_conds.clear();
     _is_inited = false;
 }
 
 void DeleteHandler::get_delete_conditions_after_version(
         int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,
-        std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>*
+        std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>*
                 del_predicates_for_zone_map) const {
     for (const auto& del_cond : _del_conds) {
         if (del_cond.filter_version > version) {
@@ -484,7 +479,7 @@ void DeleteHandler::get_delete_conditions_after_version(
                                 del_cond.column_predicate_vec[0]->column_id()) < 1) {
                         del_predicates_for_zone_map->insert(
                                 {del_cond.column_predicate_vec[0]->column_id(),
-                                 std::vector<const ColumnPredicate*> {}});
+                                 std::vector<std::shared_ptr<const ColumnPredicate>> {}});
                     }
                     (*del_predicates_for_zone_map)[del_cond.column_predicate_vec[0]->column_id()]
                             .push_back(del_cond.column_predicate_vec[0]);
@@ -498,7 +493,8 @@ void DeleteHandler::get_delete_conditions_after_version(
                     // // TODO: need refactor design and code to use more version delete and more column delete to filter zone page.
                     std::for_each(del_cond.column_predicate_vec.cbegin(),
                                   del_cond.column_predicate_vec.cend(),
-                                  [&or_column_predicate](const ColumnPredicate* predicate) {
+                                  [&or_column_predicate](
+                                          const std::shared_ptr<const ColumnPredicate> predicate) {
                                       or_column_predicate->add_column_predicate(
                                               SingleColumnBlockPredicate::create_unique(predicate));
                                   });

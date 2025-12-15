@@ -57,7 +57,7 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysN
         return true;
     }
 
-    public boolean parentNullable() {
+    public boolean originCastNullable() {
         return super.nullable();
     }
 

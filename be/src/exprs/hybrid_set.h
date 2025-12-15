@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/internal_service.pb.h>
+#include <pdqsort.h>
 
 #include "common/object_pool.h"
 #include "exprs/filter_base.h"
@@ -415,9 +416,9 @@ public:
 
     uint64_t get_digest(uint64_t seed) override {
         std::vector<ElementType> elems(_set.begin(), _set.end());
-        std::sort(elems.begin(), elems.end());
+        pdqsort(elems.begin(), elems.end());
         if constexpr (std::is_same<ElementType, bool>::value) {
-            for (const auto& v : elems) {
+            for (bool v : elems) {
                 seed = HashUtil::crc_hash64(&v, sizeof(v), seed);
             }
         } else {
@@ -607,7 +608,7 @@ public:
 
     uint64_t get_digest(uint64_t seed) override {
         std::vector<StringRef> elems(_set.begin(), _set.end());
-        std::sort(elems.begin(), elems.end());
+        pdqsort(elems.begin(), elems.end());
 
         for (const auto& v : elems) {
             seed = HashUtil::crc_hash64(v.data, (uint32_t)v.size, seed);
@@ -795,7 +796,7 @@ public:
 
     uint64_t get_digest(uint64_t seed) override {
         std::vector<StringRef> elems(_set.begin(), _set.end());
-        std::sort(elems.begin(), elems.end());
+        pdqsort(elems.begin(), elems.end());
 
         for (const auto& v : elems) {
             seed = HashUtil::crc_hash64(v.data, (uint32_t)v.size, seed);

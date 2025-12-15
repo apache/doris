@@ -28,6 +28,7 @@
 #include "cast_to_map.h"
 #include "cast_to_string.h"
 #include "cast_to_struct.h"
+#include "cast_to_timestamptz.h"
 #include "cast_to_variant.h"
 #include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_agg_state.h"
@@ -264,6 +265,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_datelike_wrapper<DataTypeDateV2>(context, from_type);
     case PrimitiveType::TYPE_DATETIMEV2:
         return create_datelike_wrapper<DataTypeDateTimeV2>(context, from_type);
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return create_timestamptz_wrapper(context, from_type);
     case PrimitiveType::TYPE_TIMEV2:
         return create_datelike_wrapper<DataTypeTimeV2>(context, from_type);
     case PrimitiveType::TYPE_IPV4:

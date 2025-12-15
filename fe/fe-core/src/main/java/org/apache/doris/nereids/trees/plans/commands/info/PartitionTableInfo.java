@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
@@ -367,7 +366,7 @@ public class PartitionTableInfo {
                 UnboundFunction function = (UnboundFunction) expression;
                 return new FunctionCallExpr(
                         function.getName(),
-                        new FunctionParams(convertToLegacyArguments(function.children())));
+                        convertToLegacyArguments(function.children()), false);
             } else {
                 throw new AnalysisException(
                         "unsupported auto partition expr " + expression.toString());

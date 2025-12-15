@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/simd/bits.h"
 #include "util/simd/vstring_function.h"
@@ -794,6 +795,8 @@ ColumnArrayDataOffsets filter_return_new_dispatch(const Filter& filt, ssize_t re
         return filter_number_return_new<TYPE_DATETIME>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
         return filter_number_return_new<TYPE_DATETIMEV2>(filt, result_size_hint, data, offsets);
+    if (typeid_cast<const ColumnTimeStampTz*>(data.get()))
+        return filter_number_return_new<TYPE_TIMESTAMPTZ>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnTimeV2*>(data.get()))
         return filter_number_return_new<TYPE_TIMEV2>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnTime*>(data.get()))
@@ -860,6 +863,8 @@ size_t filter_inplace_dispatch(const Filter& filter, IColumn& src_data,
         return filter_number_inplace<TYPE_DATETIME>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnDateTimeV2*>(&src_data))
         return filter_number_inplace<TYPE_DATETIMEV2>(filter, src_data, src_offsets);
+    if (typeid_cast<ColumnTimeStampTz*>(&src_data))
+        return filter_number_inplace<TYPE_TIMESTAMPTZ>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnTimeV2*>(&src_data))
         return filter_number_inplace<TYPE_TIMEV2>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnTime*>(&src_data))

@@ -68,6 +68,7 @@ public class SlotRef extends Expr {
         this.tableNameInfo = tableNameInfo;
         this.col = col;
         this.label = "`" + col + "`";
+        this.nullable = false;
     }
 
     // C'tor for a "pre-analyzed" ref to slot that doesn't correspond to
@@ -84,6 +85,7 @@ public class SlotRef extends Expr {
             this.type = Type.VARCHAR;
         }
         this.subColPath = desc.getSubColLables();
+        this.nullable = desc.getIsNullable();
         analysisDone();
     }
 
@@ -96,6 +98,7 @@ public class SlotRef extends Expr {
         desc = new SlotDescriptor(new SlotId(-1), tupleDescriptor);
         tupleDescriptor.addSlot(desc);
         desc.setIsNullable(nullable);
+        this.nullable = nullable;
         desc.setType(type);
         this.type = type;
     }
@@ -409,12 +412,6 @@ public class SlotRef extends Expr {
 
     public void setCol(String col) {
         this.col = col;
-    }
-
-    @Override
-    public boolean isNullable() {
-        Preconditions.checkNotNull(desc);
-        return desc.getIsNullable();
     }
 
     @Override

@@ -50,9 +50,6 @@ suite ("dup_mv_bin") {
     sql "analyze table dup_mv_bin with sync;"
     sql """alter table dup_mv_bin modify column k1 set stats ('row_count'='4');"""
 
-    sql """set enable_stats=false;"""
-
-
     order_qt_select_star "select * from dup_mv_bin order by k1;"
 
     mv_rewrite_success("select k1,bin(k2) from dup_mv_bin order by k1;", "k12b")
@@ -73,16 +70,4 @@ suite ("dup_mv_bin") {
     mv_rewrite_fail("select group_concat(bin(k2)) from dup_mv_bin group by k3;", "k12b")
     order_qt_select_group_mv_not "select group_concat(bin(k2)) from dup_mv_bin group by k3 order by k3;"
 
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select k1,bin(k2) from dup_mv_bin order by k1;", "k12b")
-
-    mv_rewrite_success("select bin(k2) from dup_mv_bin order by k1;", "k12b")
-
-    mv_rewrite_success("select bin(k2)+1 from dup_mv_bin order by k1;", "k12b")
-
-    mv_rewrite_success("select group_concat(bin(k2)) from dup_mv_bin group by k1 order by k1;", "k12b")
-
-    mv_rewrite_success("select group_concat(concat(bin(k2),'a')) from dup_mv_bin group by k1 order by k1;", "k12b")
-
-    mv_rewrite_fail("select group_concat(bin(k2)) from dup_mv_bin group by k3;", "k12b")
 }

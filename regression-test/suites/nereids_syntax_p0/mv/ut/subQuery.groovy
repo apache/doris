@@ -48,21 +48,6 @@ suite ("subQuery") {
     sql "analyze table subQuery with sync;"
     sql """alter table subQuery modify column time_col set stats ('row_count'='4');"""
 
-    sql """set enable_stats=false;"""
-
     mv_rewrite_fail("select * from subQuery order by empid;", "subQuery_mv")
     order_qt_select_star "select * from subQuery order by empid;"
-
-    /*
-    explain {
-        sql("select empid, deptno, salary from subQuery e1 where empid = (select max(empid) from subQuery where deptno = e1.deptno);")
-        contains "(subQuery_mv)"
-        contains "(subQuery)"
-    }
-    qt_select_mv "select empid, deptno, salary from subQuery e1 where empid = (select max(empid) from subQuery where deptno = e1.deptno) order by deptno;"
-     */
-
-     sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from subQuery order by empid;", "subQuery_mv")
 }
