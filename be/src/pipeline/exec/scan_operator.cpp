@@ -497,8 +497,10 @@ Status ScanLocalState<Derived>::_normalize_topn_filter(
             auto& p = _parent->cast<typename Derived::Parent>();
             auto& pred = _state->get_query_ctx()->get_runtime_predicate(
                     assert_cast<vectorized::VTopNPred*>(expr.get())->source_node_id());
-            predicates.emplace_back(pred.get_predicate(p.node_id()));
-            *pdt = temp_pdt;
+            if (_push_down_topn(pred)) {
+                predicates.emplace_back(pred.get_predicate(p.node_id()));
+                *pdt = temp_pdt;
+            }
         }
     }
     return Status::OK();
