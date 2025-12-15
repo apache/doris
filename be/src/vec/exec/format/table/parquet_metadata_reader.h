@@ -19,11 +19,9 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <array>
 #include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "common/factory_creator.h"
@@ -41,9 +39,6 @@ class FileReader;
 
 namespace doris::vectorized {
 class Block;
-class FieldDescriptor;
-struct FieldSchema;
-class FileMetaData;
 
 // Lightweight reader that surfaces Parquet footer metadata as a table-valued scan.
 // It reads only file footers (no data pages) and emits either schema rows or
@@ -54,24 +49,18 @@ class ParquetMetadataReader : public GenericReader {
 public:
     ParquetMetadataReader(std::vector<SlotDescriptor*> slots, RuntimeState* state,
                           RuntimeProfile* profile, TMetaScanRange scan_range);
+    ~ParquetMetadataReader() override;
 
     Status init_reader();
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status close() override;
 
 private:
-    // Initialize projection maps from slot names to output positions.
-    void _init_slot_pos_map();
+    class ModeHandler;
+
     Status _init_from_scan_range(const TMetaScanRange& scan_range);
     Status _build_rows(std::vector<MutableColumnPtr>& columns);
     Status _append_file_rows(const std::string& path, std::vector<MutableColumnPtr>& columns);
-    Status _append_schema_rows(const std::string& path, FileMetaData* metadata,
-                               std::vector<MutableColumnPtr>& columns);
-    Status _append_schema_field(const std::string& path, const FieldSchema& field,
-                                const std::string& current_path,
-                                std::vector<MutableColumnPtr>& columns);
-    Status _append_metadata_rows(const std::string& path, FileMetaData* metadata,
-                                 std::vector<MutableColumnPtr>& columns);
 
     enum class Mode { SCHEMA, METADATA };
 
@@ -85,12 +74,7 @@ private:
     std::string _mode;
     Mode _mode_type = Mode::METADATA;
     bool _eof = false;
-
-    static constexpr size_t kSchemaColumnCount = 11;
-    static constexpr size_t kMetadataColumnCount = 21;
-    // Maps full schema/metadata column index -> position in `_slots` (or -1 if not requested).
-    std::array<int, kSchemaColumnCount> _schema_slot_pos;
-    std::array<int, kMetadataColumnCount> _metadata_slot_pos;
+    std::unique_ptr<ModeHandler> _mode_handler;
 };
 
 } // namespace doris::vectorized
