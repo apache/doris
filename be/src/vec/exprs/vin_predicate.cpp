@@ -122,7 +122,7 @@ Status VInPredicate::execute_column(VExprContext* context, const Block* block, s
     if (fast_execute(context, result_column)) {
         return Status::OK();
     }
-    DCHECK(_open_finished || _getting_const_col);
+    DCHECK(_open_finished || block == nullptr);
 
     // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
     // where all values inside the IN clause are constants,
