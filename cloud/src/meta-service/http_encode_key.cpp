@@ -22,7 +22,6 @@
 #include <google/protobuf/message.h>
 #include <google/protobuf/util/json_util.h>
 
-#include <bit>
 #include <chrono>
 #include <fstream>
 #include <iomanip>
@@ -34,7 +33,6 @@
 #include <utility>
 #include <vector>
 
-#include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -43,10 +41,11 @@
 #include "meta-service/meta_service_schema.h"
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/blob_message.h"
-#include "meta-store/codec.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 
 namespace doris::cloud {
 
@@ -109,6 +108,13 @@ template <class ProtoType>
 static std::string parse(const ValueBuf& buf) {
     ProtoType pb;
     if (!buf.to_pb(&pb)) return "";
+    return proto_to_json(pb);
+}
+
+template <class ProtoType>
+static std::string parse_to_json(const std::string& buf) {
+    ProtoType pb;
+    if (!pb.ParseFromString(buf)) return "";
     return proto_to_json(pb);
 }
 
@@ -199,6 +205,38 @@ static std::string parse_tablet_stats(const ValueBuf& buf) {
     return json;
 }
 
+static std::string parse_empty_value(const std::string& buf) {
+    return "";
+}
+
+static std::string parse_int64_value(const std::string& buf) {
+    if (buf.size() != sizeof(int64_t)) {
+        return "";
+    }
+    int64_t value = 0;
+    std::memcpy(&value, buf.data(), sizeof(int64_t));
+    return std::to_string(value);
+}
+
+// Helper function to parse versionstamp from URI query parameter
+static std::optional<Versionstamp> parse_versionstamp_from_uri(const brpc::URI& uri) {
+    std::string_view vs_str = http_query(uri, "versionstamp");
+    if (vs_str.empty()) {
+        return std::nullopt;
+    }
+
+    // versionstamp can be in hex format or direct bytes
+    std::string vs_bytes = unhex(vs_str);
+    if (vs_bytes.size() != 10) {
+        LOG(WARNING) << "Invalid versionstamp size: " << vs_bytes.size();
+        return std::nullopt;
+    }
+
+    std::array<uint8_t, 10> vs_array;
+    std::memcpy(vs_array.data(), vs_bytes.data(), 10);
+    return Versionstamp(vs_array);
+}
+
 // See keys.h to get all types of key, e.g: MetaRowsetKeyInfo
 // key_type -> {{param_name1, param_name2 ...}, key_encoding_func, serialized_pb_to_json_parsing_func, json_to_proto_parsing_func}
 // where param names are the input for key_encoding_func
@@ -238,6 +276,35 @@ static std::unordered_map<std::string_view,
     {"MetaServiceRegistryKey",     {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_registry_key();                                                         }, parse<ServiceRegistryPB>        , parse_json<ServiceRegistryPB>}},
     {"MetaServiceArnInfoKey",      {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_arn_info_key();                                                         }, parse<RamUserPB>                , parse_json<RamUserPB>}},
     {"MetaServiceEncryptionKey",   {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_encryption_key_info_key();                                              }, parse<EncryptionKeyInfoPB>      , parse_json<EncryptionKeyInfoPB>}},
+    {"PackedFileKey",              {{"instance_id", "packed_file_path"},                             [](param_type& p) { return packed_file_key(KeyInfoSetter<PackedFileKeyInfo>{p}.get());                                 }, parse<PackedFileInfoPB>         , parse_json<PackedFileInfoPB>}},
+};
+
+// Versioned key support (0x03 space)
+// key_type -> {{param_name1, param_name2 ...}, key_encoding_func, is_versioned_key, parse_func, json_to_proto_func}
+static std::unordered_map<std::string_view,
+                          std::tuple<std::vector<std::string_view>,
+                                     std::function<std::string(param_type&)>,
+                                     bool,
+                                     std::function<std::string(const std::string&)>,
+                                     std::function<std::shared_ptr<google::protobuf::Message>(const std::string&)>>> versioned_param_set {
+    {"VersionedPartitionVersionKey",        {{"instance_id", "partition_id"},                                [](param_type& p) { return versioned::partition_version_key(KeyInfoSetter<versioned::PartitionVersionKeyInfo>{p}.get());      }, true, parse_to_json<VersionPB>, parse_json<VersionPB>}},
+    {"VersionedTableVersionKey",            {{"instance_id", "table_id"},                                    [](param_type& p) { return versioned::table_version_key(KeyInfoSetter<versioned::TableVersionKeyInfo>{p}.get());              }, true, parse_empty_value, nullptr}},
+    {"VersionedPartitionIndexKey",          {{"instance_id", "partition_id"},                                [](param_type& p) { return versioned::partition_index_key(KeyInfoSetter<versioned::PartitionIndexKeyInfo>{p}.get());          }, false, parse_to_json<PartitionIndexPB>, parse_json<PartitionIndexPB>}},
+    {"VersionedPartitionInvertedIndexKey",  {{"instance_id", "db_id", "table_id", "partition_id"},          [](param_type& p) { return versioned::partition_inverted_index_key(KeyInfoSetter<versioned::PartitionInvertedIndexKeyInfo>{p}.get()); }, false, parse_empty_value, nullptr}},
+    {"VersionedTabletIndexKey",             {{"instance_id", "tablet_id"},                                   [](param_type& p) { return versioned::tablet_index_key(KeyInfoSetter<versioned::TabletIndexKeyInfo>{p}.get());                }, false, parse_to_json<TabletIndexPB>, parse_json<TabletIndexPB>}},
+    {"VersionedTabletInvertedIndexKey",     {{"instance_id", "db_id", "table_id", "index_id", "partition_id", "tablet_id"}, [](param_type& p) { return versioned::tablet_inverted_index_key(KeyInfoSetter<versioned::TabletInvertedIndexKeyInfo>{p}.get()); }, false, parse_empty_value, nullptr}},
+    {"VersionedIndexIndexKey",              {{"instance_id", "index_id"},                                    [](param_type& p) { return versioned::index_index_key(KeyInfoSetter<versioned::IndexIndexKeyInfo>{p}.get());                  }, false, parse_to_json<IndexIndexPB>, parse_json<IndexIndexPB>}},
+    {"VersionedIndexInvertedKey",           {{"instance_id", "db_id", "table_id", "index_id"},               [](param_type& p) { return versioned::index_inverted_key(KeyInfoSetter<versioned::IndexInvertedKeyInfo>{p}.get());            }, false, parse_empty_value, nullptr}},
+    {"VersionedTabletLoadStatsKey",         {{"instance_id", "tablet_id"},                                   [](param_type& p) { return versioned::tablet_load_stats_key(KeyInfoSetter<versioned::TabletLoadStatsKeyInfo>{p}.get());        },  true, parse_to_json<TabletStatsPB>, parse_json<TabletStatsPB>}},
+    {"VersionedTabletCompactStatsKey",      {{"instance_id", "tablet_id"},                                   [](param_type& p) { return versioned::tablet_compact_stats_key(KeyInfoSetter<versioned::TabletCompactStatsKeyInfo>{p}.get());  }, true, parse_to_json<TabletStatsPB>, parse_json<TabletStatsPB>}},
+    {"VersionedMetaPartitionKey",           {{"instance_id", "partition_id"},                                [](param_type& p) { return versioned::meta_partition_key(KeyInfoSetter<versioned::MetaPartitionKeyInfo>{p}.get());            }, true, parse_empty_value, nullptr}},
+    {"VersionedMetaIndexKey",               {{"instance_id", "index_id"},                                    [](param_type& p) { return versioned::meta_index_key(KeyInfoSetter<versioned::MetaIndexKeyInfo>{p}.get());                    }, true, parse_empty_value, nullptr}},
+    {"VersionedMetaTabletKey",              {{"instance_id", "tablet_id"},                                   [](param_type& p) { return versioned::meta_tablet_key(KeyInfoSetter<versioned::MetaTabletKeyInfo>{p}.get());                  }, true, parse_to_json<doris::TabletMetaCloudPB>, parse_json<doris::TabletMetaCloudPB>}},
+    {"VersionedMetaSchemaKey",              {{"instance_id", "index_id", "schema_version"},                  [](param_type& p) { return versioned::meta_schema_key(KeyInfoSetter<versioned::MetaSchemaKeyInfo>{p}.get());                  }, false, parse_to_json<doris::TabletSchemaCloudPB>, parse_json<doris::TabletSchemaCloudPB>}},
+    {"VersionedMetaRowsetLoadKey",          {{"instance_id", "tablet_id", "version"},                        [](param_type& p) { return versioned::meta_rowset_load_key(KeyInfoSetter<versioned::MetaRowsetLoadKeyInfo>{p}.get());          }, true, [](const std::string& s) { return ""; }, parse_json<doris::RowsetMetaCloudPB>}},
+    {"VersionedMetaRowsetCompactKey",       {{"instance_id", "tablet_id", "version"},                        [](param_type& p) { return versioned::meta_rowset_compact_key(KeyInfoSetter<versioned::MetaRowsetCompactKeyInfo>{p}.get());    }, true, [](const std::string& s) { return ""; }, parse_json<doris::RowsetMetaCloudPB>}},
+    {"VersionedMetaDeleteBitmapKey",        {{"instance_id", "tablet_id", "rowset_id"},                      [](param_type& p) { return versioned::meta_delete_bitmap_key(KeyInfoSetter<versioned::MetaDeleteBitmapInfo>{p}.get());         }, false, parse_to_json<DeleteBitmapStoragePB>, parse_json<DeleteBitmapStoragePB>}},
+    {"VersionedDataRowsetRefCountKey",      {{"instance_id", "tablet_id", "rowset_id"},                      [](param_type& p) { return versioned::data_rowset_ref_count_key(KeyInfoSetter<versioned::DataRowsetRefCountKeyInfo>{p}.get()); }, false, parse_int64_value, nullptr}},
 };
 // clang-format on
 
@@ -247,26 +314,49 @@ static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string* k
     status.set_code(MetaServiceCode::OK);
     std::string_view kt = http_query(uri, "key_type");
     if (key_type != nullptr) *key_type = kt;
+
+    // Try single version key first
     auto it = param_set.find(kt);
-    if (it == param_set.end()) {
-        status.set_code(MetaServiceCode::INVALID_ARGUMENT);
-        status.set_msg(fmt::format("key_type not supported: {}", (kt.empty() ? "(empty)" : kt)));
+    if (it != param_set.end()) {
+        auto& key_params = std::get<0>(it->second);
+        std::remove_cv_t<param_type> params;
+        params.reserve(key_params.size());
+        for (auto& i : key_params) {
+            auto p = uri.GetQuery(i.data());
+            if (p == nullptr || p->empty()) {
+                status.set_code(MetaServiceCode::INVALID_ARGUMENT);
+                status.set_msg(fmt::format("{} is not given or empty", i));
+                return status;
+            }
+            params.emplace_back(p);
+        }
+        auto& key_encoding_function = std::get<1>(it->second);
+        *key = key_encoding_function(params);
         return status;
     }
-    auto& key_params = std::get<0>(it->second);
-    std::remove_cv_t<param_type> params;
-    params.reserve(key_params.size());
-    for (auto& i : key_params) {
-        auto p = uri.GetQuery(i.data());
-        if (p == nullptr || p->empty()) {
-            status.set_code(MetaServiceCode::INVALID_ARGUMENT);
-            status.set_msg(fmt::format("{} is not given or empty", i));
-            return status;
+
+    // Try versioned key
+    auto vit = versioned_param_set.find(kt);
+    if (vit != versioned_param_set.end()) {
+        auto& key_params = std::get<0>(vit->second);
+        std::remove_cv_t<param_type> params;
+        params.reserve(key_params.size());
+        for (auto& i : key_params) {
+            auto p = uri.GetQuery(i.data());
+            if (p == nullptr || p->empty()) {
+                status.set_code(MetaServiceCode::INVALID_ARGUMENT);
+                status.set_msg(fmt::format("{} is not given or empty", i));
+                return status;
+            }
+            params.emplace_back(p);
         }
-        params.emplace_back(p);
+        auto& key_encoding_function = std::get<1>(vit->second);
+        *key = key_encoding_function(params);
+        return status;
     }
-    auto& key_encoding_function = std::get<1>(it->second);
-    *key = key_encoding_function(params);
+
+    status.set_code(MetaServiceCode::INVALID_ARGUMENT);
+    status.set_msg(fmt::format("key_type not supported: {}", (kt.empty() ? "(empty)" : kt)));
     return status;
 }
 
@@ -282,6 +372,7 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
             return http_json_reply(st);
         }
     }
+
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) [[unlikely]] {
@@ -289,6 +380,75 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
                                fmt::format("failed to create txn, err={}", err));
     }
 
+    // Check if it's a versioned key
+    auto vit = versioned_param_set.find(key_type);
+    if (vit != versioned_param_set.end()) {
+        bool is_versioned_key = std::get<2>(vit->second);
+        auto& parse_function = std::get<3>(vit->second);
+
+        // Get versionstamp parameter, default to Versionstamp::max() if not provided
+        Versionstamp snapshot_version = Versionstamp::max();
+        auto vs_opt = parse_versionstamp_from_uri(uri);
+        if (vs_opt.has_value()) {
+            snapshot_version = *vs_opt;
+        }
+
+        std::string value_json;
+        Versionstamp actual_version;
+        if (is_versioned_key) {
+            if (key_type == "VersionedMetaRowsetLoadKey" ||
+                key_type == "VersionedMetaRowsetCompactKey") {
+                doris::RowsetMetaCloudPB pb;
+                err = versioned::document_get(txn.get(), key, snapshot_version, &pb,
+                                              &actual_version, false);
+                if (err == TxnErrorCode::TXN_OK) {
+                    value_json = proto_to_json(pb);
+                }
+            } else if (key_type == "VersionedMetaSchemaKey") {
+                doris::TabletSchemaCloudPB pb;
+                err = versioned::document_get(txn.get(), key, snapshot_version, &pb,
+                                              &actual_version, false);
+                if (err == TxnErrorCode::TXN_OK) {
+                    value_json = proto_to_json(pb);
+                }
+            } else {
+                std::string value_str;
+                err = versioned_get(txn.get(), key, snapshot_version, &actual_version, &value_str,
+                                    false);
+                if (err == TxnErrorCode::TXN_OK) {
+                    value_json = parse_function(value_str);
+                }
+            }
+            if (!value_json.empty()) {
+                value_json += fmt::format("\\nversionstamp={}", actual_version.to_string());
+            }
+        } else {
+            ValueBuf value_buf;
+            err = cloud::blob_get(txn.get(), key, &value_buf, true);
+            if (err == TxnErrorCode::TXN_OK) {
+                value_json = parse_function(value_buf.value());
+            }
+        }
+
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            return http_json_reply(MetaServiceCode::KV_TXN_GET_ERR,
+                                   fmt::format("versioned key not found, key={}", hex(key)));
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            return http_json_reply(
+                    MetaServiceCode::KV_TXN_GET_ERR,
+                    fmt::format("failed to get versioned key, key={}, err={}", hex(key), err));
+        }
+        if (value_json.empty()) {
+            return http_json_reply(
+                    MetaServiceCode::PROTOBUF_PARSE_ERR,
+                    fmt::format("failed to parse versioned value, key={}", hex(key)));
+        }
+
+        return http_text_reply(MetaServiceCode::OK, "", value_json);
+    }
+
+    // Handle single version key (original logic)
     auto it = param_set.find(key_type);
     if (it == param_set.end()) {
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
@@ -386,6 +546,93 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
                                fmt::format("failed to create txn, err={}", err));
     }
 
+    // Check if it's a versioned key
+    auto vit = versioned_param_set.find(key_type);
+    if (vit != versioned_param_set.end()) {
+        bool is_versioned_key = std::get<2>(vit->second);
+        auto& json_to_proto_function = std::get<4>(vit->second);
+
+        std::shared_ptr<google::protobuf::Message> pb_to_save;
+        if (json_to_proto_function) {
+            pb_to_save = json_to_proto_function(body);
+        }
+
+        // Check if versionstamp parameter is provided
+        auto vs_opt = parse_versionstamp_from_uri(uri);
+        if (is_versioned_key) {
+            if (key_type == "VersionedMetaRowsetLoadKey" ||
+                key_type == "VersionedMetaRowsetCompactKey" ||
+                key_type == "VersionedMetaSchemaKey") {
+                bool success = false;
+                if (vs_opt.has_value()) {
+                    success = versioned::document_put(txn.get(), key, *vs_opt,
+                                                      std::move(*pb_to_save));
+                } else {
+                    success = versioned::document_put(txn.get(), key, std::move(*pb_to_save));
+                }
+                if (!success) {
+                    return http_json_reply(
+                            MetaServiceCode::UNDEFINED_ERR,
+                            fmt::format("failed to put versioned document, key={}", hex(key)));
+                }
+            } else {
+                std::string value_to_save;
+                if (json_to_proto_function) {
+                    value_to_save = pb_to_save->SerializeAsString();
+                    if (value_to_save.empty()) {
+                        return http_json_reply(
+                                MetaServiceCode::UNDEFINED_ERR,
+                                fmt::format("failed to serialize pb, key={}", hex(key)));
+                    }
+                } else {
+                    value_to_save = body;
+                }
+
+                // Put the value
+                if (vs_opt.has_value()) {
+                    versioned_put(txn.get(), key, *vs_opt, value_to_save);
+                } else {
+                    versioned_put(txn.get(), key, value_to_save);
+                }
+            }
+        } else {
+            std::string value_to_save;
+            if (key_type == "VersionedDataRowsetRefCountKey") {
+                // Parse int64 from body
+                try {
+                    int64_t count = std::stoll(body);
+                    value_to_save.resize(sizeof(int64_t));
+                    std::memcpy(value_to_save.data(), &count, sizeof(int64_t));
+                } catch (...) {
+                    return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                           "failed to parse int64 value from body");
+                }
+            } else if (json_to_proto_function) {
+                value_to_save = pb_to_save->SerializeAsString();
+                if (value_to_save.empty()) {
+                    return http_json_reply(MetaServiceCode::UNDEFINED_ERR,
+                                           fmt::format("failed to serialize pb, key={}", hex(key)));
+                }
+            } else {
+                value_to_save = body;
+            }
+            txn->put(key, value_to_save);
+        }
+
+        LOG(WARNING) << "set_value saved, key=" << hex(key);
+
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            return http_json_reply(
+                    MetaServiceCode::UNDEFINED_ERR,
+                    fmt::format("failed to commit versioned key, key={}, err={}", hex(key), err));
+        }
+
+        LOG(WARNING) << "set_value saved versioned key, key=" << hex(key);
+        return http_text_reply(MetaServiceCode::OK, "",
+                               fmt::format("versioned key saved successfully, key={}", hex(key)));
+    }
+
     auto it = param_set.find(key_type);
     if (it == param_set.end()) {
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
@@ -477,6 +724,11 @@ HttpResponse process_http_encode_key(const brpc::URI& uri) {
     auto st = encode_key(uri, &key);
     if (st.code() != MetaServiceCode::OK) {
         return http_json_reply(st);
+    }
+
+    // Append versionstamp to key if versionstamp parameter is provided
+    if (auto vs_opt = parse_versionstamp_from_uri(uri); vs_opt.has_value()) {
+        key = encode_versioned_key(key, *vs_opt);
     }
 
     // Print to ensure
