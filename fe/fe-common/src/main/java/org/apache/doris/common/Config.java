@@ -2315,6 +2315,22 @@ public class Config extends ConfigBase {
     })
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
+    @ConfField(description = {"是否启用 Iceberg Manifest DataFile/DeleteFile 缓存。",
+            "Whether to enable Iceberg manifest DataFile/DeleteFile cache."})
+    public static boolean iceberg_manifest_cache_enable = true;
+
+    @ConfField(description = {"Iceberg Manifest 缓存的容量上限，单位 MB。",
+            "Iceberg manifest cache capacity in MB."})
+    public static long iceberg_manifest_cache_capacity_mb = 512;
+
+    @ConfField(description = {"Iceberg Manifest 缓存的访问过期时间（毫秒），0 或负数表示不过期。",
+            "Iceberg manifest cache expire after access in milliseconds. 0 or negative disables expiration."})
+    public static long iceberg_manifest_cache_ttl_ms = 10_000L;
+
+    @ConfField(description = {"Iceberg Manifest 加载的超时时间（毫秒），用于保护异常慢的解析。",
+            "Iceberg manifest cache load timeout in milliseconds to guard slow parsing."})
+    public static long iceberg_manifest_cache_load_timeout_ms = 60_000L;
+
     /**
      * Github workflow test type, for setting some session variables
      * only for certain test type. E.g. only settting batch_size to small

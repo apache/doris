@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
@@ -38,6 +39,9 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
+import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
+import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -58,10 +62,12 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
@@ -69,16 +75,23 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.ManifestEvaluator;
+import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.util.TableScanUtil;
+import org.apache.iceberg.util.StructLikeWrapper;
+import org.apache.iceberg.PartitionSpecParser;
+import org.apache.iceberg.SchemaParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -359,8 +372,110 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
+        if (!Config.iceberg_manifest_cache_enable) {
+            long targetSplitSize = getRealFileSplitSize(0);
+            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+        }
+        try {
+            return planFileScanTaskWithManifestCache(scan);
+        } catch (Exception e) {
+            LOG.warn("Plan with manifest cache failed, fallback to original scan: {}", e.getMessage());
+            long targetSplitSize = getRealFileSplitSize(0);
+            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+        }
+    }
+
+    private Expression buildIcebergFilter() {
+        Expression combined = null;
+        for (Expr conjunct : conjuncts) {
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, icebergTable.schema());
+            if (expression != null) {
+                combined = combined == null ? expression : Expressions.and(combined, expression);
+            }
+        }
+        return combined;
+    }
+
+    private CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(TableScan scan) throws IOException {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null) {
+            return CloseableIterable.withNoopClose(Collections.emptyList());
+        }
+
+        IcebergManifestCache cache = IcebergUtils.getManifestCache();
+        Expression filterExpr = buildIcebergFilter();
+        Map<Integer, PartitionSpec> specsById = icebergTable.specs();
+        boolean caseSensitive = true;
+
+        Map<Integer, ResidualEvaluator> residualEvaluators = new HashMap<>();
+        specsById.forEach((id, spec) -> residualEvaluators.put(id,
+                ResidualEvaluator.of(spec, filterExpr == null ? Expressions.alwaysTrue() : filterExpr,
+                        caseSensitive)));
+
+        Map<StructLikeWrapper, List<DeleteFile>> deletesByPartition = new HashMap<>();
+        // Load delete manifests
+        List<ManifestFile> deleteManifests = snapshot.deleteManifests(icebergTable.io());
+        for (ManifestFile manifest : deleteManifests) {
+            if (manifest.content() != ManifestContent.DELETES) {
+                continue;
+            }
+            PartitionSpec spec = specsById.get(manifest.partitionSpecId());
+            if (spec == null) {
+                continue;
+            }
+            ManifestEvaluator evaluator = filterExpr == null ? null
+                    : ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive);
+            if (evaluator != null && !evaluator.eval(manifest)) {
+                continue;
+            }
+            ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache, manifest,
+                    icebergTable);
+            StructLikeWrapper wrapper = StructLikeWrapper.forType(spec.partitionType());
+            for (DeleteFile deleteFile : value.getDeleteFiles()) {
+                StructLikeWrapper key = wrapper.copyFor(deleteFile.partition());
+                deletesByPartition.computeIfAbsent(key, k -> new ArrayList<>()).add(deleteFile);
+            }
+        }
+
+        List<FileScanTask> tasks = new ArrayList<>();
+        try (CloseableIterable<ManifestFile> dataManifests =
+                     IcebergUtils.getMatchingManifest(snapshot.dataManifests(icebergTable.io()),
+                             specsById, filterExpr)) {
+            for (ManifestFile manifest : dataManifests) {
+                if (manifest.content() != ManifestContent.DATA) {
+                    continue;
+                }
+                PartitionSpec spec = specsById.get(manifest.partitionSpecId());
+                if (spec == null) {
+                    continue;
+                }
+                ResidualEvaluator residualEvaluator = residualEvaluators.get(manifest.partitionSpecId());
+                ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache, manifest,
+                        icebergTable);
+                StructLikeWrapper wrapper = StructLikeWrapper.forType(spec.partitionType());
+                for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {
+                    if (residualEvaluator != null) {
+                        org.apache.iceberg.expressions.Expression residual = residualEvaluator
+                                .residualFor(dataFile.partition());
+                        if (Expressions.alwaysFalse().equals(residual)) {
+                            continue;
+                        }
+                    }
+                    List<DeleteFile> deletes = deletesByPartition
+                            .getOrDefault(wrapper.copyFor(dataFile.partition()), Collections.emptyList());
+                    tasks.add(new BaseFileScanTask(
+                            dataFile,
+                            deletes.toArray(new DeleteFile[0]),
+                            SchemaParser.toJson(icebergTable.schema()),
+                            PartitionSpecParser.toJson(spec),
+                            residualEvaluator == null ? ResidualEvaluator.unpartitioned(Expressions.alwaysTrue())
+                                    : residualEvaluator));
+                }
+            }
+        }
+
         long targetSplitSize = getRealFileSplitSize(0);
-        return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
     }
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {
