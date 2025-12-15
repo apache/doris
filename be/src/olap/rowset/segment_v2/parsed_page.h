@@ -50,6 +50,7 @@ struct ParsedPage {
 
         auto null_size = footer.nullmap_size();
         auto null_bitmap = Slice(body.data + body.size - null_size, null_size);
+        page->is_continue = footer.has_is_continue() && footer.is_continue();
 
         if (null_size > 0) {
             if (footer.has_new_null_map() && footer.new_null_map()) {
@@ -63,6 +64,7 @@ struct ParsedPage {
                     page->null_maps.resize(footer.num_values());
                     auto tmp_slice = Slice(page->null_maps.data(), page->null_maps.size());
                     RETURN_IF_ERROR(codec->decompress(null_bitmap, &tmp_slice));
+                    // Set is_continue to true when using new null map format
                 }
             } else {
                 auto null_decoder =
@@ -119,6 +121,7 @@ struct ParsedPage {
     ordinal_t offset_in_page = 0;
 
     bool is_dict_encoding = false;
+    bool is_continue = false;
 
     bool contains(ordinal_t ord) {
         return ord >= first_ordinal && ord < (first_ordinal + num_rows);

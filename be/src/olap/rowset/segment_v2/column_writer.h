@@ -138,7 +138,7 @@ public:
             return append_nullable(&nullmap, cell.cell_ptr(), 1);
         } else {
             auto* cel_ptr = cell.cell_ptr();
-            return append_data((const uint8_t**)&cel_ptr, 1);
+            return append_data((const uint8_t**)&cel_ptr, 1, false);
         }
     }
 
@@ -188,7 +188,7 @@ public:
     virtual uint64_t get_total_compressed_data_pages_bytes() const = 0;
 
     // used for append not null data.
-    virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
+    virtual Status append_data(const uint8_t** ptr, size_t num_rows, bool null) = 0;
 
     bool is_nullable() const { return _is_nullable; }
 
@@ -252,20 +252,21 @@ public:
     void register_flush_page_callback(FlushPageCallback* flush_page_callback) {
         _new_page_callback = flush_page_callback;
     }
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    Status append_data(const uint8_t** ptr, size_t num_rows, bool null) override;
 
     // used for append not null data. When page is full, will append data not reach num_rows.
-    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_written);
+    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_written, bool null);
 
-    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_written) {
+    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_written, bool null) {
         RETURN_IF_CATCH_EXCEPTION(
-                { return _internal_append_data_in_current_page(ptr, num_written); });
+                { return _internal_append_data_in_current_page(ptr, num_written, null); });
     }
     friend class ArrayColumnWriter;
     friend class OffsetColumnWriter;
 
 private:
-    Status _internal_append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
+    Status _internal_append_data_in_current_page(const uint8_t* ptr, size_t* num_written,
+                                                 bool null);
 
 private:
     std::unique_ptr<PageBuilder> _page_builder;
@@ -338,7 +339,7 @@ public:
 
     Status init() override;
 
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    Status append_data(const uint8_t** ptr, size_t num_rows, bool null) override;
 
 private:
     void put_extra_info_in_page(DataPageFooterPB* footer) override;
@@ -356,7 +357,7 @@ public:
     Status init() override;
 
     Status append_nullable(const uint8_t* null_map, const uint8_t** data, size_t num_rows) override;
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    Status append_data(const uint8_t** ptr, size_t num_rows, bool null) override;
 
     uint64_t estimate_buffer_size() override;
 
@@ -428,7 +429,7 @@ public:
 
     Status init() override;
 
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    Status append_data(const uint8_t** ptr, size_t num_rows, bool null) override;
 
     uint64_t estimate_buffer_size() override;
 
@@ -509,7 +510,7 @@ public:
 
     Status init() override;
 
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    Status append_data(const uint8_t** ptr, size_t num_rows, bool null) override;
     Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
     uint64_t estimate_buffer_size() override;
 
@@ -588,7 +589,7 @@ public:
 
     Status init() override;
 
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    Status append_data(const uint8_t** ptr, size_t num_rows, bool null) override;
 
     uint64_t estimate_buffer_size() override;
 
@@ -649,7 +650,7 @@ public:
 
     Status init() override;
 
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    Status append_data(const uint8_t** ptr, size_t num_rows, bool null) override;
 
     uint64_t estimate_buffer_size() override;
 

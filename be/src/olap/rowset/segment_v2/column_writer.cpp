@@ -449,9 +449,9 @@ Status ColumnWriter::append_nullable(const uint8_t* is_null_bits, const void* da
     size_t this_run = 0;
     while ((this_run = null_iter.Next(&is_null)) > 0) {
         if (is_null) {
-            RETURN_IF_ERROR(append_nulls(this_run));
+            RETURN_IF_ERROR(append_data(&ptr, this_run, true));
         } else {
-            RETURN_IF_ERROR(append_data(&ptr, this_run));
+            RETURN_IF_ERROR(append_data(&ptr, this_run, false));
         }
     }
     return Status::OK();
@@ -475,13 +475,13 @@ Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** pt
     do {
         auto step = next_run_step();
         if (null_map[offset]) {
-            RETURN_IF_ERROR(append_nulls(step));
-            *ptr += get_field()->size() * step;
+            RETURN_IF_ERROR(append_data(ptr, step, true));
+            // *ptr += get_field()->size() * step;
         } else {
             // TODO:
             //  1. `*ptr += get_field()->size() * step;` should do in this function, not append_data;
             //  2. support array vectorized load and ptr offset add
-            RETURN_IF_ERROR(append_data(ptr, step));
+            RETURN_IF_ERROR(append_data(ptr, step, false));
         }
         offset += step;
     } while (offset < num_rows);
@@ -495,7 +495,7 @@ Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num
     if (nullmap) {
         return append_nullable(nullmap, &ptr, num_rows);
     } else {
-        return append_data(&ptr, num_rows);
+        return append_data(&ptr, num_rows, false);
     }
 }
 
@@ -641,11 +641,11 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
 // append data to page builder. this function will make sure that
 // num_rows must be written before return. And ptr will be modified
 // to next data should be written
-Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows, bool null) {
     size_t remaining = num_rows;
     while (remaining > 0) {
         size_t num_written = remaining;
-        RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
+        RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written, null));
 
         remaining -= num_written;
 
@@ -657,35 +657,41 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 }
 
 Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* data,
-                                                                 size_t* num_written) {
+                                                                 size_t* num_written, bool null) {
     RETURN_IF_ERROR(_page_builder->add(data, num_written));
-    if (_opts.need_bitmap_index) {
-        _bitmap_index_builder->add_values(data, *num_written);
-    }
-    if (_opts.need_zone_map) {
-        _zone_map_index_builder->add_values(data, *num_written);
-    }
-    if (_opts.need_inverted_index) {
-        for (const auto& builder : _inverted_index_builders) {
-            RETURN_IF_ERROR(builder->add_values(get_field()->name(), data, *num_written));
+    if (!null) {
+        if (_opts.need_bitmap_index) {
+            _bitmap_index_builder->add_values(data, *num_written);
         }
-    }
-    if (_opts.need_bloom_filter) {
-        RETURN_IF_ERROR(_bloom_filter_index_builder->add_values(data, *num_written));
-    }
+        if (_opts.need_zone_map) {
+            _zone_map_index_builder->add_values(data, *num_written);
+        }
+        if (_opts.need_inverted_index) {
+            for (const auto& builder : _inverted_index_builders) {
+                RETURN_IF_ERROR(builder->add_values(get_field()->name(), data, *num_written));
+            }
+        }
+        if (_opts.need_bloom_filter) {
+            RETURN_IF_ERROR(_bloom_filter_index_builder->add_values(data, *num_written));
+        }
 
-    _next_rowid += *num_written;
+        _next_rowid += *num_written;
+        if (is_nullable()) {
+            _null_bitmap_builder->add_run(false, *num_written);
+        }
+    } else {
+        DCHECK(is_nullable());
+        RETURN_IF_ERROR(append_nulls(*num_written));
+    }
 
     // we must write null bits after write data, because we don't
     // know how many rows can be written into current page
-    if (is_nullable()) {
-        _null_bitmap_builder->add_run(false, *num_written);
-    }
     return Status::OK();
 }
 
-Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written) {
-    RETURN_IF_ERROR(append_data_in_current_page(*data, num_written));
+Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written,
+                                                       bool null) {
+    RETURN_IF_ERROR(append_data_in_current_page(*data, num_written, null));
     *data += get_field()->size() * (*num_written);
     return Status::OK();
 }
@@ -840,6 +846,7 @@ Status ScalarColumnWriter::finish_current_page() {
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
     data_page_footer->set_nullmap_size(cast_set<uint32_t>(nullmap.slice().size));
     data_page_footer->set_new_null_map(true);
+    data_page_footer->set_is_continue(true);
     if (_new_page_callback != nullptr) {
         _new_page_callback->put_extra_info_in_page(data_page_footer);
     }
@@ -883,11 +890,11 @@ Status OffsetColumnWriter::init() {
     return Status::OK();
 }
 
-Status OffsetColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+Status OffsetColumnWriter::append_data(const uint8_t** ptr, size_t num_rows, bool null) {
     size_t remaining = num_rows;
     while (remaining > 0) {
         size_t num_written = remaining;
-        RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
+        RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written, null));
         // _next_offset after append_data_in_current_page is the offset of next data, which will used in finish_current_page() to set next_array_item_ordinal
         _next_offset = *(const uint64_t*)(*ptr);
         remaining -= num_written;
@@ -940,12 +947,12 @@ Status StructColumnWriter::write_inverted_index() {
 
 Status StructColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                            size_t num_rows) {
-    RETURN_IF_ERROR(append_data(ptr, num_rows));
-    RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
+    RETURN_IF_ERROR(append_data(ptr, num_rows, false));
+    RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows, false));
     return Status::OK();
 }
 
-Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows, bool null) {
     const auto* results = reinterpret_cast<const uint64_t*>(*ptr);
     for (size_t i = 0; i < _num_sub_column_writers; ++i) {
         auto nullmap = *(results + _num_sub_column_writers + i);
@@ -1004,7 +1011,7 @@ Status StructColumnWriter::append_nulls(size_t num_rows) {
     if (is_nullable()) {
         std::vector<vectorized::UInt8> null_signs(num_rows, 1);
         const uint8_t* null_sign_ptr = null_signs.data();
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
+        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows, false));
     }
     return Status::OK();
 }
@@ -1066,7 +1073,7 @@ Status ArrayColumnWriter::write_ann_index() {
 }
 
 // batch append data for array
-Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows, bool null) {
     // data_ptr contains
     // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
     auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
@@ -1107,7 +1114,7 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         }
     }
 
-    RETURN_IF_ERROR(_offset_writer->append_data(&offsets_ptr, num_rows));
+    RETURN_IF_ERROR(_offset_writer->append_data(&offsets_ptr, num_rows, false));
     return Status::OK();
 }
 
@@ -1119,12 +1126,12 @@ uint64_t ArrayColumnWriter::estimate_buffer_size() {
 
 Status ArrayColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                           size_t num_rows) {
-    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    RETURN_IF_ERROR(append_data(ptr, num_rows, false));
     if (is_nullable()) {
         if (_opts.need_inverted_index) {
             RETURN_IF_ERROR(_inverted_index_writer->add_array_nulls(null_map, num_rows));
         }
-        RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
+        RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows, false));
     }
     return Status::OK();
 }
@@ -1165,7 +1172,7 @@ Status ArrayColumnWriter::append_nulls(size_t num_rows) {
     while (num_lengths > 0) {
         // TODO llj bulk write
         const auto* offset_ptr = reinterpret_cast<const uint8_t*>(&offset);
-        RETURN_IF_ERROR(_offset_writer->append_data(&offset_ptr, 1));
+        RETURN_IF_ERROR(_offset_writer->append_data(&offset_ptr, 1, false));
         --num_lengths;
     }
     return write_null_column(num_rows, true);
@@ -1176,7 +1183,7 @@ Status ArrayColumnWriter::write_null_column(size_t num_rows, bool is_null) {
     while (is_nullable() && num_rows > 0) {
         // TODO llj bulk write
         const uint8_t* null_sign_ptr = &null_sign;
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, 1));
+        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, 1, false));
         --num_rows;
     }
     return Status::OK();
@@ -1240,15 +1247,15 @@ Status MapColumnWriter::finish() {
 
 Status MapColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                         size_t num_rows) {
-    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    RETURN_IF_ERROR(append_data(ptr, num_rows, false));
     if (is_nullable()) {
-        RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
+        RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows, false));
     }
     return Status::OK();
 }
 
 // write key value data with offsets
-Status MapColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+Status MapColumnWriter::append_data(const uint8_t** ptr, size_t num_rows, bool null) {
     // data_ptr contains
     // [size, offset_ptr, key_data_ptr, val_data_ptr, k_nullmap_ptr, v_nullmap_pr]
     // which converted results from olap_map_convertor and later will use a structure to replace it
@@ -1269,7 +1276,7 @@ Status MapColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     }
     // make sure the order : offset writer flush next_array_item_ordinal after kv_writers append_data
     // because we use _kv_writers[0]->get_next_rowid() to set next_array_item_ordinal in offset page footer
-    RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
+    RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows, false));
     return Status::OK();
 }
 
@@ -1304,12 +1311,12 @@ Status MapColumnWriter::append_nulls(size_t num_rows) {
     const ordinal_t offset = _kv_writers[0]->get_next_rowid();
     std::vector<vectorized::UInt8> offsets_data(num_rows, cast_set<uint8_t>(offset));
     const uint8_t* offsets_ptr = offsets_data.data();
-    RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
+    RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows, false));
 
     if (is_nullable()) {
         std::vector<vectorized::UInt8> null_signs(num_rows, 1);
         const uint8_t* null_sign_ptr = null_signs.data();
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
+        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows, false));
     }
     return Status::OK();
 }
@@ -1335,7 +1342,7 @@ Status VariantColumnWriter::init() {
     return _impl->init();
 }
 
-Status VariantColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+Status VariantColumnWriter::append_data(const uint8_t** ptr, size_t num_rows, bool null) {
     _next_rowid += num_rows;
     return _impl->append_data(ptr, num_rows);
 }

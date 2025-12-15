@@ -76,6 +76,8 @@ message DataPageFooterPB {
     optional uint64 next_array_item_ordinal = 4;
 
     optional bool new_null_map = 5;
+
+    optional bool is_continue = 6;
 }
 
 message IndexPageFooterPB {
