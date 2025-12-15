@@ -69,9 +69,7 @@ struct Decimal;
 #define SET_PARAMS_RET_FALSE_FROM_EXCEPTION(stmt) \
     do {                                          \
         try {                                     \
-            {                                     \
-                stmt;                             \
-            }                                     \
+            { stmt; }                             \
         } catch (const doris::Exception& e) {     \
             if constexpr (IsStrict) {             \
                 params.status = e.to_status();    \

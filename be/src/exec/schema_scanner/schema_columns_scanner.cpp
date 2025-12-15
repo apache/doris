@@ -592,13 +592,9 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
     }
     // CHARACTER_SET_NAME
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, null_datas)); }
     // COLLATION_NAME
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, null_datas)); }
     // COLUMN_TYPE
     {
         std::vector<std::string> buffers(columns_num);
@@ -676,13 +672,9 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 21, datas));
     }
     // GENERATION_EXPRESSION
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 22, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 22, null_datas)); }
     // SRS_ID
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 23, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 23, null_datas)); }
     return Status::OK();
 }
 

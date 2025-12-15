@@ -145,9 +145,7 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // SQL_PATH
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, null_datas)); }
 
     // DEFAULT_ENCRYPTION
     {

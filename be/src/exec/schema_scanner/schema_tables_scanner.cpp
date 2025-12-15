@@ -204,13 +204,9 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     // version
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, null_datas)); }
     // row_format
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, null_datas)); }
     // rows
     {
         std::vector<int64_t> srcs(table_num);
@@ -254,9 +250,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
     }
     // max_data_length
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, null_datas)); }
     // index_length
     {
         std::vector<int64_t> srcs(table_num);
@@ -272,13 +266,9 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
     }
     // data_free
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, null_datas)); }
     // auto_increment
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, null_datas)); }
     // creation_time
     {
         std::vector<VecDateTimeValue> srcs(table_num);
@@ -352,13 +342,9 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
     }
     // checksum
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, null_datas)); }
     // create_options
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 19, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 19, null_datas)); }
     // create_comment
     {
         std::vector<StringRef> strs(table_num);

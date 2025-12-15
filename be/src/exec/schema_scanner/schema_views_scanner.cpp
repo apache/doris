@@ -229,9 +229,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
     }
     // collation_connection
-    {
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, null_datas));
-    }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, null_datas)); }
     return Status::OK();
 }
 

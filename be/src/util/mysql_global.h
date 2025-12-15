@@ -40,7 +40,7 @@ typedef unsigned char uchar;
 #define float4store(T, A) *((float*)(T)) = (float)(A)
 #define float8store(T, A) *((double*)(T)) = (double)(A)
 
-#define MY_ALIGN(A, L) (((A) + (L) - 1) & ~((L) - 1))
+#define MY_ALIGN(A, L) (((A) + (L)-1) & ~((L)-1))
 #define SIZEOF_CHARP 8
 
 #define MAX_TINYINT_WIDTH 3     /* Max width for a TINY w.o. sign */

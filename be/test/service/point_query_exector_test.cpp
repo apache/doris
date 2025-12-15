@@ -411,7 +411,7 @@ TEST_F(LookupConnectionCacheTest, PQTestEntryLifetime) {
         auto entry = cache.get(123);
         ASSERT_NE(entry, nullptr);
         EXPECT_EQ(entry.use_count(), 3); // Cache + local reference
-    } // Local reference released
+    }                                    // Local reference released
 
     // Verify cache maintains ownership
     auto entry = cache.get(123);

@@ -120,9 +120,7 @@ struct SetOperatorTest : public ::testing::Test {
             EXPECT_TRUE(probe_sink_local_state[i]->open(states[i].get()));
         }
 
-        {
-            EXPECT_TRUE(source_local_state->open(state.get()));
-        }
+        { EXPECT_TRUE(source_local_state->open(state.get())); }
 
         shared_state = source_local_state->_shared_state;
     }

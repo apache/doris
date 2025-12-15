@@ -188,7 +188,8 @@ public:
         // new one stub and insert into map
         auto stub = get_new_client_no_cache(host_port);
         if (stub != nullptr) {
-            _stub_map.try_emplace_l(host_port, [&stub](const auto& v) { stub = v.second; }, stub);
+            _stub_map.try_emplace_l(
+                    host_port, [&stub](const auto& v) { stub = v.second; }, stub);
         }
         return stub;
     }

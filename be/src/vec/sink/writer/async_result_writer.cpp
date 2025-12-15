@@ -202,9 +202,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         _writer_status.update(st);
     }
     Status st = Status::OK();
-    {
-        st = _writer_status.status();
-    }
+    { st = _writer_status.status(); }
 
     Status close_st = close(st);
     {

@@ -145,12 +145,8 @@ struct PartitionSortOperatorTest : public ::testing::Test {
             state->emplace_local_state(source->operator_id(), std::move(source_local_state_uptr));
         }
 
-        {
-            EXPECT_TRUE(sink_local_state->open(state.get()).ok());
-        }
-        {
-            EXPECT_TRUE(source_local_state->open(state.get()).ok());
-        }
+        { EXPECT_TRUE(sink_local_state->open(state.get()).ok()); }
+        { EXPECT_TRUE(source_local_state->open(state.get()).ok()); }
     }
 
     void test_partition_sort(int partition_exprs_num, int topn_num) {

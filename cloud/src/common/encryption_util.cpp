@@ -517,9 +517,7 @@ int decrypt_ak_sk_helper(std::string_view cipher_ak, std::string_view cipher_sk,
                          const EncryptionInfoPB& encryption_info, AkSkPair* plain_ak_sk_pair) {
     std::string key;
     int ret = get_encryption_key_for_ak_sk(encryption_info.key_id(), &key);
-    {
-        TEST_SYNC_POINT_CALLBACK("decrypt_ak_sk:get_encryption_key", &key, &ret);
-    }
+    { TEST_SYNC_POINT_CALLBACK("decrypt_ak_sk:get_encryption_key", &key, &ret); }
     if (ret != 0) {
         LOG(WARNING) << "failed to get encryption key version_id: " << encryption_info.key_id();
         return -1;
