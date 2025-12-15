@@ -568,6 +568,18 @@ merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"100
         },
         R"({"items":[{"key_id":"23456","key":"key_1"}]})",
     },
+    Input {
+        "PackedFileKey",
+        "instance_id=gavin-instance&packed_file_path=/path/to/file",
+        {"01106d657461000110676176696e2d696e7374616e63650001107061636b65645f66696c650001102f706174682f746f2f66696c650001"},
+        []() -> std::vector<std::string> {
+            PackedFileInfoPB pb;
+            pb.set_resource_id("resource_id");
+            pb.set_ref_cnt(5);
+            return {pb.SerializeAsString()};
+        },
+        R"({"ref_cnt":"5","resource_id":"resource_id"})",
+    },
 };
 // clang-format on
 
