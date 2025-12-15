@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -36,7 +37,7 @@ import java.util.List;
  * AggregateFunction 'regr_slope'.
  */
 public class RegrSlope extends AggregateFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable, SupportWindowAnalytic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE)
@@ -56,7 +57,9 @@ public class RegrSlope extends AggregateFunction
         super("regr_slope", distinct, arg1, arg2);
     }
 
-    /** constructor for withChildren and reuse signature */
+    /**
+     * constructor for withChildren and reuse signature
+     */
     private RegrSlope(AggregateFunctionParams functionParams) {
         super(functionParams);
     }

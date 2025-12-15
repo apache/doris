@@ -60,5 +60,8 @@ void register_aggregate_function_regr_union(AggregateFunctionSimpleFactory& fact
     factory.register_function_both("regr_slope", create_aggregate_function_regr<RegrSlopeFunc>);
     factory.register_function_both("regr_intercept",
                                    create_aggregate_function_regr<RegrInterceptFunc>);
+    factory.register_function_both("regr_sxx", create_aggregate_function_regr<RegrSxxFunc>);
+    factory.register_function_both("regr_syy", create_aggregate_function_regr<RegrSyyFunc>);
+    factory.register_function_both("regr_sxy", create_aggregate_function_regr<RegrSxyFunc>);
 }
 } // namespace doris::vectorized

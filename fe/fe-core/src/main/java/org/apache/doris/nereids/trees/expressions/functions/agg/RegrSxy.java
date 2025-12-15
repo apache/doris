@@ -20,15 +20,13 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
+import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -36,51 +34,41 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** regr_sxy agg function. */
-public class RegrSxy extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature, SupportWindowAnalytic {
+public class RegrSxy extends AggregateFunction
+        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable, SupportWindowAnalytic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE, SmallIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE, TinyIntType.INSTANCE));
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE));
 
     public RegrSxy(Expression arg0, Expression arg1) {
-        this(false, false, arg0, arg1);
+        this(false, arg0, arg1);
     }
 
     public RegrSxy(boolean distinct, Expression arg0, Expression arg1) {
-        this(distinct, false, arg0, arg1);
+        super("regr_sxy", distinct, arg0, arg1);
     }
 
-    public RegrSxy(boolean distinct, boolean alwaysNullable, Expression arg0, Expression arg1) {
-        super("regr_sxy", distinct, alwaysNullable, arg0, arg1);
+    public RegrSxy(AggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType regrSxyTypeFirst = child(0).getDataType();
-        DataType regrSxyTypeSecond = child(1).getDataType();
+        DataType regrSxyTypeFirst = left().getDataType();
+        DataType regrSxyTypeSecond = right().getDataType();
         if ((!regrSxyTypeFirst.isNumericType() && !regrSxyTypeFirst.isNullType())
                 || regrSxyTypeFirst.isOnlyMetricType()) {
             throw new AnalysisException("regr_sxy requires numeric for first parameter");
         } else if ((!regrSxyTypeSecond.isNumericType() && !regrSxyTypeSecond.isNullType())
                 || regrSxyTypeSecond.isOnlyMetricType()) {
             throw new AnalysisException("regr_sxy requires numeric for second parameter");
-
         }
     }
 
     @Override
     public RegrSxy withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new RegrSxy(distinct, alwaysNullable, children.get(0), children.get(1));
-    }
-
-    @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new RegrSxy(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new RegrSxy(getFunctionParams(distinct, children));
     }
 
     @Override

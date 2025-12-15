@@ -38,30 +38,6 @@ import java.util.Map;
  */
 public class AggregateFunction extends Function {
 
-    private static final Logger LOG = LogManager.getLogger(AggregateFunction.class);
-
-    public static ImmutableSet<String> NOT_NULLABLE_AGGREGATE_FUNCTION_NAME_SET = ImmutableSet.of("row_number", "rank",
-            "dense_rank", "multi_distinct_count", FunctionSet.HLL_UNION_AGG, FunctionSet.HLL_UNION,
-            FunctionSet.HLL_RAW_AGG, FunctionSet.BITMAP_UNION, FunctionSet.BITMAP_INTERSECT,
-            FunctionSet.ORTHOGONAL_BITMAP_INTERSECT, FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT,
-            FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT, FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE,
-            FunctionSet.INTERSECT_COUNT, FunctionSet.ORTHOGONAL_BITMAP_UNION_COUNT, FunctionSet.COUNT,
-            "approx_count_distinct", "ndv", FunctionSet.BITMAP_UNION_INT, FunctionSet.BITMAP_UNION_COUNT,
-            "ndv_no_finalize", "percentile_array", "histogram",
-            FunctionSet.SEQUENCE_COUNT, FunctionSet.MAP_AGG, FunctionSet.BITMAP_AGG, FunctionSet.ARRAY_AGG,
-            FunctionSet.REGR_SXX, FunctionSet.REGR_SYY, FunctionSet.REGR_SXY,
-            FunctionSet.COLLECT_LIST, FunctionSet.COLLECT_SET, FunctionSet.GROUP_ARRAY_INTERSECT,
-            FunctionSet.SUM0, FunctionSet.MULTI_DISTINCT_SUM0);
-
-    public static ImmutableSet<String> ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
-            ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx", "first_value",
-                    "last_value");
-
-    public static ImmutableSet<String> CUSTOM_AGGREGATE_FUNCTION_NAME_SET =
-            ImmutableSet.of("group_concat");
-
-    public static ImmutableSet<String> SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET = ImmutableSet.of("group_concat");
-
     // Set if different from retType_, null otherwise.
     @SerializedName("it")
     private Type intermediateType;

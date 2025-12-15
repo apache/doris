@@ -267,6 +267,43 @@ struct RegrInterceptFunc : AggregateFunctionRegrData<T, true, 2, 2> {
     }
 };
 
+template <PrimitiveType T>
+struct RegrSxxFunc : AggregateFunctionRegrData<T, false, 2, 0> {
+    static constexpr const char* name = "regr_sxx";
+
+    Float64 get_result() const {
+        if (this->n < 1) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        return this->sxx();
+    }
+};
+
+template <PrimitiveType T>
+struct RegrSyyFunc : AggregateFunctionRegrData<T, false, 0, 2> {
+    static constexpr const char* name = "regr_syy";
+
+    Float64 get_result() const {
+        if (this->n < 1) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        return this->syy();
+    }
+};
+
+template <PrimitiveType T>
+struct RegrSxyFunc : AggregateFunctionRegrData<T, true, 1, 1> {
+    static constexpr const char* name = "regr_sxy";
+
+    Float64 get_result() const {
+        if (this->n < 1) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        return this->sxy();
+    }
+};
+
+
 template <typename RegrFunc, bool y_nullable, bool x_nullable>
 class AggregateFunctionRegrSimple
         : public IAggregateFunctionDataHelper<
