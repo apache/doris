@@ -19,14 +19,11 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.util.URI;
-import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.thrift.TDictFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
 
-import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,7 +31,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
 // import org.apache.doris.thrift.TSymbolType;
 
@@ -262,14 +258,5 @@ public class ScalarFunction extends Function {
             fn.setDictFunction(dictFunction);
         }
         return fn;
-    }
-
-    @Override
-    public String getProperties() {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateFunctionCommand.OBJECT_FILE_KEY, getLocation() == null ? "" : getLocation().toString());
-        properties.put(CreateFunctionCommand.MD5_CHECKSUM, checksum);
-        properties.put(CreateFunctionCommand.SYMBOL_KEY, symbolName);
-        return new Gson().toJson(properties);
     }
 }

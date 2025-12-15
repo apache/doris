@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("aggOnAggMV2") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
@@ -48,14 +50,11 @@ suite ("aggOnAggMV2") {
     }
     order_qt_select_emps_mv "select deptno, sum(salary) from aggOnAggMV2 group by deptno order by deptno;"
 
-    createMV("create materialized view aggOnAggMV2_mv as select deptno as x1, sum(salary) from aggOnAggMV2 group by deptno ;")
-
-    sleep(3000)
+    create_sync_mv(db, "aggOnAggMV2", "aggOnAggMV2_mv", "select deptno as x1, sum(salary) from aggOnAggMV2 group by deptno ;")
  
     sql "analyze table aggOnAggMV2 with sync;"
     sql """alter table aggOnAggMV2 modify column time_col set stats ('row_count'='8');"""
 
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from aggOnAggMV2 order by empid;", "aggOnAggMV2_mv")
     order_qt_select_star "select * from aggOnAggMV2 order by empid, salary;"
@@ -63,9 +62,4 @@ suite ("aggOnAggMV2") {
     mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV2 group by deptno) a where (sum_salary * 2) > 3 order by deptno ;", "aggOnAggMV2_mv")
 
     order_qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV2 group by deptno) a where (sum_salary * 2) > 3 order by deptno ;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_fail("select * from aggOnAggMV2 order by empid;", "aggOnAggMV2_mv")
-
-    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV2 group by deptno) a where (sum_salary * 2) > 3 order by deptno ;", "aggOnAggMV2_mv")
 }

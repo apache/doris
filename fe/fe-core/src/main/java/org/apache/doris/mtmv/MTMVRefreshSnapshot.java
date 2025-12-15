@@ -22,15 +22,16 @@ import org.apache.doris.catalog.MTMV;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
 public class MTMVRefreshSnapshot {
     @SerializedName("ps")
-    private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
+    private ConcurrentMap<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
 
     public MTMVRefreshSnapshot() {
         this.partitionSnapshots = Maps.newConcurrentMap();

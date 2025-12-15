@@ -39,12 +39,7 @@ suite("hll_with_light_sc", "rollup") {
     sql "analyze table test_materialized_view_hll_with_light_sc1 with sync;"
     sql """alter table test_materialized_view_hll_with_light_sc1 modify column record_id set stats ('row_count'='2');"""
 
-    sql """set enable_stats=false;"""
-
     mv_rewrite_success("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll_with_light_sc1 GROUP BY store_id;",
             "amt_count1")
 
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll_with_light_sc1 GROUP BY store_id;",
-            "amt_count1")
 }

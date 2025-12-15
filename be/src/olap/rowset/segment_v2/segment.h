@@ -65,12 +65,12 @@ struct RowLocation;
 
 namespace segment_v2 {
 
-class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
 class IndexFileReader;
 class IndexIterator;
 class ColumnReaderCache;
+class ColumnMetaAccessor;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
@@ -116,10 +116,6 @@ public:
                                std::unique_ptr<ColumnIterator>* iter, const StorageReadOptions* opt,
                                const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
                                        variant_sparse_column_cache = nullptr);
-
-    Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
-                                     const StorageReadOptions& read_options,
-                                     std::unique_ptr<BitmapIndexIterator>* iter);
 
     Status new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
                               const StorageReadOptions& read_options,
@@ -171,21 +167,21 @@ public:
     // another method `get_metadata_size` not include the column reader, only the segment object itself.
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
-    // Get the inner file column's data type
-    // ignore_chidren set to false will treat field as variant
-    // when it contains children with field paths.
-    // nullptr will returned if storage type does not contains such column
-    std::shared_ptr<const vectorized::IDataType> get_data_type_of(const TabletColumn& column,
-                                                                  bool read_flat_leaves);
+    // Get the inner file column's data type.
+    // When `read_options` is provided, the decision (e.g. flat-leaf vs hierarchical) can depend
+    // on the reader type and tablet schema; when it is nullptr, we treat it as a query reader.
+    // nullptr will be returned if storage type does not contain such column.
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(
+            const TabletColumn& column, const StorageReadOptions& read_options);
 
-    // If column in segment is the same type in schema, then it is safe to apply predicate
+    // If column in segment is the same type in schema, then it is safe to apply predicate.
     bool can_apply_predicate_safely(
             int cid, const Schema& schema,
             const std::map<std::string, vectorized::DataTypePtr>& target_cast_type_for_variants,
-            ReaderType read_type) {
+            const StorageReadOptions& read_options) {
         const doris::Field* col = schema.column(cid);
         vectorized::DataTypePtr storage_column_type =
-                get_data_type_of(col->get_desc(), read_type != ReaderType::READER_QUERY);
+                get_data_type_of(col->get_desc(), read_options);
         if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
             !target_cast_type_for_variants.contains(col->name())) {
             // Default column iterator or not variant column
@@ -265,8 +261,8 @@ private:
     // Limited cache for column readers
     std::unique_ptr<ColumnReaderCache> _column_reader_cache;
 
-    // map column unique id ---> it's footer ordinal
-    std::unordered_map<int32_t, size_t> _column_uid_to_footer_ordinal;
+    // Centralized accessor for column metadata layout and uid->column_ordinal mapping.
+    std::unique_ptr<ColumnMetaAccessor> _column_meta_accessor;
 
     // Init from ColumnMetaPB in SegmentFooterPB
     // map column unique id ---> it's inner data type

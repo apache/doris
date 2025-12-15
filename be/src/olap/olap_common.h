@@ -162,6 +162,7 @@ enum class FieldType {
     OLAP_FIELD_TYPE_DECIMAL256 = 37,
     OLAP_FIELD_TYPE_IPV4 = 38,
     OLAP_FIELD_TYPE_IPV6 = 39,
+    OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
 };
 
 // Define all aggregation methods supported by Field
@@ -210,6 +211,7 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DATEV2 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DATETIME ||
            field_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ ||
            field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
@@ -361,9 +363,6 @@ struct OlapReaderStatistics {
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
 
-    int64_t rows_bitmap_index_filtered = 0;
-    int64_t bitmap_index_filter_timer = 0;
-
     int64_t rows_inverted_index_filtered = 0;
     int64_t inverted_index_filter_timer = 0;
     int64_t inverted_index_query_timer = 0;
@@ -439,7 +438,6 @@ struct OlapReaderStatistics {
 
     int64_t segment_iterator_init_timer_ns = 0;
     int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
-    int64_t segment_iterator_init_bitmap_index_iterators_timer_ns = 0;
     int64_t segment_iterator_init_index_iterators_timer_ns = 0;
 
     int64_t segment_create_column_readers_timer_ns = 0;

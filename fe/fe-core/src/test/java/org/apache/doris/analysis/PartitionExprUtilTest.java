@@ -35,7 +35,6 @@ import org.apache.doris.utframe.TestWithFeService;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +43,6 @@ import java.util.List;
 
 public class PartitionExprUtilTest extends TestWithFeService {
 
-    @Mocked
     ExecuteEnv exeEnv;
 
     @Override
@@ -55,6 +53,7 @@ public class PartitionExprUtilTest extends TestWithFeService {
         Config.dynamic_partition_check_interval_seconds = 1;
         Config.autobucket_max_buckets = 10000;
         createDatabase("test");
+        exeEnv = ExecuteEnv.getInstance();
     }
 
     @Test

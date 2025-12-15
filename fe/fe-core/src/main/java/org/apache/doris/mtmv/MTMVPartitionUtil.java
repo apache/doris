@@ -17,9 +17,7 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AllPartitionDesc;
-import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
@@ -36,6 +34,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
@@ -43,8 +43,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -378,8 +378,8 @@ public class MTMVPartitionUtil {
             return;
         }
         try {
-            DropPartitionClause dropPartitionClause = new DropPartitionClause(false, partitionName, false, false);
-            Env.getCurrentEnv().dropPartition((Database) mtmv.getDatabase(), mtmv, dropPartitionClause);
+            DropPartitionOp dropPartitionOp = new DropPartitionOp(false, partitionName, false, false);
+            Env.getCurrentEnv().dropPartition((Database) mtmv.getDatabase(), mtmv, dropPartitionOp);
         } finally {
             mtmv.writeUnlock();
         }
@@ -401,8 +401,9 @@ public class MTMVPartitionUtil {
                 generatePartitionName(oldPartitionKeyDesc),
                 oldPartitionKeyDesc, partitionProperties);
 
-        AddPartitionClause addPartitionClause = new AddPartitionClause(singlePartitionDesc,
-                mtmv.getDefaultDistributionInfo().toDistributionDesc(), partitionProperties, false);
+        AddPartitionOp addPartitionClause = new AddPartitionOp(singlePartitionDesc.translateToPartitionDefinition(),
+                mtmv.getDefaultDistributionInfo().toDistributionDesc().toDistributionDescriptor(),
+                partitionProperties, false);
         Env.getCurrentEnv().addPartition((Database) mtmv.getDatabase(), mtmv.getName(), addPartitionClause,
                 false, 0, true);
     }

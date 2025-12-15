@@ -96,6 +96,7 @@ DECLARE_mInt32(check_auto_compaction_interval_seconds);
 DECLARE_mInt32(max_base_compaction_task_num_per_disk);
 DECLARE_mBool(prioritize_query_perf_in_compaction);
 DECLARE_mInt32(compaction_max_rowset_count);
+DECLARE_mInt64(compaction_txn_max_size_bytes);
 
 // CloudStorageEngine config
 DECLARE_mInt32(refresh_s3_info_interval_s);
@@ -173,6 +174,17 @@ DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
 DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
 
 DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
+
+// Packed file manager config
+DECLARE_mBool(enable_packed_file);
+DECLARE_mInt64(packed_file_size_threshold_bytes);
+DECLARE_mInt64(packed_file_time_threshold_ms);
+DECLARE_mInt64(packed_file_try_lock_timeout_ms);
+DECLARE_mInt64(packed_file_small_file_count_threshold);
+DECLARE_mInt64(small_file_threshold_bytes);
+DECLARE_mInt64(uploaded_file_retention_seconds);
+DECLARE_mInt64(index_retention_seconds);
+DECLARE_mInt64(packed_file_cleanup_interval_seconds);
 
 DECLARE_mBool(enable_standby_passive_compaction);
 

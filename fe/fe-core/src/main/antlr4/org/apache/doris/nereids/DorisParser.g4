@@ -40,10 +40,6 @@ expressionWithEof
 statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
-    | (ALTER | CREATE (OR REPLACE)? | REPLACE) (PROCEDURE | PROC) name=multipartIdentifier LEFT_PAREN .*? RIGHT_PAREN .*? #createProcedure
-    | DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier #dropProcedure
-    | SHOW (PROCEDURE | FUNCTION) STATUS (LIKE pattern=valueExpression | whereClause)? #showProcedureStatus
-    | SHOW CREATE PROCEDURE name=multipartIdentifier #showCreateProcedure
     // FIXME: like should be wildWhere? FRONTEND should not contain FROM backendid
     | ADMIN? SHOW type=(FRONTEND | BACKEND) CONFIG (LIKE pattern=valueExpression)? (FROM backendId=INTEGER_VALUE)? #showConfig
     ;
@@ -216,7 +212,7 @@ supportedCreateStatement
         partitionSpec?                                                          #buildIndex
     | CREATE INDEX (IF NOT EXISTS)? name=identifier
         ON tableName=multipartIdentifier identifierList
-        (USING (BITMAP | NGRAM_BF | INVERTED | ANN))?
+        (USING (NGRAM_BF | INVERTED | ANN))?
         properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
     | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
         (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
@@ -258,6 +254,8 @@ supportedCreateStatement
         name=identifier properties=propertyClause?                                  #createIndexTokenFilter
     | CREATE INVERTED INDEX CHAR_FILTER (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                                  #createIndexCharFilter
+    | CREATE INVERTED INDEX NORMALIZER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                                  #createIndexNormalizer
     ;
 
 dictionaryColumnDefs:
@@ -344,6 +342,7 @@ supportedDropStatement
     | DROP INVERTED INDEX TOKENIZER (IF EXISTS)? name=identifier                #dropIndexTokenizer
     | DROP INVERTED INDEX TOKEN_FILTER (IF EXISTS)? name=identifier             #dropIndexTokenFilter
     | DROP INVERTED INDEX CHAR_FILTER (IF EXISTS)? name=identifier              #dropIndexCharFilter
+    | DROP INVERTED INDEX NORMALIZER (IF EXISTS)? name=identifier               #dropIndexNormalizer
     ;
 
 supportedShowStatement
@@ -483,6 +482,7 @@ supportedLoadStatement
     | SHOW INVERTED INDEX TOKENIZER                                                 #showIndexTokenizer
     | SHOW INVERTED INDEX TOKEN_FILTER                                              #showIndexTokenFilter
     | SHOW INVERTED INDEX CHAR_FILTER                                               #showIndexCharFilter
+    | SHOW INVERTED INDEX NORMALIZER                                                #showIndexNormalizer
     ;
 
 supportedKillStatement
@@ -753,6 +753,12 @@ alterTableClause
     | createOrReplaceBranchClause                                                   #createOrReplaceBranchClauses
     | dropBranchClause                                                              #dropBranchClauses
     | dropTagClause                                                                 #dropTagClauses
+    | ADD PARTITION KEY partitionTransform (AS partitionFieldName=identifier)?      #addPartitionFieldClause
+    | DROP PARTITION KEY (partitionFieldName=identifier | partitionTransform)       #dropPartitionFieldClause
+    | REPLACE PARTITION KEY
+        (oldPartitionFieldName=identifier | oldPartitionTransform=partitionTransform)
+        WITH newPartitionTransform=partitionTransform (AS newPartitionFieldName=identifier)?
+                                                                                    #replacePartitionFieldClause
     ;
 
 createOrReplaceTagClause
@@ -797,6 +803,12 @@ dropBranchClause
 
 dropTagClause
     : DROP TAG (IF EXISTS)? name=identifier
+    ;
+
+partitionTransform
+    : identifier LEFT_PAREN INTEGER_VALUE COMMA identifier RIGHT_PAREN  #partitionTransformWithArgs
+    | identifier LEFT_PAREN identifier RIGHT_PAREN                      #partitionTransformWithColumn
+    | identifier                                                        #partitionTransformIdentity
     ;
 
 columnPosition
@@ -911,7 +923,7 @@ supportedSetStatement
     ;
 
 optionWithType
-    : statementScope identifier EQ (expression | DEFAULT)   #setVariableWithType
+    : statementScope identifier EQ (expression | DEFAULT | ON | ALL)    #setVariableWithType
     ;
 
 optionWithoutType
@@ -927,8 +939,9 @@ optionWithoutType
     ;
 
 variable
-    : (DOUBLEATSIGN (statementScope DOT)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
-    | ATSIGN identifier EQ expression #setUserVariable
+    : (DOUBLEATSIGN (statementScope DOT)?)? identifier EQ
+        (expression | DEFAULT | ON | ALL)                               #setSystemVariable
+    | ATSIGN identifier EQ expression                                   #setUserVariable
     ;
 
 transactionAccessMode
@@ -975,8 +988,12 @@ partitionSpec
     : TEMPORARY? (PARTITION | PARTITIONS) partitions=identifierList
     | TEMPORARY? PARTITION partition=errorCapturingIdentifier
 	| (PARTITION | PARTITIONS) LEFT_PAREN ASTERISK RIGHT_PAREN // for auto detect partition in overwriting
-	// TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
+	| PARTITION LEFT_PAREN partitionKeyValue (COMMA partitionKeyValue)* RIGHT_PAREN // static partition: PARTITION (col1='val1', col2='val2')
 	// | PARTITIONS WITH RECENT
+    ;
+
+partitionKeyValue
+    : identifier EQ expression  // col='value' or col=123
     ;
 
 partitionTable
@@ -1206,7 +1223,6 @@ queryPrimary
 
 querySpecification
     : selectClause
-      intoClause?
       fromClause?
       whereClause?
       aggClause?
@@ -1240,20 +1256,8 @@ whereClause
     ;
 
 fromClause
-    : FROM relations
-    ;
-
-// For PL-SQL
-intoClause
-    : bulkCollectClause? INTO (tableRow | identifier) (COMMA (tableRow | identifier))*
-    ;
-
-bulkCollectClause :
-       BULK COLLECT
-     ;
-
-tableRow :
-      identifier LEFT_PAREN INTEGER_VALUE RIGHT_PAREN
+    : FROM DUAL          #fromDual
+    | FROM relations     #fromRelations
     ;
 
 relations
@@ -1464,7 +1468,7 @@ indexDefs
     ;
 
 indexDef
-    : INDEX (ifNotExists=IF NOT EXISTS)? indexName=identifier cols=identifierList (USING indexType=(BITMAP | INVERTED | NGRAM_BF | ANN ))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
+    : INDEX (ifNotExists=IF NOT EXISTS)? indexName=identifier cols=identifierList (USING indexType=(INVERTED | NGRAM_BF | ANN ))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
     ;
 
 partitionsDef
@@ -1755,7 +1759,8 @@ interval
     ;
 
 unitIdentifier
-	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | DAY_SECOND
+	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | DAY_SECOND | DAY_HOUR
+    | MINUTE_SECOND | SECOND_MICROSECOND
     ;
 
 dataTypeWithNullable
@@ -1790,6 +1795,7 @@ primitiveColType
     | type=DATETIMEV2
     | type=DATEV1
     | type=DATETIMEV1
+    | type=TIMESTAMPTZ
     | type=BITMAP
     | type=QUANTILE_STATE
     | type=HLL
@@ -1923,7 +1929,6 @@ nonReserved
     | BUCKETS
     | BUILD
     | BUILTIN
-    | BULK
     | CACHE
     | CACHED
     | CALL
@@ -1936,7 +1941,6 @@ nonReserved
     | CLUSTER
     | CLUSTERS
     | COLLATION
-    | COLLECT
     | COLOCATE
     | COLUMNS
     | COMMENT
@@ -2101,6 +2105,7 @@ nonReserved
     | NGRAM_BF
     | NO
     | NON_NULLABLE
+    | NORMALIZER
     | NULLS
     | OF
     | OFF
@@ -2213,6 +2218,7 @@ nonReserved
     | THAN
     | TIME
     | TIMESTAMP
+    | TIMESTAMPTZ
     | TRANSACTION
     | TREE
     | TRIGGERS

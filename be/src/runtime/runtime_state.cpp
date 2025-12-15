@@ -44,7 +44,6 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "runtime_filter/runtime_filter_mgr.h"
@@ -151,37 +150,16 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     DCHECK(_query_mem_tracker != nullptr);
 }
 
-RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
+RuntimeState::RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals)
         : _profile("<unnamed>"),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _per_fragment_instance_idx(0) {
-    _query_options.batch_size = DEFAULT_BATCH_SIZE;
-    if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
-        _timezone = query_globals.time_zone;
-        _timestamp_ms = query_globals.timestamp_ms;
-        _nano_seconds = query_globals.nano_seconds;
-    } else if (query_globals.__isset.time_zone) {
-        _timezone = query_globals.time_zone;
-        _timestamp_ms = query_globals.timestamp_ms;
-        _nano_seconds = 0;
-    } else if (!query_globals.now_string.empty()) {
-        _timezone = TimezoneUtils::default_time_zone;
-        VecDateTimeValue dt;
-        dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
-        int64_t timestamp;
-        dt.unix_timestamp(&timestamp, _timezone);
-        _timestamp_ms = timestamp * 1000;
-        _nano_seconds = 0;
-    } else {
-        //Unit test may set into here
-        _timezone = TimezoneUtils::default_time_zone;
-        _timestamp_ms = 0;
-        _nano_seconds = 0;
-    }
-    TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    Status status = init(TUniqueId(), query_options, query_globals, nullptr);
+    _exec_env = ExecEnv::GetInstance();
     init_mem_trackers("<unnamed>");
+    DCHECK(status.ok());
 }
 
 RuntimeState::RuntimeState()

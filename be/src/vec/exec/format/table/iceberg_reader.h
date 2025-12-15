@@ -133,12 +133,18 @@ protected:
     std::vector<ColumnWithTypeAndName> _expand_columns;
     std::vector<std::string> _all_required_col_names;
 
+    // Pointer to external column name to block index mapping (from FileScanner)
+    // Used to dynamically add expand columns for equality delete
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
+
     Fileformat _file_format = Fileformat::NONE;
 
     const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
-    const std::string ICEBERG_ROW_POS = "pos";
     const std::string ICEBERG_FILE_PATH = "file_path";
-    const std::vector<std::string> delete_file_col_names {ICEBERG_ROW_POS, ICEBERG_FILE_PATH};
+    const std::string ICEBERG_ROW_POS = "pos";
+    const std::vector<std::string> delete_file_col_names {ICEBERG_FILE_PATH, ICEBERG_ROW_POS};
+    const std::unordered_map<std::string, uint32_t> DELETE_COL_NAME_TO_BLOCK_IDX = {
+            {ICEBERG_FILE_PATH, 0}, {ICEBERG_ROW_POS, 1}};
     const int ICEBERG_FILE_PATH_INDEX = 0;
     const int ICEBERG_FILE_POS_INDEX = 1;
     const int READ_DELETE_FILE_BATCH_SIZE = 102400;
@@ -166,7 +172,7 @@ public:
                                  kv_cache, io_ctx, meta_cache) {}
     Status init_reader(
             const std::vector<std::string>& file_col_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -187,6 +193,9 @@ protected:
     }
 
 private:
+    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
+                                             const TupleDescriptor* tuple_descriptor);
+
     Status _read_position_delete_file(const TFileRangeDesc* delete_range,
                                       DeleteFile* position_delete) final;
 };
@@ -211,7 +220,7 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& file_col_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -225,6 +234,10 @@ protected:
                                         READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx,
                                         _meta_cache);
     }
+
+private:
+    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
+                                             const TupleDescriptor* tuple_descriptor);
 
 private:
     static const std::string ICEBERG_ORC_ATTRIBUTE;

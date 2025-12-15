@@ -17,8 +17,6 @@
 
 package org.apache.doris.cloud.system;
 
-import org.apache.doris.analysis.ModifyBackendClause;
-import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -280,8 +278,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         for (Backend be : toAdd) {
             Env.getCurrentEnv().getEditLog().logAddBackend(be);
             LOG.info("added cloud backend={} ", be);
-            // backends is changed, regenerated tablet number metrics
-            MetricRepo.generateBackendsTabletMetrics();
 
             String host = be.getHost();
             if (existedHostToBeList.keySet().contains(host)) {
@@ -306,8 +302,6 @@ public class CloudSystemInfoService extends SystemInfoService {
             be.setLastMissingHeartbeatTime(System.currentTimeMillis());
             Env.getCurrentEnv().getEditLog().logDropBackend(be);
             LOG.info("dropped cloud backend={}, and lastMissingHeartbeatTime={}", be, be.getLastMissingHeartbeatTime());
-            // backends is changed, regenerated tablet number metrics
-            MetricRepo.generateBackendsTabletMetrics();
         }
 
         // Update idToBackendRef
@@ -316,6 +310,10 @@ public class CloudSystemInfoService extends SystemInfoService {
         toDel.forEach(i -> copiedBackends.remove(i.getId()));
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
+        // backends is changed, regenerated tablet number metrics
+        // metric repo should be regenerated after setting `idToBackendRef`
+        LOG.info("Add {} and delete {} backend metrics", toAdd.size(), toDel.size());
+        MetricRepo.generateBackendsTabletMetrics();
 
         // Update idToReportVersionRef
         Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
@@ -686,18 +684,8 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
-    public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
-        throw new UserException("Modifying backends is not supported in cloud mode");
-    }
-
-    @Override
     public void modifyBackends(ModifyBackendOp op) throws UserException {
         throw new UserException("Modifying backends is not supported in cloud mode");
-    }
-
-    @Override
-    public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
-        throw new UserException("Modifying backend hostname is not supported in cloud mode");
     }
 
     @Override

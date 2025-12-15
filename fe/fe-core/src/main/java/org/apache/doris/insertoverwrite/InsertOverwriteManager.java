@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -46,28 +47,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InsertOverwriteManager extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteManager.class);
 
-    private static final long CLEAN_INTERVAL_SECOND = 10;
-
     @SerializedName(value = "tasks")
-    private Map<Long, InsertOverwriteTask> tasks = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, InsertOverwriteTask> tasks = Maps.newConcurrentMap();
 
     // <txnId, <dbId, tableId>>
     // for iot auto detect tasks. a txn will make many task by different rpc
     @SerializedName(value = "taskGroups")
-    private Map<Long, List<Long>> taskGroups = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, List<Long>> taskGroups = Maps.newConcurrentMap();
     // for one task group, there may be different requests about changing a partition to new.
     // but we only change one time and save the relations in partitionPairs. they're protected by taskLocks
     @SerializedName(value = "taskLocks")
-    private Map<Long, ReentrantLock> taskLocks = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, ReentrantLock> taskLocks = Maps.newConcurrentMap();
     // <groupId, <oldPartId, newPartId>>. no need concern which task it belongs to.
     @SerializedName(value = "partitionPairs")
-    private Map<Long, Map<Long, Long>> partitionPairs = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, Map<Long, Long>> partitionPairs = Maps.newConcurrentMap();
 
     // TableId running insert overwrite
     // dbId ==> Set<tableId>
@@ -75,7 +75,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     private ReentrantReadWriteLock runningLock = new ReentrantReadWriteLock(true);
 
     public InsertOverwriteManager() {
-        super("InsertOverwriteDropDirtyPartitions", CLEAN_INTERVAL_SECOND * 1000);
+        super("InsertOverwriteDropDirtyPartitions", Config.overwrite_clean_interval_ms);
     }
 
     /**
@@ -368,6 +368,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      */
     @Override
     protected void runAfterCatalogReady() {
+        setInterval(Config.overwrite_clean_interval_ms); // aware of dynamic change
         LOG.info("start clean insert overwrite temp partitions");
         HashMap<Long, InsertOverwriteTask> copyTasks = Maps.newHashMap(tasks);
         for (Entry<Long, InsertOverwriteTask> entry : copyTasks.entrySet()) {

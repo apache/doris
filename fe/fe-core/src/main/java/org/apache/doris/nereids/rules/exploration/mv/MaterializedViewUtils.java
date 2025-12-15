@@ -24,6 +24,7 @@ import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionIncrementMaintainer.PartitionIncrementCheckContext;
@@ -286,12 +287,11 @@ public class MaterializedViewUtils {
             ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
             if (!queryTableSets.isEmpty()) {
                 for (BitSet queryTableSet : queryTableSets) {
-                    // TODO As only support MatchMode.COMPLETE, so only get equaled query table struct info
                     BitSet queryCommonTableSet = MaterializedViewUtils.transformToCommonTableId(queryTableSet,
                             cascadesContext.getStatementContext().getRelationIdToCommonTableIdMap());
                     // compare relation id corresponding table id
                     if (!materializedViewTableSet.isEmpty()
-                            && !materializedViewTableSet.equals(queryCommonTableSet)) {
+                            && !containsAll(materializedViewTableSet, queryCommonTableSet)) {
                         continue;
                     }
                     StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext, queryTableSet, ownerGroup,
@@ -587,6 +587,22 @@ public class MaterializedViewUtils {
     }
 
     /**
+     * Checks if the superset contains all of the set bits from the subset.
+     *
+     * @param superset The BitSet expected to contain the bits.
+     * @param subset   The BitSet whose set bits are to be checked.
+     * @return true if all bits set in the subset are also set in the superset, false otherwise.
+     */
+    public static boolean containsAll(BitSet superset, BitSet subset) {
+        // Clone the subset to avoid modifying the original instance.
+        BitSet temp = (BitSet) subset.clone();
+        // Remove all bits from temp that are also present in the superset.
+        // temp.andNot(superset) is equivalent to the operation: temp = temp AND (NOT superset)
+        temp.andNot(superset);
+        return temp.isEmpty();
+    }
+
+    /**
      * Check the query if Contains query operator
      * Such sql as following should return true
      * select * from orders TABLET(10098) because TABLET(10098) should return true
@@ -635,5 +651,24 @@ public class MaterializedViewUtils {
             }
             return false;
         }
+    }
+
+    /**
+     * Check the prefix of two order key list is same from start
+     */
+    public static boolean isPrefixSameFromStart(List<OrderKey> queryShuttledOrderKeys,
+                                                 List<OrderKey> viewShuttledOrderKeys) {
+        if (queryShuttledOrderKeys == null || viewShuttledOrderKeys == null) {
+            return false;
+        }
+        if (queryShuttledOrderKeys.size() > viewShuttledOrderKeys.size()) {
+            return false;
+        }
+        for (int i = 0; i < queryShuttledOrderKeys.size(); i++) {
+            if (!java.util.Objects.equals(queryShuttledOrderKeys.get(i), viewShuttledOrderKeys.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 }

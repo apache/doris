@@ -25,6 +25,7 @@
 #include "jni.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_array.h"
@@ -65,6 +66,7 @@ namespace doris::vectorized {
     M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)            \
     M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)         \
     M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)    \
+    M(PrimitiveType::TYPE_TIMESTAMPTZ, ColumnTimeStampTz, UInt64)  \
     M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
     M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
 
@@ -101,18 +103,7 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     return Status::OK();
 }
 
-Status JniConnector::init(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    // TODO: This logic need to be changed.
-    // See the comment of "predicates" field in JniScanner.java
-
-    // _generate_predicates(colname_to_value_range);
-    // if (_predicates_length != 0 && _predicates != nullptr) {
-    //     int64_t predicates_address = (int64_t)_predicates.get();
-    //     // We can call org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates to parse the
-    //     // serialized predicates in java side.
-    //     _scanner_params.emplace("push_down_predicates", std::to_string(predicates_address));
-    // }
+Status JniConnector::init() {
     return Status::OK();
 }
 
@@ -325,7 +316,8 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     for (int i = 0; i < _column_names.size(); ++i) {
-        auto& column_with_type_and_name = block->get_by_name(_column_names[i]);
+        auto& column_with_type_and_name =
+                block->get_by_position(_col_name_to_block_idx->at(_column_names[i]));
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         RETURN_IF_ERROR(_fill_column(_table_meta, column_ptr, column_type, num_rows));
@@ -483,7 +475,7 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
     RETURN_IF_ERROR(_fill_column(address, value_column, value_type,
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
-    return map.deduplicate_keys();
+    return Status::OK();
 }
 
 Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
@@ -497,18 +489,6 @@ Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColum
         RETURN_IF_ERROR(_fill_column(address, struct_field, field_type, num_rows));
     }
     return Status::OK();
-}
-
-void JniConnector::_generate_predicates(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    if (colname_to_value_range == nullptr) {
-        return;
-    }
-    for (auto& kv : *colname_to_value_range) {
-        const std::string& column_name = kv.first;
-        const ColumnValueRangeType& col_val_range = kv.second;
-        std::visit([&](auto&& range) { _parse_value_range(range, column_name); }, col_val_range);
-    }
 }
 
 std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {

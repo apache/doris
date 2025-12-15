@@ -31,8 +31,11 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TAccessPathType;
+import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TNormalizedPlanNode;
@@ -45,7 +48,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -289,6 +293,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         return conjuncts;
     }
 
+    /**
+     * NOTICE: this function is only used for explain
+     */
     public static Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
@@ -296,7 +303,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             for (int i = 0; i < targetConjuncts.size(); i += 2) {
                 Expr expr = i + 1 < targetConjuncts.size()
                         ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
-                        targetConjuncts.get(i + 1)) : targetConjuncts.get(i);
+                        targetConjuncts.get(i + 1), true) : targetConjuncts.get(i);
                 newTargetConjuncts.add(expr);
             }
             targetConjuncts = newTargetConjuncts;
@@ -428,7 +435,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         return expBuilder.toString();
     }
 
-    private String getplanNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    private String getPlanNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder expBuilder = new StringBuilder();
         expBuilder.append(getNodeExplainString(prefix, detailLevel));
         if (limit != -1) {
@@ -443,7 +450,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
     }
 
     public void getExplainStringMap(TExplainLevel detailLevel, Map<Integer, String> planNodeMap) {
-        planNodeMap.put(id.asInt(), getplanNodeExplainString("", detailLevel));
+        planNodeMap.put(id.asInt(), getPlanNodeExplainString("", detailLevel));
         for (int i = 0; i < children.size(); ++i) {
             children.get(i).getExplainStringMap(detailLevel, planNodeMap);
         }
@@ -821,5 +828,110 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             return false;
         }
         return children.stream().anyMatch(PlanNode::hasSerialScanChildren);
+    }
+
+    protected void printNestedColumns(StringBuilder output, String prefix, TupleDescriptor tupleDesc) {
+        boolean printNestedColumnsHeader = true;
+        for (SlotDescriptor slot : tupleDesc.getSlots()) {
+            String prunedType = null;
+            if (slot.getColumn() != null && !slot.getType().equals(slot.getColumn().getType())) {
+                prunedType = slot.getType().toString();
+            }
+            String displayAllAccessPathsString = null;
+            if (slot.getDisplayAllAccessPaths() != null
+                    && slot.getDisplayAllAccessPaths() != null
+                    && !slot.getDisplayAllAccessPaths().isEmpty()) {
+                if (this instanceof IcebergScanNode) {
+                    displayAllAccessPathsString = mergeIcebergAccessPathsWithId(
+                            slot.getAllAccessPaths(),
+                            slot.getDisplayAllAccessPaths()
+                    );
+                } else {
+                    displayAllAccessPathsString = slot.getDisplayAllAccessPaths()
+                            .stream()
+                            .map(a -> {
+                                if (a.type == TAccessPathType.DATA) {
+                                    return StringUtils.join(a.data_access_path.path, ".");
+                                } else {
+                                    return StringUtils.join(a.meta_access_path.path, ".");
+                                }
+                            })
+                            .collect(Collectors.joining(", "));
+                }
+            }
+            String displayPredicateAccessPathsString = null;
+            if (slot.getDisplayPredicateAccessPaths() != null
+                    && slot.getDisplayPredicateAccessPaths() != null
+                    && !slot.getDisplayPredicateAccessPaths().isEmpty()) {
+                if (this instanceof IcebergScanNode) {
+                    displayPredicateAccessPathsString = mergeIcebergAccessPathsWithId(
+                            slot.getPredicateAccessPaths(),
+                            slot.getDisplayPredicateAccessPaths()
+                    );
+                } else {
+                    displayPredicateAccessPathsString = slot.getPredicateAccessPaths()
+                            .stream()
+                            .map(a -> {
+                                if (a.type == TAccessPathType.DATA) {
+                                    return StringUtils.join(a.data_access_path.path, ".");
+                                } else {
+                                    return StringUtils.join(a.meta_access_path.path, ".");
+                                }
+                            })
+                            .collect(Collectors.joining(", "));
+                }
+            }
+
+
+            if (prunedType == null
+                    && displayAllAccessPathsString == null
+                    && displayPredicateAccessPathsString == null) {
+                continue;
+            }
+
+            if (printNestedColumnsHeader) {
+                output.append(prefix).append("nested columns:\n");
+                printNestedColumnsHeader = false;
+            }
+            output.append(prefix).append("  ").append(slot.getColumn().getName()).append(":\n");
+            output.append(prefix).append("    origin type: ").append(slot.getColumn().getType()).append("\n");
+            if (prunedType != null) {
+                output.append(prefix).append("    pruned type: ").append(prunedType).append("\n");
+            }
+            if (displayAllAccessPathsString != null) {
+                output.append(prefix).append("    all access paths: [")
+                        .append(displayAllAccessPathsString).append("]\n");
+            }
+            if (displayPredicateAccessPathsString != null) {
+                output.append(prefix).append("    predicate access paths: [")
+                        .append(displayPredicateAccessPathsString).append("]\n");
+            }
+        }
+    }
+
+    private String mergeIcebergAccessPathsWithId(
+            List<TColumnAccessPath> accessPaths, List<TColumnAccessPath> displayAccessPaths) {
+        List<String> mergeDisplayAccessPaths = Lists.newArrayList();
+        for (int i = 0; i < displayAccessPaths.size(); i++) {
+            TColumnAccessPath displayAccessPath = displayAccessPaths.get(i);
+            TColumnAccessPath idAccessPath = accessPaths.get(i);
+            List<String> nameAccessPathStrings = displayAccessPath.type == TAccessPathType.DATA
+                    ? displayAccessPath.data_access_path.path : displayAccessPath.meta_access_path.path;
+            List<String> idAccessPathStrings = idAccessPath.type == TAccessPathType.DATA
+                    ? idAccessPath.data_access_path.path : idAccessPath.meta_access_path.path;
+
+            List<String> mergedPath = new ArrayList<>();
+            for (int j = 0; j < idAccessPathStrings.size(); j++) {
+                String name = nameAccessPathStrings.get(j);
+                String id = idAccessPathStrings.get(j);
+                if (name.equals(id)) {
+                    mergedPath.add(name);
+                } else {
+                    mergedPath.add(name + "(" + id + ")");
+                }
+            }
+            mergeDisplayAccessPaths.add(StringUtils.join(mergedPath, "."));
+        }
+        return StringUtils.join(mergeDisplayAccessPaths, ", ");
     }
 }

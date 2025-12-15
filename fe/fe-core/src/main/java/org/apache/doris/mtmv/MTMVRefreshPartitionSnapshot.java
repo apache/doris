@@ -26,7 +26,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -34,21 +34,22 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
 public class MTMVRefreshPartitionSnapshot {
     private static final Logger LOG = LogManager.getLogger(MTMV.class);
     // old version only support one pct table
     @Deprecated
     @SerializedName("p")
-    private Map<String, MTMVSnapshotIf> partitions;
+    private ConcurrentMap<String, MTMVSnapshotIf> partitions;
     @SerializedName("pcts")
-    private Map<BaseTableInfo, Map<String, MTMVSnapshotIf>> pcts;
+    private ConcurrentMap<BaseTableInfo, Map<String, MTMVSnapshotIf>> pcts;
     // old version only persist table id, we need `BaseTableInfo`, `tables` only for compatible old version
     @SerializedName("t")
     @Deprecated
-    private Map<Long, MTMVSnapshotIf> tables;
+    private ConcurrentMap<Long, MTMVSnapshotIf> tables;
     @SerializedName("ti")
-    private Map<BaseTableInfo, MTMVSnapshotIf> tablesInfo;
+    private ConcurrentMap<BaseTableInfo, MTMVSnapshotIf> tablesInfo;
 
     public MTMVRefreshPartitionSnapshot() {
         this.partitions = Maps.newConcurrentMap();

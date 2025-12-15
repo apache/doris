@@ -70,13 +70,15 @@ std::string cast_to_string(T value, int scale) {
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
         return vectorized::int128_to_string(value);
     } else if constexpr (primitive_type == TYPE_DATETIMEV2) {
-        DateV2Value<DateTimeV2ValueType> datetimev2_val =
-                static_cast<DateV2Value<DateTimeV2ValueType>>(value);
+        auto datetimev2_val = static_cast<DateV2Value<DateTimeV2ValueType>>(value);
         char buf[30];
         datetimev2_val.to_string(buf);
         std::stringstream ss;
         ss << buf;
         return ss.str();
+    } else if constexpr (primitive_type == TYPE_TIMESTAMPTZ) {
+        auto timestamptz_val = static_cast<TimestampTzValue>(value);
+        return timestamptz_val.to_string(cctz::utc_time_zone(), scale);
     } else if constexpr (primitive_type == TYPE_TIMEV2) {
         return TimeValue::to_string(value, scale);
     } else if constexpr (primitive_type == TYPE_IPV4) {
@@ -101,17 +103,7 @@ public:
 
     ColumnValueRange();
 
-    ColumnValueRange(std::string col_name);
-
-    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
-                     bool contain_null);
-
-    ColumnValueRange(std::string col_name, int precision, int scale);
-
     ColumnValueRange(std::string col_name, bool is_nullable_col, int precision, int scale);
-
-    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
-                     bool is_nullable_col, bool contain_null, int precision, int scale);
 
     // should add fixed value before add range
     Status add_fixed_value(const CppType& value);
@@ -131,8 +123,6 @@ public:
 
     bool is_range_value_convertible() const;
 
-    void convert_to_fixed_value();
-
     void convert_to_range_value();
 
     bool convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
@@ -144,8 +134,6 @@ public:
                                 bool& end_include);
 
     constexpr bool is_reject_split_type() const { return _is_reject_split_type; }
-
-    bool has_intersection(ColumnValueRange<primitive_type>& range);
 
     void intersection(ColumnValueRange<primitive_type>& range);
 
@@ -172,11 +160,7 @@ public:
 
     bool is_low_value_minimum() const { return Compare::equal(_low_value, TYPE_MIN); }
 
-    bool is_low_value_maximum() const { return Compare::equal(_low_value, TYPE_MAX); }
-
     bool is_high_value_maximum() const { return Compare::equal(_high_value, TYPE_MAX); }
-
-    bool is_high_value_minimum() const { return Compare::equal(_high_value, TYPE_MIN); }
 
     bool is_begin_include() const { return _low_op == FILTER_LARGER_OR_EQUAL; }
 
@@ -186,94 +170,9 @@ public:
 
     const std::string& column_name() const { return _column_name; }
 
-    bool is_nullable_col() const { return _is_nullable_col; }
-
     bool contain_null() const { return _contain_null; }
 
     size_t get_fixed_value_size() const { return _fixed_values.size(); }
-
-    void to_olap_filter(std::vector<FilterOlapParam<TCondition>>& filters) {
-        if (is_fixed_value_range()) {
-            // 1. convert to in filter condition
-            to_in_condition(filters, true);
-        } else if (Compare::less(_low_value, _high_value)) {
-            // 2. convert to min max filter condition
-            TCondition null_pred;
-            if (Compare::equal(TYPE_MAX, _high_value) && _high_op == FILTER_LESS_OR_EQUAL &&
-                Compare::equal(TYPE_MIN, _low_value) && _low_op == FILTER_LARGER_OR_EQUAL &&
-                _is_nullable_col && !contain_null()) {
-                null_pred.__set_column_name(_column_name);
-                null_pred.__set_condition_op("is");
-                null_pred.condition_values.emplace_back("not null");
-            }
-
-            if (null_pred.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, null_pred, _runtime_filter_id,
-                                     _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
-                return;
-            }
-
-            TCondition low;
-            if (Compare::not_equal(TYPE_MIN, _low_value) || FILTER_LARGER_OR_EQUAL != _low_op) {
-                low.__set_column_name(_column_name);
-                low.__set_condition_op((_low_op == FILTER_LARGER_OR_EQUAL ? ">=" : ">>"));
-                low.condition_values.push_back(
-                        cast_to_string<primitive_type, CppType>(_low_value, _scale));
-            }
-
-            if (low.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, low, _runtime_filter_id,
-                                     _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
-            }
-
-            TCondition high;
-            if (Compare::not_equal(TYPE_MAX, _high_value) || FILTER_LESS_OR_EQUAL != _high_op) {
-                high.__set_column_name(_column_name);
-                high.__set_condition_op((_high_op == FILTER_LESS_OR_EQUAL ? "<=" : "<<"));
-                high.condition_values.push_back(
-                        cast_to_string<primitive_type, CppType>(_high_value, _scale));
-            }
-
-            if (high.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, high, _runtime_filter_id,
-                                     _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
-            }
-        } else {
-            // 3. convert to is null and is not null filter condition
-            TCondition null_pred;
-            if (Compare::equal(TYPE_MAX, _low_value) && Compare::equal(TYPE_MIN, _high_value) &&
-                _is_nullable_col && contain_null()) {
-                null_pred.__set_column_name(_column_name);
-                null_pred.__set_condition_op("is");
-                null_pred.condition_values.emplace_back("null");
-            }
-
-            if (null_pred.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, null_pred, _runtime_filter_id,
-                                     _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
-            }
-        }
-    }
-
-    void to_in_condition(std::vector<FilterOlapParam<TCondition>>& filters, bool is_in = true) {
-        TCondition condition;
-        condition.__set_column_name(_column_name);
-        condition.__set_condition_op(is_in ? "*=" : "!*=");
-
-        for (const auto& value : _fixed_values) {
-            condition.condition_values.push_back(
-                    cast_to_string<primitive_type, CppType>(value, _scale));
-        }
-
-        if (condition.condition_values.size() != 0) {
-            filters.emplace_back(_column_name, condition, _runtime_filter_id,
-                                 _predicate_filtered_rows_counter, _predicate_input_rows_counter);
-        }
-    }
 
     void set_whole_value_range() {
         _fixed_values.clear();
@@ -311,7 +210,8 @@ public:
     void attach_profile_counter(
             int runtime_filter_id,
             std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter) {
+            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter,
+            std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter) {
         DCHECK(predicate_filtered_rows_counter != nullptr);
         DCHECK(predicate_input_rows_counter != nullptr);
 
@@ -323,42 +223,47 @@ public:
         if (predicate_input_rows_counter != nullptr) {
             _predicate_input_rows_counter = predicate_input_rows_counter;
         }
+        if (predicate_always_true_rows_counter != nullptr) {
+            _predicate_always_true_rows_counter = predicate_always_true_rows_counter;
+        }
     }
 
     int precision() const { return _precision; }
 
     int scale() const { return _scale; }
 
-    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
+    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range,
+                                      const CppType* value) {
         static_cast<void>(range.add_fixed_value(*value));
     }
 
-    static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
+    static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range,
+                                         const CppType* value) {
         range.remove_fixed_value(*value);
     }
 
     static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                                CppType* value) {
+                                const CppType* value) {
         static_cast<void>(range.add_range(op, *value));
     }
 
     static ColumnValueRange<primitive_type> create_empty_column_value_range(bool is_nullable_col,
                                                                             int precision,
                                                                             int scale) {
-        return ColumnValueRange<primitive_type>::create_empty_column_value_range(
-                "", is_nullable_col, precision, scale);
-    }
-
-    static ColumnValueRange<primitive_type> create_empty_column_value_range(
-            const std::string& col_name, bool is_nullable_col, int precision, int scale) {
-        return ColumnValueRange<primitive_type>(col_name, TYPE_MAX, TYPE_MIN, is_nullable_col,
-                                                false, precision, scale);
+        return ColumnValueRange<primitive_type>("", TYPE_MAX, TYPE_MIN, is_nullable_col, false,
+                                                precision, scale);
     }
 
 protected:
     bool is_in_range(const CppType& value);
 
 private:
+    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
+                     bool contain_null);
+
+    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
+                     bool is_nullable_col, bool contain_null, int precision, int scale);
+
     const static CppType TYPE_MIN; // Column type's min value
     const static CppType TYPE_MAX; // Column type's max value
 
@@ -387,6 +292,7 @@ private:
             primitive_type == PrimitiveType::TYPE_BOOLEAN ||
             primitive_type == PrimitiveType::TYPE_DATETIME ||
             primitive_type == PrimitiveType::TYPE_DATETIMEV2 ||
+            primitive_type == PrimitiveType::TYPE_TIMESTAMPTZ ||
             primitive_type == PrimitiveType::TYPE_DECIMAL256;
 
     int _runtime_filter_id = -1;
@@ -394,6 +300,8 @@ private:
     std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
     std::shared_ptr<RuntimeProfile::Counter> _predicate_input_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    std::shared_ptr<RuntimeProfile::Counter> _predicate_always_true_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 };
 template <>
@@ -413,6 +321,7 @@ public:
               _end_include(true),
               _is_convertible(true) {}
 
+    // TODO(gabriel): use ColumnPredicate to extend scan key
     template <PrimitiveType primitive_type>
     Status extend_scan_key(ColumnValueRange<primitive_type>& range, int32_t max_scan_key_num,
                            bool* exact_value, bool* eos, bool* should_break);
@@ -444,22 +353,7 @@ public:
         return _begin_scan_keys.size();
     }
 
-    void set_begin_include(bool begin_include) { _begin_include = begin_include; }
-
-    bool begin_include() const { return _begin_include; }
-
-    void set_end_include(bool end_include) { _end_include = end_include; }
-
-    bool end_include() const { return _end_include; }
-
     void set_is_convertible(bool is_convertible) { _is_convertible = is_convertible; }
-
-    // now, only use in UT
-    static std::string to_print_key(const OlapTuple& scan_keys) {
-        std::stringstream sstream;
-        sstream << scan_keys;
-        return sstream.str();
-    }
 
 private:
     std::vector<OlapTuple> _begin_scan_keys;
@@ -477,10 +371,10 @@ using ColumnValueRangeType = std::variant<
         ColumnValueRange<TYPE_IPV6>, ColumnValueRange<TYPE_CHAR>, ColumnValueRange<TYPE_VARCHAR>,
         ColumnValueRange<TYPE_STRING>, ColumnValueRange<TYPE_DATE>, ColumnValueRange<TYPE_DATEV2>,
         ColumnValueRange<TYPE_DATETIME>, ColumnValueRange<TYPE_DATETIMEV2>,
-        ColumnValueRange<TYPE_DECIMALV2>, ColumnValueRange<TYPE_BOOLEAN>,
-        ColumnValueRange<TYPE_HLL>, ColumnValueRange<TYPE_DECIMAL32>,
-        ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128I>,
-        ColumnValueRange<TYPE_DECIMAL256>>;
+        ColumnValueRange<TYPE_TIMESTAMPTZ>, ColumnValueRange<TYPE_DECIMALV2>,
+        ColumnValueRange<TYPE_BOOLEAN>, ColumnValueRange<TYPE_HLL>,
+        ColumnValueRange<TYPE_DECIMAL32>, ColumnValueRange<TYPE_DECIMAL64>,
+        ColumnValueRange<TYPE_DECIMAL128I>, ColumnValueRange<TYPE_DECIMAL256>>;
 
 template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType
@@ -494,10 +388,6 @@ const typename ColumnValueRange<primitive_type>::CppType
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange()
         : _column_type(INVALID_TYPE), _precision(-1), _scale(-1) {}
-
-template <PrimitiveType primitive_type>
-ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name)
-        : ColumnValueRange(std::move(col_name), TYPE_MIN, TYPE_MAX, true) {}
 
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const CppType& min,
@@ -527,10 +417,6 @@ ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const C
           _contain_null(is_nullable_col && contain_null),
           _precision(precision),
           _scale(scale) {}
-
-template <PrimitiveType primitive_type>
-ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, int precision, int scale)
-        : ColumnValueRange(std::move(col_name), TYPE_MIN, TYPE_MAX, true, true, precision, scale) {}
 
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, bool is_nullable_col,
@@ -755,7 +641,7 @@ void ColumnValueRange<primitive_type>::convert_to_range_value() {
 }
 
 template <PrimitiveType primitive_type>
-Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, CppType value) {
+Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType value) {
     if (INVALID_TYPE == _column_type) {
         return Status::InternalError("AddRange failed, Invalid type");
     }
@@ -961,77 +847,6 @@ void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_t
 }
 
 template <PrimitiveType primitive_type>
-bool ColumnValueRange<primitive_type>::has_intersection(ColumnValueRange<primitive_type>& range) {
-    // 1. return false if column type not match
-    if (_column_type != range._column_type) {
-        return false;
-    }
-
-    // 2. return false if any range is empty
-    if (is_empty_value_range() || range.is_empty_value_range()) {
-        return false;
-    }
-
-    // 3.1 return false if two int fixedRange has no intersection
-    if (is_fixed_value_range() && range.is_fixed_value_range()) {
-        SetType result_values;
-        set_intersection(_fixed_values.begin(), _fixed_values.end(), range._fixed_values.begin(),
-                         range._fixed_values.end(),
-                         std::inserter(result_values, result_values.begin()));
-
-        if (result_values.size() != 0) {
-            return true;
-        } else {
-            return false;
-        }
-    } // 3.2
-    else if (is_fixed_value_range() && !range.is_fixed_value_range()) {
-        IteratorType iter = _fixed_values.begin();
-
-        while (iter != _fixed_values.end()) {
-            if (range.is_in_range(*iter)) {
-                return true;
-            }
-
-            ++iter;
-        }
-
-        return false;
-    } else if (!is_fixed_value_range() && range.is_fixed_value_range()) {
-        IteratorType iter = range._fixed_values.begin();
-
-        while (iter != range._fixed_values.end()) {
-            if (this->is_in_range(*iter)) {
-                return true;
-            }
-
-            ++iter;
-        }
-
-        return false;
-    } else {
-        if (Compare::greater(_low_value, range._high_value) ||
-            Compare::greater(range._low_value, _high_value)) {
-            return false;
-        } else if (Compare::equal(_low_value, range._high_value)) {
-            if (FILTER_LARGER_OR_EQUAL == _low_op && FILTER_LESS_OR_EQUAL == range._high_op) {
-                return true;
-            } else {
-                return false;
-            }
-        } else if (Compare::equal(range._low_value, _high_value)) {
-            if (FILTER_LARGER_OR_EQUAL == range._low_op && FILTER_LESS_OR_EQUAL == _high_op) {
-                return true;
-            } else {
-                return false;
-            }
-        } else {
-            return true;
-        }
-    }
-}
-
-template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                                      int32_t max_scan_key_num, bool* exact_value, bool* eos,
                                      bool* should_break) {
@@ -1184,11 +999,6 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
 
     return Status::OK();
 }
-
-struct ScanPredicate {
-    TCondition condition;
-    PrimitiveType primitiveType;
-};
 
 #include "common/compile_check_end.h"
 } // namespace doris

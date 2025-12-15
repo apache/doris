@@ -135,6 +135,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         try {
             // TODO refactor this to avoid call legacy planner's function
             long timeout = getTimeout();
+            // TODO: For Insert Into with S3/HDFS TVF, need to get load_to_single_tablet from TVF properties
+            // Currently hardcoded to false, which bypasses the check in OlapTableSink.init()
             olapTableSink.init(ctx.queryId(), txnId, database.getId(),
                     timeout,
                     ctx.getSessionVariable().getSendBatchParallelism(),
@@ -290,15 +292,17 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
             return;
         }
-        StringBuilder sb = new StringBuilder(t.getMessage());
+        String firstErrorMsgPart = "";
+        String urlPart = "";
         if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
-            sb.append(". first_error_msg: ").append(
-                    StringUtils.abbreviate(coordinator.getFirstErrorMsg(), Config.first_error_msg_max_length));
+            firstErrorMsgPart = StringUtils.abbreviate(coordinator.getFirstErrorMsg(),
+                    Config.first_error_msg_max_length);
         }
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
-            sb.append(". url: ").append(coordinator.getTrackingUrl());
+            urlPart = coordinator.getTrackingUrl();
         }
-        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
+        String finalErrorMsg = InsertUtils.getFinalErrorMsg(errMsg, firstErrorMsgPart, urlPart);
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
     }
 
     @Override

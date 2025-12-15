@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
@@ -104,7 +103,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -300,7 +299,11 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitSlotReference(SlotReference slotReference, Statistics context) {
-        return context.findColumnStatistics(slotReference);
+        ColumnStatistic columnStatistic = context.findColumnStatistics(slotReference);
+        if (columnStatistic == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        return columnStatistic;
     }
 
     @Override
@@ -483,11 +486,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitAlias(Alias alias, Statistics context) {
         return alias.child().accept(this, context);
-    }
-
-    @Override
-    public ColumnStatistic visitVirtualReference(VirtualSlotReference virtualSlotReference, Statistics context) {
-        return ColumnStatistic.UNKNOWN;
     }
 
     @Override

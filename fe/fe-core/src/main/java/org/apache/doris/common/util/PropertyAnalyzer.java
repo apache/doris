@@ -209,6 +209,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
     public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
     public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
+    public static final String PROPERTIES_PARTITION_RETENTION_COUNT = "partition.retention_count";
     public static final String PROPERTIES_STORAGE_VAULT_NAME = "storage_vault_name";
     public static final String PROPERTIES_STORAGE_VAULT_ID = "storage_vault_id";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
@@ -617,6 +618,23 @@ public class PropertyAnalyzer {
             }
         }
         return ttlSeconds;
+    }
+
+    public static int analyzePartitionRetentionCount(Map<String, String> properties) throws AnalysisException {
+        int retentionCount = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            String val = properties.get(PROPERTIES_PARTITION_RETENTION_COUNT);
+            properties.remove(PROPERTIES_PARTITION_RETENTION_COUNT);
+            try {
+                retentionCount = Integer.parseInt(val);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("partition.retention_count format error");
+            }
+            if (retentionCount <= 0) {
+                throw new AnalysisException("partition.retention_count should be > 0");
+            }
+        }
+        return retentionCount;
     }
 
     public static int analyzeSchemaVersion(Map<String, String> properties) throws AnalysisException {
@@ -1177,11 +1195,14 @@ public class PropertyAnalyzer {
             return TStorageFormat.V2;
         }
 
-        if (storageFormat.equalsIgnoreCase("v1")) {
+        if (storageFormat.equalsIgnoreCase("V1")) {
             throw new AnalysisException("Storage format V1 has been deprecated since version 0.14, "
                     + "please use V2 instead");
-        } else if (storageFormat.equalsIgnoreCase("v2")) {
+        } else if (storageFormat.equalsIgnoreCase("V2")) {
             return TStorageFormat.V2;
+        } else if (storageFormat.equalsIgnoreCase("V3")) {
+            // V3 (V2 + external column meta feature)
+            return TStorageFormat.V3;
         } else if (storageFormat.equalsIgnoreCase("default")) {
             return TStorageFormat.V2;
         } else {

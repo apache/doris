@@ -77,7 +77,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -147,6 +147,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                         type = Type.DATETIMEV2;
                         break;
                     case DATETIMEV2:
+                    case TIMESTAMPTZ:
                         type = subExpr.getChild(1).getType();
                         break;
                     default:

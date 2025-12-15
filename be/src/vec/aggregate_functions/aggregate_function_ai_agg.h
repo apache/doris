@@ -141,9 +141,14 @@ public:
             _task = task_ref.to_string();
 
             std::string resource_name = resource_name_ref.to_string();
-            const std::map<std::string, TAIResource>& ai_resources = _ctx->get_ai_resources();
-            auto it = ai_resources.find(resource_name);
-            if (it == ai_resources.end()) {
+            const std::shared_ptr<std::map<std::string, TAIResource>>& ai_resources =
+                    _ctx->get_ai_resources();
+            if (!ai_resources) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "AI resources metadata missing in QueryContext");
+            }
+            auto it = ai_resources->find(resource_name);
+            if (it == ai_resources->end()) {
                 throw Exception(ErrorCode::NOT_FOUND, "AI resource not found: " + resource_name);
             }
             _ai_config = it->second;

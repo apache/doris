@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Csc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaySecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
@@ -79,6 +80,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Log10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
@@ -89,6 +91,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ReplaceEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
@@ -106,6 +109,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
@@ -433,6 +437,53 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 new VarcharLiteral("-1 -1:1:1"));
         rewritten = executor.rewrite(daySecondAdd, context);
         Assertions.assertEquals(daySecondAdd, rewritten);
+
+        DayHourAdd dayHourAdd = new DayHourAdd(
+                DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1), 0),
+                new VarcharLiteral("1 1"));
+        rewritten = executor.rewrite(dayHourAdd, context);
+        Assertions.assertEquals(new DateTimeV2Literal("0001-01-02 02:01:01"), rewritten);
+        // fail to fold, because the result is out of range
+        dayHourAdd = new DayHourAdd(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 59, 1), 0),
+                new VarcharLiteral("1 1"));
+        rewritten = executor.rewrite(dayHourAdd, context);
+        Assertions.assertEquals(dayHourAdd, rewritten);
+        dayHourAdd = new DayHourAdd(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 1, 1), 0),
+                new VarcharLiteral("-1 -1"));
+        rewritten = executor.rewrite(dayHourAdd, context);
+        Assertions.assertEquals(dayHourAdd, rewritten);
+
+        MinuteSecondAdd minuteSecondAdd = new MinuteSecondAdd(
+                DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1), 0),
+                new VarcharLiteral("1:1"));
+        rewritten = executor.rewrite(minuteSecondAdd, context);
+        Assertions.assertEquals(new DateTimeV2Literal("0001-01-01 01:02:02"), rewritten);
+        // fail to fold, because the result is out of range
+        minuteSecondAdd = new MinuteSecondAdd(
+                    DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 59, 1), 0),
+                    new VarcharLiteral("3:1"));
+        rewritten = executor.rewrite(minuteSecondAdd, context);
+        Assertions.assertEquals(minuteSecondAdd, rewritten);
+        minuteSecondAdd = new MinuteSecondAdd(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 1, 1), 0),
+                new VarcharLiteral("-2:-1"));
+        rewritten = executor.rewrite(minuteSecondAdd, context);
+        Assertions.assertEquals(minuteSecondAdd, rewritten);
+
+        SecondMicrosecondAdd secondMicrosecondAdd = new SecondMicrosecondAdd(
+                DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1), 6),
+                new VarcharLiteral("1.123456"));
+        rewritten = executor.rewrite(secondMicrosecondAdd, context);
+        Assertions.assertEquals(new DateTimeV2Literal("0001-01-01 01:01:02.123456"), rewritten);
+        // fail to fold, because the result is out of range
+        secondMicrosecondAdd = new SecondMicrosecondAdd(
+                    DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 59, 1), 6),
+                    new VarcharLiteral("59.123456"));
+        rewritten = executor.rewrite(secondMicrosecondAdd, context);
+        Assertions.assertEquals(secondMicrosecondAdd, rewritten);
+        secondMicrosecondAdd = new SecondMicrosecondAdd(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 1, 1), 6),
+                new VarcharLiteral("-600.123456"));
+        rewritten = executor.rewrite(secondMicrosecondAdd, context);
+        Assertions.assertEquals(secondMicrosecondAdd, rewritten);
     }
 
     @Test
@@ -475,6 +526,14 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         FromUnixtime f = new FromUnixtime(BigIntLiteral.of(123456789L), StringLiteral.of("%y %m %d"));
         rewritten = executor.rewrite(f, context);
         Assertions.assertEquals(new VarcharLiteral("73 11 30"), rewritten);
+
+        f = new FromUnixtime(DecimalLiteral.of(new BigDecimal("1761548288.100000")));
+        rewritten = executor.rewrite(f, context);
+        Assertions.assertEquals(new VarcharLiteral("2025-10-27 14:58:08.100000"), rewritten);
+
+        f = new FromUnixtime(DecimalV3Literal.of(new BigDecimal("1761548288.100000")));
+        rewritten = executor.rewrite(f, context);
+        Assertions.assertEquals(new VarcharLiteral("2025-10-27 14:58:08.100000"), rewritten);
 
         UnixTimestamp ut = new UnixTimestamp(StringLiteral.of("2021-11-11"), StringLiteral.of("%Y-%m-%d"));
         rewritten = executor.rewrite(ut, context);

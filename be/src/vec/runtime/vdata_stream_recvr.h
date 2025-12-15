@@ -90,6 +90,9 @@ public:
                      int64_t packet_seq, ::google::protobuf::Closure** done,
                      const int64_t wait_for_worker, const uint64_t time_to_find_recvr);
 
+    Status add_blocks(const PTransmitDataParams* request, ::google::protobuf::Closure** done,
+                      const int64_t wait_for_worker, const uint64_t time_to_find_recvr);
+
     void add_block(Block* block, int sender_id, bool use_move);
     std::string debug_string();
 
@@ -185,6 +188,10 @@ public:
     Status add_block(std::unique_ptr<PBlock> pblock, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,
                      const uint64_t time_to_find_recvr);
+
+    Status add_blocks(const PTransmitDataParams* request, ::google::protobuf::Closure** done,
+                      const int64_t wait_for_worker, const uint64_t time_to_find_recvr);
+
     std::string debug_string();
 
     void add_block(Block* block, bool use_move);
@@ -208,50 +215,6 @@ protected:
     friend class pipeline::ExchangeLocalState;
 
     void set_source_ready(std::lock_guard<std::mutex>&);
-
-    // To record information about several variables in the event of a DCHECK failure.
-    //  DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)
-#ifndef NDEBUG
-    constexpr static auto max_record_number = 128;
-    std::list<size_t> _record_block_queue;
-    std::list<int> _record_num_remaining_senders;
-#else
-#endif
-
-    // only in debug
-    ALWAYS_INLINE inline void _record_debug_info() {
-#ifndef NDEBUG
-        if (_record_block_queue.size() > max_record_number) {
-            _record_block_queue.pop_front();
-        }
-        if (_record_num_remaining_senders.size() > max_record_number) {
-            _record_num_remaining_senders.pop_front();
-        }
-        _record_block_queue.push_back(_block_queue.size());
-        _record_num_remaining_senders.push_back(_num_remaining_senders);
-#else
-#endif
-    }
-
-    ALWAYS_INLINE inline std::string _debug_string_info() {
-#ifndef NDEBUG
-        std::stringstream out;
-        DCHECK_EQ(_record_block_queue.size(), _record_num_remaining_senders.size());
-        out << "record_debug_info [  \n";
-
-        auto it1 = _record_block_queue.begin();
-        auto it2 = _record_num_remaining_senders.begin();
-        for (; it1 != _record_block_queue.end(); it1++, it2++) {
-            out << "( "
-                << "_block_queue size : " << *it1 << " , _num_remaining_senders : " << *it2
-                << " ) \n";
-        }
-        out << "  ]\n";
-        return out.str();
-#else
-#endif
-        return "";
-    }
 
     // Not managed by this class
     VDataStreamRecvr* _recvr = nullptr;
@@ -290,6 +253,25 @@ protected:
         BlockItem(std::unique_ptr<PBlock>&& pblock, size_t block_byte_size)
                 : _block(nullptr), _pblock(std::move(pblock)), _block_byte_size(block_byte_size) {}
 
+        void set_done(google::protobuf::Closure* done) {
+            // The done callback is only set when the queue memory limit is exceeded.
+            _done_cb = done;
+            _wait_timer.start();
+        }
+
+        void call_done(VDataStreamRecvr* recvr) {
+            if (_done_cb != nullptr) {
+                _done_cb->Run();
+                _done_cb = nullptr;
+                _wait_timer.stop();
+                int64_t elapse_time = _wait_timer.elapsed_time();
+                if (recvr->_max_wait_to_process_time->value() < elapse_time) {
+                    recvr->_max_wait_to_process_time->set(elapse_time);
+                }
+                recvr->_buffer_full_total_timer->update(elapse_time);
+            }
+        }
+
     private:
         BlockUPtr _block;
         std::unique_ptr<PBlock> _pblock;
@@ -297,6 +279,9 @@ protected:
         int64_t _deserialize_time = 0;
         int64_t _decompress_time = 0;
         size_t _decompress_bytes = 0;
+
+        google::protobuf::Closure* _done_cb = nullptr;
+        MonotonicStopWatch _wait_timer;
     };
 
     std::list<BlockItem> _block_queue;
@@ -305,7 +290,6 @@ protected:
     std::unordered_set<int> _sender_eos_set;
     // be_number => packet_seq
     std::unordered_map<int, int64_t> _packet_seq_map;
-    std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
 
     std::shared_ptr<pipeline::Dependency> _source_dependency;
     std::shared_ptr<pipeline::Dependency> _local_channel_dependency;

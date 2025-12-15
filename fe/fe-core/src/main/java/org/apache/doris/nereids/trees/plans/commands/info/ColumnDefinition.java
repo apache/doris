@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -38,6 +40,8 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -516,7 +520,11 @@ public class ColumnDefinition {
                 defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
-                generatedColumnsThatReferToThis);
+                generatedColumnsThatReferToThis,
+                generatedColumnDesc.map(desc ->
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
+                        .orElse(null)
+                );
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }
@@ -531,7 +539,10 @@ public class ColumnDefinition {
                 defaultValue.map(DefaultValue::getRawValue).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
-                generatedColumnsThatReferToThis);
+                generatedColumnsThatReferToThis,
+                generatedColumnDesc.map(desc ->
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
+                        .orElse(null));
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }
@@ -651,5 +662,31 @@ public class ColumnDefinition {
                 throw new AnalysisException("Generated columns cannot have on update default value.");
             }
         }
+    }
+
+    /**
+     * nameEquals
+     */
+    public boolean nameEquals(String otherColName, boolean ignorePrefix) {
+        if (CaseSensibility.COLUMN.getCaseSensibility()) {
+            if (!ignorePrefix) {
+                return name.equals(otherColName);
+            } else {
+                return removeNamePrefix(name).equals(removeNamePrefix(otherColName));
+            }
+        } else {
+            if (!ignorePrefix) {
+                return name.equalsIgnoreCase(otherColName);
+            } else {
+                return removeNamePrefix(name).equalsIgnoreCase(removeNamePrefix(otherColName));
+            }
+        }
+    }
+
+    public static String removeNamePrefix(String colName) {
+        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length());
+        }
+        return colName;
     }
 }

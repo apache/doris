@@ -1101,10 +1101,7 @@ TEST(BlockTest, ctor) {
     tuple_builder
             .add_slot(
                     TSlotDescriptorBuilder().type(PrimitiveType::TYPE_INT).nullable(false).build())
-            .add_slot(TSlotDescriptorBuilder()
-                              .type(PrimitiveType::TYPE_STRING)
-                              .set_isMaterialized(false)
-                              .build());
+            .add_slot(TSlotDescriptorBuilder().type(PrimitiveType::TYPE_STRING).build());
     tuple_builder.build(&builder);
 
     auto t_table = builder.desc_tbl();
@@ -1125,26 +1122,6 @@ TEST(BlockTest, ctor) {
     ASSERT_EQ(block.columns(), 2);
     ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_INT);
     ASSERT_TRUE(block.get_by_position(1).type->is_nullable());
-
-    {
-        auto mutable_block =
-                vectorized::MutableBlock::create_unique(tbl->get_tuple_descs(), 10, false);
-        ASSERT_EQ(mutable_block->columns(), 2);
-        auto mutable_block2 = vectorized::MutableBlock::create_unique();
-        mutable_block->swap(*mutable_block2);
-        ASSERT_EQ(mutable_block->columns(), 0);
-        ASSERT_EQ(mutable_block2->columns(), 2);
-    }
-
-    {
-        auto mutable_block =
-                vectorized::MutableBlock::create_unique(tbl->get_tuple_descs(), 10, true);
-        ASSERT_EQ(mutable_block->columns(), 1);
-        auto mutable_block2 = vectorized::MutableBlock::create_unique();
-        mutable_block->swap(*mutable_block2);
-        ASSERT_EQ(mutable_block->columns(), 0);
-        ASSERT_EQ(mutable_block2->columns(), 1);
-    }
 }
 
 TEST(BlockTest, insert_erase) {
@@ -1175,39 +1152,20 @@ TEST(BlockTest, insert_erase) {
     block.erase_tail(0);
     ASSERT_EQ(block.columns(), 0);
 
-    EXPECT_ANY_THROW(block.erase("column"));
     column_with_name =
             vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({});
     block.insert(0, column_with_name);
-    EXPECT_NO_THROW(block.erase("column"));
-    ASSERT_EQ(block.columns(), 0);
+    ASSERT_EQ(block.columns(), 1);
 
-    EXPECT_ANY_THROW(block.safe_get_by_position(0));
-
-    ASSERT_EQ(block.try_get_by_name("column"), nullptr);
-    EXPECT_ANY_THROW(block.get_by_name("column"));
-    EXPECT_ANY_THROW(block.get_position_by_name("column"));
     block.insert(0, column_with_name);
 
-    EXPECT_NO_THROW(auto item = block.get_by_name("column"));
-    ASSERT_NE(block.try_get_by_name("column"), nullptr);
     EXPECT_EQ(block.get_position_by_name("column"), 0);
-
-    block.insert({nullptr, nullptr, BeConsts::BLOCK_TEMP_COLUMN_PREFIX});
-    EXPECT_NO_THROW(auto item = block.get_by_name(BeConsts::BLOCK_TEMP_COLUMN_PREFIX));
-
-    block.erase_tmp_columns();
-    ASSERT_EQ(block.try_get_by_name(BeConsts::BLOCK_TEMP_COLUMN_PREFIX), nullptr);
 
     {
         // test const block
         const auto const_block = block;
-        EXPECT_EQ(const_block.try_get_by_name("column2"), nullptr);
-        EXPECT_ANY_THROW(const_block.get_by_name("column2"));
-        EXPECT_ANY_THROW(const_block.get_position_by_name("column2"));
+        EXPECT_EQ(const_block.get_position_by_name("column2"), -1);
 
-        EXPECT_NO_THROW(auto item = const_block.get_by_name("column"));
-        ASSERT_NE(const_block.try_get_by_name("column"), nullptr);
         EXPECT_EQ(const_block.get_position_by_name("column"), 0);
     }
 
@@ -1216,14 +1174,7 @@ TEST(BlockTest, insert_erase) {
 
     block.insert({nullptr, std::make_shared<vectorized::DataTypeString>(), "col2"});
 
-    vectorized::MutableBlock mutable_block(&block);
-    mutable_block.erase("col1");
-    ASSERT_EQ(mutable_block.columns(), 2);
-
-    EXPECT_ANY_THROW(mutable_block.erase("col1"));
-    ASSERT_EQ(mutable_block.columns(), 2);
-    mutable_block.erase("col2");
-    ASSERT_EQ(mutable_block.columns(), 1);
+    ASSERT_EQ(block.columns(), 3);
 }
 
 TEST(BlockTest, check_number_of_rows) {
@@ -1402,8 +1353,6 @@ TEST(BlockTest, others) {
 
     mutable_block.clear_column_data();
     ASSERT_EQ(mutable_block.get_column_by_position(0)->size(), 0);
-    ASSERT_TRUE(mutable_block.has("column"));
-    ASSERT_EQ(mutable_block.get_position_by_name("column"), 0);
 
     auto dumped_names = mutable_block.dump_names();
     ASSERT_TRUE(dumped_names.find("column") != std::string::npos);

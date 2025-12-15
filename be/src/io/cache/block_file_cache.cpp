@@ -21,6 +21,7 @@
 #include "io/cache/block_file_cache.h"
 
 #include <cstdio>
+#include <exception>
 #include <fstream>
 #include <unordered_set>
 
@@ -47,6 +48,7 @@
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/mem_file_cache_storage.h"
 #include "util/runtime_profile.h"
+#include "util/stack_util.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/time.h"
@@ -54,6 +56,85 @@
 #include "vec/common/uint128.h"
 namespace doris::io {
 #include "common/compile_check_begin.h"
+
+// Insert a block pointer into one shard while swallowing allocation failures.
+bool NeedUpdateLRUBlocks::insert(FileBlockSPtr block) {
+    if (!block) {
+        return false;
+    }
+    try {
+        auto* raw_ptr = block.get();
+        auto idx = shard_index(raw_ptr);
+        auto& shard = _shards[idx];
+        std::lock_guard lock(shard.mutex);
+        auto [_, inserted] = shard.entries.emplace(raw_ptr, std::move(block));
+        if (inserted) {
+            _size.fetch_add(1, std::memory_order_relaxed);
+        }
+        return inserted;
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to enqueue block for LRU update: " << e.what();
+    } catch (...) {
+        LOG(WARNING) << "Failed to enqueue block for LRU update: unknown error";
+    }
+    return false;
+}
+
+// Drain up to `limit` unique blocks to the caller, keeping the structure consistent on failures.
+size_t NeedUpdateLRUBlocks::drain(size_t limit, std::vector<FileBlockSPtr>* output) {
+    if (limit == 0 || output == nullptr) {
+        return 0;
+    }
+    size_t drained = 0;
+    try {
+        output->reserve(output->size() + std::min(limit, size()));
+        for (auto& shard : _shards) {
+            if (drained >= limit) {
+                break;
+            }
+            std::lock_guard lock(shard.mutex);
+            auto it = shard.entries.begin();
+            size_t shard_drained = 0;
+            while (it != shard.entries.end() && drained + shard_drained < limit) {
+                output->emplace_back(std::move(it->second));
+                it = shard.entries.erase(it);
+                ++shard_drained;
+            }
+            if (shard_drained > 0) {
+                _size.fetch_sub(shard_drained, std::memory_order_relaxed);
+                drained += shard_drained;
+            }
+        }
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to drain LRU update blocks: " << e.what();
+    } catch (...) {
+        LOG(WARNING) << "Failed to drain LRU update blocks: unknown error";
+    }
+    return drained;
+}
+
+// Remove every pending block, guarding against unexpected exceptions.
+void NeedUpdateLRUBlocks::clear() {
+    try {
+        for (auto& shard : _shards) {
+            std::lock_guard lock(shard.mutex);
+            if (!shard.entries.empty()) {
+                auto removed = shard.entries.size();
+                shard.entries.clear();
+                _size.fetch_sub(removed, std::memory_order_relaxed);
+            }
+        }
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to clear LRU update blocks: " << e.what();
+    } catch (...) {
+        LOG(WARNING) << "Failed to clear LRU update blocks: unknown error";
+    }
+}
+
+size_t NeedUpdateLRUBlocks::shard_index(FileBlock* ptr) const {
+    DCHECK(ptr != nullptr);
+    return std::hash<FileBlock*> {}(ptr)&kShardMask;
+}
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
@@ -626,11 +707,8 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
 }
 
 void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
-    bool ret = _need_update_lru_blocks.enqueue(block);
-    if (ret) [[likely]] {
-        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size_approx();
-    } else {
-        LOG_WARNING("Failed to push FileBlockSPtr to _need_update_lru_blocks");
+    if (_need_update_lru_blocks.insert(std::move(block))) {
+        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
     }
 }
 
@@ -922,6 +1000,9 @@ size_t BlockFileCache::try_release() {
         std::lock_guard lc(cell->file_block->_mutex);
         remove_size += file_block->range().size();
         remove(file_block, cache_lock, lc);
+        VLOG_DEBUG << "try_release " << _cache_base_path
+                   << " hash=" << file_block->get_hash_value().to_string()
+                   << " offset=" << file_block->offset();
     }
     *_evict_by_try_release << remove_size;
     LOG(INFO) << "Released " << trash.size() << " blocks in file cache " << _cache_base_path;
@@ -961,12 +1042,16 @@ const LRUQueue& BlockFileCache::get_queue(FileCacheType type) const {
 }
 
 void BlockFileCache::remove_file_blocks(std::vector<FileBlockCell*>& to_evict,
-                                        std::lock_guard<std::mutex>& cache_lock, bool sync) {
+                                        std::lock_guard<std::mutex>& cache_lock, bool sync,
+                                        std::string& reason) {
     auto remove_file_block_if = [&](FileBlockCell* cell) {
         FileBlockSPtr file_block = cell->file_block;
         if (file_block) {
             std::lock_guard block_lock(file_block->_mutex);
             remove(file_block, cache_lock, block_lock, sync);
+            VLOG_DEBUG << "remove_file_blocks"
+                       << " hash=" << file_block->get_hash_value().to_string()
+                       << " offset=" << file_block->offset() << " reason=" << reason;
         }
     };
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
@@ -1228,6 +1313,7 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
 // remove specific cache synchronously, for critical operations
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
+    std::string reason = "remove_if_cached";
     SCOPED_CACHE_LOCK(_mutex, this);
     bool is_ttl_file = remove_if_ttl_file_blocks(file_key, true, cache_lock, true);
     if (!is_ttl_file) {
@@ -1242,7 +1328,7 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
                 }
             }
         }
-        remove_file_blocks(to_remove, cache_lock, true);
+        remove_file_blocks(to_remove, cache_lock, true, reason);
     }
 }
 
@@ -1250,6 +1336,7 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
 // cache meta is deleted synchronously if not in use, and the block file is deleted asynchronously
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
+    std::string reason = "remove_if_cached_async";
     SCOPED_CACHE_LOCK(_mutex, this);
     bool is_ttl_file = remove_if_ttl_file_blocks(file_key, true, cache_lock, /*sync*/ false);
     if (!is_ttl_file) {
@@ -1266,7 +1353,7 @@ void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
                 }
             }
         }
-        remove_file_blocks(to_remove, cache_lock, false);
+        remove_file_blocks(to_remove, cache_lock, false, reason);
     }
 }
 
@@ -1357,7 +1444,9 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
         *(_evict_by_time_metrics_matrix[cache_type][cur_type]) << remove_size_per_type;
     }
     bool is_sync_removal = !evict_in_advance;
-    remove_file_blocks(to_evict, cache_lock, is_sync_removal);
+    std::string reason = std::string("try_reserve_by_time ") +
+                         " evict_in_advance=" + (evict_in_advance ? "true" : "false");
+    remove_file_blocks(to_evict, cache_lock, is_sync_removal, reason);
 
     return !is_overflow(removed_size, size, cur_cache_size, evict_in_advance);
 }
@@ -1400,7 +1489,9 @@ bool BlockFileCache::try_reserve_from_other_queue_by_size(
         *(_evict_by_size_metrics_matrix[cache_type][cur_type]) << cur_removed_size;
     }
     bool is_sync_removal = !evict_in_advance;
-    remove_file_blocks(to_evict, cache_lock, is_sync_removal);
+    std::string reason = std::string("try_reserve_by_size") +
+                         " evict_in_advance=" + (evict_in_advance ? "true" : "false");
+    remove_file_blocks(to_evict, cache_lock, is_sync_removal, reason);
     return !is_overflow(removed_size, size, cur_cache_size, evict_in_advance);
 }
 
@@ -1447,7 +1538,10 @@ bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
         find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock,
                               cur_removed_size, evict_in_advance);
         bool is_sync_removal = !evict_in_advance;
-        remove_file_blocks(to_evict, cache_lock, is_sync_removal);
+        std::string reason = std::string("try_reserve for cache type ") +
+                             cache_type_to_string(context.cache_type) +
+                             " evict_in_advance=" + (evict_in_advance ? "true" : "false");
+        remove_file_blocks(to_evict, cache_lock, is_sync_removal, reason);
         *(_evict_by_self_lru_metrics_matrix[context.cache_type]) << cur_removed_size;
 
         if (is_overflow(removed_size, size, cur_cache_size, evict_in_advance)) {
@@ -1483,6 +1577,11 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     *_queue_evict_size_metrics[static_cast<int>(file_block->cache_type())]
             << file_block->range().size();
     *_total_evict_size_metrics << file_block->range().size();
+
+    VLOG_DEBUG << "Removing file block from cache. hash: " << hash.to_string()
+               << ", offset: " << offset << ", size: " << file_block->range().size()
+               << ", type: " << cache_type_to_string(type);
+
     if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
         FileCacheKey key;
         key.hash = hash;
@@ -2167,8 +2266,7 @@ void BlockFileCache::run_background_evict_in_advance() {
 
 void BlockFileCache::run_background_block_lru_update() {
     Thread::set_self_name("run_background_block_lru_update");
-    FileBlockSPtr block;
-    size_t batch_count = 0;
+    std::vector<FileBlockSPtr> batch;
     while (!_close) {
         int64_t interval_ms = config::file_cache_background_block_lru_update_interval_ms;
         size_t batch_limit =
@@ -2181,18 +2279,24 @@ void BlockFileCache::run_background_block_lru_update() {
             }
         }
 
+        batch.clear();
+        batch.reserve(batch_limit);
+        size_t drained = _need_update_lru_blocks.drain(batch_limit, &batch);
+        if (drained == 0) {
+            *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
+            continue;
+        }
+
         int64_t duration_ns = 0;
         {
             SCOPED_CACHE_LOCK(_mutex, this);
             SCOPED_RAW_TIMER(&duration_ns);
-            while (batch_count < batch_limit && _need_update_lru_blocks.try_dequeue(block)) {
+            for (auto& block : batch) {
                 update_block_lru(block, cache_lock);
-                batch_count++;
             }
         }
         *_update_lru_blocks_latency_us << (duration_ns / 1000);
-        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size_approx();
-        batch_count = 0;
+        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
     }
 }
 
@@ -2327,16 +2431,15 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
     if (index_queue_size != 0) {
         collect_eliminate_fragments(get_queue(FileCacheType::INDEX));
     }
-    remove_file_blocks(to_evict, cache_lock, true);
+    std::string reason = "async load";
+    remove_file_blocks(to_evict, cache_lock, true, reason);
 
     return !_disk_resource_limit_mode || removed_size >= size;
 }
 
 void BlockFileCache::clear_need_update_lru_blocks() {
-    std::vector<FileBlockSPtr> buffer;
-    buffer.reserve(1024);
-    while (_need_update_lru_blocks.try_dequeue_bulk(buffer.data(), buffer.capacity())) {
-    }
+    _need_update_lru_blocks.clear();
+    *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
 }
 
 std::string BlockFileCache::clear_file_cache_directly() {

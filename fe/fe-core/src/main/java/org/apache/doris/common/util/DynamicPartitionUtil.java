@@ -515,9 +515,10 @@ public class DynamicPartitionUtil {
     }
 
     public static void registerOrRemoveDynamicPartitionTable(long dbId, OlapTable olapTable, boolean isReplay) {
-        if (olapTable.getTableProperty() != null
-                && olapTable.getTableProperty().getDynamicPartitionProperty() != null) {
-            if (olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+        if (olapTable.getTableProperty() != null) {
+            if (olapTable.getTableProperty().getDynamicPartitionProperty() != null
+                    && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()
+                    || olapTable.getPartitionRetentionCount() > 0) {
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .registerDynamicPartitionTable(dbId, olapTable.getId());
             } else {
@@ -785,7 +786,8 @@ public class DynamicPartitionUtil {
         if (column.getDataType().equals(PrimitiveType.DATE) || column.getDataType().equals(PrimitiveType.DATEV2)) {
             return DATE_FORMAT;
         } else if (column.getDataType().equals(PrimitiveType.DATETIME)
-                || column.getDataType().equals(PrimitiveType.DATETIMEV2)) {
+                || column.getDataType().equals(PrimitiveType.DATETIMEV2)
+                || column.getDataType().equals(PrimitiveType.TIMESTAMPTZ)) {
             return DATETIME_FORMAT;
         } else if (PrimitiveType.getIntegerTypes().contains(column.getDataType())) {
             // TODO: For Integer Type, only support format it as yyyyMMdd now
@@ -827,7 +829,6 @@ public class DynamicPartitionUtil {
     }
 
     // return the partition range date string formatted as yyyy-MM-dd[ HH:mm::ss]
-    // add support: HOUR by caoyang10
     public static String getPartitionRangeString(DynamicPartitionProperty property, ZonedDateTime current,
                                                  int offset, String format) {
         String timeUnit = property.getTimeUnit();

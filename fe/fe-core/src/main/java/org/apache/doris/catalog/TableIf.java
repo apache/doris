@@ -437,6 +437,8 @@ public interface TableIf {
                     return "iceberg";
                 case DICTIONARY:
                     return "dictionary";
+                case DORIS_EXTERNAL_TABLE:
+                    return "External_Doris";
                 default:
                     return null;
             }

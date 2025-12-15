@@ -70,23 +70,51 @@ JdbcConnector::~JdbcConnector() {
 
 Status JdbcConnector::close(Status /*unused*/) {
     SCOPED_RAW_TIMER(&_jdbc_statistic._connector_close_timer);
-    _closed = true;
-    if (!_is_open) {
+    if (_closed) {
         return Status::OK();
     }
-    if (_is_in_transaction) {
-        RETURN_IF_ERROR(abort_trans());
+    if (!_is_open) {
+        _closed = true;
+        return Status::OK();
     }
+
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    Status status = JniUtil::GetJNIEnv(&env);
+    if (!status.ok() || env == nullptr) {
+        LOG(WARNING) << "Failed to get JNIEnv in close(): " << status.to_string();
+        _closed = true;
+        return status;
+    }
+
+    // Try to abort transaction and call Java close(), but don't block cleanup
+    if (_is_in_transaction) {
+        Status abort_status = abort_trans();
+        if (!abort_status.ok()) {
+            LOG(WARNING) << "Failed to abort transaction: " << abort_status.to_string();
+        }
+    }
+
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
-    RETURN_ERROR_IF_EXC(env);
-    env->DeleteGlobalRef(_executor_factory_clazz);
-    RETURN_ERROR_IF_EXC(env);
-    env->DeleteGlobalRef(_executor_clazz);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    env->DeleteGlobalRef(_executor_obj);
-    RETURN_ERROR_IF_EXC(env);
+    if (env->ExceptionCheck()) {
+        LOG(WARNING) << "Java close() failed: " << JniUtil::GetJniExceptionMsg(env).to_string();
+        env->ExceptionClear();
+    }
+
+    // Always delete Global References to allow Java GC
+    if (_executor_factory_clazz != nullptr) {
+        env->DeleteGlobalRef(_executor_factory_clazz);
+        _executor_factory_clazz = nullptr;
+    }
+    if (_executor_clazz != nullptr) {
+        env->DeleteGlobalRef(_executor_clazz);
+        _executor_clazz = nullptr;
+    }
+    if (_executor_obj != nullptr) {
+        env->DeleteGlobalRef(_executor_obj);
+        _executor_obj = nullptr;
+    }
+
+    _closed = true;
     return Status::OK();
 }
 
@@ -204,12 +232,7 @@ Status JdbcConnector::query() {
         return Status::InternalError("Query before open of JdbcConnector.");
     }
     // check materialize num equal
-    int materialize_num = 0;
-    for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
-        if (_tuple_desc->slots()[i]->is_materialized()) {
-            materialize_num++;
-        }
-    }
+    auto materialize_num = _tuple_desc->slots().size();
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
@@ -423,30 +446,27 @@ Status JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colum
 
     for (int i = 0; i < column_size; ++i) {
         auto* slot = _tuple_desc->slots()[i];
-        if (slot->is_materialized()) {
-            auto type = slot->type();
-            // Record if column is nullable
-            columns_nullable << (slot->is_nullable() ? "true" : "false") << ",";
-            // Check column type and replace accordingly
-            std::string replace_type = "not_replace";
-            if (type->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
-                replace_type = "bitmap";
-            } else if (type->get_primitive_type() == PrimitiveType::TYPE_HLL) {
-                replace_type = "hll";
-            } else if (type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
-                replace_type = "jsonb";
-            }
-            columns_replace_string << replace_type << ",";
-            if (replace_type != "not_replace") {
-                block->get_by_position(i).column = std::make_shared<DataTypeString>()
-                                                           ->create_column()
-                                                           ->convert_to_full_column_if_const();
-                block->get_by_position(i).type = std::make_shared<DataTypeString>();
-                if (slot->is_nullable()) {
-                    block->get_by_position(i).column =
-                            make_nullable(block->get_by_position(i).column);
-                    block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
-                }
+        auto type = slot->type();
+        // Record if column is nullable
+        columns_nullable << (slot->is_nullable() ? "true" : "false") << ",";
+        // Check column type and replace accordingly
+        std::string replace_type = "not_replace";
+        if (type->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
+            replace_type = "bitmap";
+        } else if (type->get_primitive_type() == PrimitiveType::TYPE_HLL) {
+            replace_type = "hll";
+        } else if (type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
+            replace_type = "jsonb";
+        }
+        columns_replace_string << replace_type << ",";
+        if (replace_type != "not_replace") {
+            block->get_by_position(i).column = std::make_shared<DataTypeString>()
+                                                       ->create_column()
+                                                       ->convert_to_full_column_if_const();
+            block->get_by_position(i).type = std::make_shared<DataTypeString>();
+            if (slot->is_nullable()) {
+                block->get_by_position(i).column = make_nullable(block->get_by_position(i).column);
+                block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
             }
         }
         // Record required fields and column types
@@ -473,10 +493,6 @@ Status JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colum
 Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t column_size) {
     for (size_t column_index = 0; column_index < column_size; ++column_index) {
         auto* slot_desc = _tuple_desc->slots()[column_index];
-        // because the fe planner filter the non_materialize column
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         jint num_rows = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
                                                      _executor_block_rows_id);
 

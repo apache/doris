@@ -411,7 +411,6 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         block->insert(column_with_type_and_name);
         RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
         _stats.rows_del_filtered += target_block_row - block->rows();
-        DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
         if (UNLIKELY(_reader_context.record_rowids)) {
             DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
         }

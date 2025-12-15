@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("projectMV4") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS projectMV4; """
@@ -41,16 +43,12 @@ suite ("projectMV4") {
 
     def result = "null"
 
-    createMV("create materialized view projectMV4_mv as select name as a1, deptno as a2, salary as a3 from projectMV4;")
-
-    sleep(3000)
+    create_sync_mv(db, "projectMV4", "projectMV4_mv", "select name as a1, deptno as a2, salary as a3 from projectMV4;")
 
     sql """insert into projectMV4 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table projectMV4 with sync;"
     sql """alter table projectMV4 modify column time_col set stats ('row_count'='3');"""
-
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from projectMV4 order by empid;", "projectMV4_mv")
     order_qt_select_star "select * from projectMV4 order by empid;"
@@ -60,12 +58,4 @@ suite ("projectMV4") {
 
     mv_rewrite_fail("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;", "projectMV4_mv")
     order_qt_select_base "select empid from projectMV4 where deptno > 1 and empid > 1 order by empid;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from projectMV4 order by empid;", "projectMV4_mv")
-
-    mv_rewrite_success("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;", "projectMV4_mv")
-
-    mv_rewrite_fail("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;", "projectMV4_mv")
 }

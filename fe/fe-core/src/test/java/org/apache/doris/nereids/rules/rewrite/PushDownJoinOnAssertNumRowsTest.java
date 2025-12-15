@@ -22,17 +22,22 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -40,6 +45,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -450,5 +456,20 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
                                                         logicalProject(
                                                                         logicalAssertNumRows())),
                                 logicalOlapScan()));
+    }
+
+    @Test
+    void testProjectAliasOnPlan() {
+        PushDownJoinOnAssertNumRows rule = new PushDownJoinOnAssertNumRows();
+        Slot slot = new SlotReference(new ExprId(0), "data_slot", IntegerType.INSTANCE,
+                false, ImmutableList.of());
+        LogicalProject childProject = new LogicalProject(ImmutableList.of(slot),
+                new LogicalEmptyRelation(new RelationId(0), ImmutableList.of()));
+        Alias alias = new Alias(new ExprId(1), slot);
+        LogicalPlan newPlan = rule.projectAliasOnPlan(ImmutableList.of(alias), childProject);
+        Assertions.assertTrue(newPlan instanceof LogicalProject
+                && newPlan.getOutput().size() == 2
+                && ((LogicalProject<?>) newPlan).getOutputs().get(0).equals(slot)
+                && ((LogicalProject<?>) newPlan).getOutputs().get(1).equals(alias));
     }
 }

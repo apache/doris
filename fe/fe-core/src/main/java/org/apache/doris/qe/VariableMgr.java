@@ -191,45 +191,7 @@ public class VariableMgr {
             }
         } else  {
             try {
-                switch (field.getType().getSimpleName()) {
-                    case "boolean":
-                        if (value.equalsIgnoreCase("ON")
-                                || value.equalsIgnoreCase("TRUE")
-                                || value.equalsIgnoreCase("1")) {
-                            field.setBoolean(obj, true);
-                        } else if (value.equalsIgnoreCase("OFF")
-                                || value.equalsIgnoreCase("FALSE")
-                                || value.equalsIgnoreCase("0")) {
-                            field.setBoolean(obj, false);
-                        } else {
-                            throw new IllegalAccessException();
-                        }
-                        break;
-                    case "byte":
-                        field.setByte(obj, Byte.parseByte(value));
-                        break;
-                    case "short":
-                        field.setShort(obj, Short.parseShort(value));
-                        break;
-                    case "int":
-                        field.setInt(obj, Integer.parseInt(value));
-                        break;
-                    case "long":
-                        field.setLong(obj, Long.parseLong(value));
-                        break;
-                    case "float":
-                        field.setFloat(obj, Float.parseFloat(value));
-                        break;
-                    case "double":
-                        field.setDouble(obj, Double.parseDouble(value));
-                        break;
-                    case "String":
-                        field.set(obj, value);
-                        break;
-                    default:
-                        // Unsupported type variable.
-                        ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
-                }
+                setValue(obj, value, field, attr.name());
             } catch (NumberFormatException e) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
             } catch (IllegalAccessException e) {
@@ -242,6 +204,49 @@ public class VariableMgr {
         }
 
         return true;
+    }
+
+    public static void setValue(Object obj, String value, Field field, String name)
+            throws IllegalAccessException, DdlException {
+        switch (field.getType().getSimpleName()) {
+            case "boolean":
+                if (value.equalsIgnoreCase("ON")
+                        || value.equalsIgnoreCase("TRUE")
+                        || value.equalsIgnoreCase("1")) {
+                    field.setBoolean(obj, true);
+                } else if (value.equalsIgnoreCase("OFF")
+                        || value.equalsIgnoreCase("FALSE")
+                        || value.equalsIgnoreCase("0")) {
+                    field.setBoolean(obj, false);
+                } else {
+                    throw new IllegalAccessException();
+                }
+                break;
+            case "byte":
+                field.setByte(obj, Byte.parseByte(value));
+                break;
+            case "short":
+                field.setShort(obj, Short.parseShort(value));
+                break;
+            case "int":
+                field.setInt(obj, Integer.parseInt(value));
+                break;
+            case "long":
+                field.setLong(obj, Long.parseLong(value));
+                break;
+            case "float":
+                field.setFloat(obj, Float.parseFloat(value));
+                break;
+            case "double":
+                field.setDouble(obj, Double.parseDouble(value));
+                break;
+            case "String":
+                field.set(obj, value);
+                break;
+            default:
+                // Unsupported type variable.
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, name);
+        }
     }
 
     // revert the operator[set_var] on select/*+ SET_VAR()*/  sql;
@@ -319,7 +324,7 @@ public class VariableMgr {
     }
 
     @Nullable
-    private static VarContext getVarContext(String name) {
+    public static VarContext getVarContext(String name) {
         String varName = name;
         boolean hasExpPrefix = false;
         if (varName.startsWith(VariableAnnotation.EXPERIMENTAL.getPrefix())) {
@@ -890,10 +895,12 @@ public class VariableMgr {
         String convertBoolToLongMethod() default "";
         // If the variable affects the outcome, set it to true.
         // If this value is true, it will ignore needForward and enforce forwarding.
-        boolean affectQueryResult() default false;
+        boolean affectQueryResultInPlan() default false;
+
+        boolean affectQueryResultInExecution() default false;
     }
 
-    private static class VarContext {
+    public static class VarContext {
         private Field field;
         private Object obj;
         private int flag;

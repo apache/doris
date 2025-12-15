@@ -167,6 +167,11 @@ public:
                            const CreateRowsetRequest* request, CreateRowsetResponse* response,
                            ::google::protobuf::Closure* done) override;
 
+    void update_packed_file_info(::google::protobuf::RpcController* controller,
+                                 const UpdatePackedFileInfoRequest* request,
+                                 UpdatePackedFileInfoResponse* response,
+                                 ::google::protobuf::Closure* done) override;
+
     void get_rowset(::google::protobuf::RpcController* controller, const GetRowsetRequest* request,
                     GetRowsetResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -365,6 +370,9 @@ public:
     MetaServiceResponseStatus fix_tablet_stats(std::string cloud_unique_id_str,
                                                std::string table_id_str);
 
+    std::pair<MetaServiceCode, std::string> fix_tablet_db_id(const std::string& instance_id,
+                                                             int64_t tablet_id, int64_t db_id);
+
     void get_delete_bitmap_lock_version(std::string& use_version, std::string& instance_id);
 
     void begin_snapshot(::google::protobuf::RpcController* controller,
@@ -398,7 +406,8 @@ public:
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
-            std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
+            std::function<std::pair<MetaServiceCode, std::string>(Transaction*, InstanceInfoPB*)>
+                    action);
 
     bool get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::string& msg,
                                        const GetDeleteBitmapUpdateLockRequest* request,
@@ -473,6 +482,10 @@ private:
     std::pair<MetaServiceCode, std::string> batch_get_partition_versions(
             const GetVersionRequest* request, GetVersionResponse* response,
             std::string_view instance_id, KVStats& stats);
+
+    void commit_partition_internal(const PartitionRequest* request, const std::string& instance_id,
+                                   const std::vector<int64_t>& partition_ids, MetaServiceCode& code,
+                                   std::string& msg, KVStats& stats);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
@@ -608,6 +621,14 @@ public:
                            const CreateRowsetRequest* request, CreateRowsetResponse* response,
                            ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_tmp_rowset, controller, request, response, done);
+    }
+
+    void update_packed_file_info(::google::protobuf::RpcController* controller,
+                                 const UpdatePackedFileInfoRequest* request,
+                                 UpdatePackedFileInfoResponse* response,
+                                 ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::update_packed_file_info, controller, request, response,
+                  done);
     }
 
     void get_rowset(::google::protobuf::RpcController* controller, const GetRowsetRequest* request,

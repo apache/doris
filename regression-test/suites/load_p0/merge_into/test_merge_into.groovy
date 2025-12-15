@@ -75,7 +75,7 @@ suite("test_merge_into") {
       "replication_allocation" = "tag.location.default: 1"
     );
     
-    INSERT INTO merge_into_source_table VALUES (1, 12), (2, 22), (3, 33);
+    INSERT INTO merge_into_source_table VALUES (1, 12), (2, 22), (3, 33), (null, null);
     INSERT INTO merge_into_target_base_table VALUES (1, 1), (2, 10);
     INSERT INTO merge_into_target_seq_col_table (c1, c2, __DORIS_SEQUENCE_COL__) VALUES (1, 1, '2020-02-02'), (2, 10, '2020-02-02');
     INSERT INTO merge_into_target_seq_map_table VALUES (1, 1, '2020-02-02'), (2, 10, '2020-02-02');
@@ -84,12 +84,12 @@ suite("test_merge_into") {
     SYNC;
     """
 
-    // base merge
+    // base merge, test null safe equals here
     sql """
         WITH tmp AS (SELECT * FROM merge_into_source_table)
         MERGE INTO merge_into_target_base_table t1
         USING tmp t2
-        ON t1.c1 = t2.c1
+        ON t1.c1 <=> t2.c1
         WHEN MATCHED AND t1.c2 = 10 THEN DELETE
         WHEN MATCHED THEN UPDATE SET c2 = 10
         WHEN NOT MATCHED THEN INSERT VALUES(t2.c1, t2.c2)

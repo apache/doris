@@ -74,6 +74,22 @@ namespace doris::vectorized {
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
 
 TO_TIME_FUNCTION(ToYearImpl, year);
+template <PrimitiveType PType>
+struct ToCenturyImpl {
+    static constexpr PrimitiveType OpArgType = PType;
+    using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    static constexpr auto name = "century";
+
+    static inline auto execute(const NativeType& t) {
+        const auto& date_time_value = (typename PrimitiveTypeTraits<PType>::CppType&)(t);
+        int year = date_time_value.year();
+        return (year - 1) / 100 + 1;
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
+    }
+};
 TO_TIME_FUNCTION(ToYearOfWeekImpl, year_of_week);
 TO_TIME_FUNCTION(ToQuarterImpl, quarter);
 TO_TIME_FUNCTION(ToMonthImpl, month);
@@ -90,6 +106,8 @@ TIME_FUNCTION_IMPL(DayOfWeekImpl, dayofweek, day_of_week());
 TIME_FUNCTION_IMPL(WeekDayImpl, weekday, weekday());
 // TODO: the method should be always not nullable
 TIME_FUNCTION_IMPL(ToDaysImpl, to_days, daynr());
+TIME_FUNCTION_IMPL(ToSecondsImpl, to_seconds,
+                   daynr() * 86400L + date_time_value.time_part_to_seconds());
 
 #define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)                                     \
     template <PrimitiveType PType>                                                            \

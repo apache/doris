@@ -61,8 +61,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.MoreFieldsThread;
-import org.apache.doris.plsql.Exec;
-import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
@@ -217,8 +215,6 @@ public class ConnectContext {
     // Only when the connection is created again, the new resource tags will be retrieved from the UserProperty
     private ComputeGroup computeGroup = null;
 
-    private PlSqlOperation plSqlOperation = null;
-
     private String sqlHash;
 
     private JSONObject minidump = null;
@@ -253,8 +249,6 @@ public class ConnectContext {
     // but the internal implementation will call the logic of `AlterTable`.
     // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
     private boolean skipAuth = false;
-    private Exec exec;
-    private boolean runProcedure = false;
 
     // isProxy used for forward request from other FE and used in one thread
     // it's default thread-safe
@@ -426,7 +420,6 @@ public class ConnectContext {
         context.setEnv(env);
         context.setDatabase(currentDb);
         context.setCurrentUserIdentity(currentUserIdentity);
-        context.setProcedureExec(exec);
         return context;
     }
 
@@ -571,7 +564,9 @@ public class ConnectContext {
             if (literalExpr instanceof BoolLiteral) {
                 return Literal.of(((BoolLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof IntLiteral) {
-                return Literal.of(((IntLiteral) literalExpr).getValue());
+                // the value in the IntLiteral should be int, but now is long in old planner literalExpr
+                // so type coercion to generate right new planner int Literal
+                return Literal.of((int) ((IntLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof FloatLiteral) {
                 return Literal.of(((FloatLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof DecimalLiteral) {
@@ -855,13 +850,6 @@ public class ConnectContext {
         statementContext = null;
     }
 
-    public PlSqlOperation getPlSqlOperation() {
-        if (plSqlOperation == null) {
-            plSqlOperation = new PlSqlOperation();
-        }
-        return plSqlOperation;
-    }
-
     /**
      * This method is idempotent.
      */
@@ -989,8 +977,11 @@ public class ConnectContext {
     public TUniqueId nextInstanceId() {
         if (loadId != null) {
             return new TUniqueId(loadId.hi, loadId.lo + instanceIdGenerator.incrementAndGet());
-        } else {
+        } else if (queryId != null) {
             return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
+        } else {
+            // for test
+            return new TUniqueId(0, instanceIdGenerator.incrementAndGet());
         }
     }
 
@@ -1554,22 +1545,6 @@ public class ConnectContext {
 
     public void setSkipAuth(boolean skipAuth) {
         this.skipAuth = skipAuth;
-    }
-
-    public boolean isRunProcedure() {
-        return runProcedure;
-    }
-
-    public void setRunProcedure(boolean runProcedure) {
-        this.runProcedure = runProcedure;
-    }
-
-    public void setProcedureExec(Exec exec) {
-        this.exec = exec;
-    }
-
-    public Exec getProcedureExec() {
-        return exec;
     }
 
     public int getNetReadTimeout() {
