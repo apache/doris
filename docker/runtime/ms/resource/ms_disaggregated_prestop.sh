@@ -20,7 +20,7 @@
 #get from env
 DORIS_ROOT=${DORIS_ROOT:-"/opt/apache-doris"}
 DORIS_HOME=${DORIS_ROOT}/ms
-MS_CONFFILE=${DORIS_HOME}/conf/doris_cloud.conf.conf
+MS_CONFFILE=${DORIS_HOME}/conf/doris_cloud.conf
 
 log_file="/opt/apache-doris/ms/log/meta_service.INFO"
 kill_time=$(date  "+%Y-%m-%d %H:%M:%S")

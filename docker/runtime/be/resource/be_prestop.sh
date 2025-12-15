@@ -20,11 +20,26 @@ DORIS_ROOT=${DORIS_ROOT:-"/opt/apache-doris"}
 DORIS_HOME=${DORIS_ROOT}/be
 BE_CONFFILE=${DORIS_HOME}/conf/be.conf
 
+log_stderr()
+{
+    echo "[`date`] $@" >&2
+}
+
 parse_confval_from_be_conf()
 {
     local confkey=$1
-    local confvalue=`grep "^\s*$confkey" $BE_CONFFILE | grep -v "^\s\#" | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
-    echo $confvalue
+
+    esc_key=$(printf '%s\n' "$confkey" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    local confvalue=$(
+        grep -v '^[[:space:]]*#' "$BE_CONFFILE" |
+        grep -E "^[[:space:]]*${esc_key}[[:space:]]*=" |
+        tail -n1 |
+        sed -E 's/^[[:space:]]*[^=]+[[:space:]]*=[[:space:]]*//' |
+        sed -E 's/[[:space:]]*#.*$//' |
+        sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
+    )
+    log_stderr "[info] read 'be.conf' config [ $confkey: $confvalue]"
+    echo "$confvalue"
 }
 
 log_dir=`parse_confval_from_be_conf "LOG_DIR"`
