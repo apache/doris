@@ -94,7 +94,6 @@ private:
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    std::unique_ptr<vectorized::Arena> _agg_profile_arena = nullptr;
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container = nullptr;
     bool _should_limit_output = false;
     bool _reach_limit = false;
