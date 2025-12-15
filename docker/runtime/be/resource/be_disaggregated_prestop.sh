@@ -52,8 +52,8 @@ fi
 
 log_replace_var_dir=`eval echo "$log_dir"`
 kill_time=$(date  "+%Y-%m-%d %H:%M:%S")
-eval echo "[be_disaggregated_prestop.sh] ${kill_time} kubelet kill call the be_prestop.sh to stop be service." >> "$log_replace_var_dir/be.out"
+eval echo "[be_disaggregated_prestop.sh] ${kill_time} kubelet kill call the be_disaggregated_prestop.sh to stop be service." >> "$log_replace_var_dir/be.out"
 #eval echo "[be_disaggregated_prestop.sh] ${kill_time} kubelet kill call the be_prestop.sh to stop be service." 2>&1
-eval echo "[be_disaggregated_prestop.sh] ${kill_time} kubelet kill call the be_prestop.sh to stop be service ." >> "/proc/1/fd/1"
+eval echo "[be_disaggregated_prestop.sh] ${kill_time} kubelet kill call the be_disaggregated_prestop.sh to stop be service ." >> "/proc/1/fd/1"
 
 $DORIS_HOME/bin/stop_be.sh --grace
