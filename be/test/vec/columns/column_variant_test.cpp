@@ -1179,19 +1179,22 @@ TEST_F(ColumnVariantTest, is_column_string) {
 }
 
 TEST_F(ColumnVariantTest, serialize_one_row_to_string) {
+    vectorized::DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     {
         const auto* variant = assert_cast<const ColumnVariant*>(column_variant.get());
         // Serialize hierarchy types to json format
         std::string buffer;
         for (size_t row_idx = 2000; row_idx < variant->size(); ++row_idx) {
-            variant->serialize_one_row_to_string(row_idx, &buffer);
+            variant->serialize_one_row_to_string(row_idx, &buffer, options);
         }
         {
             // TEST buffer
             auto tmp_col = ColumnString::create();
             VectorBufferWriter write_buffer(*tmp_col.get());
             for (size_t row_idx = 2000; row_idx < variant->size(); ++row_idx) {
-                variant->serialize_one_row_to_string(row_idx, write_buffer);
+                variant->serialize_one_row_to_string(row_idx, write_buffer, options);
             }
         }
     }
@@ -1210,12 +1213,12 @@ TEST_F(ColumnVariantTest, serialize_one_row_to_string) {
         // 3. serialize
         std::string buf2;
         for (size_t row_idx = 0; row_idx < v->size(); ++row_idx) {
-            v->serialize_one_row_to_string(row_idx, &buf2);
+            v->serialize_one_row_to_string(row_idx, &buf2, options);
         }
         auto tmp_col = ColumnString::create();
         VectorBufferWriter write_buffer(*tmp_col.get());
         for (size_t row_idx = 0; row_idx < v->size(); ++row_idx) {
-            v->serialize_one_row_to_string(row_idx, write_buffer);
+            v->serialize_one_row_to_string(row_idx, write_buffer, options);
         }
     }
 }

@@ -210,7 +210,7 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, 
             }
         }
     })
-    DCHECK(_open_finished || _getting_const_col) << debug_string();
+    DCHECK(_open_finished || block == nullptr) << debug_string();
 
     Block temp_block;
     ColumnNumbers args(_children.size());
@@ -244,6 +244,7 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, 
                                        num_columns_without_result, count));
     result_column = temp_block.get_by_position(num_columns_without_result).column;
     DCHECK_EQ(result_column->size(), count);
+    RETURN_IF_ERROR(result_column->column_self_check());
     return Status::OK();
 }
 

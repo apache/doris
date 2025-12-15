@@ -129,6 +129,13 @@ void SegmentIterator::_init_row_bitmap_by_condition_cache() {
             // Increment hit count if cache lookup is successful
             if (_find_condition_cache) {
                 DorisMetrics::instance()->condition_cache_hit_count->increment(1);
+                if (_opts.runtime_state) {
+                    VLOG_DEBUG << "Condition cache hit, query id: "
+                               << print_id(_opts.runtime_state->query_id())
+                               << ", segment id: " << _segment->id()
+                               << ", cache digest: " << _opts.condition_cache_digest
+                               << ", rowset id: " << _opts.rowset_id.to_string();
+                }
             }
 
             auto num_rows = _segment->num_rows();
@@ -2372,6 +2379,11 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                     auto* condition_cache = ConditionCache::instance();
                     ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
                                                        _opts.condition_cache_digest);
+                    VLOG_DEBUG << "Condition cache insert, query id: "
+                               << print_id(_opts.runtime_state->query_id())
+                               << ", rowset id: " << _opts.rowset_id.to_string()
+                               << ", segment id: " << _segment->id()
+                               << ", cache digest: " << _opts.condition_cache_digest;
                     condition_cache->insert(cache_key, std::move(_condition_cache));
                 }
                 return res;

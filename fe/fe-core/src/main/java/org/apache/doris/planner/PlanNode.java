@@ -293,6 +293,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         return conjuncts;
     }
 
+    /**
+     * NOTICE: this function is only used for explain
+     */
     public static Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
@@ -300,7 +303,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             for (int i = 0; i < targetConjuncts.size(); i += 2) {
                 Expr expr = i + 1 < targetConjuncts.size()
                         ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
-                        targetConjuncts.get(i + 1)) : targetConjuncts.get(i);
+                        targetConjuncts.get(i + 1), true) : targetConjuncts.get(i);
                 newTargetConjuncts.add(expr);
             }
             targetConjuncts = newTargetConjuncts;

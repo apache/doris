@@ -34,8 +34,8 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     }
 
     // nereids high order function call expr constructor without finalize/analyze
-    public LambdaFunctionCallExpr(Function function, FunctionParams functionParams) {
-        super(function, functionParams, null, false, functionParams.exprs());
+    public LambdaFunctionCallExpr(Function function, FunctionParams functionParams, boolean nullable) {
+        super(function, functionParams, null, false, functionParams.exprs(), nullable);
     }
 
     @Override

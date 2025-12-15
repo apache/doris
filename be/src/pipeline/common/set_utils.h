@@ -68,6 +68,8 @@ using SetHashTableVariants =
                      SetPrimaryTypeHashTableContext<vectorized::UInt256>,
                      SetFixedKeyHashTableContext<vectorized::UInt64>,
                      SetFixedKeyHashTableContext<vectorized::UInt72>,
+                     SetFixedKeyHashTableContext<vectorized::UInt96>,
+                     SetFixedKeyHashTableContext<vectorized::UInt104>,
                      SetFixedKeyHashTableContext<vectorized::UInt128>,
                      SetFixedKeyHashTableContext<vectorized::UInt256>,
                      SetFixedKeyHashTableContext<vectorized::UInt136>>;
@@ -108,6 +110,14 @@ struct SetDataVariants
             break;
         case HashKeyType::fixed72:
             method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt72>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed96:
+            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt96>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed104:
+            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt104>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:

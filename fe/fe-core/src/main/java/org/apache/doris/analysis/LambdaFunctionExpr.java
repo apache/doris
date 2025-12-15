@@ -41,13 +41,14 @@ public class LambdaFunctionExpr extends Expr {
     }
 
     // for Nereids
-    public LambdaFunctionExpr(Expr lambdaBody, List<String> argNames, List<Expr> slotExprs) {
+    public LambdaFunctionExpr(Expr lambdaBody, List<String> argNames, List<Expr> slotExprs, boolean nullable) {
         this.slotExprs.add(lambdaBody);
         this.slotExprs.addAll(slotExprs);
         this.names.addAll(argNames);
         this.params.addAll(slotExprs);
         this.children.add(lambdaBody);
         this.setType(Type.LAMBDA_FUNCTION);
+        this.nullable = nullable;
     }
 
     public LambdaFunctionExpr(LambdaFunctionExpr rhs) {
@@ -103,15 +104,5 @@ public class LambdaFunctionExpr extends Expr {
     @Override
     public Expr clone() {
         return new LambdaFunctionExpr(this);
-    }
-
-    @Override
-    public boolean isNullable() {
-        for (int i = 1; i < slotExprs.size(); ++i) {
-            if (slotExprs.get(i).isNullable()) {
-                return true;
-            }
-        }
-        return false;
     }
 }

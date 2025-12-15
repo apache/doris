@@ -647,6 +647,17 @@ public:
       */
     String dump_structure() const;
 
+    // count how many const column including self
+    int count_const_column() const;
+
+    bool null_map_check() const;
+
+    // const column nested check, eg. const(nullable(...)) is allowed
+    //  const(array(const(...))) is not allowed
+    bool const_nested_check() const;
+
+    Status column_self_check() const;
+
     // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
