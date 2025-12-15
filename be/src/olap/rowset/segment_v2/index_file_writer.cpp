@@ -223,6 +223,7 @@ Status IndexFileWriter::close() {
     if (config::enable_write_index_searcher_cache) {
         return add_into_searcher_cache();
     }
+    _indices_dirs.clear();
     return Status::OK();
 }
 
