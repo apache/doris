@@ -121,13 +121,14 @@ public class UdfUtils {
 
         JavaUdfDataType result = new JavaUdfDataType(
                 res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0]);
-        if (retType.isDecimalV3() || retType.isDatetimeV2()) {
+        if (retType.isDecimalV3() || retType.isDatetimeV2() || retType.isTimeStampTz()) {
             result.setPrecision(retType.getPrecision());
             result.setScale(((ScalarType) retType).getScalarScale());
         } else if (retType.isArrayType()) {
             ArrayType arrType = (ArrayType) retType;
             result = new JavaUdfArrayType(arrType.getItemType());
-            if (arrType.getItemType().isDatetimeV2() || arrType.getItemType().isDecimalV3()) {
+            if (arrType.getItemType().isDatetimeV2() || arrType.isTimeStampTz()
+                    || arrType.getItemType().isDecimalV3()) {
                 result.setPrecision(arrType.getItemType().getPrecision());
                 result.setScale(((ScalarType) arrType.getItemType()).getScalarScale());
             }
@@ -137,10 +138,10 @@ public class UdfUtils {
             Type valuType = mapType.getValueType();
             result = new JavaUdfMapType(keyType, valuType);
             JavaUdfMapType udfMapType = ((JavaUdfMapType) result);
-            if (keyType.isDatetimeV2() || keyType.isDecimalV3()) {
+            if (keyType.isDatetimeV2() || keyType.isTimeStampTz() || keyType.isDecimalV3()) {
                 udfMapType.setKeyScale(((ScalarType) keyType).getScalarScale());
             }
-            if (valuType.isDatetimeV2() || valuType.isDecimalV3()) {
+            if (valuType.isDatetimeV2() || valuType.isTimeStampTz() || valuType.isDecimalV3()) {
                 udfMapType.setValueScale(((ScalarType) valuType).getScalarScale());
             }
         } else if (retType.isStructType()) {
@@ -171,13 +172,15 @@ public class UdfUtils {
             }).toArray();
             inputArgTypes[i] = new JavaUdfDataType(
                     res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0]);
-            if (parameterTypes[finalI].isDecimalV3() || parameterTypes[finalI].isDatetimeV2()) {
+            if (parameterTypes[finalI].isDecimalV3() || parameterTypes[finalI].isDatetimeV2()
+                    || parameterTypes[finalI].isTimeStampTz()) {
                 inputArgTypes[i].setPrecision(parameterTypes[finalI].getPrecision());
                 inputArgTypes[i].setScale(((ScalarType) parameterTypes[finalI]).getScalarScale());
             } else if (parameterTypes[finalI].isArrayType()) {
                 ArrayType arrType = (ArrayType) parameterTypes[finalI];
                 inputArgTypes[i] = new JavaUdfArrayType(arrType.getItemType());
-                if (arrType.getItemType().isDatetimeV2() || arrType.getItemType().isDecimalV3()) {
+                if (arrType.getItemType().isDatetimeV2() || arrType.isTimeStampTz()
+                        || arrType.getItemType().isDecimalV3()) {
                     inputArgTypes[i].setPrecision(arrType.getItemType().getPrecision());
                     inputArgTypes[i].setScale(((ScalarType) arrType.getItemType()).getScalarScale());
                 }
@@ -187,10 +190,10 @@ public class UdfUtils {
                 Type valuType = mapType.getValueType();
                 inputArgTypes[i] = new JavaUdfMapType(keyType, valuType);
                 JavaUdfMapType udfMapType = ((JavaUdfMapType) inputArgTypes[i]);
-                if (keyType.isDatetimeV2() || keyType.isDecimalV3()) {
+                if (keyType.isDatetimeV2() || keyType.isTimeStampTz() || keyType.isDecimalV3()) {
                     udfMapType.setKeyScale(((ScalarType) keyType).getScalarScale());
                 }
-                if (valuType.isDatetimeV2() || valuType.isDecimalV3()) {
+                if (valuType.isDatetimeV2() || keyType.isTimeStampTz() || valuType.isDecimalV3()) {
                     udfMapType.setValueScale(((ScalarType) valuType).getScalarScale());
                 }
             } else if (parameterTypes[finalI].isStructType()) {

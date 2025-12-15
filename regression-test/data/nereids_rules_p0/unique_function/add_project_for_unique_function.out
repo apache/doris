@@ -42,16 +42,16 @@ PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(k), outputExpr=(k)]
 ----hashAgg[LOCAL, groupByExpr=(k), outputExpr=(k)]
 ------PhysicalUnion(constantExprsList=[[TRUE AS `true`]])
---------PhysicalProject[AND[($_random_8_$ >= 0.1),($_random_8_$ <= 0.5)] AS `k`]
-----------PhysicalOneRowRelation[random() AS `$_random_8_$`]
+--------PhysicalProject[AND[($_random_10_$ >= 0.1),($_random_10_$ <= 0.5)] AS `k`]
+----------PhysicalOneRowRelation[random() AS `$_random_10_$`]
 
 -- !union_2 --
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(k), outputExpr=(k)]
 ----hashAgg[LOCAL, groupByExpr=(k), outputExpr=(k)]
 ------PhysicalUnion(constantExprsList=[[TRUE AS `true`]])
---------PhysicalProject[AND[((cast(id as DOUBLE) + $_random_9_$) >= 0.1),((cast(id as DOUBLE) + $_random_9_$) <= 0.5)] AS `k`]
-----------PhysicalProject[random() AS `$_random_9_$`, t1.id]
+--------PhysicalProject[AND[((cast(id as DOUBLE) + $_random_11_$) >= 0.1),((cast(id as DOUBLE) + $_random_11_$) <= 0.5)] AS `k`]
+----------PhysicalProject[random() AS `$_random_11_$`, t1.id]
 ------------PhysicalOlapScan[t1]
 
 -- !union_all_1 --

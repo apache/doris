@@ -160,6 +160,11 @@ public class OlapTableSink extends DataSink {
                 : false);
         this.isStrictMode = isStrictMode;
         this.txnId = txnId;
+        // (Note) This code may need to be removed because:
+        // 1. For broker load and routine load, this check has already been moved ahead to the stage
+        //    before the import task is started.
+        // 2. For other import methods, the loadToSingleTablet mode is actually not enabled,
+        //    as it is hardcoded as false in the code.
         if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
             throw new AnalysisException(
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
@@ -668,6 +673,7 @@ public class OlapTableSink extends DataSink {
             // set start keys. min value is a REAL value. should be legal.
             if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 for (int i = 0; i < partColNum; i++) {
+                    range.lowerEndpoint().getKeys().get(i).setNullable(false);
                     tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
@@ -676,6 +682,7 @@ public class OlapTableSink extends DataSink {
             // see VOlapTablePartition's ctor in tablet_info.h
             if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 for (int i = 0; i < partColNum; i++) {
+                    range.upperEndpoint().getKeys().get(i).setNullable(false);
                     tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
@@ -689,6 +696,7 @@ public class OlapTableSink extends DataSink {
                     if (literalExpr.isNullLiteral()) {
                         tExprNodes.add(NullLiteral.create(literalExpr.getType()).treeToThrift().getNodes().get(0));
                     } else {
+                        literalExpr.setNullable(false);
                         tExprNodes.add(literalExpr.treeToThrift().getNodes().get(0));
                     }
                 }

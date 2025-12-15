@@ -137,6 +137,8 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     case TPrimitiveType::DATETIME:
     case TPrimitiveType::DATETIMEV2:
         return "datetime";
+    case TPrimitiveType::TIMESTAMPTZ:
+        return "timestamp";
     case TPrimitiveType::DECIMAL32:
     case TPrimitiveType::DECIMAL64:
     case TPrimitiveType::DECIMAL128I:
@@ -234,6 +236,16 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
             fmt::format_to(debug_string_buffer, "datetime");
         } else {
             fmt::format_to(debug_string_buffer, "datetime({})",
+                           desc.__isset.columnScale ? std::to_string(desc.columnScale) : "UNKNOWN");
+        }
+        return fmt::to_string(debug_string_buffer);
+    }
+    case TPrimitiveType::TIMESTAMPTZ: {
+        fmt::memory_buffer debug_string_buffer;
+        if (!desc.__isset.columnScale || desc.columnScale == 0) {
+            fmt::format_to(debug_string_buffer, "timestamp");
+        } else {
+            fmt::format_to(debug_string_buffer, "timestamp({})",
                            desc.__isset.columnScale ? std::to_string(desc.columnScale) : "UNKNOWN");
         }
         return fmt::to_string(debug_string_buffer);
@@ -569,7 +581,8 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < columns_num; ++i) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
-                data_type == TPrimitiveType::DATETIMEV2) {
+                (data_type == TPrimitiveType::DATETIMEV2 ||
+                 data_type == TPrimitiveType::TIMESTAMPTZ)) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs.data() + i;
             } else {

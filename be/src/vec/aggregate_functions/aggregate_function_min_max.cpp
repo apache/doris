@@ -34,6 +34,7 @@ namespace doris::vectorized {
 template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                                                             const DataTypes& argument_types,
+                                                            const DataTypePtr& result_type,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr) {
     assert_arity_range(name, argument_types, 1, 1);
@@ -60,6 +61,10 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
     case PrimitiveType::TYPE_DATETIMEV2:
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
+                argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return creator_without_type::create_unary_arguments<
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_TIMESTAMPTZ>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_TIME:
     case PrimitiveType::TYPE_TIMEV2:

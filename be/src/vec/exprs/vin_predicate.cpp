@@ -71,9 +71,8 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (is_complex_type(arg_type->get_primitive_type())) {
         real_function_name = "collection_" + real_function_name;
     }
-    _function = SimpleFunctionFactory::instance().get_function(
-            real_function_name, argument_template, _data_type,
-            {.enable_decimal256 = state->enable_decimal256()});
+    _function = SimpleFunctionFactory::instance().get_function(real_function_name,
+                                                               argument_template, _data_type, {});
     if (_function == nullptr) {
         return Status::NotSupported("Function {} is not implemented", real_function_name);
     }
@@ -123,7 +122,7 @@ Status VInPredicate::execute_column(VExprContext* context, const Block* block, s
     if (fast_execute(context, result_column)) {
         return Status::OK();
     }
-    DCHECK(_open_finished || _getting_const_col);
+    DCHECK(_open_finished || block == nullptr);
 
     // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
     // where all values inside the IN clause are constants,

@@ -34,8 +34,12 @@ TEST(QuantileStateSerdeTest, writeOneCellToJsonb) {
     ASSERT_EQ(column_quantile_state->size(), 1);
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     jsonb_writer.writeStartObject();
-    quantile_state_serde->write_one_cell_to_jsonb(*column_quantile_state, jsonb_writer, pool, 0, 0);
+    quantile_state_serde->write_one_cell_to_jsonb(*column_quantile_state, jsonb_writer, pool, 0, 0,
+                                                  options);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();

@@ -28,6 +28,7 @@
 #include "service/backend_options.h"
 #include "util/arrow/utils.h"
 #include "util/uid_util.h"
+#include "util/url_coding.h"
 
 namespace doris::flight {
 
@@ -46,12 +47,14 @@ private:
     arrow::Result<std::shared_ptr<QueryStatement>> decode_ticket(const std::string& ticket) {
         std::vector<std::string> fields = absl::StrSplit(ticket, "&");
         if (fields.size() != 4) {
-            return arrow::Status::Invalid(fmt::format("Malformed ticket, size: {}", fields.size()));
+            return arrow::Status::Invalid(
+                    fmt::format("Malformed ticket: {}, size: {}", ticket, fields.size()));
         }
 
         std::vector<std::string> str = absl::StrSplit(fields[0], "-");
         if (str.size() != 2) {
-            return arrow::Status::Invalid("Malformed ticket, missing query id: {}", fields[0]);
+            return arrow::Status::Invalid("Malformed ticket: {}, missing query id: {}", ticket,
+                                          fields[0]);
         }
 
         TUniqueId queryid;
@@ -60,7 +63,9 @@ private:
         TNetworkAddress result_addr;
         result_addr.hostname = fields[1];
         result_addr.port = std::stoi(fields[2]);
-        std::string sql = fields[3];
+        const std::string& sql_base64 = fields[3];
+        std::string sql;
+        base64_decode(sql_base64, &sql);
         std::shared_ptr<QueryStatement> statement =
                 std::make_shared<QueryStatement>(queryid, result_addr, sql);
         return statement;

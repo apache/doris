@@ -66,11 +66,11 @@ private:
 
 using MySQLResultBlockBuffer = ResultBlockBuffer<GetResultBatchCtx>;
 
-template <bool is_binary_format = false>
 class VMysqlResultWriter final : public ResultWriter {
 public:
     VMysqlResultWriter(std::shared_ptr<ResultBlockBufferBase> sinker,
-                       const VExprContextSPtrs& output_vexpr_ctxs, RuntimeProfile* parent_profile);
+                       const VExprContextSPtrs& output_vexpr_ctxs, RuntimeProfile* parent_profile,
+                       bool is_binary_format);
 
     Status init(RuntimeState* state) override;
 
@@ -80,7 +80,6 @@ public:
 
 private:
     void _init_profile();
-    Status _set_options(const TSerdeDialect::type& serde_dialect);
     Status _write_one_block(RuntimeState* state, Block& block);
 
     std::shared_ptr<MySQLResultBlockBuffer> _sinker = nullptr;
@@ -103,7 +102,7 @@ private:
 
     uint64_t _bytes_sent = 0;
 
-    DataTypeSerDe::FormatOptions _options;
+    const bool _is_binary_format;
 };
 } // namespace vectorized
 } // namespace doris

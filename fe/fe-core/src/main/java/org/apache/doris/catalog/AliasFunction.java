@@ -22,16 +22,15 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -47,6 +46,8 @@ public class AliasFunction extends Function {
     @SerializedName("pm")
     private List<String> parameters = new ArrayList<>();
     private List<String> typeDefParams = new ArrayList<>();
+    @SerializedName("sv")
+    private Map<String, String> sessionVariables;
 
     // Only used for serialization
     protected AliasFunction() {
@@ -58,11 +59,17 @@ public class AliasFunction extends Function {
 
     public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
             boolean hasVarArgs, List<String> parameters, Expr originFunction) {
+        return createFunction(functionName, argTypes, retType, hasVarArgs, parameters, originFunction, null);
+    }
+
+    public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
+            boolean hasVarArgs, List<String> parameters, Expr originFunction, Map<String, String> sessionVariables) {
         AliasFunction aliasFunction = new AliasFunction(functionName, Arrays.asList(argTypes), retType, hasVarArgs);
         aliasFunction.setBinaryType(TFunctionBinaryType.JAVA_UDF);
         aliasFunction.setUserVisible(true);
         aliasFunction.originFunction = originFunction;
         aliasFunction.parameters = parameters;
+        aliasFunction.sessionVariables = sessionVariables;
         return aliasFunction;
     }
 
@@ -72,6 +79,14 @@ public class AliasFunction extends Function {
 
     public List<String> getParameters() {
         return parameters;
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
     }
 
     @Override
@@ -96,17 +111,6 @@ public class AliasFunction extends Function {
         return sb.toString();
     }
 
-    @Override
-    public String getProperties() {
-        Map<String, String> properties = new HashMap<>();
-        properties.put("parameter", getParamsSting(parameters));
-        setSlotRefLabel(originFunction);
-        String functionStr = originFunction.toSqlWithoutTbl();
-        functionStr = functionStr.replaceAll("'", "`");
-        properties.put("origin_function", functionStr);
-        return new Gson().toJson(properties);
-    }
-
     /**
      * set slotRef label to column name
      *
@@ -125,5 +129,15 @@ public class AliasFunction extends Function {
         return parameters.stream()
                 .map(String::toString)
                 .collect(Collectors.joining(", "));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        boolean equalBasic = super.equals(o);
+        if (!equalBasic) {
+            return false;
+        }
+        AliasFunction other = (AliasFunction) o;
+        return Objects.equals(sessionVariables, other.sessionVariables);
     }
 }

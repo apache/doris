@@ -47,7 +47,6 @@ suite ("testSingleMVMultiUsage") {
 
     sql "analyze table emps with sync;"
     sql """alter table emps modify column time_col set stats ('row_count'='8');"""
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
@@ -57,13 +56,4 @@ suite ("testSingleMVMultiUsage") {
             "emps_mv")
 
     qt_select_mv "select * from (select deptno, empid from emps where deptno>100) A join (select deptno, empid from emps where deptno >200) B using (deptno) order by 1;"
-    sql """set enable_stats=true;"""
-    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
-
-
-    mv_rewrite_success("select * from (select deptno, empid from emps where deptno>100) A join (select deptno, empid from emps where deptno >200) B using (deptno);",
-    "emps_mv", true, [TRY_IN_RBO, NOT_IN_RBO])
-    mv_rewrite_success_without_check_chosen("select * from (select deptno, empid from emps where deptno>100) A join (select deptno, empid from emps where deptno >200) B using (deptno);",
-            "emps_mv", [FORCE_IN_RBO])
-
 }

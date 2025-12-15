@@ -1064,7 +1064,24 @@ class Config {
     }
 
     void createDefaultDb() {
+        boolean enableTLS = (otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+
+        def buildUrl = { String db ->
+            enableTLS ?
+                    buildUrlWithDb(
+                            jdbcUrl, db,
+                            otherConfigs.get("keyStorePath").toString(),
+                            otherConfigs.get("keyStorePassword").toString(),
+                            otherConfigs.get("trustStorePath").toString(),
+                            otherConfigs.get("trustStorePassword").toString()
+                    )
+                    : buildUrlWithDb(jdbcUrl, db)
+        }
+
+        // init URL without dbName
         String dbName = null
+        jdbcUrl = buildUrl(dbName)
+
         try {
             tryCreateDbIfNotExist(defaultDb)
             dbName = defaultDb
@@ -1074,11 +1091,13 @@ class Config {
             // Infact, only mainly auth_xxx cases use defaultDb, and they just use jdbcUrl in connect function.
             // And they can avoid using defaultDb too. But modify all these cases take a lot work.
             // We better delete all the usage of defaultDb in suites later, and all suites should use their own db, not the defaultDb.
-            log.warn("create default db failed ${defaultDb}".toString())
+            log.warn("create default db failed ${defaultDb}")
         }
 
-        jdbcUrl = buildUrlWithDb(jdbcUrl, dbName)
-        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
+        //  final URL with dbName
+        jdbcUrl = buildUrl(dbName)
+
+        log.info("Reset jdbcUrl to ${jdbcUrl}")
     }
 
     void tryCreateDbIfNotExist(String dbName) {
@@ -1175,6 +1194,18 @@ class Config {
 
     Connection getRootConnection() {
         return DriverManager.getConnection(jdbcUrl, 'root', '')
+    }
+
+    Connection getConnectionByDbName(String dbName) {
+        String dbUrl = getConnectionUrlByDbName(dbName)
+        tryCreateDbIfNotExist(dbName)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+    }
+
+    String getConnectionUrlByDbName(String dbName) {
+        def connection = buildUrlWithDb(jdbcUrl, dbName)
+        return connection
     }
 
     Connection getConnectionByArrowFlightSqlDbName(String dbName) {
@@ -1290,6 +1321,13 @@ class Config {
         return urlWithDb
     }
 
+    public static String buildUrlWithDb (String jdbcUrl, String dbName, String keyStorePath, String keyStorePassword, String trustStorePath, String trustStorePassword) {
+        String urlWithDb = buildUrlWithDbImpl(jdbcUrl, dbName);
+        urlWithDb = addTlsUrl(urlWithDb, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword);
+        urlWithDb = addTimeoutUrl(urlWithDb);
+        return urlWithDb
+    }
+
     public static String buildUrlWithDb(String host, int queryPort, String dbName) {
         def url = String.format(
             "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
@@ -1317,6 +1355,28 @@ class Config {
             // e.g: jdbc:mysql://locahost:8080/dbname
         } else {
             return url + '?' + sslUrl
+        }
+    }
+
+    private static String addTlsUrl(String url, String keyStorePath, String keyStorePassword, String trustStorePath, String trustStorePassword) {
+        // ssl-mode = PREFERRED
+        String useSsl = "true"
+        String requireSsl = "true"
+        String useSslconfig = "useSSL=" + useSsl + "&requireSSL=" + requireSsl + "&verifyServerCertificate=true"
+        String clientCAKey = "clientCertificateKeyStoreUrl=file:" + keyStorePath
+        String clientCAPwd = "clientCertificateKeyStorePassword=" + keyStorePassword
+        String trustCAKey = "trustCertificateKeyStoreUrl=file:" + trustStorePath
+        String trustCAPwd = "trustCertificateKeyStorePassword=" + trustStorePassword
+        String tlsUrl = useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
+        // e.g: jdbc:mysql://locahost:8080/dbname?
+        if (url.charAt(url.length() - 1) == '?') {
+            return url + tlsUrl
+            // e.g: jdbc:mysql://locahost:8080/dbname?a=b
+        } else if (url.contains('?')) {
+            return url + '&' + tlsUrl
+            // e.g: jdbc:mysql://locahost:8080/dbname
+        } else {
+            return url + '?' + tlsUrl
         }
     }
 

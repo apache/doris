@@ -70,6 +70,10 @@ void MemoryProfile::init_memory_overview_counter() {
             tracked_memory_profile->create_child("TasksMemory", true, false);
     RuntimeProfile* tasks_memory_overview_details_profile =
             tasks_memory_overview_profile->create_child("Details", true, false);
+
+    RuntimeProfile* memtable_overview_profile =
+            tracked_memory_profile->create_child("MemtableMemory", true, false);
+
     RuntimeProfile* global_memory_overview_profile =
             tracked_memory_profile->create_child("GlobalMemory", true, false);
 
@@ -122,13 +126,14 @@ void MemoryProfile::init_memory_overview_counter() {
     // Reserved memory is the sum of all task reserved memory, is duplicated with all task memory counter.
     _reserved_memory_usage_counter = tasks_memory_overview_profile->AddHighWaterMarkCounter(
             "ReservedMemory", TUnit::BYTES, "Memory", 1);
+
+    // 6 add memtable memory counter
+    _memtable_memory_usage_counter =
+            memtable_overview_profile->AddHighWaterMarkCounter("MemtableMemory", TUnit::BYTES);
     _query_usage_counter =
             tasks_memory_overview_details_profile->AddHighWaterMarkCounter("Query", TUnit::BYTES);
     _load_usage_counter =
             tasks_memory_overview_details_profile->AddHighWaterMarkCounter("Load", TUnit::BYTES);
-    _load_all_memtables_usage_counter =
-            tasks_memory_overview_details_profile->AddHighWaterMarkCounter("AllMemTablesMemory",
-                                                                           TUnit::BYTES, "Load", 1);
     _compaction_usage_counter = tasks_memory_overview_details_profile->AddHighWaterMarkCounter(
             "Compaction", TUnit::BYTES);
     _schema_change_usage_counter = tasks_memory_overview_details_profile->AddHighWaterMarkCounter(
@@ -276,6 +281,12 @@ void MemoryProfile::refresh_memory_overview_profile() {
     COUNTER_SET(_jvm_heap_memory_usage_counter, jvm_heap_bytes);
     COUNTER_SET(_jvm_non_heap_memory_usage_counter, jvm_non_heap_bytes);
 
+    // Memtable memory is not included in the memory the load tasks. Because actually it is a buffer.
+    COUNTER_SET(_memtable_memory_usage_counter,
+                ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption());
+    all_tracked_mem_sum +=
+            ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption();
+
     COUNTER_SET(_tracked_memory_usage_counter, all_tracked_mem_sum);
     memory_all_tracked_sum_bytes << all_tracked_mem_sum - memory_all_tracked_sum_bytes.get_value();
 
@@ -285,12 +296,7 @@ void MemoryProfile::refresh_memory_overview_profile() {
     COUNTER_SET(_untracked_memory_usage_counter, untracked_memory);
     memory_untracked_memory_bytes << untracked_memory - memory_untracked_memory_bytes.get_value();
 
-    // 6 refresh additional tracker printed when memory exceeds limit.
-    // TODO, separate Framgnet and Memtable memory in Load memory.
-    COUNTER_SET(_load_all_memtables_usage_counter,
-                ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption());
-
-    // 7. reset profile
+    // 6. reset profile
     _global_memory_profile.set(std::move(global_memory_profile));
     _metadata_memory_profile.set(std::move(metadata_memory_profile));
     _cache_memory_profile.set(std::move(cache_memory_profile));

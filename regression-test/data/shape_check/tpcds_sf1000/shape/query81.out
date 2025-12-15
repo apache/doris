@@ -24,7 +24,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------PhysicalDistribute[DistributionSpecGather]
 ------------PhysicalTopN[LOCAL_SORT]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ctr1.ctr_state = ctr2.ctr_state)) otherCondition=((cast(ctr_total_return as DECIMALV3(38, 5)) > (avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2))) build RFs:RF4 ctr_state->[ctr_state]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ctr1.ctr_state = ctr2.ctr_state)) otherCondition=((cast(ctr_total_return as DECIMALV3(38, 5)) > (avg(ctr_total_return) * 1.2))) build RFs:RF4 ctr_state->[ctr_state]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[c_current_addr_sk]
 ----------------------PhysicalProject
