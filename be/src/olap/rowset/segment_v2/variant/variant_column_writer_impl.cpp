@@ -723,7 +723,7 @@ Status VariantSubcolumnWriter::init() {
     return Status::OK();
 }
 
-Status VariantSubcolumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+Status VariantSubcolumnWriter::append_data(const uint8_t** ptr, size_t num_rows, bool null) {
     const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
     const auto& src = *reinterpret_cast<const vectorized::ColumnVariant*>(column->column_data);
     auto* dst_ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
@@ -837,7 +837,7 @@ Status VariantSubcolumnWriter::write_bloom_filter_index() {
 Status VariantSubcolumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                                size_t num_rows) {
     // the root contains the same nullable info
-    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    RETURN_IF_ERROR(append_data(ptr, num_rows, false));
     return Status::OK();
 }
 
