@@ -70,10 +70,7 @@ suite("analyze_agg") {
                  tt2.c;
     """
 
-    test {
-        sql "select count(distinct t2.b), variance(distinct t2.c) from t2"
-        exception "variance(DISTINCT c#2) can't support multi distinct."
-    }
+    qt_multi_agg_distinct_func "select count(distinct t2.b), variance(distinct t2.c) from t2"
 
     // should not bind g /g in group by again, otherwise will throw exception
     sql "select g / g as nu, sum(c) from t2 group by nu"
