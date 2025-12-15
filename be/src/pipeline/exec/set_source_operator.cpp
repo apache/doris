@@ -33,7 +33,8 @@ Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateIn
     SCOPED_TIMER(_init_timer);
     _get_data_timer = ADD_TIMER(custom_profile(), "GetDataTime");
     _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
-    _get_data_from_hashtable_rows = ADD_COUNTER(custom_profile(), "GetDataFromHashTableRows", TUnit::UNIT);
+    _get_data_from_hashtable_rows =
+            ADD_COUNTER(custom_profile(), "GetDataFromHashTableRows", TUnit::UNIT);
     _shared_state->probe_finished_children_dependency.resize(
             _parent->cast<SetSourceOperatorX<is_intersect>>()._child_quantity, nullptr);
     return Status::OK();
