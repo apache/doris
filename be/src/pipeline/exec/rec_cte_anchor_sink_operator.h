@@ -72,13 +72,20 @@ public:
         return {ExchangeType::NOOP};
     }
 
+    Status terminate(RuntimeState* state) override {
+        RETURN_IF_ERROR(_notify_rec_side_ready_if_needed(state));
+        return Base::terminate(state);
+    }
+
+    Status close(RuntimeState* state) override {
+        RETURN_IF_ERROR(_notify_rec_side_ready_if_needed(state));
+        return Base::close(state);
+    }
+
     Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override {
         auto& local_state = get_local_state(state);
 
-        if (_need_notify_rec_side_ready) {
-            RETURN_IF_ERROR(get_local_state(state)._shared_state->send_data_to_targets(state, 0));
-            _need_notify_rec_side_ready = false;
-        }
+        RETURN_IF_ERROR(_notify_rec_side_ready_if_needed(state));
 
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
         if (input_block->rows() != 0) {
@@ -103,6 +110,14 @@ public:
     }
 
 private:
+    Status _notify_rec_side_ready_if_needed(RuntimeState* state) {
+        if (_need_notify_rec_side_ready) {
+            _need_notify_rec_side_ready = false;
+            RETURN_IF_ERROR(get_local_state(state)._shared_state->send_data_to_targets(state, 0));
+        }
+        return Status::OK();
+    }
+
     const RowDescriptor _row_descriptor;
     vectorized::VExprContextSPtrs _child_expr;
 
