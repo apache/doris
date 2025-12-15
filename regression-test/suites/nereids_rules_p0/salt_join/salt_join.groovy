@@ -20,6 +20,7 @@ suite("salt_join") {
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "set disable_nereids_rules='prune_empty_partition'"
     sql "set runtime_filter_mode=OFF"
+    sql "set disable_join_reorder=true"
     sql "drop table if exists test_skew9;"
     sql """create table test_skew9(a int,c varchar(100), b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
     sql """insert into test_skew9 values(1,'abc',9),(1,'abc',1),(1,'def',2),(null,'def',2),(2,'abc',2),(3,'abc',4),(5,'abc',6),(2,'def',2),(5,'abc',null),(3,'abc',null)"""
