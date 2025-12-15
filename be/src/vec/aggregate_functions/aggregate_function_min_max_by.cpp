@@ -17,6 +17,8 @@
 
 #include "vec/aggregate_functions/aggregate_function_min_max_by.h"
 
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, int be_version) {
@@ -72,6 +74,13 @@ std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, i
                                type->get_name());
         return nullptr;
     }
+}
+
+void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both(
+            "min_by", create_aggregate_function_min_max_by<AggregateFunctionMinByData>);
+    factory.register_function_both(
+            "max_by", create_aggregate_function_min_max_by<AggregateFunctionMaxByData>);
 }
 
 } // namespace doris::vectorized

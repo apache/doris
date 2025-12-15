@@ -540,6 +540,54 @@ public:
         be_exec_version = be_version;
     }
 
+    SingleValueDataComplexType& operator=(const SingleValueDataComplexType& rhs) {
+        if (this == &rhs) {
+            return *this;
+        }
+
+        column_type = rhs.column_type;
+        has_value = rhs.has_value;
+        be_exec_version = rhs.be_exec_version;
+        column_data = column_type->create_column();
+
+        if (rhs.has_value) {
+            column_data->insert_from(*rhs.column_data, 0);
+        }
+
+        return *this;
+    }
+
+    SingleValueDataComplexType(const SingleValueDataComplexType& rhs) {
+        column_type = rhs.column_type;
+        has_value = rhs.has_value;
+        be_exec_version = rhs.be_exec_version;
+        column_data = column_type->create_column();
+
+        if (rhs.has_value) {
+            column_data->insert_from(*rhs.column_data, 0);
+        }
+    }
+
+    SingleValueDataComplexType& operator=(SingleValueDataComplexType&& rhs) noexcept {
+        if (this == &rhs) {
+            return *this;
+        }
+
+        column_type = std::move(rhs.column_type);
+        column_data = std::move(rhs.column_data);
+        has_value = rhs.has_value;
+        be_exec_version = rhs.be_exec_version;
+
+        return *this;
+    }
+
+    SingleValueDataComplexType(SingleValueDataComplexType&& rhs) noexcept {
+        column_type = std::move(rhs.column_type);
+        column_data = std::move(rhs.column_data);
+        has_value = rhs.has_value;
+        be_exec_version = rhs.be_exec_version;
+    }
+
     bool has() const { return has_value; }
 
     constexpr static bool IsFixedLength = false;

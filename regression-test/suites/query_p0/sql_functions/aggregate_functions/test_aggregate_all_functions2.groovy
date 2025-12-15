@@ -319,8 +319,15 @@ suite("test_aggregate_all_functions2") {
     qt_maxminby_array_3 """SELECT max_by(mp, arr), min_by(mp, arr) from test_maxmin"""
     qt_maxminby_array_4 """SELECT max_by(st, arr), min_by(st, arr) from test_maxmin"""
 
+    qt_maxminby_array_5 """SELECT id, max_by(arr, weight), min_by(arr, weight) from test_maxmin group by id order by id"""
+
     qt_maxminby_map_2 """SELECT max_by(mp, weight), min_by(mp, weight) from test_maxmin"""
+    qt_maxminby_map_3 """SELECT id, max_by(mp, weight), min_by(mp, weight) from test_maxmin group by id order by id"""
+    qt_maxminby_map_4 """SELECT id, max_by(mp, arr), min_by(mp, arr) from test_maxmin group by id order by id"""
+
     qt_maxminby_struct_2 """SELECT max_by(st, weight), min_by(st, weight) from test_maxmin"""
+    qt_maxminby_struct_3 """SELECT id, max_by(st, weight), min_by(st, weight) from test_maxmin group by id order by id"""
+    qt_maxminby_struct_4 """SELECT id, max_by(st, arr), min_by(st, arr) from test_maxmin group by id order by id"""
 
     sql "DROP TABLE IF EXISTS test_nested_maxmin";
     sql """
@@ -341,6 +348,6 @@ suite("test_aggregate_all_functions2") {
     """
 
     qt_maxmin_array_3 """SELECT max(arr), min(arr) from test_nested_maxmin"""
-    qt_maxminby_array_5 """SELECT max_by(weight, arr), min_by(weight, arr) from test_nested_maxmin"""
-    qt_maxminby_array_6 """SELECT max_by(arr, weight), min_by(arr, weight) from test_nested_maxmin"""
+    qt_maxminby_array_6 """SELECT max_by(weight, arr), min_by(weight, arr) from test_nested_maxmin"""
+    qt_maxminby_array_7 """SELECT max_by(arr, weight), min_by(arr, weight) from test_nested_maxmin"""
 }
