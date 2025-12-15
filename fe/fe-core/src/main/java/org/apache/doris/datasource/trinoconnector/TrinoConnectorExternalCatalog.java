@@ -139,6 +139,11 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         ConnectorServicesProvider connectorServicesProvider = createConnectorServicesProvider();
 
         this.connector = connectorServicesProvider.getConnectorServices(trinoCatalogHandle).getConnector();
+        try (ThreadContextClassLoader ignored =
+                     new ThreadContextClassLoader(connector.getClass().getClassLoader())) {
+            tryPreloadHadoopShutdownInnerClasses(
+                    connector.getClass().getClassLoader());
+        }
         SessionPropertyManager sessionPropertyManager = createTrinoSessionPropertyManager(connectorServicesProvider);
 
         QueryIdGenerator queryIdGenerator = new QueryIdGenerator();
@@ -285,11 +290,6 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                 trinoCatalogHandle.getCatalogName(), connectorNameString, catalogFactory,
                 trinoConnectorProperties, MoreExecutors.directExecutor());
         trinoConnectorServicesProvider.loadInitialCatalogs();
-        try (ThreadContextClassLoader ignored =
-                     new ThreadContextClassLoader(connector.getClass().getClassLoader())) {
-            tryPreloadHadoopShutdownInnerClasses(
-                    connector.getClass().getClassLoader());
-        }
         return trinoConnectorServicesProvider;
     }
 
