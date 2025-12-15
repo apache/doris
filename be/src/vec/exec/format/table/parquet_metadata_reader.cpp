@@ -37,8 +37,11 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/unaligned.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/parquet/parquet_column_convert.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
@@ -312,23 +315,158 @@ std::string encodings_to_string(const std::vector<tparquet::Encoding::type>& enc
     return fmt::format("{}", fmt::join(parts, ","));
 }
 
-std::string statistics_value_to_string(const tparquet::Statistics& statistics, bool is_min) {
+bool try_get_statistics_encoded_value(const tparquet::Statistics& statistics, bool is_min,
+                                     std::string* encoded_value) {
     if (is_min) {
         if (statistics.__isset.min_value) {
-            return {statistics.min_value};
+            *encoded_value = statistics.min_value;
+            return true;
         }
         if (statistics.__isset.min) {
-            return {statistics.min};
+            *encoded_value = statistics.min;
+            return true;
         }
     } else {
         if (statistics.__isset.max_value) {
-            return {statistics.max_value};
+            *encoded_value = statistics.max_value;
+            return true;
         }
         if (statistics.__isset.max) {
-            return {statistics.max};
+            *encoded_value = statistics.max;
+            return true;
         }
     }
-    return "";
+    encoded_value->clear();
+    return false;
+}
+
+std::string bytes_to_hex_string(const std::string& bytes) {
+    static constexpr char kHexDigits[] = "0123456789ABCDEF";
+    std::string hex;
+    hex.resize(bytes.size() * 2);
+    for (size_t i = 0; i < bytes.size(); ++i) {
+        auto byte = static_cast<uint8_t>(bytes[i]);
+        hex[i * 2] = kHexDigits[byte >> 4];
+        hex[i * 2 + 1] = kHexDigits[byte & 0x0F];
+    }
+    return fmt::format("0x{}", hex);
+}
+
+std::string decode_statistics_value(const FieldSchema* schema_field, tparquet::Type::type physical_type,
+                                    const std::string& encoded_value,
+                                    const cctz::time_zone& ctz) {
+    if (encoded_value.empty()) {
+        return "";
+    }
+    if (schema_field == nullptr) {
+        return bytes_to_hex_string(encoded_value);
+    }
+
+    auto logical_data_type = remove_nullable(schema_field->data_type);
+    auto converter = parquet::PhysicalToLogicalConverter::get_converter(
+            schema_field, logical_data_type, logical_data_type, &ctz);
+    if (!converter || !converter->support()) {
+        return bytes_to_hex_string(encoded_value);
+    }
+
+    ColumnPtr physical_column;
+    switch (physical_type) {
+    case tparquet::Type::type::BOOLEAN: {
+        if (encoded_value.size() != sizeof(UInt8)) {
+            return bytes_to_hex_string(encoded_value);
+        }
+        auto physical_col = ColumnUInt8::create();
+        physical_col->insert_value(doris::unaligned_load<UInt8>(encoded_value.data()));
+        physical_column = std::move(physical_col);
+        break;
+    }
+    case tparquet::Type::type::INT32: {
+        if (encoded_value.size() != sizeof(Int32)) {
+            return bytes_to_hex_string(encoded_value);
+        }
+        auto physical_col = ColumnInt32::create();
+        physical_col->insert_value(doris::unaligned_load<Int32>(encoded_value.data()));
+        physical_column = std::move(physical_col);
+        break;
+    }
+    case tparquet::Type::type::INT64: {
+        if (encoded_value.size() != sizeof(Int64)) {
+            return bytes_to_hex_string(encoded_value);
+        }
+        auto physical_col = ColumnInt64::create();
+        physical_col->insert_value(doris::unaligned_load<Int64>(encoded_value.data()));
+        physical_column = std::move(physical_col);
+        break;
+    }
+    case tparquet::Type::type::FLOAT: {
+        if (encoded_value.size() != sizeof(Float32)) {
+            return bytes_to_hex_string(encoded_value);
+        }
+        auto physical_col = ColumnFloat32::create();
+        physical_col->insert_value(doris::unaligned_load<Float32>(encoded_value.data()));
+        physical_column = std::move(physical_col);
+        break;
+    }
+    case tparquet::Type::type::DOUBLE: {
+        if (encoded_value.size() != sizeof(Float64)) {
+            return bytes_to_hex_string(encoded_value);
+        }
+        auto physical_col = ColumnFloat64::create();
+        physical_col->insert_value(doris::unaligned_load<Float64>(encoded_value.data()));
+        physical_column = std::move(physical_col);
+        break;
+    }
+    case tparquet::Type::type::BYTE_ARRAY: {
+        auto physical_col = ColumnString::create();
+        physical_col->insert_data(encoded_value.data(), encoded_value.size());
+        physical_column = std::move(physical_col);
+        break;
+    }
+    case tparquet::Type::type::FIXED_LEN_BYTE_ARRAY: {
+        int32_t type_length = schema_field->parquet_schema.__isset.type_length
+                                      ? schema_field->parquet_schema.type_length
+                                      : 0;
+        if (type_length <= 0) {
+            type_length = static_cast<int32_t>(encoded_value.size());
+        }
+        if (static_cast<size_t>(type_length) != encoded_value.size()) {
+            return bytes_to_hex_string(encoded_value);
+        }
+        auto physical_col = ColumnUInt8::create();
+        physical_col->resize(type_length);
+        memcpy(physical_col->get_data().data(), encoded_value.data(), encoded_value.size());
+        physical_column = std::move(physical_col);
+        break;
+    }
+    case tparquet::Type::type::INT96: {
+        constexpr size_t kInt96Size = 12;
+        if (encoded_value.size() != kInt96Size) {
+            return bytes_to_hex_string(encoded_value);
+        }
+        auto physical_col = ColumnInt8::create();
+        physical_col->resize(kInt96Size);
+        memcpy(physical_col->get_data().data(), encoded_value.data(), encoded_value.size());
+        physical_column = std::move(physical_col);
+        break;
+    }
+    default:
+        return bytes_to_hex_string(encoded_value);
+    }
+
+    ColumnPtr logical_column;
+    if (converter->is_consistent()) {
+        logical_column = physical_column;
+    } else {
+        logical_column = logical_data_type->create_column();
+        if (Status st = converter->physical_convert(physical_column, logical_column); !st.ok()) {
+            return bytes_to_hex_string(encoded_value);
+        }
+    }
+
+    if (logical_column->size() != 1) {
+        return bytes_to_hex_string(encoded_value);
+    }
+    return logical_data_type->to_string(*logical_column, 0);
 }
 
 void build_path_map(const FieldSchema& field, const std::string& prefix,
@@ -348,8 +486,7 @@ void build_path_map(const FieldSchema& field, const std::string& prefix,
 ParquetMetadataReader::ParquetMetadataReader(std::vector<SlotDescriptor*> slots,
                                              RuntimeState* state, RuntimeProfile* profile,
                                              TMetaScanRange scan_range)
-        : _slots(std::move(slots)), _scan_range(std::move(scan_range)) {
-    (void)state;
+        : _state(state), _slots(std::move(slots)), _scan_range(std::move(scan_range)) {
     (void)profile;
 }
 
@@ -704,17 +841,27 @@ Status ParquetMetadataReader::_append_metadata_rows(const std::string& path,
                                 column_meta.total_uncompressed_size);
 
             if (column_meta.__isset.statistics) {
-                std::string min_value =
-                        statistics_value_to_string(column_meta.statistics, true);
-                std::string max_value =
-                        statistics_value_to_string(column_meta.statistics, false);
-                if (!min_value.empty()) {
-                    insert_if_requested(META_STATISTICS_MIN, insert_string, min_value);
+                static const cctz::time_zone kUtc0 = cctz::utc_time_zone();
+                const cctz::time_zone& ctz = _state != nullptr ? _state->timezone_obj() : kUtc0;
+
+                std::string min_value;
+                std::string max_value;
+                bool has_min = try_get_statistics_encoded_value(column_meta.statistics, true,
+                                                               &min_value);
+                bool has_max = try_get_statistics_encoded_value(column_meta.statistics, false,
+                                                               &max_value);
+
+                if (has_min) {
+                    std::string decoded =
+                            decode_statistics_value(schema_field, column_meta.type, min_value, ctz);
+                    insert_if_requested(META_STATISTICS_MIN, insert_string, decoded);
                 } else {
                     insert_if_requested(META_STATISTICS_MIN, insert_null);
                 }
-                if (!max_value.empty()) {
-                    insert_if_requested(META_STATISTICS_MAX, insert_string, max_value);
+                if (has_max) {
+                    std::string decoded =
+                            decode_statistics_value(schema_field, column_meta.type, max_value, ctz);
+                    insert_if_requested(META_STATISTICS_MAX, insert_string, decoded);
                 } else {
                     insert_if_requested(META_STATISTICS_MAX, insert_null);
                 }
