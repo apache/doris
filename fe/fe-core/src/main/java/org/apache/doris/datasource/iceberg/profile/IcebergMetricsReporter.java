@@ -37,7 +37,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.StringJoiner;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 /**
@@ -47,6 +47,7 @@ import java.util.regex.Pattern;
 public class IcebergMetricsReporter implements MetricsReporter {
 
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+    private static final AtomicInteger SCAN_METRICS_ID = new AtomicInteger(1);
 
     @Override
     public void report(MetricsReport report) {
@@ -64,55 +65,21 @@ public class IcebergMetricsReporter implements MetricsReporter {
             return;
         }
 
-        String formatted = formatScanReport((ScanReport) report);
-        if (formatted.isEmpty()) {
+        ScanReport scanReport = (ScanReport) report;
+        ScanMetricsResult metrics = scanReport.scanMetrics();
+        if (metrics == null) {
             return;
         }
 
-        String existing = executionSummary.getInfoString(SummaryProfile.ICEBERG_SCAN_METRICS);
-        if (Strings.isNullOrEmpty(existing) || "N/A".equals(existing)) {
-            executionSummary.addInfoString(SummaryProfile.ICEBERG_SCAN_METRICS, formatted);
-        } else {
-            executionSummary.addInfoString(SummaryProfile.ICEBERG_SCAN_METRICS,
-                    existing + System.lineSeparator() + formatted);
-        }
-    }
-
-    private String formatScanReport(ScanReport report) {
-        ScanMetricsResult metrics = report.scanMetrics();
-        if (metrics == null) {
-            return "";
+        RuntimeProfile icebergGroup = executionSummary.getChildMap().get(SummaryProfile.ICEBERG_SCAN_METRICS);
+        if (icebergGroup == null) {
+            icebergGroup = new RuntimeProfile(SummaryProfile.ICEBERG_SCAN_METRICS);
+            executionSummary.addChild(icebergGroup, true);
         }
 
-        StringJoiner joiner = new StringJoiner(", ");
-        joiner.add("table=" + report.tableName());
-        joiner.add("snapshot=" + report.snapshotId());
-        String filter = sanitize(report.filter() == null ? null : report.filter().toString());
-        if (!Strings.isNullOrEmpty(filter)) {
-            joiner.add("filter=" + filter);
-        }
-        if (!report.projectedFieldNames().isEmpty()) {
-            joiner.add("columns=" + Joiner.on('|').join(report.projectedFieldNames()));
-        }
-
-        appendTimer(joiner, "planning", metrics.totalPlanningDuration());
-        appendCounter(joiner, "data_files", metrics.resultDataFiles());
-        appendCounter(joiner, "delete_files", metrics.resultDeleteFiles());
-        appendCounter(joiner, "skipped_data_files", metrics.skippedDataFiles());
-        appendCounter(joiner, "skipped_delete_files", metrics.skippedDeleteFiles());
-        appendCounter(joiner, "total_size", metrics.totalFileSizeInBytes());
-        appendCounter(joiner, "total_delete_size", metrics.totalDeleteFileSizeInBytes());
-        appendCounter(joiner, "scanned_manifests", metrics.scannedDataManifests());
-        appendCounter(joiner, "skipped_manifests", metrics.skippedDataManifests());
-        appendCounter(joiner, "scanned_delete_manifests", metrics.scannedDeleteManifests());
-        appendCounter(joiner, "skipped_delete_manifests", metrics.skippedDeleteManifests());
-        appendCounter(joiner, "indexed_delete_files", metrics.indexedDeleteFiles());
-        appendCounter(joiner, "equality_delete_files", metrics.equalityDeleteFiles());
-        appendCounter(joiner, "positional_delete_files", metrics.positionalDeleteFiles());
-
-        appendMetadata(joiner, report.metadata());
-
-        return joiner.toString();
+        RuntimeProfile scanProfile = new RuntimeProfile(buildScanProfileName(scanReport));
+        appendScanDetails(scanProfile, scanReport, metrics);
+        icebergGroup.addChild(scanProfile, true);
     }
 
     private String sanitize(String value) {
@@ -122,7 +89,40 @@ public class IcebergMetricsReporter implements MetricsReporter {
         return WHITESPACE.matcher(value).replaceAll(" ").trim();
     }
 
-    private void appendMetadata(StringJoiner joiner, Map<String, String> metadata) {
+    private String buildScanProfileName(ScanReport report) {
+        return "Scan #" + SCAN_METRICS_ID.getAndIncrement() + " (" + report.tableName() + ")";
+    }
+
+    private void appendScanDetails(RuntimeProfile scanProfile, ScanReport report, ScanMetricsResult metrics) {
+        scanProfile.addInfoString("table", report.tableName());
+        scanProfile.addInfoString("snapshot", String.valueOf(report.snapshotId()));
+        String filter = sanitize(report.filter() == null ? null : report.filter().toString());
+        if (!Strings.isNullOrEmpty(filter)) {
+            scanProfile.addInfoString("filter", filter);
+        }
+        if (!report.projectedFieldNames().isEmpty()) {
+            scanProfile.addInfoString("columns", Joiner.on('|').join(report.projectedFieldNames()));
+        }
+
+        appendTimer(scanProfile, "planning", metrics.totalPlanningDuration());
+        appendCounter(scanProfile, "data_files", metrics.resultDataFiles());
+        appendCounter(scanProfile, "delete_files", metrics.resultDeleteFiles());
+        appendCounter(scanProfile, "skipped_data_files", metrics.skippedDataFiles());
+        appendCounter(scanProfile, "skipped_delete_files", metrics.skippedDeleteFiles());
+        appendCounter(scanProfile, "total_size", metrics.totalFileSizeInBytes());
+        appendCounter(scanProfile, "total_delete_size", metrics.totalDeleteFileSizeInBytes());
+        appendCounter(scanProfile, "scanned_manifests", metrics.scannedDataManifests());
+        appendCounter(scanProfile, "skipped_manifests", metrics.skippedDataManifests());
+        appendCounter(scanProfile, "scanned_delete_manifests", metrics.scannedDeleteManifests());
+        appendCounter(scanProfile, "skipped_delete_manifests", metrics.skippedDeleteManifests());
+        appendCounter(scanProfile, "indexed_delete_files", metrics.indexedDeleteFiles());
+        appendCounter(scanProfile, "equality_delete_files", metrics.equalityDeleteFiles());
+        appendCounter(scanProfile, "positional_delete_files", metrics.positionalDeleteFiles());
+
+        appendMetadata(scanProfile, report.metadata());
+    }
+
+    private void appendMetadata(RuntimeProfile scanProfile, Map<String, String> metadata) {
         if (metadata == null || metadata.isEmpty()) {
             return;
         }
@@ -134,22 +134,22 @@ public class IcebergMetricsReporter implements MetricsReporter {
             }
         }
         if (!captured.isEmpty()) {
-            joiner.add("metadata={" + String.join(", ", captured) + "}");
+            scanProfile.addInfoString("metadata", "{" + String.join(", ", captured) + "}");
         }
     }
 
-    private void appendTimer(StringJoiner joiner, String name, TimerResult timerResult) {
+    private void appendTimer(RuntimeProfile scanProfile, String name, TimerResult timerResult) {
         if (timerResult == null) {
             return;
         }
-        joiner.add(name + "=" + formatTimer(timerResult));
+        scanProfile.addInfoString(name, formatTimer(timerResult));
     }
 
-    private void appendCounter(StringJoiner joiner, String name, CounterResult counterResult) {
+    private void appendCounter(RuntimeProfile scanProfile, String name, CounterResult counterResult) {
         if (counterResult == null) {
             return;
         }
-        joiner.add(name + "=" + formatCounter(counterResult));
+        scanProfile.addInfoString(name, formatCounter(counterResult));
     }
 
     private String formatCounter(CounterResult counterResult) {
