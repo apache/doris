@@ -58,15 +58,17 @@ public class FileCacheAdmissionManager {
 
     public static class RulePattern {
         private final long id;
+        private final String userIdentity;
         private final String catalog;
         private final String database;
         private final String table;
         private final String partitionPattern;
         private final RuleType ruleType;
 
-        public RulePattern(long id, String catalog, String database,
+        public RulePattern(long id, String userIdentity, String catalog, String database,
                            String table, String partitionPattern, RuleType ruleType) {
             this.id = id;
+            this.userIdentity = userIdentity;
             this.catalog = catalog != null ? catalog : "";
             this.database = database != null ? database : "";
             this.table = table != null ? table : "";
@@ -76,6 +78,7 @@ public class FileCacheAdmissionManager {
 
         public RulePattern(RulePattern other) {
             this.id = other.id;
+            this.userIdentity = other.userIdentity;
             this.catalog = other.catalog;
             this.database = other.database;
             this.table = other.table;
@@ -85,6 +88,10 @@ public class FileCacheAdmissionManager {
 
         public long getId() {
             return id;
+        }
+
+        public String getUserIdentity() {
+            return userIdentity;
         }
 
         public String getCatalog() {
@@ -110,30 +117,17 @@ public class FileCacheAdmissionManager {
 
 
     public static class AdmissionRule {
-        private final String userIdentity;
         private final RulePattern rulePattern;
         private final boolean enabled;
         private final long updatedTime;
 
-        public AdmissionRule(String userIdentity, RulePattern rulePattern,
-                             boolean enabled, long updatedTime) {
-            this.userIdentity = userIdentity != null ? userIdentity : "";
-            this.rulePattern = rulePattern;
-            this.enabled = enabled;
-            this.updatedTime = updatedTime;
-        }
-
-        public AdmissionRule(String userIdentity, long id, String catalog,
+        public AdmissionRule(long id, String userIdentity, String catalog,
                              String database, String table, String partitionPattern,
                              RuleType ruleType, boolean enabled, long updatedTime) {
-            this.userIdentity = userIdentity != null ? userIdentity : "";
-            this.rulePattern = new RulePattern(id, catalog, database, table, partitionPattern, ruleType);
+            this.rulePattern = new RulePattern(id, userIdentity, catalog, database, table, partitionPattern,
+                    ruleType);
             this.enabled = enabled;
             this.updatedTime = updatedTime;
-        }
-
-        public String getUserIdentity() {
-            return userIdentity;
         }
 
         public RulePattern getRulePattern() {
@@ -159,8 +153,6 @@ public class FileCacheAdmissionManager {
         private final Set<String> includeCatalogRules = ConcurrentHashMap.newKeySet();
         private final Map<String, Set<String>> includeDatabaseRules = new ConcurrentHashMap<>();
         private final Map<String, Set<String>> includeTableRules = new ConcurrentHashMap<>();
-
-        private final Map<Long, RulePattern> idToRulePattern = new ConcurrentHashMap<>();
 
         static List<String> reasons = new ArrayList<>(Arrays.asList(
                 "common catalog-level blacklist rule",      // 0
@@ -402,8 +394,6 @@ public class FileCacheAdmissionManager {
                 default:
                     break;
             }
-
-            idToRulePattern.put(rulePattern.getId(), new RulePattern(rulePattern));
         }
 
         public void remove(RulePattern rulePattern) {
@@ -456,16 +446,6 @@ public class FileCacheAdmissionManager {
                 default:
                     break;
             }
-
-            idToRulePattern.remove(rulePattern.getId());
-        }
-
-        public void update(RulePattern rulePattern) {
-            RulePattern oldPattern = idToRulePattern.get(rulePattern.getId());
-            if (oldPattern != null) {
-                remove(oldPattern);
-            }
-            add(rulePattern);
         }
     }
 
@@ -473,8 +453,9 @@ public class FileCacheAdmissionManager {
         private static final int PARTITION_COUNT = 58; // A-Z + a-z + 其他字符
         private final List<Map<String, ConcurrentRuleCollection>> maps;
         private final ConcurrentRuleCollection commonCollection;
+        private final Map<Long, RulePattern> idToRulePattern = new ConcurrentHashMap<>();
 
-        static List<String> reasons = new ArrayList<>(Arrays.asList(
+        static List<String> otherReasons = new ArrayList<>(Arrays.asList(
                 "empty user_identity",
                 "invalid user_identity"
         ));
@@ -498,26 +479,29 @@ public class FileCacheAdmissionManager {
                     continue;
                 }
 
-                if (rule.getUserIdentity().isEmpty()) {
+                if (rule.getRulePattern().getUserIdentity().isEmpty()) {
                     commonCollection.add(rule.getRulePattern());
+                    idToRulePattern.put(rule.getRulePattern().getId(), new RulePattern(rule.getRulePattern()));
                     continue;
                 }
 
-                char firstChar = rule.getUserIdentity().charAt(0);
+                char firstChar = rule.getRulePattern().getUserIdentity().charAt(0);
                 if (!Character.isAlphabetic(firstChar)) {
                     continue;
                 }
 
                 int index = getIndex(firstChar);
-                maps.get(index).computeIfAbsent(rule.getUserIdentity(), k -> new ConcurrentRuleCollection())
-                        .add(rule.getRulePattern());
+                maps.get(index).computeIfAbsent(rule.getRulePattern().getUserIdentity(),
+                        k -> new ConcurrentRuleCollection()).add(rule.getRulePattern());
+                idToRulePattern.put(rule.getRulePattern().getId(), new RulePattern(rule.getRulePattern()));
             }
         }
 
-        public void remove(AdmissionRule rule) {
-            String userIdentity = rule.getUserIdentity();
+        public void remove(RulePattern rulePattern) {
+            String userIdentity = rulePattern.getUserIdentity();
             if (userIdentity.isEmpty()) {
-                commonCollection.remove(rule.getRulePattern());
+                commonCollection.remove(rulePattern);
+                idToRulePattern.remove(rulePattern.getId());
                 return;
             }
 
@@ -527,13 +511,15 @@ public class FileCacheAdmissionManager {
             }
 
             int index = getIndex(firstChar);
-            maps.get(index).get(userIdentity).remove(rule.getRulePattern());
+            maps.get(index).get(userIdentity).remove(rulePattern);
+            idToRulePattern.remove(rulePattern.getId());
         }
 
-        public void update(AdmissionRule rule) {
-            String userIdentity = rule.getUserIdentity();
+        public void add(RulePattern rulePattern) {
+            String userIdentity = rulePattern.getUserIdentity();
             if (userIdentity.isEmpty()) {
-                commonCollection.update(rule.getRulePattern());
+                commonCollection.add(rulePattern);
+                idToRulePattern.put(rulePattern.getId(), new RulePattern(rulePattern));
                 return;
             }
 
@@ -543,23 +529,22 @@ public class FileCacheAdmissionManager {
             }
 
             int index = getIndex(firstChar);
-            maps.get(index).computeIfAbsent(rule.getUserIdentity(), k -> new ConcurrentRuleCollection())
-                .update(rule.getRulePattern());
+            maps.get(index).computeIfAbsent(rulePattern.getUserIdentity(),
+                    k -> new ConcurrentRuleCollection()).add(rulePattern);
+            idToRulePattern.put(rulePattern.getId(), new RulePattern(rulePattern));
         }
 
         public boolean isAllowed(String userIdentity, String catalog, String database, String table,
                                  AtomicReference<String> reason) {
             if (userIdentity.isEmpty()) {
-                // empty user_identity
-                reason.set(reasons.get(0));
+                reason.set(otherReasons.get(0));
                 logDefaultAdmission(userIdentity, catalog, database, table, reason.get());
                 return Config.file_cache_admission_control_default_allow;
             }
 
             char firstChar = userIdentity.charAt(0);
             if (!Character.isAlphabetic(firstChar)) {
-                // invalid user_identity
-                reason.set(reasons.get(1));
+                reason.set(otherReasons.get(1));
                 logDefaultAdmission(userIdentity, catalog, database, table, reason.get());
                 return Config.file_cache_admission_control_default_allow;
             }
@@ -589,7 +574,7 @@ public class FileCacheAdmissionManager {
 
     private final ConcurrentRuleManager ruleManager;
 
-    private long maxUpdatedTime;
+    private volatile long maxUpdatedTime;
     private static final FileCacheAdmissionManager INSTANCE = new FileCacheAdmissionManager();
 
     private ScheduledExecutorService executorService;
@@ -603,10 +588,6 @@ public class FileCacheAdmissionManager {
         return INSTANCE;
     }
 
-    public long getMaxUpdatedTime() {
-        return maxUpdatedTime;
-    }
-
     public void initialize(List<AdmissionRule> rules, long maxUpdatedTime) {
         ruleManager.initialize(rules);
         this.maxUpdatedTime = Math.max(this.maxUpdatedTime, maxUpdatedTime);
@@ -614,10 +595,12 @@ public class FileCacheAdmissionManager {
 
     public void update(List<AdmissionRule> rules, long maxUpdatedTime) {
         for (AdmissionRule rule : rules) {
+            RulePattern oldRulePattern = ruleManager.idToRulePattern.get(rule.getRulePattern().getId());
+            if (oldRulePattern != null) {
+                ruleManager.remove(oldRulePattern);
+            }
             if (rule.isEnabled()) {
-                ruleManager.update(rule);
-            } else {
-                ruleManager.remove(rule);
+                ruleManager.add(rule.getRulePattern());
             }
         }
         this.maxUpdatedTime = Math.max(this.maxUpdatedTime, maxUpdatedTime);
@@ -676,7 +659,7 @@ public class FileCacheAdmissionManager {
                 maxUpdatedTime = Math.max(maxUpdatedTime, updatedTime);
 
                 AdmissionRule rule = new AdmissionRule(
-                        userIdentity, id, catalog, database, table,
+                        id, userIdentity, catalog, database, table,
                         partitionPattern, ruleType, enabled, updatedTime
                 );
                 rules.add(rule);
@@ -730,22 +713,16 @@ public class FileCacheAdmissionManager {
     public void shutdown() {
         if (executorService != null) {
             LOG.info("Starting shutdown refreshing executorService");
-            // Disable new tasks from being submitted
             executorService.shutdown();
             try {
-                // Wait a while for existing tasks to terminate
                 if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
-                    // Cancel currently executing tasks
                     executorService.shutdownNow();
-                    // Wait a while for tasks to respond to being cancelled
                     if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
                         LOG.warn("Refreshing executorService did not terminate");
                     }
                 }
             } catch (InterruptedException e) {
-                // (Re-)Cancel if current thread also interrupted
                 executorService.shutdownNow();
-                // Preserve interrupt status
                 Thread.currentThread().interrupt();
             }
             LOG.info("Refreshing executorService shutdown completed");
