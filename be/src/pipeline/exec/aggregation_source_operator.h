@@ -68,7 +68,6 @@ protected:
                                   vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
-    vectorized::Arena _agg_arena_pool;
     std::vector<char> _deserialize_buffer;
 
     RuntimeProfile::Counter* _get_results_timer = nullptr;
