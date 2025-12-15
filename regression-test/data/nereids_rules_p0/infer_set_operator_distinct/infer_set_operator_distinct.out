@@ -43,8 +43,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalOlapScan[t2]
 
@@ -60,8 +59,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalIntersect
-------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalOlapScan[t2]
 
@@ -87,19 +85,19 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalIntersect
-------PhysicalExcept
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalOlapScan[t2]
---------PhysicalDistribute[DistributionSpecHash]
-----------PhysicalOlapScan[t3]
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[t4]
+--------PhysicalExcept
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalUnion
+--------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------PhysicalOlapScan[t1]
+--------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
+------PhysicalOlapScan[t4]
 
 -- !join_with_union --
 PhysicalResultSink
@@ -244,8 +242,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------filter((t2.score > 10))
 ----------PhysicalOlapScan[t2]
@@ -296,9 +293,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+------PhysicalProject
+--------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------filter((t2.score > 20))
@@ -390,9 +386,8 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[t1]
+------hashAgg[GLOBAL]
+--------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[GLOBAL]
 ----------PhysicalOlapScan[t2]
@@ -419,9 +414,8 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalIntersect
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[t1]
+------hashAgg[GLOBAL]
+--------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[GLOBAL]
 ----------PhysicalOlapScan[t2]
@@ -458,24 +452,26 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalIntersect
-------hashAgg[GLOBAL]
---------PhysicalExcept
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalUnion
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------hashAgg[GLOBAL]
-----------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------hashAgg[GLOBAL]
-----------------------PhysicalOlapScan[t2]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[GLOBAL]
---------------PhysicalOlapScan[t3]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[GLOBAL]
-----------PhysicalOlapScan[t4]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalExcept
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------hashAgg[LOCAL]
+------------------------PhysicalUnion
+--------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------------hashAgg[GLOBAL]
+------------------------------PhysicalOlapScan[t1]
+--------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------------hashAgg[GLOBAL]
+------------------------------PhysicalOlapScan[t2]
+----------------hashAgg[GLOBAL]
+------------------PhysicalOlapScan[t3]
+------hashAgg[GLOBAL]
+--------PhysicalOlapScan[t4]
 
 Hint log:
 Used: use_INFER_SET_OPERATOR_DISTINCT
@@ -694,9 +690,8 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[t1]
+------hashAgg[GLOBAL]
+--------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[GLOBAL]
 ----------filter((t2.score > 10))
@@ -716,11 +711,12 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------PhysicalOlapScan[t1]
-------hashAgg[GLOBAL]
---------PhysicalDistribute[DistributionSpecHash]
-----------hashAgg[LOCAL]
-------------PhysicalProject
---------------PhysicalOlapScan[t2]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
 
 Hint log:
 Used: use_INFER_SET_OPERATOR_DISTINCT
@@ -772,10 +768,9 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[GLOBAL]
-----------PhysicalProject
-------------PhysicalOlapScan[t1]
+------hashAgg[GLOBAL]
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[GLOBAL]
 ----------PhysicalProject
@@ -869,8 +864,7 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalOlapScan[t2]
 
@@ -896,8 +890,7 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalIntersect
-------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalOlapScan[t2]
 
@@ -933,19 +926,19 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalIntersect
-------PhysicalExcept
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalOlapScan[t2]
---------PhysicalDistribute[DistributionSpecHash]
-----------PhysicalOlapScan[t3]
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[t4]
+--------PhysicalExcept
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalUnion
+--------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------PhysicalOlapScan[t1]
+--------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
+------PhysicalOlapScan[t4]
 
 Hint log:
 Used:
@@ -1140,8 +1133,7 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------filter((t2.score > 10))
 ----------PhysicalOlapScan[t2]
@@ -1212,9 +1204,8 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+------PhysicalProject
+--------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------filter((t2.score > 20))

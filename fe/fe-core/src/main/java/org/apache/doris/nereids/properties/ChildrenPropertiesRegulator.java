@@ -711,19 +711,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 DistributionSpecHash notShuffleSideRequireDistribution
                         = (DistributionSpecHash) requiredProperties.get(distributeToChildIndex).getDistributionSpec();
                 boolean basicIsNature = notShuffleSideRequireDistribution.getShuffleType() == ShuffleType.NATURAL;
-                ShuffleType shuffleType = basicIsNature
-                        ? ShuffleType.STORAGE_BUCKETED
-                        : ShuffleType.EXECUTION_BUCKETED;
                 for (int i = 0; i < originChildrenProperties.size(); i++) {
                     DistributionSpecHash current
                             = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
-                    if (i == distributeToChildIndex || !bothSideShuffleKeysAreSameOrder(basic, current,
-                            notShuffleSideRequireDistribution,
-                            (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
+                    if (i == distributeToChildIndex) {
                         continue;
                     }
                     PhysicalProperties target = calAnotherSideRequired(
-                            shuffleType,
+                            ShuffleType.STORAGE_BUCKETED,
                             basic, current,
                             notShuffleSideRequireDistribution,
                             (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec());

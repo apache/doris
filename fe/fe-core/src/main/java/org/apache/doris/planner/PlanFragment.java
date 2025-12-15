@@ -213,12 +213,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             List<SetOperationNode> setOperationNodes
                     = getPlanRoot().collectInCurrentFragment(SetOperationNode.class::isInstance);
             for (SetOperationNode setOperationNode : setOperationNodes) {
-                for (PlanNode child : setOperationNode.getChildren()) {
-                    if (child instanceof ExchangeNode
-                            && ((ExchangeNode) child).getPartitionType()
-                                == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
-                        return true;
-                    }
+                if (setOperationNode.isBucketShuffle()) {
+                    return true;
                 }
             }
             return false;
