@@ -19,8 +19,8 @@
 
 #include <fmt/format.h>
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <memory>
 #include <unordered_map>
@@ -94,18 +94,34 @@ enum MetadataColumnIndex : size_t {
 };
 
 constexpr std::array<const char*, SCHEMA_COLUMN_COUNT> kSchemaColumnNames = {
-        "file_name",        "column_name",       "column_path",       "physical_type",
-        "logical_type",     "repetition_level",  "definition_level",  "type_length",
-        "precision",        "scale",             "is_nullable"};
+        "file_name",        "column_name",      "column_path", "physical_type", "logical_type",
+        "repetition_level", "definition_level", "type_length", "precision",     "scale",
+        "is_nullable"};
 
 static_assert(kSchemaColumnNames.size() == SCHEMA_COLUMN_COUNT);
 
 constexpr std::array<const char*, META_COLUMN_COUNT> kMetadataColumnNames = {
-        "file_name", "row_group_id", "column_id", "column_name", "column_path", "physical_type",
-        "logical_type", "type_length", "converted_type", "num_values", "null_count",
-        "distinct_count", "encodings", "compression", "data_page_offset", "index_page_offset",
-        "dictionary_page_offset", "total_compressed_size", "total_uncompressed_size",
-        "statistics_min", "statistics_max"};
+        "file_name",
+        "row_group_id",
+        "column_id",
+        "column_name",
+        "column_path",
+        "physical_type",
+        "logical_type",
+        "type_length",
+        "converted_type",
+        "num_values",
+        "null_count",
+        "distinct_count",
+        "encodings",
+        "compression",
+        "data_page_offset",
+        "index_page_offset",
+        "dictionary_page_offset",
+        "total_compressed_size",
+        "total_uncompressed_size",
+        "statistics_min",
+        "statistics_max"};
 
 static_assert(kMetadataColumnNames.size() == META_COLUMN_COUNT);
 
@@ -335,7 +351,7 @@ std::string encodings_to_string(const std::vector<tparquet::Encoding::type>& enc
 }
 
 bool try_get_statistics_encoded_value(const tparquet::Statistics& statistics, bool is_min,
-                                     std::string* encoded_value) {
+                                      std::string* encoded_value) {
     if (is_min) {
         if (statistics.__isset.min_value) {
             *encoded_value = statistics.min_value;
@@ -371,9 +387,9 @@ std::string bytes_to_hex_string(const std::string& bytes) {
     return fmt::format("0x{}", hex);
 }
 
-std::string decode_statistics_value(const FieldSchema* schema_field, tparquet::Type::type physical_type,
-                                    const std::string& encoded_value,
-                                    const cctz::time_zone& ctz) {
+std::string decode_statistics_value(const FieldSchema* schema_field,
+                                    tparquet::Type::type physical_type,
+                                    const std::string& encoded_value, const cctz::time_zone& ctz) {
     if (encoded_value.empty()) {
         return "";
     }
@@ -589,8 +605,8 @@ private:
         insert_if_requested(SCHEMA_REPETITION_LEVEL, insert_int32, field.repetition_level);
         insert_if_requested(SCHEMA_DEFINITION_LEVEL, insert_int32, field.definition_level);
 
-        int32_t type_length = field.parquet_schema.__isset.type_length ? field.parquet_schema.type_length
-                                                                       : 0;
+        int32_t type_length =
+                field.parquet_schema.__isset.type_length ? field.parquet_schema.type_length : 0;
         insert_if_requested(SCHEMA_TYPE_LENGTH, insert_int32, type_length);
         int32_t precision =
                 field.parquet_schema.__isset.precision ? field.parquet_schema.precision : 0;
@@ -642,23 +658,20 @@ public:
                     schema_field = it->second;
                 }
 
-                auto insert_if_requested =
-                        [&](MetadataColumnIndex idx, auto&& inserter, auto&&... args) {
-                            int pos = _slot_pos[idx];
-                            if (pos >= 0) {
-                                inserter(columns[pos], std::forward<decltype(args)>(args)...);
-                            }
-                        };
+                auto insert_if_requested = [&](MetadataColumnIndex idx, auto&& inserter,
+                                               auto&&... args) {
+                    int pos = _slot_pos[idx];
+                    if (pos >= 0) {
+                        inserter(columns[pos], std::forward<decltype(args)>(args)...);
+                    }
+                };
 
                 insert_if_requested(META_FILE_NAME, insert_string,
-                                    column_chunk.__isset.file_path ? column_chunk.file_path
-                                                                   : path);
-                insert_if_requested(META_ROW_GROUP_ID, insert_int32,
-                                    static_cast<Int32>(rg_index));
+                                    column_chunk.__isset.file_path ? column_chunk.file_path : path);
+                insert_if_requested(META_ROW_GROUP_ID, insert_int32, static_cast<Int32>(rg_index));
                 insert_if_requested(META_COLUMN_ID, insert_int32, static_cast<Int32>(col_idx));
-                std::string column_name = column_meta.path_in_schema.empty()
-                                                  ? ""
-                                                  : column_meta.path_in_schema.back();
+                std::string column_name =
+                        column_meta.path_in_schema.empty() ? "" : column_meta.path_in_schema.back();
                 insert_if_requested(META_COLUMN_NAME, insert_string, column_name);
                 insert_if_requested(META_COLUMN_PATH, insert_string, column_path);
                 insert_if_requested(META_PHYSICAL_TYPE, insert_string,
@@ -685,8 +698,7 @@ public:
                 }
 
                 insert_if_requested(META_NUM_VALUES, insert_int64, column_meta.num_values);
-                if (column_meta.__isset.statistics &&
-                    column_meta.statistics.__isset.null_count) {
+                if (column_meta.__isset.statistics && column_meta.statistics.__isset.null_count) {
                     insert_if_requested(META_NULL_COUNT, insert_int64,
                                         column_meta.statistics.null_count);
                 } else {
@@ -729,21 +741,21 @@ public:
 
                     std::string min_value;
                     std::string max_value;
-                    bool has_min = try_get_statistics_encoded_value(
-                            column_meta.statistics, true, &min_value);
-                    bool has_max = try_get_statistics_encoded_value(
-                            column_meta.statistics, false, &max_value);
+                    bool has_min = try_get_statistics_encoded_value(column_meta.statistics, true,
+                                                                    &min_value);
+                    bool has_max = try_get_statistics_encoded_value(column_meta.statistics, false,
+                                                                    &max_value);
 
                     if (has_min) {
-                        std::string decoded =
-                                decode_statistics_value(schema_field, column_meta.type, min_value, ctz);
+                        std::string decoded = decode_statistics_value(
+                                schema_field, column_meta.type, min_value, ctz);
                         insert_if_requested(META_STATISTICS_MIN, insert_string, decoded);
                     } else {
                         insert_if_requested(META_STATISTICS_MIN, insert_null);
                     }
                     if (has_max) {
-                        std::string decoded =
-                                decode_statistics_value(schema_field, column_meta.type, max_value, ctz);
+                        std::string decoded = decode_statistics_value(
+                                schema_field, column_meta.type, max_value, ctz);
                         insert_if_requested(META_STATISTICS_MAX, insert_string, decoded);
                     } else {
                         insert_if_requested(META_STATISTICS_MAX, insert_null);
@@ -817,7 +829,7 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
     }
     std::string lower_mode = _mode;
     std::ranges::transform(lower_mode, lower_mode.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+                           [](unsigned char c) { return std::tolower(c); });
     if (lower_mode == MODE_SCHEMA) {
         _mode_type = Mode::SCHEMA;
         _mode = MODE_SCHEMA;
@@ -855,9 +867,8 @@ Status ParquetMetadataReader::get_next_block(Block* block, size_t* read_rows, bo
 
     if (!mem_reuse) {
         for (size_t i = 0; i < _slots.size(); ++i) {
-            block->insert(ColumnWithTypeAndName(std::move(columns[i]),
-                                                _slots[i]->get_data_type_ptr(),
-                                                _slots[i]->col_name()));
+            block->insert(ColumnWithTypeAndName(
+                    std::move(columns[i]), _slots[i]->get_data_type_ptr(), _slots[i]->col_name()));
         }
     } else {
         columns.clear();

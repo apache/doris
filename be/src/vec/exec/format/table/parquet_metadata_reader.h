@@ -58,8 +58,6 @@ public:
     Status close() override;
 
 private:
-
-
     Status _init_from_scan_range(const TMetaScanRange& scan_range);
     Status _build_rows(std::vector<MutableColumnPtr>& columns);
     Status _append_file_rows(const std::string& path, std::vector<MutableColumnPtr>& columns);

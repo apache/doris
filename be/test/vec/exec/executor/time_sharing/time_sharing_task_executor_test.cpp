@@ -118,8 +118,7 @@ TEST_F(PhaseControllerTest, basic_synchronization) {
                 if (ready.fetch_add(1) == THREAD_COUNT - 1) {
                     ready.store(0);
                 } else {
-                    while (ready.load() != 0)
-                        ;
+                    while (ready.load() != 0);
                 }
 
                 int gen = controller->arrive_and_await();

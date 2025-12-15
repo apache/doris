@@ -217,10 +217,10 @@ constexpr static bool int_allow_cast_from_datetime =
 
 // cast from date and datetime to int
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
-    requires(((IsDateType<FromDataType> ||
-               IsDateV2Type<FromDataType>)&&int_allow_cast_from_date<ToDataType>) ||
-             ((IsDateTimeType<FromDataType> ||
-               IsDateTimeV2Type<FromDataType>)&&int_allow_cast_from_datetime<ToDataType>))
+    requires(((IsDateType<FromDataType> || IsDateV2Type<FromDataType>) &&
+              int_allow_cast_from_date<ToDataType>) ||
+             ((IsDateTimeType<FromDataType> || IsDateTimeV2Type<FromDataType>) &&
+              int_allow_cast_from_datetime<ToDataType>))
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

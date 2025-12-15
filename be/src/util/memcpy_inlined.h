@@ -37,13 +37,13 @@ ALWAYS_INLINE inline void memcpy_inlined(void* __restrict _dst, const void* __re
     auto dst = static_cast<uint8_t*>(_dst);
     auto src = static_cast<const uint8_t*>(_src);
 
-    [[maybe_unused]] tail :
-            /// Small sizes and tails after the loop for large sizes.
-            /// The order of branches is important but in fact the optimal order depends on the distribution of sizes in your application.
-            /// This order of branches is from the disassembly of glibc's code.
-            /// We copy chunks of possibly uneven size with two overlapping movs.
-            /// Example: to copy 5 bytes [0, 1, 2, 3, 4] we will copy tail [1, 2, 3, 4] first and then head [0, 1, 2, 3].
-            if (size <= 16) {
+[[maybe_unused]] tail:
+    /// Small sizes and tails after the loop for large sizes.
+    /// The order of branches is important but in fact the optimal order depends on the distribution of sizes in your application.
+    /// This order of branches is from the disassembly of glibc's code.
+    /// We copy chunks of possibly uneven size with two overlapping movs.
+    /// Example: to copy 5 bytes [0, 1, 2, 3, 4] we will copy tail [1, 2, 3, 4] first and then head [0, 1, 2, 3].
+    if (size <= 16) {
         if (size >= 8) {
             /// Chunks of 8..16 bytes.
             __builtin_memcpy(dst + size - 8, src + size - 8, 8);
@@ -61,8 +61,7 @@ ALWAYS_INLINE inline void memcpy_inlined(void* __restrict _dst, const void* __re
             *dst = *src;
         }
         /// No bytes remaining.
-    }
-    else {
+    } else {
 #ifdef __AVX2__
         if (size <= 256) {
             if (size <= 32) {

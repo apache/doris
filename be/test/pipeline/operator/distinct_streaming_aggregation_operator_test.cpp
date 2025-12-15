@@ -192,7 +192,9 @@ TEST_F(DistinctStreamingAggOperatorTest, test3) {
         EXPECT_EQ(local_state->_cache_block.rows(), 0);
         EXPECT_EQ(local_state->_aggregated_block->rows(), 0);
     }
-    { EXPECT_TRUE(op->close(state.get())); }
+    {
+        EXPECT_TRUE(op->close(state.get()));
+    }
 }
 
 } // namespace doris::pipeline

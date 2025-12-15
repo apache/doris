@@ -36,7 +36,9 @@ TEST(MockInExprTest, test) {
         auto st = in->prepare(nullptr, desc, expr_ctx.get());
         EXPECT_TRUE(st.ok()) << st.msg();
     }
-    { auto st = in->open(nullptr, nullptr, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL); }
+    {
+        auto st = in->open(nullptr, nullptr, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
+    }
 
     {
         auto* fn_ctx = expr_ctx->fn_context(in->fn_context_index());
