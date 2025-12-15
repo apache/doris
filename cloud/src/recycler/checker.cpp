@@ -2752,6 +2752,18 @@ int InstanceChecker::do_packed_file_check() {
 
     // Step 1: Scan all rowset metas to collect packed_slice_locations references
     // Use efficient range scan instead of iterating through each tablet_id
+    auto collect_packed_refs = [&](const doris::RowsetMetaCloudPB& rs_meta) {
+        const auto& index_map = rs_meta.packed_slice_locations();
+        for (const auto& [small_file_path, index_pb] : index_map) {
+            if (!index_pb.has_packed_file_path() || index_pb.packed_file_path().empty()) {
+                continue;
+            }
+            const std::string& packed_file_path = index_pb.packed_file_path();
+            expected_ref_counts[packed_file_path]++;
+            packed_file_small_files[packed_file_path].insert(small_file_path);
+        }
+    };
+
     {
         std::string start_key = meta_rowset_key({instance_id_, 0, 0});
         std::string end_key = meta_rowset_key({instance_id_, INT64_MAX, 0});
@@ -2791,16 +2803,57 @@ int InstanceChecker::do_packed_file_check() {
 
                 num_scanned_rowsets++;
 
-                // Check packed_slice_locations in rowset meta
-                const auto& index_map = rs_meta.packed_slice_locations();
-                for (const auto& [small_file_path, index_pb] : index_map) {
-                    if (!index_pb.has_packed_file_path() || index_pb.packed_file_path().empty()) {
-                        continue;
-                    }
-                    const std::string& packed_file_path = index_pb.packed_file_path();
-                    expected_ref_counts[packed_file_path]++;
-                    packed_file_small_files[packed_file_path].insert(small_file_path);
+                collect_packed_refs(rs_meta);
+            }
+            start_key.push_back('\x00'); // Update to next smallest key for iteration
+        } while (it->more() && !stopped());
+    }
+
+    // Rowsets in recycle keys may still hold packed file references while ref count
+    // updates are pending, so include them when calculating expected references.
+    {
+        std::string start_key = recycle_rowset_key({instance_id_, 0, ""});
+        std::string end_key = recycle_rowset_key({instance_id_, INT64_MAX, "\xff"});
+
+        std::unique_ptr<RangeGetIterator> it;
+        do {
+            if (stopped()) {
+                return -1;
+            }
+
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to create txn for recycle rowset scan in packed file check";
+                return -1;
+            }
+
+            err = txn->get(start_key, end_key, &it);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to scan recycle rowset metas, err=" << err;
+                check_ret = -1;
+                break;
+            }
+
+            while (it->has_next() && !stopped()) {
+                auto [k, v] = it->next();
+                if (!it->has_next()) {
+                    start_key = k;
                 }
+
+                RecycleRowsetPB recycle_rowset;
+                if (!recycle_rowset.ParseFromArray(v.data(), v.size())) {
+                    LOG(WARNING) << "malformed recycle rowset, key=" << hex(k);
+                    check_ret = -1;
+                    continue;
+                }
+
+                if (!recycle_rowset.has_rowset_meta()) {
+                    continue;
+                }
+
+                num_scanned_rowsets++;
+                collect_packed_refs(recycle_rowset.rowset_meta());
             }
             start_key.push_back('\x00'); // Update to next smallest key for iteration
         } while (it->more() && !stopped());
