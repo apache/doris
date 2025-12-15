@@ -990,21 +990,25 @@ int InstanceChecker::do_inverted_check() {
         }
 
         for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+            const auto& path = file->path;
+            if (path == "data/packed_file" || path.starts_with("data/packed_file/")) {
+                continue; // packed_file has dedicated check logic
+            }
             ++num_scanned;
-            int ret = check_segment_file(file->path);
+            int ret = check_segment_file(path);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check segment file, uri=" << accessor->uri()
-                             << " path=" << file->path;
+                             << " path=" << path;
                 if (ret == 1) {
                     ++num_file_leak;
                 } else {
                     check_ret = -1;
                 }
             }
-            ret = check_inverted_index_file(file->path);
+            ret = check_inverted_index_file(path);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check index file, uri=" << accessor->uri()
-                             << " path=" << file->path;
+                             << " path=" << path;
                 if (ret == 1) {
                     ++num_file_leak;
                 } else {
