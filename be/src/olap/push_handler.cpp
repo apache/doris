@@ -122,12 +122,10 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
 
     std::shared_lock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
     DBUG_EXECUTE_IF("PushHandler::_do_streaming_ingestion.try_lock_fail", {
-        return Status::Error<TRY_LOCK_FAILED>(
-                "PushHandler::_do_streaming_ingestion get lock failed");
+        return Status::ObtainLockFailed("PushHandler::_do_streaming_ingestion get lock failed");
     })
     if (!base_migration_rlock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>(
-                "PushHandler::_do_streaming_ingestion get lock failed");
+        return Status::ObtainLockFailed("PushHandler::_do_streaming_ingestion get lock failed");
     }
     PUniqueId load_id;
     load_id.set_hi(0);
