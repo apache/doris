@@ -446,13 +446,13 @@ protected:
 };
 
 template <CallTag tag>
-class NonvirtaulFunctionCall : public FunctionCall<tag> {
+class NonvirtualFunctionCall : public FunctionCall<tag> {
 public:
-    NonvirtaulFunctionCall(NonvirtaulFunctionCall&& other) noexcept = default;
+    NonvirtualFunctionCall(NonvirtualFunctionCall&& other) noexcept = default;
 
-    static NonvirtaulFunctionCall instance(JNIEnv* env, typename CallHelper<tag>::BASE_TYPE base,
+    static NonvirtualFunctionCall instance(JNIEnv* env, typename CallHelper<tag>::BASE_TYPE base,
                                            jclass cls, jmethodID method_id) {
-        return NonvirtaulFunctionCall(env, base, cls, method_id);
+        return NonvirtualFunctionCall(env, base, cls, method_id);
     }
 
     // no override
@@ -461,7 +461,7 @@ public:
                                     std::is_same<T, jchar>, std::is_same<T, jshort>,
                                     std::is_same<T, jint>, std::is_same<T, jlong>,
                                     std::is_same<T, jfloat>, std::is_same<T, jdouble>>
-    NonvirtaulFunctionCall& with_arg(T arg) {
+    NonvirtualFunctionCall& with_arg(T arg) {
         jvalue v;
         std::memset(&v, 0, sizeof(v));
         if constexpr (std::is_same_v<T, jboolean>) {
@@ -488,7 +488,7 @@ public:
     }
 
     template <RefType Ref>
-    NonvirtaulFunctionCall& with_arg(const Object<Ref>& obj) WARN_UNUSED_RESULT;
+    NonvirtualFunctionCall& with_arg(const Object<Ref>& obj) WARN_UNUSED_RESULT;
 
     // no override
     Status call() {
@@ -525,11 +525,11 @@ public:
     }
 
 private:
-    explicit NonvirtaulFunctionCall(JNIEnv* env, typename CallHelper<tag>::BASE_TYPE base,
+    explicit NonvirtualFunctionCall(JNIEnv* env, typename CallHelper<tag>::BASE_TYPE base,
                                     jclass cls, jmethodID method_id)
             : FunctionCall<tag>(env, base, method_id), _cls(cls) {}
     jclass _cls;
-    DISALLOW_COPY_AND_ASSIGN(NonvirtaulFunctionCall);
+    DISALLOW_COPY_AND_ASSIGN(NonvirtualFunctionCall);
 };
 
 template <RefType Ref>
@@ -557,7 +557,7 @@ public:
     friend class FunctionCall;
 
     template <CallTag tag>
-    friend class NonvirtaulFunctionCall;
+    friend class NonvirtualFunctionCall;
 
     ~Object() {
         if (_obj != nullptr) [[likely]] {
@@ -620,19 +620,19 @@ public:
     }
 
     template <RefType R>
-    NonvirtaulFunctionCall<NonvirtualVoidMethod> call_nonvirtual_void_method(
+    NonvirtualFunctionCall<NonvirtualVoidMethod> call_nonvirtual_void_method(
             JNIEnv* env, const Class<R>& clazz, MethodId method_id) const;
 
     template <RefType R>
-    NonvirtaulFunctionCall<NonvirtualObjectMethod> call_nonvirtual_object_method(
+    NonvirtualFunctionCall<NonvirtualObjectMethod> call_nonvirtual_object_method(
             JNIEnv* env, const Class<R>& clazz, MethodId method_id) const;
 
     template <RefType R>
-    NonvirtaulFunctionCall<NonvirtualIntMethod> call_nonvirtual_int_method(
+    NonvirtualFunctionCall<NonvirtualIntMethod> call_nonvirtual_int_method(
             JNIEnv* env, const Class<R>& clazz, MethodId method_id) const;
 
     template <RefType R>
-    NonvirtaulFunctionCall<NonvirtualBooleanMethod> call_nonvirtual_boolean_method(
+    NonvirtualFunctionCall<NonvirtualBooleanMethod> call_nonvirtual_boolean_method(
             JNIEnv* env, const Class<R>& clazz, MethodId method_id) const;
 
 protected:
@@ -937,7 +937,7 @@ FunctionCall<tag>& FunctionCall<tag>::with_arg(const Object<Ref>& obj) {
 
 template <CallTag tag>
 template <RefType Ref>
-NonvirtaulFunctionCall<tag>& NonvirtaulFunctionCall<tag>::with_arg(const Object<Ref>& obj) {
+NonvirtualFunctionCall<tag>& NonvirtualFunctionCall<tag>::with_arg(const Object<Ref>& obj) {
     jvalue v;
     std::memset(&v, 0, sizeof(v));
     v.l = obj._obj;
@@ -963,7 +963,7 @@ Status FunctionCall<tag>::call(Object<Global>* result) {
 }
 
 template <CallTag tag>
-Status NonvirtaulFunctionCall<tag>::call(Object<Local>* result) {
+Status NonvirtualFunctionCall<tag>::call(Object<Local>* result) {
     DCHECK(result->uninitialized());
     result->_obj = CallHelper<tag>::call_impl(this->_env, this->_base, _cls, this->_method,
                                               this->_args.data());
@@ -973,42 +973,42 @@ Status NonvirtaulFunctionCall<tag>::call(Object<Local>* result) {
 
 template <RefType Ref>
 template <RefType R>
-NonvirtaulFunctionCall<NonvirtualObjectMethod> Object<Ref>::call_nonvirtual_object_method(
+NonvirtualFunctionCall<NonvirtualObjectMethod> Object<Ref>::call_nonvirtual_object_method(
         JNIEnv* env, const Class<R>& clazz, MethodId method_id) const {
     DCHECK(!this->uninitialized());
     DCHECK(!method_id.uninitialized());
 
-    return NonvirtaulFunctionCall<NonvirtualObjectMethod>::instance(env, _obj, (jclass)clazz._obj,
+    return NonvirtualFunctionCall<NonvirtualObjectMethod>::instance(env, _obj, (jclass)clazz._obj,
                                                                     method_id._id);
 }
 
 template <RefType Ref>
 template <RefType R>
-NonvirtaulFunctionCall<NonvirtualVoidMethod> Object<Ref>::call_nonvirtual_void_method(
+NonvirtualFunctionCall<NonvirtualVoidMethod> Object<Ref>::call_nonvirtual_void_method(
         JNIEnv* env, const Class<R>& clazz, MethodId method_id) const {
     DCHECK(!this->uninitialized());
     DCHECK(!method_id.uninitialized());
-    return NonvirtaulFunctionCall<NonvirtualVoidMethod>::instance(env, _obj, (jclass)clazz._obj,
+    return NonvirtualFunctionCall<NonvirtualVoidMethod>::instance(env, _obj, (jclass)clazz._obj,
                                                                   method_id._id);
 }
 
 template <RefType Ref>
 template <RefType R>
-NonvirtaulFunctionCall<NonvirtualIntMethod> Object<Ref>::call_nonvirtual_int_method(
+NonvirtualFunctionCall<NonvirtualIntMethod> Object<Ref>::call_nonvirtual_int_method(
         JNIEnv* env, const Class<R>& clazz, MethodId method_id) const {
     DCHECK(!this->uninitialized());
     DCHECK(!method_id.uninitialized());
-    return NonvirtaulFunctionCall<NonvirtualIntMethod>::instance(env, _obj, (jclass)clazz._obj,
+    return NonvirtualFunctionCall<NonvirtualIntMethod>::instance(env, _obj, (jclass)clazz._obj,
                                                                  method_id._id);
 }
 
 template <RefType Ref>
 template <RefType R>
-NonvirtaulFunctionCall<NonvirtualBooleanMethod> Object<Ref>::call_nonvirtual_boolean_method(
+NonvirtualFunctionCall<NonvirtualBooleanMethod> Object<Ref>::call_nonvirtual_boolean_method(
         JNIEnv* env, const Class<R>& clazz, MethodId method_id) const {
     DCHECK(!this->uninitialized());
     DCHECK(!method_id.uninitialized());
-    return NonvirtaulFunctionCall<NonvirtualBooleanMethod>::instance(env, _obj, (jclass)clazz._obj,
+    return NonvirtualFunctionCall<NonvirtualBooleanMethod>::instance(env, _obj, (jclass)clazz._obj,
                                                                      method_id._id);
 }
 
