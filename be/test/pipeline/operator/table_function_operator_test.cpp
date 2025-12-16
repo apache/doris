@@ -156,7 +156,6 @@ TEST_F(TableFunctionOperatorTest, single_fn_test) {
     }
 
     {
-        Block block = ColumnHelper::create_block<DataTypeInt32>({1});
         *local_state->_child_block = ColumnHelper::create_block<DataTypeInt32>({1});
         auto st = op->push(state.get(), local_state->_child_block.get(), true);
         EXPECT_TRUE(st) << st.msg();

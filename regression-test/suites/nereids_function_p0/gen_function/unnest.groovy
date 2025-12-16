@@ -117,11 +117,11 @@ suite("nereids_unnest_fn") {
         );
 
         INSERT INTO items_dict_unnest_t (id, name, tags, price, category_ids) VALUES
-        (1, 'Laptop', ['Electronics', 'Office', 'High-End', 'Laptop'], 5999.99, [1, 2]),
-        (2, 'Mechanical Keyboard', ['Electronics', 'Accessories'], 399.99, [1]),
-        (3, 'Basketball', ['Sports', 'Outdoor'], 199.99, [3]),
+        (1, 'Laptop', ['Electronics', 'Office', 'High-End', 'Laptop'], 5999.99, [1, 2, 3]),
+        (2, 'Mechanical Keyboard', ['Electronics', 'Accessories'], 399.99, [1, 2]),
+        (3, 'Basketball', ['Sports', 'Outdoor'], 199.99, [1,3]),
         (4, 'Badminton Racket', ['Sports', 'Equipment'], 299.99, [3]),
-        (5, 'Shirt', ['Clothing', 'Office'], 259.00, [4]);
+        (5, 'Shirt', ['Clothing', 'Office', 'Shirt'], 259.00, [4]);
 
         INSERT INTO categories_dict_unnest_t (id, name) VALUES
         (1, 'Digital Products'),
@@ -354,7 +354,38 @@ suite("nereids_unnest_fn") {
         name, category_ids, unnest(category_ids);
     '''
 
-    order_qt_sql_join_complex '''
+    order_qt_sql_inner_join0 '''
+    SELECT
+        id,
+        name,
+        tags,
+        t.tag
+    FROM
+        items_dict_unnest_t
+        INNER JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_inner_join1 '''
+    SELECT
+        id,
+        name,
+        tags,
+        t.tag
+    FROM
+        items_dict_unnest_t
+        INNER JOIN lateral unnest(tags) AS t(tag) ON name in ('Laptop', 'Basketball');
+    '''
+    order_qt_sql_inner_join2 '''
+    SELECT
+        id,
+        name,
+        tags,
+        t.tag
+    FROM
+        items_dict_unnest_t
+        INNER JOIN lateral unnest(tags) AS t(tag) ON tag in ('Electronics', 'Sports');
+    '''
+
+    order_qt_sql_left_join0 '''
     SELECT
         id,
         name,
@@ -364,4 +395,95 @@ suite("nereids_unnest_fn") {
         items_dict_unnest_t
         LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
     '''
+    order_qt_sql_left_join1 '''
+    SELECT
+        id,
+        name,
+        tags,
+        t.tag
+    FROM
+        items_dict_unnest_t
+        LEFT JOIN lateral unnest(tags) AS t(tag) ON name in ('Laptop', 'Basketball');
+    '''
+    order_qt_sql_left_join2 '''
+    SELECT
+        id,
+        name,
+        tags,
+        t.tag
+    FROM
+        items_dict_unnest_t
+        LEFT JOIN lateral unnest(tags) AS t(tag) ON tag in ('Electronics', 'Sports');
+    '''
+
+    test {
+        sql '''
+        SELECT
+            id,
+            name,
+            tags,
+            t.tag
+        FROM
+            items_dict_unnest_t
+            right JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+        '''
+        exception "must be INNER, LEFT or CROSS"
+    }
+
+    // test big array
+    sql 'use regression_test_nereids_function_p0_gen_function'
+    sql """
+    set batch_size = 10;
+    """
+    multi_sql '''
+    DROP TABLE if exists big_array_unnest_t;
+    CREATE TABLE big_array_unnest_t (
+        id INT,
+        tags ARRAY<INT>
+    ) properties (
+        "replication_num" = "1"
+    );
+    '''
+    sql '''
+    insert into big_array_unnest_t values
+    (1, [1,2,3,4,5,6,7,8,9,10,11,12]),
+    (2, [3,4,5,6,7,8,9,10,11,12,13,14]),
+    (3, [3,4,5,6,7,8,9,10,11,12,13,14,15]);
+    '''
+    /*
+    streamLoad {
+        table "big_array_unnest_t"
+        file """big_array.csv"""
+        set 'column_separator', '|'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(4, json.NumberTotalRows)
+            assertEquals(4, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    */
+    qt_big_array_unnest_all '''
+    select id, array_size(tags), array_sort(tags) from big_array_unnest_t order by id;
+    '''
+
+    qt_big_array_unnest0 '''
+    select id, array_size(tags), array_sort(tags), unnest(tags) as tag from big_array_unnest_t order by id, tag;
+    '''
+
+    qt_big_array_unnest_inner0 '''
+    select id, t.tag from big_array_unnest_t INNER JOIN lateral unnest(tags) AS t(tag) ON tag = id order by id, tag;
+    '''
+
+    qt_big_array_unnest_outer0 '''
+    select id, t.tag from big_array_unnest_t LEFT JOIN lateral unnest(tags) AS t(tag) ON tag = id order by id, tag;
+    '''
+
 }

@@ -441,6 +441,7 @@ West	Mouse	2023	1	800.00
 4	Badminton Racket	Sports	299.99
 5	Shirt	Clothing	259.00
 5	Shirt	Office	259.00
+5	Shirt	Shirt	259.00
 
 -- !sql_from --
 1	Laptop	0	Electronics
@@ -455,11 +456,15 @@ West	Mouse	2023	1	800.00
 4	Badminton Racket	1	Equipment
 5	Shirt	0	Clothing
 5	Shirt	1	Office
+5	Shirt	2	Shirt
 
 -- !sql_cross_join --
 1	Laptop	Digital Products
 1	Laptop	Office Supplies
+1	Laptop	Sports Equipment
 2	Mechanical Keyboard	Digital Products
+2	Mechanical Keyboard	Office Supplies
+3	Basketball	Digital Products
 3	Basketball	Sports Equipment
 4	Badminton Racket	Sports Equipment
 5	Shirt	Apparel
@@ -485,6 +490,7 @@ High-End	1	5999.9900
 Laptop	1	5999.9900
 Office	2	3129.4950
 Outdoor	1	199.9900
+Shirt	1	259.0000
 Sports	2	249.9900
 
 -- !sql_order_by --
@@ -500,6 +506,7 @@ Sports	2	249.9900
 4	Badminton Racket	Sports	299.99
 5	Shirt	Clothing	259.00
 5	Shirt	Office	259.00
+5	Shirt	Shirt	259.00
 
 -- !sql_window --
 1	Laptop	Electronics	5999.99	1
@@ -514,6 +521,7 @@ Sports	2	249.9900
 4	Badminton Racket	Sports	299.99	1
 5	Shirt	Clothing	259.00	1
 5	Shirt	Office	259.00	2
+5	Shirt	Shirt	259.00	1
 
 -- !sql_distinct --
 Accessories
@@ -524,18 +532,17 @@ High-End
 Laptop
 Office
 Outdoor
+Shirt
 Sports
 
 -- !sql_count --
 Badminton Racket	2
 Basketball	2
 Mechanical Keyboard	2
-Shirt	2
 
 -- !sql_sum --
 Badminton Racket	3
-Basketball	3
-Laptop	3
+Mechanical Keyboard	3
 
 -- !sql_count_window --
 Badminton Racket	["Sports", "Equipment"]	Equipment	2
@@ -548,21 +555,114 @@ Laptop	["Electronics", "Office", "High-End", "Laptop"]	Laptop	4
 Laptop	["Electronics", "Office", "High-End", "Laptop"]	Office	4
 Mechanical Keyboard	["Electronics", "Accessories"]	Accessories	2
 Mechanical Keyboard	["Electronics", "Accessories"]	Electronics	2
-Shirt	["Clothing", "Office"]	Clothing	2
-Shirt	["Clothing", "Office"]	Office	2
+Shirt	["Clothing", "Office", "Shirt"]	Clothing	3
+Shirt	["Clothing", "Office", "Shirt"]	Office	3
+Shirt	["Clothing", "Office", "Shirt"]	Shirt	3
 
 -- !sql_sum_window --
-Badminton Racket	[3]	3	6
-Basketball	[3]	3	6
-Laptop	[1, 2]	1	3
-Laptop	[1, 2]	2	3
-Mechanical Keyboard	[1]	1	1
+Badminton Racket	[3]	3	3
+Basketball	[1, 3]	1	4
+Basketball	[1, 3]	3	4
+Laptop	[1, 2, 3]	1	6
+Laptop	[1, 2, 3]	2	6
+Laptop	[1, 2, 3]	3	6
+Mechanical Keyboard	[1, 2]	1	3
+Mechanical Keyboard	[1, 2]	2	3
 Shirt	[4]	4	4
 
--- !sql_join_complex --
+-- !sql_inner_join0 --
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Laptop
+5	Shirt	["Clothing", "Office", "Shirt"]	Shirt
+
+-- !sql_inner_join1 --
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Electronics
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	High-End
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Laptop
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Office
+3	Basketball	["Sports", "Outdoor"]	Outdoor
+3	Basketball	["Sports", "Outdoor"]	Sports
+
+-- !sql_inner_join2 --
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Electronics
+2	Mechanical Keyboard	["Electronics", "Accessories"]	Electronics
+3	Basketball	["Sports", "Outdoor"]	Sports
+4	Badminton Racket	["Sports", "Equipment"]	Sports
+
+-- !sql_left_join0 --
 1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Laptop
 2	Mechanical Keyboard	["Electronics", "Accessories"]	\N
 3	Basketball	["Sports", "Outdoor"]	\N
 4	Badminton Racket	["Sports", "Equipment"]	\N
-5	Shirt	["Clothing", "Office"]	\N
+5	Shirt	["Clothing", "Office", "Shirt"]	Shirt
+
+-- !sql_left_join1 --
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Electronics
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	High-End
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Laptop
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Office
+2	Mechanical Keyboard	["Electronics", "Accessories"]	\N
+3	Basketball	["Sports", "Outdoor"]	Outdoor
+3	Basketball	["Sports", "Outdoor"]	Sports
+4	Badminton Racket	["Sports", "Equipment"]	\N
+5	Shirt	["Clothing", "Office", "Shirt"]	\N
+
+-- !sql_left_join2 --
+1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Electronics
+2	Mechanical Keyboard	["Electronics", "Accessories"]	Electronics
+3	Basketball	["Sports", "Outdoor"]	Sports
+4	Badminton Racket	["Sports", "Equipment"]	Sports
+5	Shirt	["Clothing", "Office", "Shirt"]	\N
+
+-- !big_array_unnest_all --
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+-- !big_array_unnest0 --
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	1
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	2
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	3
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	4
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	5
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	6
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	7
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	8
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	9
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	10
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	11
+1	12	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]	12
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	3
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	4
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	5
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	6
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	7
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	8
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	9
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	10
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	11
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	12
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	13
+2	12	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]	14
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	3
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	4
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	5
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	6
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	7
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	8
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	9
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	10
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	11
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	12
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	13
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	14
+3	13	[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]	15
+
+-- !big_array_unnest_inner0 --
+1	1
+3	3
+
+-- !big_array_unnest_outer0 --
+1	1
+2	\N
+3	3
 
