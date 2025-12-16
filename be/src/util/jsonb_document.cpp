@@ -26,8 +26,7 @@
 
 namespace doris {
 
-inline Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
-                                                    JsonbDocument** doc) {
+Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size, JsonbDocument** doc) {
     *doc = nullptr;
     if (!pb || size == 0) {
         static std::string buf = []() {

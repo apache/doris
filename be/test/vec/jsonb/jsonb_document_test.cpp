@@ -37,7 +37,7 @@ protected:
 };
 
 TEST_F(JsonbDocumentTest, invaild_jsonb_document) {
-    const JsonbDocument* doc = nullptr;
+    JsonbDocument* doc = nullptr;
     auto st = JsonbDocument::checkAndCreateDocument(nullptr, 0, &doc);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(doc != nullptr);
