@@ -36,11 +36,27 @@ TLS_CERTIFICATE_PATH=
 #tls_ca_certificate_path specify the path of root ca.
 TLS_CA_CERTIFICATE_PATH=
 
+log_stderr()
+{
+    echo "[`date`] $@" >&2
+}
+
 function parse_config_file_with_key()
 {
-    local key=$1
-    local value=`grep "^\s*$key\s*=" $CONFIG_FILE | sed "s|^\s*$key\s*=\s*\(.*\)\s*$|\1|g"`
-    echo $value
+    local confkey=$1
+
+    esc_key=$(printf '%s\n' "$confkey" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    local confvalue=$(
+        grep -v '^[[:space:]]*#' "$CONFIG_FILE" |
+        grep -E "^[[:space:]]*${esc_key}[[:space:]]*=" |
+        tail -n1 |
+        sed -E 's/^[[:space:]]*[^=]+[[:space:]]*=[[:space:]]*//' |
+        sed -E 's/[[:space:]]*#.*$//' |
+        sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
+    )
+    log_stderr "[info] read 'be.conf' config [ $confkey: $confvalue]"
+    echo "$confvalue"
+
 }
 
 
