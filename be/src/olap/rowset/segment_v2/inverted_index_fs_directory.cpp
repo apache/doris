@@ -599,6 +599,7 @@ bool DorisFSDirectory::deleteDirectory() {
                 fmt::format("debug point: {} is not a directory", fl));
     })
     LOG_AND_THROW_IF_ERROR(st, fmt::format("Delete directory {} IO error", fl));
+    LOG(INFO) << "successfully deleted " << fl;
     return true;
 }
 
@@ -926,6 +927,9 @@ DorisFSDirectory* DorisFSDirectoryFactory::getDirectory(const io::FileSystemSPtr
                                     "not_ok");
                         })
                 LOG_AND_THROW_IF_ERROR(st, "Get directory create directory IO error");
+                LOG(INFO) << "created directory: " << file;
+            } else {
+                LOG(INFO) << "directory already exists (skipped create): " << file;
             }
         }
         dir = _CLNEW DorisFSDirectory();
