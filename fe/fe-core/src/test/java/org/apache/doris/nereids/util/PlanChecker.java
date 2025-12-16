@@ -128,7 +128,8 @@ public class PlanChecker {
     public AbstractInsertExecutor getInsertExecutor(String sql) throws Exception {
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
-        setQueryId();
+        UUID uuid = UUID.randomUUID();
+        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
         InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) parsedPlan;
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(parsedPlan, statementContext);
         return insertIntoTableCommand.initPlan(connectContext,
@@ -210,7 +211,6 @@ public class PlanChecker {
     public List<PlanProcess> explainPlanProcess(String sql) {
         NereidsParser parser = new NereidsParser();
         LogicalPlan command = parser.parseSingle(sql);
-        setQueryId();
         NereidsPlanner planner = new NereidsPlanner(
                 new StatementContext(connectContext, new OriginStatement(sql, 0)));
         planner.planWithLock(command, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN, true);
@@ -395,7 +395,6 @@ public class PlanChecker {
         connectContext.setStatementContext(statementContext);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
-        setQueryId();
         LogicalPlanAdapter parsedPlanAdaptor = new LogicalPlanAdapter(parsedPlan, statementContext);
         statementContext.setParsedStatement(parsedPlanAdaptor);
 
@@ -723,7 +722,6 @@ public class PlanChecker {
         connectContext.setStatementContext(statementContext);
 
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        setQueryId();
         NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
@@ -751,7 +749,6 @@ public class PlanChecker {
         connectContext.setStatementContext(statementContext);
 
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        setQueryId();
         NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         try {
@@ -879,12 +876,6 @@ public class PlanChecker {
                 cascadesContext.getMemo().copyOut(cascadesContext.getMemo().getRoot().logicalExpressionsAt(0), false)
                         .treeString());
         return this;
-    }
-
-    private void setQueryId() {
-        UUID uuid = UUID.randomUUID();
-        TUniqueId id = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        connectContext.setQueryId(id);
     }
 
     public static boolean isPlanEqualWithoutID(Plan plan1, Plan plan2) {
