@@ -149,7 +149,7 @@ public final class AwsCredentialsProviderFactory {
                 if (includeAnonymousInDefault) {
                     providers.add(AnonymousCredentialsProvider.class.getName());
                 }
-                return String.join("+", providers);
+                return String.join(",", providers);
             default:
                 throw new UnsupportedOperationException(
                         "AWS SDK V2 does not support credentials provider mode: " + mode);

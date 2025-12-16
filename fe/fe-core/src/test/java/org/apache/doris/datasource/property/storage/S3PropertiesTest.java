@@ -267,7 +267,14 @@ public class S3PropertiesTest {
         origProps.put("s3.credentials_provider_type", "static");
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Unsupported AWS credentials provider mode: static", () -> StorageProperties.createPrimary(origProps));
         origProps.put("s3.credentials_provider_type", "anonymous");
-        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals(AnonymousCredentialsProvider.class.getName(), s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
+        origProps.remove("s3.credentials_provider_type");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        provider = s3Props.getAwsCredentialsProvider();
+        Assertions.assertNotNull(provider);
+        Assertions.assertTrue(provider instanceof AwsCredentialsProviderChain);
+        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider,software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider,software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider,software.amazon.awssdk.auth.credentials.ContainerCredentialsProvider,software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider,software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider", s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
 
     }
 
