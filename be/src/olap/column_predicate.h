@@ -195,7 +195,7 @@ struct PredicateTypeTraits {
         }                                                                                 \
     }
 
-class ColumnPredicate {
+class ColumnPredicate : public std::enable_shared_from_this<ColumnPredicate> {
 public:
     explicit ColumnPredicate(uint32_t column_id, PrimitiveType primitive_type,
                              bool opposite = false)

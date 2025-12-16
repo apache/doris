@@ -79,6 +79,7 @@ private:
                                              PushDownType& pdt) override;
 
     PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
+    PushDownType _should_push_down_topn_filter() override { return PushDownType::ACCEPTABLE; }
 
     PushDownType _should_push_down_bitmap_filter() override { return PushDownType::ACCEPTABLE; }
 

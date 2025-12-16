@@ -44,8 +44,9 @@ class RuntimePredicate {
 public:
     RuntimePredicate(const TTopnFilterDesc& desc);
 
-    void init_target(int32_t target_node_id,
-                     phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc);
+    Status init_target(int32_t target_node_id,
+                       phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
+                       const doris::RowDescriptor& desc);
 
     bool enable() const {
         // when sort node and scan node are not in the same fragment, predicate will be disabled
@@ -66,9 +67,10 @@ public:
         }
         RETURN_IF_ERROR(tablet_schema->have_column(_contexts[target_node_id].col_name));
         _contexts[target_node_id].tablet_schema = tablet_schema;
-        int64_t index = DORIS_TRY(_contexts[target_node_id].get_field_index())
-                                _contexts[target_node_id]
-                                        .predicate = SharedPredicate::create_shared(index);
+        int64_t index = DORIS_TRY(_contexts[target_node_id].get_field_index());
+        DCHECK(_contexts[target_node_id].predicate != nullptr);
+        assert_cast<SharedPredicate*>(_contexts[target_node_id].predicate.get())
+                ->set_column_id(cast_set<uint32_t>(index));
         return Status::OK();
     }
 
@@ -130,6 +132,7 @@ private:
     struct TargetContext {
         TExpr expr;
         std::string col_name;
+        // TODO(gabriel): remove this
         TabletSchemaSPtr tablet_schema;
         std::shared_ptr<ColumnPredicate> predicate;
 
