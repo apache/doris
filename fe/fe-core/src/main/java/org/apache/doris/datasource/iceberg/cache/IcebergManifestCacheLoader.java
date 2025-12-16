@@ -64,7 +64,7 @@ public class IcebergManifestCacheLoader {
             LOG.warn("Failed to read data manifest {}", manifest.path(), e);
             throw new CacheException("Failed to read data manifest %s", e, manifest.path());
         }
-        return ManifestCacheValue.forDataFiles(manifest, dataFiles);
+        return ManifestCacheValue.forDataFiles(dataFiles);
     }
 
     private static ManifestCacheValue loadDeleteFiles(ManifestFile manifest, Table table) {
@@ -79,7 +79,7 @@ public class IcebergManifestCacheLoader {
             LOG.warn("Failed to read delete manifest {}", manifest.path(), e);
             throw new CacheException("Failed to read delete manifest %s", e, manifest.path());
         }
-        return ManifestCacheValue.forDeleteFiles(manifest, deleteFiles);
+        return ManifestCacheValue.forDeleteFiles(deleteFiles);
     }
 
     private static ManifestCacheKey buildKey(IcebergManifestCache cache, ManifestFile manifest) {

@@ -19,7 +19,6 @@ package org.apache.doris.datasource.iceberg.cache;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
-import org.apache.iceberg.ManifestFile;
 
 import java.util.Collections;
 import java.util.List;
@@ -28,26 +27,23 @@ import java.util.List;
  * Cached manifest payload containing parsed files and an estimated weight.
  */
 public class ManifestCacheValue {
-    private final ManifestFile manifestFile;
     private final List<DataFile> dataFiles;
     private final List<DeleteFile> deleteFiles;
     private final long weightBytes;
 
-    private ManifestCacheValue(ManifestFile manifestFile, List<DataFile> dataFiles,
-            List<DeleteFile> deleteFiles, long weightBytes) {
-        this.manifestFile = manifestFile;
+    private ManifestCacheValue(List<DataFile> dataFiles, List<DeleteFile> deleteFiles, long weightBytes) {
         this.dataFiles = dataFiles == null ? Collections.emptyList() : dataFiles;
         this.deleteFiles = deleteFiles == null ? Collections.emptyList() : deleteFiles;
         this.weightBytes = weightBytes;
     }
 
-    public static ManifestCacheValue forDataFiles(ManifestFile manifestFile, List<DataFile> dataFiles) {
-        return new ManifestCacheValue(manifestFile, dataFiles, Collections.emptyList(),
+    public static ManifestCacheValue forDataFiles(List<DataFile> dataFiles) {
+        return new ManifestCacheValue(dataFiles, Collections.emptyList(),
                 estimateWeight(dataFiles, Collections.emptyList()));
     }
 
-    public static ManifestCacheValue forDeleteFiles(ManifestFile manifestFile, List<DeleteFile> deleteFiles) {
-        return new ManifestCacheValue(manifestFile, Collections.emptyList(), deleteFiles,
+    public static ManifestCacheValue forDeleteFiles(List<DeleteFile> deleteFiles) {
+        return new ManifestCacheValue(Collections.emptyList(), deleteFiles,
                 estimateWeight(Collections.emptyList(), deleteFiles));
     }
 
@@ -61,10 +57,6 @@ public class ManifestCacheValue {
 
     public long getWeightBytes() {
         return weightBytes;
-    }
-
-    public ManifestFile getManifestFile() {
-        return manifestFile;
     }
 
     private static long estimateWeight(List<DataFile> dataFiles, List<DeleteFile> deleteFiles) {
