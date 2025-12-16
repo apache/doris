@@ -129,7 +129,7 @@ private:
     bool _check_slot_can_push_down(const VExprSPtr& expr) const;
     bool _check_other_children_is_literal(const VExprSPtr& expr) const;
     Status _extract_predicates(const VExprSPtr& expr, int& cid, DataTypePtr& data_type,
-                               std::vector<Field>& values, bool null_pred, bool& parsed) const;
+                               std::vector<StringRef>& values, bool null_pred, bool& parsed) const;
 };
 
 #include "common/compile_check_end.h"
