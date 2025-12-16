@@ -723,11 +723,13 @@ public class TypeCoercionUtils {
         List<DataType> keyTypes = new ArrayList<>();
         List<DataType> valueTypes = new ArrayList<>();
         List<Expression> children = mapConcat.children();
-        for (int i = 0; i < children.size(); i++){
+        for (int i = 0; i < children.size(); i++) {
             DataType argType = children.get(i).getDataType();
-            if (!(argType instanceof MapType)){
-                if (!(argType instanceof NullType)){
-                    throw new AnalysisException("mapconcat function cannot process non-map and non-null child elements. Invalid SQL: " + mapConcat.toSql());
+            if (!(argType instanceof MapType)) {
+                if (!(argType instanceof NullType)) {
+                    throw new AnalysisException("mapconcat function cannot process"
+                            + "non-map and non-null child elements. "
+                            + "Invalid SQL: " + mapConcat.toSql());
                 }
                 continue;
             }
@@ -749,7 +751,7 @@ public class TypeCoercionUtils {
         ImmutableList.Builder<Expression> newChildren = ImmutableList.builder();
         for (int i = 0; i < mapConcat.arity(); i++) {
             DataType argType = children.get(i).getDataType();
-            if (!(argType instanceof MapType)){
+            if (!(argType instanceof MapType)) {
                 newChildren.add(mapConcat.child(i));
             } else {
                 newChildren.add(castIfNotSameType(mapConcat.child(i), targetMapType));

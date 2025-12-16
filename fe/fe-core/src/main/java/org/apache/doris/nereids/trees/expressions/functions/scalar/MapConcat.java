@@ -1,17 +1,17 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements. See the NOTICE file
+// or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership. The ASF licenses this file
+// regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License. You may obtain a copy of the License at
+// with the License.  You may obtain a copy of the License at
 //
-// http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied. See the License for the
+// KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
@@ -33,25 +33,25 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 
 /**
  * ScalarFunction 'map_concat'
  */
 public class MapConcat extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
-    private static final Logger LOG = LogManager.getLogger(MapConcat.class);
-
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-        FunctionSignature
-            .ret(MapType.of(new AnyDataType(0), new AnyDataType(1)))
-            .varArgs(MapType.of(new AnyDataType(0), new AnyDataType(1)))
+            FunctionSignature
+                    .ret(MapType.of(new AnyDataType(0), new AnyDataType(1)))
+                    .varArgs(MapType.of(new AnyDataType(0), new AnyDataType(1)))
         );
+
+    private static final Logger LOG = LogManager.getLogger(MapConcat.class);
 
     /**
      * constructor with more than 0 arguments.
@@ -75,14 +75,15 @@ public class MapConcat extends ScalarFunction
 
     @Override
     public DataType getDataType() {
-        if (arity() >= 1){
+        if (arity() >= 1) {
             List<DataType> keyTypes = new ArrayList<>();
             List<DataType> valueTypes = new ArrayList<>();
-            for (int i = 0; i < children.size(); i++){
+            for (int i = 0; i < children.size(); i++) {
                 DataType argType = children.get(i).getDataType();
-                if (!(argType instanceof MapType)){
-                    if (!(argType instanceof NullType)){
-                        throw new AnalysisException("mapconcat function cannot process non-map and non-null child elements. Invalid SQL: " + this.toSql());
+                if (!(argType instanceof MapType)) {
+                    if (!(argType instanceof NullType)) {
+                        throw new AnalysisException("mapconcat function cannot process non-map and non-null child "
+                                + "elements. Invalid SQL: " + this.toSql());
                     }
                     continue;
                 }
@@ -97,14 +98,14 @@ public class MapConcat extends ScalarFunction
 
             Optional<DataType> commonKeyType = TypeCoercionUtils.findWiderCommonType(keyTypes, true, true);
             Optional<DataType> commonValueType = TypeCoercionUtils.findWiderCommonType(valueTypes, true, true);
-            
+
             if (!commonKeyType.isPresent()) {
                 throw new AnalysisException("mapconcat cannot find the common key type of " + this.toSql());
             }
             if (!commonValueType.isPresent()) {
                 throw new AnalysisException("mapconcat cannot find the common value type of " + this.toSql());
             }
-            
+
             DataType keyType = commonKeyType.get();
             DataType valueType = commonValueType.get();
             return MapType.of(keyType, valueType);
@@ -119,15 +120,15 @@ public class MapConcat extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        if (arity() == 0){
+        if (arity() == 0) {
             return SIGNATURES;
         } else {
             List<FunctionSignature> signatures = ImmutableList.of(
-                FunctionSignature.of(getDataType(), 
-                children.stream()
-                    .map(ExpressionTrait::getDataType)
-                    .collect(ImmutableList.toImmutableList())
-                ));
+                    FunctionSignature.of(getDataType(),
+                            children.stream()
+                                    .map(ExpressionTrait::getDataType)
+                                    .collect(ImmutableList.toImmutableList())
+                    ));
             return signatures;
         }
     }
