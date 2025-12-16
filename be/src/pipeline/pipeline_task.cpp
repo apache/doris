@@ -554,7 +554,9 @@ Status PipelineTask::execute(bool* done) {
             }
 
             if (_eos && !_sink->need_rerun(_state)) {
-                RETURN_IF_ERROR(close(Status::OK(), false));
+                if (auto ctx = _fragment_context.lock().get(); ctx && !ctx->need_notify_close()) {
+                    RETURN_IF_ERROR(close(Status::OK(), false));
+                }
             }
 
             DBUG_EXECUTE_IF("PipelineTask::execute.sink_eos_sleep", {
