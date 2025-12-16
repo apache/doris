@@ -116,6 +116,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
 
+    private Boolean isBatchMode = null;
+
     // for test
     @VisibleForTesting
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
@@ -358,20 +360,33 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
-        targetSplitSize = determineTargetFileSplitSize(scan.planFiles(), isBatchMode());
-        return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return TableScanUtil.splitFiles(scan.planFiles(),
+                    sessionVariable.getFileSplitSize());
+        }
+        if (isBatchMode()) {
+            // Currently iceberg batch split mode will use max split size.
+            // TODO: dynamic split size in batch split mode need to customize iceberg splitter.
+            return TableScanUtil.splitFiles(scan.planFiles(), sessionVariable.getMaxSplitSize());
+        }
+
+        // Non Batch Mode
+        // Materialize planFiles() into a list to avoid iterating the CloseableIterable twice.
+        // It will cost memory if the table is large.
+        List<FileScanTask> fileScanTaskList = new ArrayList<>();
+        try (CloseableIterable<FileScanTask> scanTasksIter = scan.planFiles()) {
+            for (FileScanTask task : scanTasksIter) {
+                fileScanTaskList.add(task);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to materialize file scan tasks", e);
+        }
+
+        targetSplitSize = determineTargetFileSplitSize(fileScanTaskList);
+        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTaskList), targetSplitSize);
     }
 
-    private long determineTargetFileSplitSize(CloseableIterable<FileScanTask> tasks,
-            boolean isBatchMode) {
-        if (sessionVariable.getFileSplitSize() > 0) {
-            return sessionVariable.getFileSplitSize();
-        }
-        // Currently iceberg batch split mode will use max split size.
-        // TODO: dynamic split size in batch split mode need to customize iceberg splitter.
-        if (isBatchMode) {
-            return sessionVariable.getMaxSplitSize();
-        }
+    private long determineTargetFileSplitSize(Iterable<FileScanTask> tasks) {
         long result = sessionVariable.getMaxInitialSplitSize();
         long accumulatedTotalFileSize = 0;
         for (FileScanTask task : tasks) {
@@ -472,6 +487,10 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public boolean isBatchMode() {
+        Boolean cached = isBatchMode;
+        if (cached != null) {
+            return cached;
+        }
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
         if (aggOp.equals(TPushAggOp.COUNT)) {
             try {
@@ -481,12 +500,14 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             if (countFromSnapshot >= 0) {
                 tableLevelPushDownCount = true;
+                isBatchMode = false;
                 return false;
             }
         }
 
         try {
             if (createTableScan().snapshot() == null) {
+                isBatchMode = false;
                 return false;
             }
         } catch (UserException e) {
@@ -494,6 +515,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         if (!sessionVariable.getEnableExternalTableBatchMode()) {
+            isBatchMode = false;
             return false;
         }
 
@@ -509,10 +531,12 @@ public class IcebergScanNode extends FileQueryScanNode {
                         ManifestFile next = matchingManifest.next();
                         cnt += next.addedFilesCount() + next.existingFilesCount();
                         if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
+                            isBatchMode = true;
                             return true;
                         }
                     }
                 }
+                isBatchMode = false;
                 return false;
             });
         } catch (Exception e) {
