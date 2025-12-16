@@ -33,6 +33,7 @@ import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -77,7 +78,7 @@ public class ConfigUtil {
             String excludingTbls =
                     Arrays.stream(excludingTables.split(","))
                             .map(t -> databaseName + "." + t.trim())
-                            .toString();
+                            .collect(Collectors.joining(","));
             configFactory.excludeTableList(excludingTbls);
         }
 
