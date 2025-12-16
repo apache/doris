@@ -365,6 +365,42 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
             exception "Unexpected key"
         }
 
+        // update source type
+        test {
+            sql """ALTER JOB ${jobName}
+                FROM POSTGRES (
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "user" = "root",
+                    "password" = "123456",
+                    "database" = "${mysqlDb}",
+                    "include_tables" = "${table1}", 
+                    "offset" = "initial"
+                )
+                TO DATABASE ${currentDb}
+            """
+            exception "source type can't be modified"
+        }
+
+        // unexcept properties
+        test {
+            sql """ALTER JOB ${jobName}
+                FROM MYSQL (
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "user" = "root",
+                    "password" = "123456",
+                    "database" = "${mysqlDb}",
+                    "include_tables" = "${table1}", 
+                    "offset" = "initial"
+                )
+                TO DATABASE update_database
+            """
+            exception "target database can't be modified"
+        }
+
         sql """ALTER JOB ${jobName}
                 FROM MYSQL (
                     "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
@@ -390,7 +426,6 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                ) """
 
         sql "RESUME JOB where jobname =  '${jobName}'";
-
 
         // check job running
         try {
@@ -423,7 +458,6 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'
         """
-
         def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
         assert jobCountRsp.get(0).get(0) == 0
     }

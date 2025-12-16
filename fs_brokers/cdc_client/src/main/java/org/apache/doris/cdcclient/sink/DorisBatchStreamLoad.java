@@ -96,7 +96,7 @@ public class DorisBatchStreamLoad implements Serializable {
         this.flushQueue = new LinkedBlockingDeque<>(1);
         // maxBlockedBytes is two times of FLUSH_MAX_BYTE_SIZE
         this.maxBlockedBytes = STREAM_LOAD_MAX_BYTES * 2;
-        this.loadAsyncExecutor = new LoadAsyncExecutor(FLUSH_QUEUE_SIZE);
+        this.loadAsyncExecutor = new LoadAsyncExecutor(FLUSH_QUEUE_SIZE, jobId);
         this.loadExecutorService =
                 new ThreadPoolExecutor(
                         1,
@@ -299,14 +299,16 @@ public class DorisBatchStreamLoad implements Serializable {
     class LoadAsyncExecutor implements Runnable {
 
         private int flushQueueSize;
+        private long jobId;
 
-        public LoadAsyncExecutor(int flushQueueSize) {
+        public LoadAsyncExecutor(int flushQueueSize, long jobId) {
             this.flushQueueSize = flushQueueSize;
+            this.jobId = jobId;
         }
 
         @Override
         public void run() {
-            LOG.info("LoadAsyncExecutor start");
+            LOG.info("LoadAsyncExecutor start for jobId {}", jobId);
             loadThreadAlive = true;
             List<BatchRecordBuffer> recordList = new ArrayList<>(flushQueueSize);
             while (started.get()) {
@@ -348,7 +350,7 @@ public class DorisBatchStreamLoad implements Serializable {
                     break;
                 }
             }
-            LOG.info("LoadAsyncExecutor stop");
+            LOG.info("LoadAsyncExecutor stop for jobId {}", jobId);
             loadThreadAlive = false;
         }
 

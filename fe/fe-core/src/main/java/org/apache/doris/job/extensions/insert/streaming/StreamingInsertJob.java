@@ -848,7 +848,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                         targetTable.get(2),
                         PrivPredicate.LOAD);
             } else if (StringUtils.isNotEmpty(getTargetDb())) {
-                return checkHasSourceJobPriv(ctx, targetDb);
+                return Env.getCurrentEnv().getAccessManager().checkDbPriv(ctx,
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
+                        targetDb,
+                        PrivPredicate.LOAD);
             } else {
                 log.info("insert sql and target db are both empty");
                 return false;
@@ -858,11 +861,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    private static boolean checkHasSourceJobPriv(ConnectContext ctx, String targetDb) {
-        return Env.getCurrentEnv().getAccessManager().checkDbPriv(ctx,
+    private static boolean checkHasSourceJobPriv(ConnectContext ctx, String targetDb) throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ctx,
                 InternalCatalog.INTERNAL_CATALOG_NAME,
                 targetDb,
-                PrivPredicate.LOAD);
+                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR, "LOAD",
+                    PrivPredicate.LOAD.getPrivs().toString(),
+                    targetDb);
+        }
+        return true;
     }
 
     private String generateEncryptedSql() {

@@ -244,6 +244,7 @@ public class StreamingJobUtils {
             throw new JobException("No tables found in database " + database);
         }
         Map<String, String> tableCreateProperties = getTableCreateProperties(targetProperties);
+        List<String> noPrimaryKeyTables = new ArrayList<>();
         for (String table : tablesNameList) {
             if (!includeTablesList.isEmpty() && !includeTablesList.contains(table)) {
                 log.info("Skip table {} in database {} as it does not in include_tables {}", table, database,
@@ -260,9 +261,7 @@ public class StreamingJobUtils {
             List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
             List<String> primaryKeys = jdbcClient.getPrimaryKeys(database, table);
             if (primaryKeys.isEmpty()) {
-                primaryKeys.add(columns.get(0).getName());
-                log.info("table {} no primary key, use first column {} to primary key", table,
-                        columns.get(0).getName());
+                noPrimaryKeyTables.add(table);
             }
             // Convert Column to ColumnDefinition
             List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {
@@ -306,6 +305,10 @@ public class StreamingJobUtils {
             throw new JobException("Can not found match table in database " + database);
         }
 
+        if (!noPrimaryKeyTables.isEmpty()) {
+            throw new JobException("The following tables do not have primary key defined: "
+                    + String.join(", ", noPrimaryKeyTables));
+        }
         return createtblCmds;
     }
 

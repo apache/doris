@@ -214,7 +214,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 endBinlogOffset = responseObj.getData();
             } catch (JsonProcessingException e) {
                 log.error("Failed to parse end offset response: {}", response, e);
-                throw new JobException("Failed to parse end offset response: " + response);
+                throw new JobException(response);
             }
         } catch (ExecutionException | InterruptedException ex) {
             log.error("Get end offset error: ", ex);

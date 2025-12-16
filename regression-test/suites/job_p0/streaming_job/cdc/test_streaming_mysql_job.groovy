@@ -31,6 +31,18 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
     sql """drop table if exists ${currentDb}.${table1} force"""
     sql """drop table if exists ${currentDb}.${table2} force"""
 
+    // Pre-create table2
+    sql """
+        CREATE TABLE IF NOT EXISTS ${currentDb}.${table2} (
+            `name` varchar(200) NULL,
+            `age` int NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`name`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`name`) BUCKETS AUTO
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
@@ -83,6 +95,14 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         def showTables2 = sql """ show tables from ${currentDb} like '${table2}'; """
         assert showTables2.size() == 1
 
+        // check table schema correct
+        def showTbl1 = sql """show create table ${currentDb}.${table1}"""
+        def createTalInfo = showTbl1[0][1];
+        assert createTalInfo.contains("`name` varchar(200)");
+        assert createTalInfo.contains("`age` int");
+        assert createTalInfo.contains("UNIQUE KEY(`name`)");
+        assert createTalInfo.contains("DISTRIBUTED BY HASH(`name`) BUCKETS AUTO");
+
         // check job running
         try {
             Awaitility.await().atMost(300, SECONDS)
@@ -102,21 +122,18 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
             throw ex;
         }
 
-
         // check snapshot data
         qt_select """ SELECT * FROM ${table1} order by name asc """
-
         qt_select """ SELECT * FROM ${table2} order by name asc """
 
         // mock mysql incremental into
-
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
             sql """INSERT INTO ${mysqlDb}.${table1} (name,age) VALUES ('Doris',18);"""
             sql """UPDATE ${mysqlDb}.${table1} SET age = 10 WHERE name = 'B1';"""
             sql """DELETE FROM ${mysqlDb}.${table1} WHERE name = 'A1';"""
         }
 
-        sleep(10000); // wait for cdc incremental data
+        sleep(30000); // wait for cdc incremental data
 
         // check incremental data
         qt_select """ SELECT * FROM ${table1} order by name asc """
