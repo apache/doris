@@ -151,11 +151,16 @@ protected:
 public:
     AggregateFunctionMinMaxByBaseData() {}
 
-    AggregateFunctionMinMaxByBaseData(const DataTypes argument_types, int be_version) {
+    AggregateFunctionMinMaxByBaseData(const DataTypes argument_types, int be_version)
+        requires(std::is_same_v<KT, SingleValueDataComplexType>)
+            : key(SingleValueDataComplexType(DataTypes {argument_types[1]}, be_version)) {
         value = create_max_min_value(argument_types[0], be_version);
-        if constexpr (std::is_same_v<KT, SingleValueDataComplexType>) {
-            key = SingleValueDataComplexType(DataTypes {argument_types[1]}, be_version);
-        }
+    }
+
+    AggregateFunctionMinMaxByBaseData(const DataTypes argument_types, int be_version)
+        requires(!std::is_same_v<KT, SingleValueDataComplexType>)
+    {
+        value = create_max_min_value(argument_types[0], be_version);
     }
 
     void insert_result_into(IColumn& to) const { value->insert_result_into(to); }
