@@ -321,11 +321,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 database, table, reason);
 
             long endTime = System.nanoTime();
-            long duration = endTime - startTime;
+            double durationMs = (double) (endTime - startTime) / 1_000_000;
 
-            LOG.debug("File cache admission control cost " + duration + " ns");
+            LOG.debug("File cache admission control cost {} ms", String.format("%.6f", durationMs));
 
-            addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get(), duration);
+            addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get(), durationMs);
         }
 
         if (isBatchMode()) {
