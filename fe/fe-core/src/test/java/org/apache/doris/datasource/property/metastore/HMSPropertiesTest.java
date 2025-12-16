@@ -139,19 +139,14 @@ public class HMSPropertiesTest {
     public void testHmsTimeoutParams() throws UserException {
         Map<String, String> params = createBaseParams();
         // case1: normal case, use Config.hive_metastore_client_timeout_second as default
-        {
-            HiveHMSProperties hmsProperties = getHMSProperties(params);
-            HiveConf hiveConf = hmsProperties.getHiveConf();
-            Assertions.assertEquals(String.valueOf(Config.hive_metastore_client_timeout_second),
-                    hiveConf.get("hive.metastore.client.socket.timeout", null));
-        }
+        HiveHMSProperties hmsProperties = getHMSProperties(params);
+        HiveConf hiveConf = hmsProperties.getHiveConf();
+        Assertions.assertEquals(String.valueOf(Config.hive_metastore_client_timeout_second),
+                hiveConf.get("hive.metastore.client.socket.timeout", null));
 
-        // case2: hive.metastore.client.socket.timeout is set, use it
-        {
-            params.put("hive.metastore.client.socket.timeout", "123");
-            HiveHMSProperties hmsProperties = getHMSProperties(params);
-            HiveConf hiveConf = hmsProperties.getHiveConf();
-            Assertions.assertEquals("123", hiveConf.get("hive.metastore.client.socket.timeout", null));
-        }
+        params.put("hive.metastore.client.socket.timeout", "123");
+        hmsProperties = getHMSProperties(params);
+        hiveConf = hmsProperties.getHiveConf();
+        Assertions.assertEquals("123", hiveConf.get("hive.metastore.client.socket.timeout", null));
     }
 }
