@@ -28,12 +28,20 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/block_column_predicate.h"
-#include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
+#include "vec/functions/cast/cast_parameters.h"
+#include "vec/functions/cast/cast_to_boolean.h"
+#include "vec/functions/cast/cast_to_date_or_datetime_impl.hpp"
+#include "vec/functions/cast/cast_to_datetimev2_impl.hpp"
+#include "vec/functions/cast/cast_to_datev2_impl.hpp"
+#include "vec/functions/cast/cast_to_decimal.h"
+#include "vec/functions/cast/cast_to_float.h"
+#include "vec/functions/cast/cast_to_int.h"
+#include "vec/functions/cast/cast_to_ip.h"
 
 using apache::thrift::ThriftDebugString;
 using std::vector;
@@ -42,6 +50,335 @@ using std::string;
 using ::google::protobuf::RepeatedPtrField;
 
 namespace doris {
+
+template <PrimitiveType PType>
+Status convert(const vectorized::DataTypePtr& data_type, const std::string& str,
+               vectorized::Arena& arena, typename PrimitiveTypeTraits<PType>::CppType& res) {
+    if constexpr (PType == TYPE_TINYINT || PType == TYPE_SMALLINT || PType == TYPE_INT ||
+                  PType == TYPE_BIGINT || PType == TYPE_LARGEINT) {
+        vectorized::CastParameters parameters;
+        if (!vectorized::CastToInt::from_string({str.data(), str.size()}, res, parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_FLOAT || PType == TYPE_DOUBLE) {
+        vectorized::CastParameters parameters;
+        if (!vectorized::CastToFloat::from_string({str.data(), str.size()}, res, parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_DATE) {
+        vectorized::CastParameters parameters;
+        if (!vectorized::CastToDateOrDatetime::from_string<false>({str.data(), str.size()}, res,
+                                                                  nullptr, parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_DATETIME) {
+        vectorized::CastParameters parameters;
+        if (!vectorized::CastToDateOrDatetime::from_string<true>({str.data(), str.size()}, res,
+                                                                 nullptr, parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_DATEV2) {
+        vectorized::CastParameters parameters;
+        if (!vectorized::CastToDateV2::from_string({str.data(), str.size()}, res, nullptr,
+                                                   parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_DATETIMEV2) {
+        vectorized::CastParameters parameters;
+        if (!vectorized::CastToDatetimeV2::from_string({str.data(), str.size()}, res, nullptr,
+                                                       data_type->get_scale(), parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_TIMESTAMPTZ) {
+        vectorized::CastParameters parameters;
+        if (!vectorized::CastToTimstampTz::from_string({str.data(), str.size()}, res, parameters,
+                                                       nullptr, data_type->get_scale())) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_CHAR) {
+        size_t target = assert_cast<const vectorized::DataTypeString*>(
+                                vectorized::remove_nullable(data_type).get())
+                                ->len();
+        res = {str.data(), str.size()};
+        if (target > str.size()) {
+            char* buffer = arena.alloc(target);
+            memset(buffer, 0, target);
+            memcpy(buffer, str.data(), str.size());
+            res = {buffer, target};
+        }
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_STRING || PType == TYPE_VARCHAR) {
+        char* buffer = arena.alloc(str.size());
+        memcpy(buffer, str.data(), str.size());
+        res = {buffer, str.size()};
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_BOOLEAN) {
+        vectorized::CastParameters parameters;
+        vectorized::UInt8 tmp;
+        if (!vectorized::CastToBool::from_string({str.data(), str.size()}, tmp, parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        res = tmp != 0;
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_IPV4) {
+        vectorized::CastParameters parameters;
+        if (!vectorized::CastToIPv4::from_string({str.data(), str.size()}, res, parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_IPV6) {
+        vectorized::CastParameters parameters;
+        if (!vectorized::CastToIPv6::from_string({str.data(), str.size()}, res, parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        return Status::OK();
+    }
+    if constexpr (PType == TYPE_DECIMALV2) {
+        vectorized::CastParameters parameters;
+        vectorized::Decimal128V2 tmp;
+        if (!vectorized::CastToDecimal::from_string({str.data(), str.size()}, tmp,
+                                                    data_type->get_precision(),
+                                                    data_type->get_scale(), parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        res = DecimalV2Value(tmp.value);
+        return Status::OK();
+    } else if constexpr (is_decimal(PType)) {
+        vectorized::CastParameters parameters;
+        if (!vectorized::CastToDecimal::from_string({str.data(), str.size()}, res,
+                                                    data_type->get_precision(),
+                                                    data_type->get_scale(), parameters)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
+                    str);
+        }
+        return Status::OK();
+    }
+    return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+            "unsupported data type in delete handler. type={}",
+            type_to_string(data_type->get_primitive_type()));
+}
+
+#define CONVERT_CASE(PType)                                            \
+    case PType: {                                                      \
+        set = build_set<PType>();                                      \
+        for (const auto& s : str) {                                    \
+            typename PrimitiveTypeTraits<PType>::CppType tmp;          \
+            RETURN_IF_ERROR(convert<PType>(data_type, s, arena, tmp)); \
+            set->insert(reinterpret_cast<const void*>(&tmp));          \
+        }                                                              \
+        return Status::OK();                                           \
+    }
+Status convert(const vectorized::DataTypePtr& data_type, const std::list<std::string>& str,
+               vectorized::Arena& arena, std::shared_ptr<HybridSetBase>& set) {
+    switch (data_type->get_primitive_type()) {
+        CONVERT_CASE(TYPE_TINYINT);
+        CONVERT_CASE(TYPE_SMALLINT);
+        CONVERT_CASE(TYPE_INT);
+        CONVERT_CASE(TYPE_BIGINT);
+        CONVERT_CASE(TYPE_LARGEINT);
+        CONVERT_CASE(TYPE_FLOAT);
+        CONVERT_CASE(TYPE_DOUBLE);
+        CONVERT_CASE(TYPE_DATE);
+        CONVERT_CASE(TYPE_DATETIME);
+        CONVERT_CASE(TYPE_DATEV2);
+        CONVERT_CASE(TYPE_DATETIMEV2);
+        CONVERT_CASE(TYPE_TIMESTAMPTZ);
+        CONVERT_CASE(TYPE_BOOLEAN);
+        CONVERT_CASE(TYPE_IPV4);
+        CONVERT_CASE(TYPE_IPV6);
+        CONVERT_CASE(TYPE_DECIMALV2);
+        CONVERT_CASE(TYPE_DECIMAL32);
+        CONVERT_CASE(TYPE_DECIMAL64);
+        CONVERT_CASE(TYPE_DECIMAL128I);
+        CONVERT_CASE(TYPE_DECIMAL256);
+        CONVERT_CASE(TYPE_CHAR);
+        CONVERT_CASE(TYPE_VARCHAR);
+        CONVERT_CASE(TYPE_STRING);
+    default:
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "unsupported data type in delete handler. type={}",
+                type_to_string(data_type->get_primitive_type()));
+    }
+    return Status::OK();
+}
+#undef CONVERT_CASE
+
+#define CONVERT_CASE(PType)                                                                       \
+    case PType: {                                                                                 \
+        typename PrimitiveTypeTraits<PType>::CppType tmp;                                         \
+        RETURN_IF_ERROR(convert<PType>(type, res.value_str.front(), arena, tmp));                 \
+        v.data = reinterpret_cast<const char*>(&tmp);                                             \
+        v.size = sizeof(tmp);                                                                     \
+        switch (res.condition_op) {                                                               \
+        case PredicateType::EQ:                                                                   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::EQ>(index, type, v, true, arena); \
+            return Status::OK();                                                                  \
+        case PredicateType::NE:                                                                   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::NE>(index, type, v, true, arena); \
+            return Status::OK();                                                                  \
+        case PredicateType::GT:                                                                   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::GT>(index, type, v, true, arena); \
+            return Status::OK();                                                                  \
+        case PredicateType::GE:                                                                   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::GE>(index, type, v, true, arena); \
+            return Status::OK();                                                                  \
+        case PredicateType::LT:                                                                   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::LT>(index, type, v, true, arena); \
+            return Status::OK();                                                                  \
+        case PredicateType::LE:                                                                   \
+            predicate =                                                                           \
+                    create_comparison_predicate0<PredicateType::LE>(index, type, v, true, arena); \
+            return Status::OK();                                                                  \
+        default:                                                                                  \
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(                                    \
+                    "invalid condition operator. operator={}", type_to_op_str(res.condition_op)); \
+        }                                                                                         \
+    }
+Status parse_to_predicate(const uint32_t index, const vectorized::DataTypePtr& type,
+                          DeleteHandler::ConditionParseResult& res, vectorized::Arena& arena,
+                          std::shared_ptr<ColumnPredicate>& predicate) {
+    DCHECK_EQ(res.value_str.size(), 1);
+    if (res.condition_op == PredicateType::IS_NULL ||
+        res.condition_op == PredicateType::IS_NOT_NULL) {
+        predicate = NullPredicate::create_shared(
+                index, res.condition_op == PredicateType::IS_NOT_NULL, type->get_primitive_type());
+        return Status::OK();
+    }
+    StringRef v;
+    switch (type->get_primitive_type()) {
+        CONVERT_CASE(TYPE_TINYINT);
+        CONVERT_CASE(TYPE_SMALLINT);
+        CONVERT_CASE(TYPE_INT);
+        CONVERT_CASE(TYPE_BIGINT);
+        CONVERT_CASE(TYPE_LARGEINT);
+        CONVERT_CASE(TYPE_FLOAT);
+        CONVERT_CASE(TYPE_DOUBLE);
+        CONVERT_CASE(TYPE_DATE);
+        CONVERT_CASE(TYPE_DATETIME);
+        CONVERT_CASE(TYPE_DATEV2);
+        CONVERT_CASE(TYPE_DATETIMEV2);
+        CONVERT_CASE(TYPE_TIMESTAMPTZ);
+        CONVERT_CASE(TYPE_BOOLEAN);
+        CONVERT_CASE(TYPE_IPV4);
+        CONVERT_CASE(TYPE_IPV6);
+        CONVERT_CASE(TYPE_DECIMALV2);
+        CONVERT_CASE(TYPE_DECIMAL32);
+        CONVERT_CASE(TYPE_DECIMAL64);
+        CONVERT_CASE(TYPE_DECIMAL128I);
+        CONVERT_CASE(TYPE_DECIMAL256);
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
+        RETURN_IF_ERROR(convert<TYPE_STRING>(type, res.value_str.front(), arena, v));
+        switch (res.condition_op) {
+        case PredicateType::EQ:
+            predicate =
+                    create_comparison_predicate0<PredicateType::EQ>(index, type, v, true, arena);
+            return Status::OK();
+        case PredicateType::NE:
+            predicate =
+                    create_comparison_predicate0<PredicateType::NE>(index, type, v, true, arena);
+            return Status::OK();
+        case PredicateType::GT:
+            predicate =
+                    create_comparison_predicate0<PredicateType::GT>(index, type, v, true, arena);
+            return Status::OK();
+        case PredicateType::GE:
+            predicate =
+                    create_comparison_predicate0<PredicateType::GE>(index, type, v, true, arena);
+            return Status::OK();
+        case PredicateType::LT:
+            predicate =
+                    create_comparison_predicate0<PredicateType::LT>(index, type, v, true, arena);
+            return Status::OK();
+        case PredicateType::LE:
+            predicate =
+                    create_comparison_predicate0<PredicateType::LE>(index, type, v, true, arena);
+            return Status::OK();
+        default:
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid condition operator. operator={}", type_to_op_str(res.condition_op));
+        }
+        break;
+    }
+    default:
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "unsupported data type in delete handler. type={}",
+                type_to_string(type->get_primitive_type()));
+    }
+    return Status::OK();
+#undef CONVERT_CASE
+}
+
+Status parse_to_in_predicate(const uint32_t index, const vectorized::DataTypePtr& type,
+                             DeleteHandler::ConditionParseResult& res, vectorized::Arena& arena,
+                             std::shared_ptr<ColumnPredicate>& predicate) {
+    DCHECK_GT(res.value_str.size(), 1);
+    switch (res.condition_op) {
+    case PredicateType::IN_LIST: {
+        std::shared_ptr<HybridSetBase> set;
+        RETURN_IF_ERROR(convert(type, res.value_str, arena, set));
+        predicate = create_in_list_predicate<PredicateType::IN_LIST>(index, type, set, true);
+        break;
+    }
+    case PredicateType::NOT_IN_LIST: {
+        std::shared_ptr<HybridSetBase> set;
+        RETURN_IF_ERROR(convert(type, res.value_str, arena, set));
+        predicate = create_in_list_predicate<PredicateType::NOT_IN_LIST>(index, type, set, true);
+        break;
+    }
+    default:
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>("invalid condition operator. operator={}",
+                                                          type_to_op_str(res.condition_op));
+    }
+    return Status::OK();
+}
 
 // construct sub condition from TCondition
 std::string construct_sub_predicate(const TCondition& condition) {
@@ -126,12 +463,14 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
             if (condition.__isset.column_unique_id) {
                 // only light schema change capable table set this field
                 sub_predicate->set_column_unique_id(condition.column_unique_id);
-            } else if (TCondition tmp; !DeleteHandler::parse_condition(condition_str, &tmp)) {
-                // for non light shema change tables, check regex match for condition str
-                LOG(WARNING) << "failed to parse condition_str, condtion="
-                             << ThriftDebugString(condition);
-                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                        "failed to parse condition_str, condtion={}", ThriftDebugString(condition));
+            } else {
+                try {
+                    [[maybe_unused]] auto parsed_cond = parse_condition(condition_str);
+                } catch (const Exception& e) {
+                    return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                            "failed to parse condition_str, condition={}, error={}",
+                            ThriftDebugString(condition), e.to_string());
+                }
             }
 
             sub_predicate->set_column_name(condition.column_name);
@@ -152,13 +491,12 @@ Status DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
     if (!delete_pred->sub_predicates().empty() && delete_pred->sub_predicates_v2().empty()) {
         for (const auto& condition_str : delete_pred->sub_predicates()) {
             auto* sub_pred = delete_pred->add_sub_predicates_v2();
-            TCondition condition;
-            static_cast<void>(parse_condition(condition_str, &condition));
+            auto condition = parse_condition(condition_str);
             const auto& column = *DORIS_TRY(schema->column(condition.column_name));
             sub_pred->set_column_unique_id(column.unique_id());
             sub_pred->set_column_name(condition.column_name);
-            sub_pred->set_op(condition.condition_op);
-            sub_pred->set_cond_value(condition.condition_values[0]);
+            sub_pred->set_op(type_to_op_str(condition.condition_op));
+            sub_pred->set_cond_value(condition.value_str.front());
         }
     }
 
@@ -287,19 +625,49 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     return Status::OK();
 }
 
-Status DeleteHandler::parse_condition(const DeleteSubPredicatePB& sub_cond, TCondition* condition) {
+PredicateType DeleteHandler::parse_condition_op(const std::string& op_str,
+                                                const std::list<std::string>& cond_values) {
+    if (trim(to_lower(op_str)) == "=") {
+        return PredicateType::EQ;
+    } else if (trim(to_lower(op_str)) == "!=") {
+        return PredicateType::NE;
+    } else if (trim(to_lower(op_str)) == ">>") {
+        return PredicateType::GT;
+    } else if (trim(to_lower(op_str)) == "<<") {
+        return PredicateType::LT;
+    } else if (trim(to_lower(op_str)) == ">=") {
+        return PredicateType::GE;
+    } else if (trim(to_lower(op_str)) == "<=") {
+        return PredicateType::LE;
+    } else if (trim(to_lower(op_str)) == "*=") {
+        return cond_values.size() > 1 ? PredicateType::IN_LIST : PredicateType::EQ;
+    } else if (trim(to_lower(op_str)) == "!*=") {
+        return cond_values.size() > 1 ? PredicateType::NOT_IN_LIST : PredicateType::NE;
+    } else if (trim(to_lower(op_str)) == "is") {
+        return to_lower(cond_values.front()) == "null" ? PredicateType::IS_NULL
+                                                       : PredicateType::IS_NOT_NULL;
+    } else {
+        throw Exception(Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "invalid condition operator. operator={}", op_str));
+    }
+    return PredicateType::UNKNOWN;
+}
+
+DeleteHandler::ConditionParseResult DeleteHandler::parse_condition(
+        const DeleteSubPredicatePB& sub_cond) {
+    ConditionParseResult res;
     if (!sub_cond.has_column_name() || !sub_cond.has_op() || !sub_cond.has_cond_value()) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+        throw Exception(Status::Error<ErrorCode::INVALID_ARGUMENT>(
                 "fail to parse condition. condition={} {} {}", sub_cond.column_name(),
-                sub_cond.op(), sub_cond.cond_value());
+                sub_cond.op(), sub_cond.cond_value()));
     }
     if (sub_cond.has_column_unique_id()) {
-        condition->column_unique_id = sub_cond.column_unique_id();
+        res.col_unique_id = sub_cond.column_unique_id();
     }
-    condition->column_name = sub_cond.column_name();
-    condition->condition_op = sub_cond.op();
-    condition->condition_values.push_back(sub_cond.cond_value());
-    return Status::OK();
+    res.column_name = sub_cond.column_name();
+    res.value_str.push_back(sub_cond.cond_value());
+    res.condition_op = parse_condition_op(sub_cond.op(), res.value_str);
+    return res;
 }
 
 // clang-format off
@@ -322,28 +690,31 @@ const char* const CONDITION_STR_PATTERN =
 // clang-format on
 RE2 DELETE_HANDLER_REGEX(CONDITION_STR_PATTERN);
 
-Status DeleteHandler::parse_condition(const std::string& condition_str, TCondition* condition) {
+DeleteHandler::ConditionParseResult DeleteHandler::parse_condition(
+        const std::string& condition_str) {
+    ConditionParseResult res;
     std::string col_name, op, value, g4;
 
     bool matched = RE2::FullMatch(condition_str, DELETE_HANDLER_REGEX, &col_name, &op, &value,
                                   &g4); // exact match
 
     if (!matched) {
-        return Status::InvalidArgument("fail to sub condition. condition={}", condition_str);
+        throw Exception(
+                Status::InvalidArgument("fail to sub condition. condition={}", condition_str));
     }
 
-    condition->column_name = col_name;
-    condition->condition_op = op == " IS " ? "IS" : op;
+    res.column_name = col_name;
+
     // match string with single quotes, a = b  or a = 'b'
     if (!g4.empty()) {
-        condition->condition_values.push_back(g4);
+        res.value_str.push_back(g4);
     } else {
-        condition->condition_values.push_back(value);
+        res.value_str.push_back(value);
     }
-    VLOG_NOTICE << "parsed condition_str: col_name={" << condition->column_name << "} op={"
-                << condition->condition_op << "} val={" << condition->condition_values.back()
-                << "}";
-    return Status::OK();
+    res.condition_op = DeleteHandler::parse_condition_op(op, res.value_str);
+    VLOG_NOTICE << "parsed condition_str: col_name={" << col_name << "} op={" << op << "} val={"
+                << res.value_str.back() << "}";
+    return res;
 }
 
 template <typename SubPredType>
@@ -354,8 +725,7 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
                                          const RepeatedPtrField<SubPredType>& sub_pred_list,
                                          DeleteConditions* delete_conditions) {
     for (const auto& sub_predicate : sub_pred_list) {
-        TCondition condition;
-        RETURN_IF_ERROR(parse_condition(sub_predicate, &condition));
+        auto condition = parse_condition(sub_predicate);
         int32_t col_unique_id = -1;
         if constexpr (std::is_same_v<SubPredType, DeleteSubPredicatePB>) {
             if (sub_predicate.has_column_unique_id()) [[likely]] {
@@ -367,27 +737,18 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
                     *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
             col_unique_id = column.unique_id();
         }
-        condition.__set_column_unique_id(col_unique_id);
+        condition.col_unique_id = col_unique_id;
         const auto& column = complete_schema->column_by_uid(col_unique_id);
         uint32_t index = complete_schema->field_index(col_unique_id);
-        auto predicate =
-                parse_to_predicate(column.get_vec_type(), index, condition, _predicate_arena, true);
+        std::shared_ptr<ColumnPredicate> predicate;
+        RETURN_IF_ERROR(parse_to_predicate(index, column.get_vec_type(), condition,
+                                           _predicate_arena, predicate));
         if (predicate != nullptr) {
             delete_conditions->column_predicate_vec.push_back(predicate);
         }
     }
     return Status::OK();
 }
-
-template Status DeleteHandler::_parse_column_pred<DeleteSubPredicatePB>(
-        TabletSchemaSPtr complete_schema, TabletSchemaSPtr delete_pred_related_schema,
-        const ::google::protobuf::RepeatedPtrField<DeleteSubPredicatePB>& sub_pred_list,
-        DeleteConditions* delete_conditions);
-
-template Status DeleteHandler::_parse_column_pred<std::string>(
-        TabletSchemaSPtr complete_schema, TabletSchemaSPtr delete_pred_related_schema,
-        const ::google::protobuf::RepeatedPtrField<std::string>& sub_pred_list,
-        DeleteConditions* delete_conditions);
 
 Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                            const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
@@ -413,8 +774,8 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                                                delete_condition.sub_predicates(), &temp));
         }
         for (const auto& in_predicate : delete_condition.in_predicates()) {
-            TCondition condition;
-            condition.__set_column_name(in_predicate.column_name());
+            ConditionParseResult condition;
+            condition.column_name = in_predicate.column_name();
 
             int32_t col_unique_id = -1;
             if (in_predicate.has_column_unique_id()) {
@@ -429,20 +790,19 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                 return Status::Error<ErrorCode::DELETE_INVALID_CONDITION>(
                         "cannot get column_unique_id for column {}", condition.column_name);
             }
-            condition.__set_column_unique_id(col_unique_id);
+            condition.col_unique_id = col_unique_id;
 
-            if (in_predicate.is_not_in()) {
-                condition.__set_condition_op("!*=");
-            } else {
-                condition.__set_condition_op("*=");
-            }
+            condition.condition_op =
+                    in_predicate.is_not_in() ? PredicateType::NOT_IN_LIST : PredicateType::IN_LIST;
             for (const auto& value : in_predicate.values()) {
-                condition.condition_values.push_back(value);
+                condition.value_str.push_back(value);
             }
             const auto& column = tablet_schema->column_by_uid(col_unique_id);
             uint32_t index = tablet_schema->field_index(col_unique_id);
-            temp.column_predicate_vec.push_back(parse_to_predicate(
-                    column.get_vec_type(), index, condition, _predicate_arena, true));
+            std::shared_ptr<ColumnPredicate> predicate;
+            RETURN_IF_ERROR(parse_to_in_predicate(index, column.get_vec_type(), condition,
+                                                  _predicate_arena, predicate));
+            temp.column_predicate_vec.push_back(predicate);
         }
 
         _del_conds.emplace_back(std::move(temp));
