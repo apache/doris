@@ -80,6 +80,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
 import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
@@ -412,6 +413,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         specsById.forEach((id, spec) -> residualEvaluators.put(id,
                 ResidualEvaluator.of(spec, filterExpr == null ? Expressions.alwaysTrue() : filterExpr,
                         caseSensitive)));
+        InclusiveMetricsEvaluator metricsEvaluator = filterExpr == null ? null
+                : new InclusiveMetricsEvaluator(icebergTable.schema(), filterExpr, caseSensitive);
 
         List<DeleteFile> deleteFiles = new ArrayList<>();
         // Load delete manifests
@@ -454,6 +457,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                 ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache, manifest,
                         icebergTable);
                 for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {
+                    if (metricsEvaluator != null && !metricsEvaluator.eval(dataFile)) {
+                        continue;
+                    }
                     if (residualEvaluator != null) {
                         if (residualEvaluator.residualFor(dataFile.partition()).equals(Expressions.alwaysFalse())) {
                             continue;
