@@ -157,6 +157,15 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
         const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>();
         return StringRef((char*)&v, sizeof(v));
     }
+    case doris::PrimitiveType::TYPE_VARBINARY: {
+        // For VARBINARY type, use StringViewField to store binary data
+        const auto& v = field.get<StringViewField>();
+        auto length = v.size();
+        char* buffer = _predicate_arena.alloc(length);
+        memset(buffer, 0, length);
+        memcpy(buffer, v.data(), length);
+        return {buffer, length};
+    }
     default:
         break;
     }
@@ -167,7 +176,7 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
 
 bool RuntimePredicate::_init(PrimitiveType type) {
     return is_int_or_bool(type) || is_decimal(type) || is_string_type(type) || is_date_type(type) ||
-           is_time_type(type) || is_ip(type);
+           is_time_type(type) || is_ip(type) || is_varbinary(type);
 }
 
 Status RuntimePredicate::update(const Field& value) {

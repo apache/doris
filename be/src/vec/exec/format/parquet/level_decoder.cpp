@@ -87,6 +87,7 @@ doris::Status doris::vectorized::LevelDecoder::init_v2(const doris::Slice& level
 }
 
 size_t doris::vectorized::LevelDecoder::get_levels(doris::vectorized::level_t* levels, size_t n) {
+    // toto template.
     if (_encoding == tparquet::Encoding::RLE) {
         n = std::min((size_t)_num_levels, n);
         auto num_decoded = _rle_decoder.get_values(levels, n);

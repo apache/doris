@@ -59,14 +59,14 @@ public:
 
     Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override {
-        DCHECK(_open_finished || _getting_const_col);
+        DCHECK(_open_finished || block == nullptr);
         result_column = block->get_by_position(_column_id + _gap).column;
         DCHECK_EQ(result_column->size(), count);
         return Status::OK();
     }
 
     DataTypePtr execute_type(const Block* block) const override {
-        DCHECK(_open_finished || _getting_const_col);
+        DCHECK(_open_finished || block == nullptr);
         return block->get_by_position(_column_id + _gap).type;
     }
 
