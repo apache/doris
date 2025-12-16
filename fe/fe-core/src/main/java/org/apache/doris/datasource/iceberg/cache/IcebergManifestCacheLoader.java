@@ -22,7 +22,6 @@ import org.apache.doris.datasource.CacheException;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
-import org.apache.iceberg.FileContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
@@ -32,7 +31,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.OptionalLong;
 
 /**
  * Helper to load manifest content and populate the manifest cache.
@@ -45,13 +43,13 @@ public class IcebergManifestCacheLoader {
 
     public static ManifestCacheValue loadDataFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
             Table table) {
-        ManifestCacheKey key = buildKey(cache, manifest, FileContent.DATA);
+        ManifestCacheKey key = buildKey(cache, manifest);
         return cache.get(key, () -> loadDataFiles(manifest, table));
     }
 
     public static ManifestCacheValue loadDeleteFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
             Table table) {
-        ManifestCacheKey key = buildKey(cache, manifest, FileContent.POSITION_DELETES);
+        ManifestCacheKey key = buildKey(cache, manifest);
         return cache.get(key, () -> loadDeleteFiles(manifest, table));
     }
 
@@ -84,12 +82,8 @@ public class IcebergManifestCacheLoader {
         return ManifestCacheValue.forDeleteFiles(manifest, deleteFiles);
     }
 
-    private static ManifestCacheKey buildKey(IcebergManifestCache cache, ManifestFile manifest, FileContent content) {
-        // ManifestFile.length() and sequenceNumber() return primitive long, snapshotId() can return null
-        long length = manifest.length();
-        long seq = manifest.sequenceNumber();
-        Long snapshotIdObj = manifest.snapshotId();
-        long snapshotId = snapshotIdObj == null ? -1L : snapshotIdObj;
-        return cache.buildKey(manifest.path(), length, OptionalLong.empty(), seq, snapshotId, content);
+    private static ManifestCacheKey buildKey(IcebergManifestCache cache, ManifestFile manifest) {
+        // Iceberg manifest files are immutable, so path uniquely identifies a manifest
+        return cache.buildKey(manifest.path());
     }
 }

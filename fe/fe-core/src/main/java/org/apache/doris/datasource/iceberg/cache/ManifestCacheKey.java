@@ -17,38 +17,21 @@
 
 package org.apache.doris.datasource.iceberg.cache;
 
-import org.apache.iceberg.FileContent;
-
 import java.util.Objects;
-import java.util.OptionalLong;
 
 /**
  * Cache key for a single Iceberg manifest file.
+ * Since Iceberg manifest files are immutable, path uniquely identifies a manifest.
  */
 public class ManifestCacheKey {
     private final String path;
-    private final long length;
-    private final OptionalLong lastModified;
-    private final long sequenceNumber;
-    private final long snapshotId;
-    private final FileContent content;
 
-    public ManifestCacheKey(String path, long length, OptionalLong lastModified,
-            long sequenceNumber, long snapshotId, FileContent content) {
+    public ManifestCacheKey(String path) {
         this.path = path;
-        this.length = length;
-        this.lastModified = lastModified;
-        this.sequenceNumber = sequenceNumber;
-        this.snapshotId = snapshotId;
-        this.content = content;
     }
 
     public String getPath() {
         return path;
-    }
-
-    public FileContent getContent() {
-        return content;
     }
 
     @Override
@@ -60,28 +43,16 @@ public class ManifestCacheKey {
             return false;
         }
         ManifestCacheKey that = (ManifestCacheKey) o;
-        return length == that.length
-                && sequenceNumber == that.sequenceNumber
-                && snapshotId == that.snapshotId
-                && Objects.equals(path, that.path)
-                && Objects.equals(lastModified, that.lastModified)
-                && content == that.content;
+        return Objects.equals(path, that.path);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(path, length, lastModified, sequenceNumber, snapshotId, content);
+        return Objects.hash(path);
     }
 
     @Override
     public String toString() {
-        return "ManifestCacheKey{"
-                + "path='" + path + '\''
-                + ", length=" + length
-                + ", lastModified=" + lastModified
-                + ", sequenceNumber=" + sequenceNumber
-                + ", snapshotId=" + snapshotId
-                + ", content=" + content
-                + '}';
+        return "ManifestCacheKey{path='" + path + "'}";
     }
 }

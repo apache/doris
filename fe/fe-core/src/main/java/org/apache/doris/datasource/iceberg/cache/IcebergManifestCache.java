@@ -29,7 +29,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.concurrent.Callable;
 
 /**
@@ -91,8 +90,7 @@ public class IcebergManifestCache {
         cache.invalidateAll();
     }
 
-    public ManifestCacheKey buildKey(String path, long length, OptionalLong lastModified, long sequenceNumber,
-            long snapshotId, org.apache.iceberg.FileContent content) {
-        return new ManifestCacheKey(path, length, lastModified, sequenceNumber, snapshotId, content);
+    public ManifestCacheKey buildKey(String path) {
+        return new ManifestCacheKey(path);
     }
 }
