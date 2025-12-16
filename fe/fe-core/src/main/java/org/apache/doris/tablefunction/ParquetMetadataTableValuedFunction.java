@@ -17,21 +17,20 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.backup.Status;
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
@@ -133,7 +132,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         String rawMode = normalizedParams.getOrDefault(MODE, MODE_METADATA);
         mode = rawMode.toLowerCase();
         if (!SUPPORTED_MODES.contains(mode)) {
-            throw new AnalysisException("Unsupported mode '" + rawMode + "' for parquet_metadata");
+            throw new AnalysisException("Unsupported mode '" + rawMode + "' for parquet_meta");
         }
 
         String firstPath = parsedPaths.get(0);
@@ -179,7 +178,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         this.properties = backendProps;
 
         // Expand any glob patterns (e.g. *.parquet) to concrete file paths.
-        normalizedPaths = expandGlobPaths(normalizedPaths, storageProperties, this.fileType);
+        normalizedPaths = expandGlobPaths(normalizedPaths, storageProperties, storageParams, this.fileType);
 
         this.paths = ImmutableList.copyOf(normalizedPaths);
     }
@@ -188,8 +187,9 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
      * Expand wildcard paths to matching files.
      */
     private static List<String> expandGlobPaths(List<String> inputPaths,
-                                               StorageProperties storageProperties,
-                                               TFileType fileType) throws AnalysisException {
+                                                StorageProperties storageProperties,
+                                                Map<String, String> storageParams,
+                                                TFileType fileType) throws AnalysisException {
         if (inputPaths == null || inputPaths.isEmpty()) {
             return Collections.emptyList();
         }
@@ -199,7 +199,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
                 expanded.add(path);
                 continue;
             }
-            expanded.addAll(expandSingleGlob(path, storageProperties, fileType));
+            expanded.addAll(expandSingleGlob(path, storageProperties, storageParams, fileType));
         }
         if (expanded.isEmpty()) {
             throw new AnalysisException("No files matched parquet_metadata path patterns: " + inputPaths);
@@ -216,34 +216,36 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
 
     private static List<String> expandSingleGlob(String pattern,
                                                  StorageProperties storageProperties,
+                                                 Map<String, String> storageParams,
                                                  TFileType fileType) throws AnalysisException {
         if (fileType == TFileType.FILE_LOCAL) {
             return globLocal(pattern);
+        }
+        if (fileType == TFileType.FILE_HTTP) {
+            throw new AnalysisException("Glob patterns are not supported for file type: " + fileType);
         }
         if (storageProperties == null) {
             throw new AnalysisException("Storage properties is required for glob pattern: " + pattern);
         }
         if (fileType == TFileType.FILE_S3 || fileType == TFileType.FILE_HDFS) {
-            return globRemote(storageProperties, pattern);
+            return globRemoteWithBroker(pattern, storageParams);
         }
         throw new AnalysisException("Glob patterns are not supported for file type: " + fileType);
     }
 
-    private static List<String> globRemote(StorageProperties storageProperties,
-                                          String pattern) throws AnalysisException {
-        List<RemoteFile> remoteFiles = new ArrayList<>();
-        try (RemoteFileSystem fileSystem = FileSystemFactory.get(storageProperties)) {
-            Status status = fileSystem.globList(pattern, remoteFiles, false);
-            if (!status.ok()) {
-                throw new AnalysisException(status.getErrMsg());
-            }
-        } catch (Exception e) {
+    private static List<String> globRemoteWithBroker(String pattern,
+                                                     Map<String, String> storageParams) throws AnalysisException {
+        List<TBrokerFileStatus> remoteFiles = new ArrayList<>();
+        BrokerDesc brokerDesc = new BrokerDesc("ParquetMetaTvf", storageParams);
+        try {
+            BrokerUtil.parseFile(pattern, brokerDesc, remoteFiles);
+        } catch (UserException e) {
             throw new AnalysisException("Failed to expand glob pattern '" + pattern + "': "
                     + e.getMessage(), e);
         }
         return remoteFiles.stream()
-                .filter(RemoteFile::isFile)
-                .map(RemoteFile::getName)
+                .filter(file -> !file.isIsDir())
+                .map(TBrokerFileStatus::getPath)
                 .collect(Collectors.toList());
     }
 
