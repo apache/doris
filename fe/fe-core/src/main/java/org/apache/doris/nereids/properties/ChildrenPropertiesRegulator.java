@@ -55,7 +55,6 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -670,20 +669,13 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             double basicBuckets = -1;
             double basicRowCount = -1;
 
-            Set<ShuffleType> allowShuffleTypes = ImmutableSet.of(
-                    ShuffleType.NATURAL,
-                    ShuffleType.STORAGE_BUCKETED,
-                    ShuffleType.EXECUTION_BUCKETED
-            );
-
             try {
                 // find the most (bucket num, rowCount) side as the basic
                 for (int i = 0; i < originChildrenProperties.size(); i++) {
                     PhysicalProperties originChildrenProperty = originChildrenProperties.get(i);
                     DistributionSpec childDistribution = originChildrenProperty.getDistributionSpec();
                     if (childDistribution instanceof DistributionSpecHash
-                            && allowShuffleTypes.contains(
-                                    ((DistributionSpecHash) childDistribution).getShuffleType())) {
+                            && ((DistributionSpecHash) childDistribution).getShuffleType() == ShuffleType.NATURAL) {
                         int bucketNum = getBucketNum(children.get(i).getPlan());
                         Statistics stats = setOperation.child(i).getStats();
                         double rowCount = stats.getRowCount();
