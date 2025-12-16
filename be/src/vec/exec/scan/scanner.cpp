@@ -41,6 +41,7 @@ Scanner::Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
           _output_tuple_desc(_local_state->output_tuple_desc()),
           _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
           _has_prepared(false) {
+    _total_rf_num = cast_set<int>(_local_state->_helper.runtime_filter_nums());
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
