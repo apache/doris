@@ -379,6 +379,10 @@ suite("agg_optimize_when_uniform") {
     def plan_6 = sql """explain verbose ${query6_0}"""
     logger.info("plan_6 is " + plan_6)
 
+    // This line of code is modified to position the occasional error: "null value is not in not null slot".
+    def query_mv6 = sql """select sum(__bin_4 is null) from mv6_0"""
+    logger.info("query_mv6 is " + query_mv6)
+
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
