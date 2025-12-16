@@ -24,9 +24,13 @@ namespace doris::io {
 
 namespace {
 
+static size_t verify_meta_key_cnt = 0;
+
 void verify_meta_key(CacheBlockMetaStore& meta_store, int64_t tablet_id,
                      const std::string& key_name, size_t offset, FileCacheType expected_type,
                      uint64_t ttl, size_t size) {
+    verify_meta_key_cnt++;
+    std::cout << "verify_meta_key called " << verify_meta_key_cnt << " times" << std::endl;
     BlockMetaKey mkey(tablet_id, io::BlockFileCache::hash(key_name), offset);
     auto meta = meta_store.get(mkey);
     ASSERT_TRUE(meta.has_value());
@@ -349,7 +353,6 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             ASSERT_EQ(blocks.size(), 1);
             auto block = blocks[0];
             ASSERT_EQ(block->tablet_id(), 49);
-            ASSERT_EQ(block->expiration_time(), expiration_time);
         }
 
         // do some meta change - type
@@ -394,7 +397,6 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             auto blocks = fromHolder(holder);
             ASSERT_EQ(blocks.size(), 1);
             auto block = blocks[0];
-            ASSERT_EQ(block->expiration_time(), expiration_time + 3600);
         }
         // check the meta
         {
@@ -404,8 +406,9 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
                     << "Expected FSFileCacheStorage but got different storage type";
 
             auto& meta_store = fs_storage->_meta_store;
-            verify_meta_key(*meta_store, 49, "key3", 0, FileCacheType::TTL, expiration_time + 3600,
-                            100000);
+            verify_meta_key(
+                    *meta_store, 49, "key3", 0, FileCacheType::TTL, expiration_time,
+                    100000); // won't change ttl when get_or_set now as we introduce ttl mgr to manage ttl
         }
     }
 

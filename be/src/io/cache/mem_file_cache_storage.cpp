@@ -110,13 +110,6 @@ Status MemFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const 
     return Status::OK();
 }
 
-Status MemFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
-                                                       const uint64_t expiration,
-                                                       const size_t size) {
-    // do nothing for in memory cache coz nothing to persist
-    return Status::OK();
-}
-
 void MemFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* _mgr,
                                                         const FileCacheKey& key,
                                                         std::lock_guard<std::mutex>& cache_lock) {

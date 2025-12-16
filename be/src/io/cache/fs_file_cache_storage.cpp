@@ -274,17 +274,6 @@ Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const F
     return Status::OK();
 }
 
-Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
-                                                      const uint64_t expiration,
-                                                      const size_t size) {
-    if (key.meta.expiration_time != expiration) {
-        BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-        BlockMeta meta(key.meta.type, size, expiration);
-        _meta_store->put(mkey, meta);
-    }
-    return Status::OK();
-}
-
 std::string FSFileCacheStorage::get_path_in_local_cache_v3(const std::string& dir, size_t offset,
                                                            bool is_tmp) {
     if (is_tmp) {
@@ -775,7 +764,6 @@ Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& info
 }
 
 void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mgr) const {
-    TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile1");
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
@@ -788,14 +776,6 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
                 auto block = _mgr->_files[args.hash][args.offset].file_block;
                 if (block->tablet_id() == 0) {
                     block->set_tablet_id(args.ctx.tablet_id);
-                }
-                if (block->cache_type() == io::FileCacheType::TTL &&
-                    block->expiration_time() != args.ctx.expiration_time) {
-                    auto s = block->update_expiration_time(args.ctx.expiration_time);
-                    if (!s.ok()) {
-                        LOG(WARNING) << "update expiration time for " << args.hash.to_string()
-                                     << " offset=" << args.offset;
-                    }
                 }
                 return;
             }

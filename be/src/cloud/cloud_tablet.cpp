@@ -1528,19 +1528,6 @@ Status CloudTablet::sync_meta() {
         return st;
     }
 
-    auto new_ttl_seconds = tablet_meta->ttl_seconds();
-    if (_tablet_meta->ttl_seconds() != new_ttl_seconds) {
-        _tablet_meta->set_ttl_seconds(new_ttl_seconds);
-        std::shared_lock rlock(_meta_lock);
-        for (auto& [_, rs] : _rs_version_map) {
-            for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
-                auto file_key = Segment::file_cache_key(rs->rowset_id().to_string(), seg_id);
-                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-                file_cache->modify_expiration_time(file_key, new_ttl_seconds);
-            }
-        }
-    }
-
     auto new_compaction_policy = tablet_meta->compaction_policy();
     if (_tablet_meta->compaction_policy() != new_compaction_policy) {
         _tablet_meta->set_compaction_policy(new_compaction_policy);

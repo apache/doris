@@ -2148,21 +2148,6 @@ std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128W
     return offset_to_block;
 }
 
-void BlockFileCache::modify_expiration_time(const UInt128Wrapper& hash, uint64_t expiration_time) {
-    SCOPED_CACHE_LOCK(_mutex, this);
-    if (auto iter = _files.find(hash); iter != _files.end()) {
-        for (auto& [_, cell] : iter->second) {
-            if (cell.file_block) {
-                auto st = cell.file_block->update_expiration_time(expiration_time);
-                if (!st.ok()) {
-                    LOG(WARNING) << "Failed to update expiration time for block "
-                                 << cell.file_block->get_info_for_log() << ", error=" << st;
-                }
-            }
-        }
-    }
-}
-
 void BlockFileCache::update_ttl_atime(const UInt128Wrapper& hash) {
     SCOPED_CACHE_LOCK(_mutex, this);
     if (auto iter = _files.find(hash); iter != _files.end()) {

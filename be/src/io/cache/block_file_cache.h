@@ -207,8 +207,7 @@ public:
     std::string reset_capacity(size_t new_capacity);
 
     std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
-    /// Adjust expiration time for every block sharing the specified hash key.
-    void modify_expiration_time(const UInt128Wrapper& hash, uint64_t expiration_time);
+
     /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
     std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
