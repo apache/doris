@@ -61,7 +61,7 @@ public class CheckAnalysisTest {
     @Test
     public void testCheckExpressionInputTypes() {
         Plan plan = new LogicalFilter<>(ImmutableSet.of(new IntegerLiteral(1), BooleanLiteral.TRUE), groupPlan);
-        CheckAnalysis checkAnalysis = new CheckAnalysis();
+        CheckAnalysis checkAnalysis = new CheckAnalysis(true);
         Assertions.assertThrows(RuntimeException.class, () ->
                 checkAnalysis.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));
     }
@@ -70,7 +70,7 @@ public class CheckAnalysisTest {
     public void testCheckNotWithChildrenWithErrorType() {
         Plan plan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                 ImmutableList.of(new Alias(new Not(new IntegerLiteral(2)), "not_2")));
-        CheckAnalysis checkAnalysis = new CheckAnalysis();
+        CheckAnalysis checkAnalysis = new CheckAnalysis(true);
         Assertions.assertThrows(AnalysisException.class, () ->
                 checkAnalysis.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));
     }

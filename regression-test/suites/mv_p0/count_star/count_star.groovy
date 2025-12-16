@@ -46,8 +46,6 @@ suite ("count_star") {
     sql "insert into d_table select 3,2,null,'c';"
     sql "insert into d_table values(2,1,1,'a'),(2,1,1,'a');"
 
-
-    sql """set enable_stats=true;"""
     sql "analyze table d_table with sync;"
     sql """alter table d_table modify column k4 set stats ('row_count'='8');"""
 
@@ -66,16 +64,4 @@ suite ("count_star") {
 
     mv_rewrite_fail("select count(*) from d_table where k3=1;", "kstar")
     qt_select_mv "select count(*) from d_table where k3=1;"
-
-    sql """set enable_stats=false;"""
-
-
-    mv_rewrite_success_without_check_chosen("select k1,k4,count(*) from d_table group by k1,k4;", "kstar")
-
-    mv_rewrite_success_without_check_chosen("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
-
-    mv_rewrite_fail("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;", "kstar")
-
-    mv_rewrite_fail("select count(*) from d_table where k3=1;", "kstar")
-
 }

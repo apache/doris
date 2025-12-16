@@ -33,18 +33,21 @@ TEST(BitmapSerdeTest, writeOneCellToJsonb) {
     ASSERT_EQ(column_bitmap->size(), 1);
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     jsonb_writer.writeStartObject();
-    bitmap_serde->write_one_cell_to_jsonb(*column_bitmap, jsonb_writer, pool, 0, 0);
+    bitmap_serde->write_one_cell_to_jsonb(*column_bitmap, jsonb_writer, pool, 0, 0, options);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    JsonbDocument* pdoc = nullptr;
+    const JsonbDocument* pdoc = nullptr;
     auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
     ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-    JsonbDocument& doc = *pdoc;
+    const JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         bitmap_serde->read_one_cell_from_jsonb(*column_bitmap, it->value());
     }

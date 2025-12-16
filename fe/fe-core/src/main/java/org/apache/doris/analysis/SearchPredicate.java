@@ -45,7 +45,7 @@ public class SearchPredicate extends Predicate {
     private final String dslString;
     private final QsPlan qsPlan;
 
-    public SearchPredicate(String dslString, QsPlan qsPlan, List<Expr> children) {
+    public SearchPredicate(String dslString, QsPlan qsPlan, List<Expr> children, boolean nullable) {
         super();
         this.dslString = dslString;
         this.qsPlan = qsPlan;
@@ -55,6 +55,7 @@ public class SearchPredicate extends Predicate {
         if (children != null) {
             this.children.addAll(children);
         }
+        this.nullable = nullable;
     }
 
     protected SearchPredicate(SearchPredicate other) {

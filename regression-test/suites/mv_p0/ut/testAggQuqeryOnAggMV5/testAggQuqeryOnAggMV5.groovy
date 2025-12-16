@@ -48,7 +48,6 @@ suite ("testAggQuqeryOnAggMV5") {
 
     sql """analyze table emps with sync;"""
     sql """alter table emps modify column time_col set stats ('row_count'='8');"""
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
@@ -57,10 +56,4 @@ suite ("testAggQuqeryOnAggMV5") {
             "emps_mv")
     qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>10 order by 1;"
 
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
-
-    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>0;",
-            "emps_mv")
 }

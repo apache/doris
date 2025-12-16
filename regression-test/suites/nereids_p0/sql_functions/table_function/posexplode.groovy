@@ -83,4 +83,53 @@ suite("posexplode") {
     sql """ set batch_size = 1; """
     order_qt_explode_sql_alias_multi3 """ select * from table_test_not lateral view posexplode(score) tmp as e1 lateral view posexplode(score) tmp2 as e2 order by id;"""
 
+    sql """ DROP TABLE IF EXISTS test_posexplode_multi_args"""
+    sql """
+        CREATE TABLE `test_posexplode_multi_args`(
+                   `id` INT NULL,
+                   `name` TEXT NULL,
+                   `tags1` array<string> NULL,
+                   `tags2` array<string> NULL
+                 )  PROPERTIES ("replication_num" = "1");
+    """
+    sql """
+    insert into test_posexplode_multi_args values
+      (1, "jack", ["t1_a","t1_b"], ["t2_a","t2_b","t2_c"]),
+      (2, "tom",  ["t1_c"],        ["t2_d","t2_e"]),
+      (3, "mary", null,            ["t2_f"]),
+      (4, "lily", ["t1_d","t1_e"], null),
+      (5, "alice", null, null);
+    """
+    order_qt_pos_exp_multi_args_all """
+    select * from test_posexplode_multi_args;
+    """
+    order_qt_pos_exp_multi_args0 """
+    select id, name, tags1, tags2, k1, k2, k3 from test_posexplode_multi_args
+      lateral view posexplode(tags1, tags2) tmp1 as k1, k2, k3 order by 1, 2;
+    """
+    order_qt_pos_exp_multi_args1 """
+    select id, name, tags1, tags2, s1 from test_posexplode_multi_args
+      lateral view posexplode(tags1, tags2) tmp1 as s1 order by 1, 2;
+    """
+    order_qt_pos_exp_multi_args_outer0 """
+    select id, name, tags1, tags2, k1, k2, k3 from test_posexplode_multi_args
+      lateral view posexplode_outer(tags1, tags2) tmp1 as k1, k2, k3 order by 1, 2;
+    """
+    order_qt_pos_exp_multi_args_outer1 """
+    select id, name, tags1, tags2, s1 from test_posexplode_multi_args
+      lateral view posexplode_outer(tags1, tags2) tmp1 as s1 order by 1, 2;
+    """
+
+    order_qt_pos_exp_multi_args_multi_lateral0 """
+    select id,name,tags1,tags2, k1, k2, k3, k4, k5, k6 from test_posexplode_multi_args
+      lateral view posexplode(non_nullable(tags1), non_nullable(tags2)) tmp as k1,k2,k3
+      lateral view posexplode_outer(tags1, tags2) tmp as k4,k5,k6
+    where tags1 is not null and tags2 is not null order by 1,2;
+    """
+    order_qt_pos_exp_multi_args_multi_lateral1 """
+    select id,name,tags1,tags2, s1, s2 from test_posexplode_multi_args
+      lateral view posexplode(non_nullable(tags1), non_nullable(tags2)) tmp as s1
+      lateral view posexplode_outer(tags1, tags2) tmp as s2
+    where tags1 is not null and tags2 is not null order by 1,2;
+    """
 }

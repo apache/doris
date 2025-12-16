@@ -183,7 +183,7 @@ public class LogicalHudiScan extends LogicalFileScan {
     public LogicalHudiScan withRelationId(RelationId relationId) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
-                operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()),
+                operativeSlots, virtualColumns, groupExpression, Optional.empty(),
                 tableAlias, cachedOutputs);
     }
 

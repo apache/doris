@@ -476,7 +476,7 @@ suite("insert_group_commit_into") {
         sql """ set insert_max_filter_ratio = 0.05; """
         test {
             sql """ insert into ${table} values('a', 'a'), ('10', 'a'), ('11', 'a'), ('12', 'a'); """
-            exception """too many filtered rows"""
+            exception """null value for not null column"""
         }
         getRowCount(2)
     } finally {

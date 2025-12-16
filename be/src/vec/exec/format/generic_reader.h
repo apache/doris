@@ -118,7 +118,7 @@ public:
     virtual ~ExprPushDownHelper() = default;
     bool check_expr_can_push_down(const VExprSPtr& expr) const;
     Status convert_predicates(const VExprSPtrs& exprs,
-                              std::vector<std::unique_ptr<ColumnPredicate>>& predicates,
+                              std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                               std::unique_ptr<MutilColumnBlockPredicate>& root, Arena& arena);
 
 protected:

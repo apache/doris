@@ -225,12 +225,12 @@ import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.persist.meta.MetaWriter;
 import org.apache.doris.planner.TabletLoadIndexRecorderMgr;
-import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.FEOpExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
@@ -529,8 +529,6 @@ public class Env {
 
     private StatisticsCleaner statisticsCleaner;
 
-    private PlsqlManager plsqlManager;
-
     private BinlogManager binlogManager;
 
     private BinlogGcer binlogGcer;
@@ -820,7 +818,6 @@ public class Env {
         this.admissionControl = new AdmissionControl(systemInfo);
         this.queryStats = new QueryStats();
         this.hiveTransactionMgr = new HiveTransactionMgr();
-        this.plsqlManager = new PlsqlManager();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
@@ -990,10 +987,6 @@ public class Env {
 
     public MetastoreEventsProcessor getMetastoreEventsProcessor() {
         return metastoreEventsProcessor;
-    }
-
-    public PlsqlManager getPlsqlManager() {
-        return plsqlManager;
     }
 
     public KeyManagerStore getKeyManagerStore() {
@@ -2452,7 +2445,7 @@ public class Env {
     }
 
     public long loadPlsqlProcedure(DataInputStream in, long checksum) throws IOException {
-        plsqlManager = PlsqlManager.read(in);
+        Text.readString(in);
         LOG.info("finished replay plsql procedure from image");
         return checksum;
     }
@@ -2768,7 +2761,6 @@ public class Env {
     }
 
     public long savePlsqlProcedure(CountingDataOutputStream dos, long checksum) throws IOException {
-        Env.getCurrentEnv().getPlsqlManager().write(dos);
         return checksum;
     }
 
@@ -6316,8 +6308,8 @@ public class Env {
             long tableId = Env.getCurrentEnv().getNextId();
             View newView = new View(tableId, tableName, columns);
             newView.setComment(createViewInfo.getComment());
-            newView.setInlineViewDefWithSqlMode(createViewInfo.getInlineViewDef(),
-                    ConnectContext.get().getSessionVariable().getSqlMode());
+            newView.setInlineViewDefWithSessionVariables(createViewInfo.getInlineViewDef(),
+                    ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()));
             if (!((Database) db).createTableWithLock(newView, false, createViewInfo.isIfNotExists()).first) {
                 throw new DdlException("Failed to create view[" + tableName + "].");
             }

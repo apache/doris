@@ -29,6 +29,7 @@
 #include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
 #include "olap/storage_engine.h"
 #include "testutil/variant_util.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 using namespace doris::vectorized;
 
@@ -404,10 +405,13 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         EXPECT_FALSE(sts.ok());
     }
 
+    vectorized::DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     for (int i = 0; i < 1000; ++i) {
         std::string value;
         assert_cast<ColumnVariant*>(new_column_object.get())
-                ->serialize_one_row_to_string(i, &value);
+                ->serialize_one_row_to_string(i, &value, options);
 
         EXPECT_EQ(value, inserted_jsonstr[i]);
     }
@@ -424,7 +428,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     for (int i = 0; i < row_ids.size(); ++i) {
         std::string value;
         assert_cast<ColumnVariant*>(new_column_object.get())
-                ->serialize_one_row_to_string(i, &value);
+                ->serialize_one_row_to_string(i, &value, options);
         EXPECT_EQ(value, inserted_jsonstr[row_ids[i]]);
     }
 
@@ -472,7 +476,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         for (int row = 0; row < 1000; ++row) {
             std::string value;
             assert_cast<ColumnVariant*>(new_column_object.get())
-                    ->serialize_one_row_to_string(row, &value);
+                    ->serialize_one_row_to_string(row, &value, options);
             if (inserted_jsonstr[row].find(key) != std::string::npos) {
                 if (i % 2 == 0) {
                     EXPECT_EQ(value, "88");
@@ -567,7 +571,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         for (int row = 0; row < 1000; ++row) {
             std::string value;
             assert_cast<ColumnVariant*>(new_column_object.get())
-                    ->serialize_one_row_to_string(row, &value);
+                    ->serialize_one_row_to_string(row, &value, options);
 
             EXPECT_EQ(value, "{}");
         }
@@ -910,10 +914,13 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(stats.bytes_read > 0);
 
+    vectorized::DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     for (int i = 0; i < 1000; ++i) {
         std::string value;
         assert_cast<ColumnVariant*>(new_column_object.get())
-                ->serialize_one_row_to_string(i, &value);
+                ->serialize_one_row_to_string(i, &value, options);
         EXPECT_EQ(value, inserted_jsonstr[i]);
     }
 
@@ -953,7 +960,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         for (int row = 0; row < 1000; ++row) {
             std::string value;
             assert_cast<ColumnVariant*>(new_column_object.get())
-                    ->serialize_one_row_to_string(row, &value);
+                    ->serialize_one_row_to_string(row, &value, options);
             if (value.find("nested" + key_num) != std::string::npos) {
                 key_nested_count++;
             } else if (value.find("88") != std::string::npos) {

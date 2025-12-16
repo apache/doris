@@ -124,7 +124,7 @@ TEST_F(JsonbSerializeTest, serialize) {
     ASSERT_EQ(memcmp(output->getBuffer(), serialized_data.data(), serialized_data.size()), 0)
             << "Serialized data does not match expected data";
 
-    JsonbDocument* jsonb_doc = nullptr;
+    const JsonbDocument* jsonb_doc = nullptr;
     st = JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &jsonb_doc);
     ASSERT_TRUE(st.ok()) << "Failed to create JsonbDocument: " << st.to_string();
 }

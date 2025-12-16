@@ -36,6 +36,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
@@ -273,13 +274,16 @@ public:
         for (size_t i = 0; i < load_cols.size(); ++i) {
             assert_cols.push_back(load_cols[i]->assume_mutable());
         }
+        DataTypeSerDe::FormatOptions options;
+        auto tz = cctz::utc_time_zone();
+        options.timezone = &tz;
         for (size_t r = 0; r < load_cols[0]->size(); ++r) {
             JsonbWriterT<JsonbOutStream> jw;
             jw.writeStartObject();
             // serialize to jsonb
             for (size_t i = 0; i < load_cols.size(); ++i) {
                 auto& col = load_cols[i];
-                serders[i]->write_one_cell_to_jsonb(*col, jw, pool, i, r);
+                serders[i]->write_one_cell_to_jsonb(*col, jw, pool, i, r, options);
             }
             jw.writeEndObject();
             jsonb_column->insert_data(jw.getOutput()->getBuffer(), jw.getOutput()->getSize());
@@ -288,11 +292,11 @@ public:
         EXPECT_EQ(jsonb_column->size(), load_cols[0]->size());
         for (size_t r = 0; r < jsonb_column->size(); ++r) {
             StringRef jsonb_data = jsonb_column->get_data_at(r);
-            JsonbDocument* pdoc = nullptr;
+            const JsonbDocument* pdoc = nullptr;
             auto st =
                     JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
             ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-            JsonbDocument& doc = *pdoc;
+            const JsonbDocument& doc = *pdoc;
             size_t cIdx = 0;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serders[cIdx]->read_one_cell_from_jsonb(*assert_cols[cIdx], it->value());

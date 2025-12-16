@@ -48,6 +48,7 @@ using DictHashMapVariants = std::variant<
         MethodOneNumber<UInt256, DictHashMap<UInt256>>,
 
         MethodKeysFixed<DictHashMap<UInt64>>, MethodKeysFixed<DictHashMap<UInt72>>,
+        MethodKeysFixed<DictHashMap<UInt96>>, MethodKeysFixed<DictHashMap<UInt104>>,
         MethodKeysFixed<DictHashMap<UInt128>>, MethodKeysFixed<DictHashMap<UInt136>>,
         MethodKeysFixed<DictHashMap<UInt256>>>;
 
@@ -86,6 +87,13 @@ struct DictionaryHashMapMethod
             break;
         case HashKeyType::fixed72:
             method_variant.emplace<MethodKeysFixed<DictHashMap<UInt72>>>(get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed96:
+            method_variant.emplace<MethodKeysFixed<DictHashMap<UInt96>>>(get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed104:
+            method_variant.emplace<MethodKeysFixed<DictHashMap<UInt104>>>(
+                    get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
             method_variant.emplace<MethodKeysFixed<DictHashMap<UInt128>>>(

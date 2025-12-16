@@ -453,8 +453,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     }
 
     bool enable_parallel_scan = state()->enable_parallel_scan();
-    bool has_cpu_limit = state()->query_options().__isset.resource_limit &&
-                         state()->query_options().resource_limit.__isset.cpu_limit;
 
     // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
     // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
@@ -462,7 +460,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     // And the user send a query like select userid,count(*) from base table group by userid.
     // then the storage layer do not need do aggregation, it could just return the partial agg data, because the compute layer will do aggregation.
     // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
-    if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
+    if (enable_parallel_scan && !p._should_run_serial &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)) {
         std::vector<OlapScanRange*> key_ranges;
@@ -812,30 +810,21 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
     }
 }
 
-static std::string olap_filter_to_string(const doris::TCondition& condition) {
-    auto op_name = condition.condition_op;
-    if (condition.condition_op == "*=") {
-        op_name = "IN";
-    } else if (condition.condition_op == "!*=") {
-        op_name = "NOT IN";
-    }
-    return fmt::format("{{{} {} {}}}", condition.column_name, op_name,
-                       condition.condition_values.size() > 128
-                               ? "[more than 128 elements]"
-                               : to_string(condition.condition_values));
-}
-
-static std::string olap_filters_to_string(const std::vector<FilterOlapParam<TCondition>>& filters) {
-    std::string filters_string;
-    filters_string += "[";
-    for (auto it = filters.cbegin(); it != filters.cend(); it++) {
-        if (it != filters.cbegin()) {
-            filters_string += ", ";
+static std::string predicates_to_string(
+        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                slot_id_to_predicates) {
+    fmt::memory_buffer debug_string_buffer;
+    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
+        if (predicates.empty()) {
+            continue;
         }
-        filters_string += olap_filter_to_string(it->filter);
+        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
+        for (const auto& predicate : predicates) {
+            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
+        }
+        fmt::format_to(debug_string_buffer, "] ");
     }
-    filters_string += "]";
-    return filters_string;
+    return fmt::to_string(debug_string_buffer);
 }
 
 static std::string tablets_id_to_string(
@@ -895,7 +884,8 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             if (_slot_id_to_value_range.end() == iter) {
                 break;
             }
-            const auto& value_range = iter->second.second;
+            DCHECK(_slot_id_to_predicates.count(iter->first) > 0);
+            const auto& value_range = iter->second;
 
             RETURN_IF_ERROR(std::visit(
                     [&](auto&& range) {
@@ -908,7 +898,21 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                     _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
-                                _slot_id_to_value_range.erase(iter->first);
+                                auto key = iter->first;
+                                _slot_id_to_value_range.erase(key);
+
+                                std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
+                                for (const auto& it : _slot_id_to_predicates[key]) {
+                                    if (it->type() == PredicateType::NOT_IN_LIST ||
+                                        it->type() == PredicateType::NE) {
+                                        new_predicates.push_back(it);
+                                    }
+                                }
+                                if (new_predicates.empty()) {
+                                    _slot_id_to_predicates.erase(key);
+                                } else {
+                                    _slot_id_to_predicates[key] = new_predicates;
+                                }
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
@@ -926,21 +930,6 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             _eos = true;
             _scan_dependency->set_ready();
         }
-
-        for (auto& iter : _slot_id_to_value_range) {
-            std::vector<FilterOlapParam<TCondition>> filters;
-            std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second.second);
-
-            for (const auto& filter : filters) {
-                _olap_filters.emplace_back(filter);
-            }
-        }
-
-        // Append value ranges in "_not_in_value_ranges"
-        for (auto& range : _not_in_value_ranges) {
-            std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); },
-                       range);
-        }
     } else {
         custom_profile()->add_info_string("PushDownAggregate",
                                           push_down_agg_to_string(p._push_down_agg_type));
@@ -948,7 +937,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
 
     if (state()->enable_profile()) {
         custom_profile()->add_info_string("PushDownPredicates",
-                                          olap_filters_to_string(_olap_filters));
+                                          predicates_to_string(_slot_id_to_predicates));
         custom_profile()->add_info_string("KeyRanges", _scan_keys.debug_string());
         custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }
