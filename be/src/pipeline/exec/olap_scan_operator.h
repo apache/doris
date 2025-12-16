@@ -303,13 +303,14 @@ public:
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
 
-    uint32_t _get_column_id(const std::string& col_name) const override {
+    uint32_t get_column_id(const std::string& col_name) const override {
         if (!_tablet_schema) {
             return -1;
         }
         const auto& column = *DORIS_TRY(_tablet_schema->column(col_name));
         return _tablet_schema->field_index(column.unique_id());
     }
+
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;

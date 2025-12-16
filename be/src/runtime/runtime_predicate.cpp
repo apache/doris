@@ -58,6 +58,9 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
 Status RuntimePredicate::init_target(
         int32_t target_node_id, phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
         const uint32_t column_id) {
+    if (column_id < 0) {
+        return Status::OK();
+    }
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     check_target_node_id(target_node_id);
     if (target_is_slot(target_node_id)) {

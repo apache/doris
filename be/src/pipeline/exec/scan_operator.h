@@ -349,7 +349,7 @@ public:
         return _runtime_filter_descs;
     }
 
-    [[nodiscard]] virtual uint32_t _get_column_id(const std::string& col_name) const { return -1; }
+    [[nodiscard]] virtual uint32_t get_column_id(const std::string& col_name) const { return -1; }
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
