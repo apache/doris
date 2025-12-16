@@ -395,7 +395,7 @@ public class AuditLogHelper {
                         if (elapseMs > Config.qe_slow_log_ms) {
                             MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
                         }
-                        if (elapseMs > Config.sql_digest_threshold_ms) {
+                        if (elapseMs > Config.sql_digest_generation_threshold_ms) {
                             String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                             auditEventBuilder.setSqlDigest(sqlDigest);
                         }
