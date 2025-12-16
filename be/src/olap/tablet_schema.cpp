@@ -1168,6 +1168,11 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
     _enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
+    if (schema.has_is_external_segment_column_meta_used()) {
+        _is_external_segment_column_meta_used = schema.is_external_segment_column_meta_used();
+    } else {
+        _is_external_segment_column_meta_used = false;
+    }
     update_metadata_size();
 }
 
@@ -1420,6 +1425,8 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
     tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
+    tablet_schema_pb->set_is_external_segment_column_meta_used(
+            _is_external_segment_column_meta_used);
 }
 
 size_t TabletSchema::row_size() const {
@@ -1781,6 +1788,8 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._storage_dict_page_size != b._storage_dict_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
+    if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
+        return false;
     return true;
 }
 

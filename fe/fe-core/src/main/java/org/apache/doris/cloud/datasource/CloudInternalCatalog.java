@@ -65,6 +65,7 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
@@ -171,7 +172,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
-                        tbl.getCompressionType(), storagePolicy, isInMemory, false, tbl.getName(), tbl.getTTLSeconds(),
+                        tbl.getCompressionType(), tbl.getStorageFormat(), storagePolicy, isInMemory, false,
+                        tbl.getName(), tbl.getTTLSeconds(),
                         tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
                         tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
@@ -208,7 +210,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
             short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
-            String storagePolicy, boolean isInMemory, boolean isShadow,
+            TStorageFormat storageFormat, String storagePolicy, boolean isInMemory, boolean isShadow,
             String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
             boolean storeRowColumn, int schemaVersion, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
@@ -316,6 +318,15 @@ public class CloudInternalCatalog extends InternalCatalog {
                 break;
             default:
                 schemaBuilder.setCompressionType(SegmentV2.CompressionTypePB.LZ4F);
+                break;
+        }
+
+        // Enable external column meta layout when storage_format is V3 (Cloud mode).
+        switch (storageFormat) {
+            case V3:
+                schemaBuilder.setIsExternalSegmentColumnMetaUsed(true);
+                break;
+            default:
                 break;
         }
 

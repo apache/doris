@@ -77,6 +77,7 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Preconditions;
@@ -488,6 +489,19 @@ public class CreateTableInfo {
         if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
             boolean enableDuplicateWithoutKeysByDefault = false;
             properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties);
+
+            // In fuzzy tests, randomly set storage_format=V3 (ext_meta) for some tables.
+            SessionVariable sv = ctx.getSessionVariable();
+            boolean randomUseV3 =
+                    sv != null && sv.useV3StorageFormat;
+            if (randomUseV3
+                    && properties != null
+                    && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "V3");
+                LOG.info("Randomly set storage_format=V3 for table {}.{} in fuzzy mode (session={})",
+                         dbName, tableName,
+                         ctx != null ? ctx.getSessionId() : "<null>");
+            }
             try {
                 if (properties != null) {
                     enableDuplicateWithoutKeysByDefault =

@@ -677,6 +677,15 @@ public:
         return 0;
     }
 
+    // Whether new segments use externalized ColumnMetaPB layout (CMO) by default
+    bool is_external_segment_column_meta_used() const {
+        return _is_external_segment_column_meta_used;
+    }
+
+    void set_external_segment_meta_used_default(bool v) {
+        _is_external_segment_column_meta_used = v;
+    }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -755,6 +764,9 @@ private:
     // value: indexes
     using PatternToIndex = std::unordered_map<std::string, std::vector<TabletIndexPtr>>;
     std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
+
+    // Default behavior for new segments: use external ColumnMeta region + CMO table if true
+    bool _is_external_segment_column_meta_used = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
