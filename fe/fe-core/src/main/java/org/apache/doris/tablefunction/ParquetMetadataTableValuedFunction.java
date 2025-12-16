@@ -233,7 +233,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         if (Strings.isNullOrEmpty(path)) {
             return false;
         }
-        return path.contains("*") || path.contains("?") || path.contains("[") || path.contains("{");
+        return path.contains("*") || path.contains("[") || path.contains("{");
     }
 
     private static List<String> expandSingleGlob(String pattern,
