@@ -358,8 +358,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
-        long targetFileSplitSize = determineTargetFileSplitSize(scan.planFiles(), isBatchMode());
-        return TableScanUtil.splitFiles(scan.planFiles(), targetFileSplitSize);
+        targetSplitSize = determineTargetFileSplitSize(scan.planFiles(), isBatchMode());
+        return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
     }
 
     private long determineTargetFileSplitSize(CloseableIterable<FileScanTask> tasks,
