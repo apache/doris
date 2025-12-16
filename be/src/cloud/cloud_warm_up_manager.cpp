@@ -19,6 +19,8 @@
 
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
+#include <bthread/unstable.h>
+#include <butil/time.h>
 #include <bvar/bvar.h>
 #include <bvar/reducer.h>
 
@@ -801,8 +803,37 @@ void CloudWarmUpManager::record_balanced_tablet(int64_t tablet_id, const std::st
     meta.brpc_port = brpc_port;
     shard.tablets.emplace(tablet_id, std::move(meta));
     g_balance_tablet_be_mapping_size << 1;
+    schedule_remove_balanced_tablet(tablet_id);
     VLOG_DEBUG << "Recorded balanced warm up cache tablet: tablet_id=" << tablet_id
                << ", host=" << host << ":" << brpc_port;
+}
+
+void CloudWarmUpManager::schedule_remove_balanced_tablet(int64_t tablet_id) {
+    // Use std::make_unique to avoid raw pointer allocation
+    auto tablet_id_ptr = std::make_unique<int64_t>(tablet_id);
+    unsigned long expired_ms = g_tablet_report_inactive_duration_ms;
+    if (doris::config::cache_read_from_peer_expired_seconds > 0 &&
+        doris::config::cache_read_from_peer_expired_seconds <=
+                g_tablet_report_inactive_duration_ms / 1000) {
+        expired_ms = doris::config::cache_read_from_peer_expired_seconds * 1000;
+    }
+    bthread_timer_t timer_id;
+    // ATTN: The timer callback will reclaim ownership of the tablet_id_ptr, so we need to release it after the timer is added.
+    if (const int rc = bthread_timer_add(&timer_id, butil::milliseconds_from_now(expired_ms),
+                                         clean_up_expired_mappings, tablet_id_ptr.get());
+        rc == 0) {
+        tablet_id_ptr.release();
+    } else {
+        LOG(WARNING) << "Fail to add timer for clean up expired mappings for tablet_id="
+                     << tablet_id << " rc=" << rc;
+    }
+}
+
+void CloudWarmUpManager::clean_up_expired_mappings(void* arg) {
+    std::unique_ptr<int64_t> tid(static_cast<int64_t*>(arg));
+    auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+    manager.remove_balanced_tablet(*tid);
+    VLOG_DEBUG << "Removed expired balanced warm up cache tablet: tablet_id=" << *tid;
 }
 
 std::optional<std::pair<std::string, int32_t>> CloudWarmUpManager::get_balanced_tablet_info(

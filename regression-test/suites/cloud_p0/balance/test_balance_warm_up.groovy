@@ -37,7 +37,8 @@ suite('test_balance_warm_up', 'docker') {
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
         'cache_read_from_peer_expired_seconds=100',
-        'enable_cache_read_from_peer=true'
+        'enable_cache_read_from_peer=true',
+        'enable_packed_file=false',
     ]
     options.setFeNum(1)
     options.setBeNum(1)
