@@ -563,14 +563,18 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
 
     VExprContextSPtrs conjuncts; // Empty conjuncts for this test
     std::vector<std::string> table_col_names = {"name", "profile"};
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"name", 0},
+            {"profile", 1},
+    };
     const RowDescriptor* row_descriptor = nullptr;
     const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
-    st = iceberg_reader->init_reader(table_col_names, conjuncts, tuple_descriptor, row_descriptor,
-                                     colname_to_slot_id, not_single_slot_filter_conjuncts,
-                                     slot_id_to_filter_conjuncts);
+    st = iceberg_reader->init_reader(table_col_names, &col_name_to_block_idx, conjuncts,
+                                     tuple_descriptor, row_descriptor, colname_to_slot_id,
+                                     not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
@@ -696,12 +700,16 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     std::vector<std::string> table_col_names = {"name", "profile"};
     const RowDescriptor* row_descriptor = nullptr;
     const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"name", 0},
+            {"profile", 1},
+    };
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
-    st = iceberg_reader->init_reader(table_col_names, conjuncts, tuple_descriptor, row_descriptor,
-                                     colname_to_slot_id, not_single_slot_filter_conjuncts,
-                                     slot_id_to_filter_conjuncts);
+    st = iceberg_reader->init_reader(table_col_names, &col_name_to_block_idx, conjuncts,
+                                     tuple_descriptor, row_descriptor, colname_to_slot_id,
+                                     not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>

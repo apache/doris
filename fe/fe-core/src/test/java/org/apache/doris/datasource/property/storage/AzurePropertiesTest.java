@@ -80,8 +80,8 @@ public class AzurePropertiesTest {
         origProps.put("s3.secret_key", "myAzureSecretKey");
         List<StorageProperties> storagePropertiesList = StorageProperties.createAll(origProps);
         Assertions.assertEquals(2, storagePropertiesList.size());
-        Assertions.assertEquals(HdfsProperties.class, storagePropertiesList.get(1).getClass());
-        Assertions.assertEquals(AzureProperties.class, storagePropertiesList.get(0).getClass());
+        Assertions.assertEquals(HdfsProperties.class, storagePropertiesList.get(0).getClass());
+        Assertions.assertEquals(AzureProperties.class, storagePropertiesList.get(1).getClass());
         origProps.put("s3.endpoint", "https://mystorageaccount.net");
         // Expect an exception due to missing provider
         origProps.put("provider", "azure");

@@ -83,6 +83,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIME, "datetime");
         TYPE_STRING_MAP.put(PrimitiveType.DATEV2, "datev2");
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
+        TYPE_STRING_MAP.put(PrimitiveType.TIMESTAMPTZ, "timestamptz");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.JSONB, "json");

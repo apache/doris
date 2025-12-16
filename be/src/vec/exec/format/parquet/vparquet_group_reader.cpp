@@ -129,17 +129,11 @@ Status RowGroupReader::init(
             std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_table_columns.size());
     for (const auto& read_table_col : _read_table_columns) {
         auto read_file_col = _table_info_node_ptr->children_file_column_name(read_table_col);
-
         auto* field = schema.get_column(read_file_col);
-        auto physical_index = field->physical_column_index;
         std::unique_ptr<ParquetColumnReader> reader;
-        // TODO : support rested column types
-        const tparquet::OffsetIndex* offset_index =
-                col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
-                                                                      : nullptr;
         RETURN_IF_ERROR(ParquetColumnReader::create(
                 _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
-                max_buf_size, offset_index, _column_ids, _filter_column_ids));
+                max_buf_size, col_offsets, false, _column_ids, _filter_column_ids));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -391,32 +385,32 @@ Status RowGroupReader::_read_column_data(Block* block,
                                          FilterMap& filter_map) {
     size_t batch_read_rows = 0;
     bool has_eof = false;
-    // todo: maybe do not need to build name to index map every time
-    auto name_to_idx = block->get_name_to_pos_map();
     for (auto& read_col_name : table_columns) {
-        auto& column_with_type_and_name = block->safe_get_by_position(name_to_idx[read_col_name]);
+        auto& column_with_type_and_name =
+                block->safe_get_by_position((*_col_name_to_block_idx)[read_col_name]);
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         bool is_dict_filter = false;
         for (auto& _dict_filter_col : _dict_filter_cols) {
             if (_dict_filter_col.first == read_col_name) {
                 MutableColumnPtr dict_column = ColumnInt32::create();
-                if (!name_to_idx.contains(read_col_name)) {
+                if (!_col_name_to_block_idx->contains(read_col_name)) {
                     return Status::InternalError(
                             "Wrong read column '{}' in parquet file, block: {}", read_col_name,
                             block->dump_structure());
                 }
                 if (column_type->is_nullable()) {
-                    block->get_by_position(name_to_idx[read_col_name]).type =
+                    block->get_by_position((*_col_name_to_block_idx)[read_col_name]).type =
                             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
                     block->replace_by_position(
-                            name_to_idx[read_col_name],
+                            (*_col_name_to_block_idx)[read_col_name],
                             ColumnNullable::create(std::move(dict_column),
                                                    ColumnUInt8::create(dict_column->size(), 0)));
                 } else {
-                    block->get_by_position(name_to_idx[read_col_name]).type =
+                    block->get_by_position((*_col_name_to_block_idx)[read_col_name]).type =
                             std::make_shared<DataTypeInt32>();
-                    block->replace_by_position(name_to_idx[read_col_name], std::move(dict_column));
+                    block->replace_by_position((*_col_name_to_block_idx)[read_col_name],
+                                               std::move(dict_column));
                 }
                 is_dict_filter = true;
                 break;
@@ -531,18 +525,19 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         if (filter_map_ptr->filter_all()) {
             {
                 SCOPED_RAW_TIMER(&_predicate_filter_time);
-                auto name_to_idx = block->get_name_to_pos_map();
                 for (const auto& col : _lazy_read_ctx.predicate_columns.first) {
                     // clean block to read predicate columns
-                    block->get_by_position(name_to_idx[col]).column->assume_mutable()->clear();
+                    block->get_by_position((*_col_name_to_block_idx)[col])
+                            .column->assume_mutable()
+                            ->clear();
                 }
                 for (const auto& col : _lazy_read_ctx.predicate_partition_columns) {
-                    block->get_by_position(name_to_idx[col.first])
+                    block->get_by_position((*_col_name_to_block_idx)[col.first])
                             .column->assume_mutable()
                             ->clear();
                 }
                 for (const auto& col : _lazy_read_ctx.predicate_missing_columns) {
-                    block->get_by_position(name_to_idx[col.first])
+                    block->get_by_position((*_col_name_to_block_idx)[col.first])
                             .column->assume_mutable()
                             ->clear();
                 }
@@ -675,9 +670,8 @@ Status RowGroupReader::_fill_partition_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns) {
     DataTypeSerDe::FormatOptions _text_formatOptions;
-    auto name_to_idx = block->get_name_to_pos_map();
     for (const auto& kv : partition_columns) {
-        auto doris_column = block->get_by_position(name_to_idx[kv.first]).column;
+        auto doris_column = block->get_by_position((*_col_name_to_block_idx)[kv.first]).column;
         // obtained from block*, it is a mutable object.
         auto* col_ptr = const_cast<IColumn*>(doris_column.get());
         const auto& [value, slot_desc] = kv.second;
@@ -705,18 +699,16 @@ Status RowGroupReader::_fill_partition_columns(
 Status RowGroupReader::_fill_missing_columns(
         Block* block, size_t rows,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    // todo: maybe do not need to build name to index map every time
-    auto name_to_idx = block->get_name_to_pos_map();
     std::set<size_t> positions_to_erase;
     for (const auto& kv : missing_columns) {
-        if (!name_to_idx.contains(kv.first)) {
+        if (!_col_name_to_block_idx->contains(kv.first)) {
             return Status::InternalError("Missing column: {} not found in block {}", kv.first,
                                          block->dump_structure());
         }
         if (kv.second == nullptr) {
             // no default column, fill with null
-            auto mutable_column =
-                    block->get_by_position(name_to_idx[kv.first]).column->assume_mutable();
+            auto mutable_column = block->get_by_position((*_col_name_to_block_idx)[kv.first])
+                                          .column->assume_mutable();
             auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
@@ -736,10 +728,11 @@ Status RowGroupReader::_fill_missing_columns(
                 mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
-                auto origin_column_type = block->get_by_position(name_to_idx[kv.first]).type;
+                auto origin_column_type =
+                        block->get_by_position((*_col_name_to_block_idx)[kv.first]).type;
                 bool is_nullable = origin_column_type->is_nullable();
                 block->replace_by_position(
-                        name_to_idx[kv.first],
+                        (*_col_name_to_block_idx)[kv.first],
                         is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
                 positions_to_erase.insert(result_column_id);
             }
@@ -1095,16 +1088,14 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
 }
 
 void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
-    // todo: maybe do not need to build name to index map every time
-    auto name_to_idx = block->get_name_to_pos_map();
     for (auto& dict_filter_cols : _dict_filter_cols) {
-        if (!name_to_idx.contains(dict_filter_cols.first)) {
+        if (!_col_name_to_block_idx->contains(dict_filter_cols.first)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Wrong read column '{}' in parquet file, block: {}",
                             dict_filter_cols.first, block->dump_structure());
         }
         ColumnWithTypeAndName& column_with_type_and_name =
-                block->get_by_position(name_to_idx[dict_filter_cols.first]);
+                block->get_by_position((*_col_name_to_block_idx)[dict_filter_cols.first]);
         const ColumnPtr& column = column_with_type_and_name.column;
         if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
             const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
@@ -1118,7 +1109,7 @@ void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
             column_with_type_and_name.type =
                     std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
             block->replace_by_position(
-                    name_to_idx[dict_filter_cols.first],
+                    (*_col_name_to_block_idx)[dict_filter_cols.first],
                     ColumnNullable::create(std::move(string_column),
                                            nullable_column->get_null_map_column_ptr()));
         } else {
@@ -1128,7 +1119,7 @@ void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
                             dict_column);
 
             column_with_type_and_name.type = std::make_shared<DataTypeString>();
-            block->replace_by_position(name_to_idx[dict_filter_cols.first],
+            block->replace_by_position((*_col_name_to_block_idx)[dict_filter_cols.first],
                                        std::move(string_column));
         }
     }

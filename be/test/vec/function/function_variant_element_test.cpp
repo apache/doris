@@ -51,9 +51,12 @@ TEST(function_variant_element_test, extract_from_sparse_column) {
             FunctionVariantElement::get_element_column(*variant_column, index_column, &result);
     EXPECT_TRUE(status.ok());
 
+    vectorized::DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     auto result_ptr = assert_cast<const ColumnVariant&>(*result.get());
     std::string result_string;
-    result_ptr.serialize_one_row_to_string(0, &result_string);
+    result_ptr.serialize_one_row_to_string(0, &result_string, options);
     EXPECT_EQ(result_string, "{\"age\":\"John\",\"name\":\"John\"}");
 }
 

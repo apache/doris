@@ -102,6 +102,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
     }
+    auto* slice_locations = out->mutable_packed_slice_locations();
+    slice_locations->clear();
+    slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -171,6 +174,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
     }
+    auto* slice_locations = out->mutable_packed_slice_locations();
+    slice_locations->clear();
+    slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
 }
 
 RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in) {
@@ -250,6 +256,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
     }
+    auto* slice_locations = out->mutable_packed_slice_locations();
+    slice_locations->clear();
+    slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
 }
 
 void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
@@ -318,6 +327,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
     }
+    auto* slice_locations = out->mutable_packed_slice_locations();
+    slice_locations->clear();
+    slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
 }
 
 TabletSchemaCloudPB doris_tablet_schema_to_cloud(const TabletSchemaPB& in) {

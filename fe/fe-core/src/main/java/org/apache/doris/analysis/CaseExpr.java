@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TCaseExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
@@ -77,12 +76,10 @@ public class CaseExpr extends Expr {
     /**
      * use for Nereids ONLY
      */
-    public CaseExpr(List<CaseWhenClause> whenClauses, Expr elseExpr) {
+    public CaseExpr(List<CaseWhenClause> whenClauses, Expr elseExpr, boolean nullable) {
         super();
         for (CaseWhenClause whenClause : whenClauses) {
-            Preconditions.checkNotNull(whenClause.getWhenExpr());
             children.add(whenClause.getWhenExpr());
-            Preconditions.checkNotNull(whenClause.getThenExpr());
             children.add(whenClause.getThenExpr());
         }
         if (elseExpr != null) {
@@ -92,6 +89,7 @@ public class CaseExpr extends Expr {
         // nereids do not have CaseExpr, and nereids will unify the types,
         // so just use the first then type
         type = children.get(1).getType();
+        this.nullable = nullable;
     }
 
     protected CaseExpr(CaseExpr other) {
@@ -164,33 +162,5 @@ public class CaseExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CASE_EXPR;
         msg.case_expr = new TCaseExpr(hasCaseExpr, hasElseExpr);
-    }
-
-    @Override
-    public boolean isNullable() {
-        int loopStart;
-        int loopEnd = children.size();
-        if (hasCaseExpr) {
-            loopStart = 2;
-        } else {
-            loopStart = 1;
-        }
-        if (hasElseExpr) {
-            --loopEnd;
-        }
-        for (int i = loopStart; i < loopEnd; i += 2) {
-            Expr thenExpr = children.get(i);
-            if (thenExpr.isNullable()) {
-                return true;
-            }
-        }
-        if (hasElseExpr) {
-            if (children.get(children.size() - 1).isNullable()) {
-                return true;
-            }
-        } else {
-            return true;
-        }
-        return false;
     }
 }

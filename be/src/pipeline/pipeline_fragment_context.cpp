@@ -180,7 +180,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
             .tag("reason", reason.to_string());
     {
         std::lock_guard<std::mutex> l(_task_mutex);
-        if (_closed_tasks == _total_tasks) {
+        if (_closed_tasks >= _total_tasks) {
             // All tasks in this PipelineXFragmentContext already closed.
             return;
         }
@@ -1717,7 +1717,7 @@ Status PipelineFragmentContext::submit() {
     }
     if (!st.ok()) {
         std::lock_guard<std::mutex> l(_task_mutex);
-        if (_closed_tasks == _total_tasks) {
+        if (_closed_tasks >= _total_tasks) {
             _close_fragment_instance();
         }
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
@@ -1801,7 +1801,7 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     }
     std::lock_guard<std::mutex> l(_task_mutex);
     ++_closed_tasks;
-    if (_closed_tasks == _total_tasks) {
+    if (_closed_tasks >= _total_tasks) {
         _close_fragment_instance();
     }
 }
@@ -1924,7 +1924,9 @@ std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const 
 
 std::string PipelineFragmentContext::debug_string() {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "PipelineFragmentContext Info:\n");
+    fmt::format_to(debug_string_buffer,
+                   "PipelineFragmentContext Info: _closed_tasks={}, _total_tasks={}\n",
+                   _closed_tasks, _total_tasks);
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
@@ -1981,14 +1983,14 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
 
     for (const auto& tasks : _tasks) {
         for (const auto& task : tasks) {
-            if (task.second->runtime_profile() == nullptr) {
+            if (task.second->load_channel_profile() == nullptr) {
                 continue;
             }
 
             auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
 
-            task.second->runtime_profile()->to_thrift(tmp_load_channel_profile.get(),
-                                                      _runtime_state->profile_level());
+            task.second->load_channel_profile()->to_thrift(tmp_load_channel_profile.get(),
+                                                           _runtime_state->profile_level());
             _runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
         }
     }

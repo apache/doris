@@ -45,6 +45,7 @@ public:
               _source_node_id(source_node_id),
               _expr_name(fmt::format("VTopNPred(source_node_id={})", _source_node_id)),
               _target_ctx(std::move(target_ctx)) {}
+    bool is_topn_filter() const override { return true; }
 
     static Status create_vtopn_pred(const TExpr& target_expr, int source_node_id,
                                     vectorized::VExprSPtr& expr) {
@@ -63,6 +64,8 @@ public:
         return Status::OK();
     }
 
+    int source_node_id() const { return _source_node_id; }
+
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         _predicate = &state->get_query_ctx()->get_runtime_predicate(_source_node_id);
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -73,8 +76,8 @@ public:
         argument_template.emplace_back(nullptr, _children[0]->data_type(), "topn value");
 
         _function = SimpleFunctionFactory::instance().get_function(
-                _predicate->is_asc() ? "le" : "ge", argument_template, _data_type,
-                {.enable_decimal256 = state->enable_decimal256()}, state->be_exec_version());
+                _predicate->is_asc() ? "le" : "ge", argument_template, _data_type, {},
+                state->be_exec_version());
         if (!_function) {
             return Status::InternalError("get function failed");
         }

@@ -120,6 +120,43 @@ inline std::string type_to_string(PredicateType type) {
     return "";
 }
 
+inline std::string type_to_op_str(PredicateType type) {
+    switch (type) {
+    case PredicateType::EQ:
+        return "=";
+
+    case PredicateType::NE:
+        return "!=";
+
+    case PredicateType::LT:
+        return "<<";
+
+    case PredicateType::LE:
+        return "<=";
+
+    case PredicateType::GT:
+        return ">>";
+
+    case PredicateType::GE:
+        return ">=";
+
+    case PredicateType::IN_LIST:
+        return "*=";
+
+    case PredicateType::NOT_IN_LIST:
+        return "!*=";
+
+    case PredicateType::IS_NULL:
+    case PredicateType::IS_NOT_NULL:
+        return "is";
+
+    default:
+        break;
+    };
+
+    return "";
+}
+
 struct PredicateTypeTraits {
     static constexpr bool is_range(PredicateType type) {
         return (type == PredicateType::LT || type == PredicateType::LE ||
@@ -158,16 +195,22 @@ struct PredicateTypeTraits {
         }                                                                                 \
     }
 
-class ColumnPredicate {
+class ColumnPredicate : public std::enable_shared_from_this<ColumnPredicate> {
 public:
-    explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
-            : _column_id(column_id), _opposite(opposite) {
+    explicit ColumnPredicate(uint32_t column_id, PrimitiveType primitive_type,
+                             bool opposite = false)
+            : _column_id(column_id), _primitive_type(primitive_type), _opposite(opposite) {
         reset_judge_selectivity();
+    }
+    ColumnPredicate(const ColumnPredicate& other, uint32_t col_id) : ColumnPredicate(other) {
+        _column_id = col_id;
     }
 
     virtual ~ColumnPredicate() = default;
 
     virtual PredicateType type() const = 0;
+    virtual PrimitiveType primitive_type() const { return _primitive_type; }
+    virtual std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const = 0;
 
     //evaluate predicate on inverted
     virtual Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
@@ -178,6 +221,16 @@ public:
     }
 
     virtual double get_ignore_threshold() const { return 0; }
+    // Return the size of value set for IN/NOT IN predicates and 0 for others.
+    virtual std::string debug_string() const {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "Column ID: {}, Data Type: {}, PredicateType: {}, opposite: {}, Runtime "
+                       "Filter ID: {}",
+                       _column_id, type_to_string(primitive_type()), pred_type_string(type()),
+                       _opposite, _runtime_filter_id);
+        return fmt::to_string(debug_string_buffer);
+    }
 
     // evaluate predicate on IColumn
     // a short circuit eval way
@@ -266,14 +319,6 @@ public:
 
     bool opposite() const { return _opposite; }
 
-    std::string debug_string() const {
-        return _debug_string() +
-               fmt::format(", column_id={}, opposite={}, can_ignore={}, runtime_filter_id={}",
-                           _column_id, _opposite, _can_ignore(), _runtime_filter_id);
-    }
-
-    int get_runtime_filter_id() const { return _runtime_filter_id; }
-
     void attach_profile_counter(
             int filter_id, std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
             std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter,
@@ -347,7 +392,6 @@ public:
     virtual bool is_runtime_filter() const { return _can_ignore(); }
 
 protected:
-    virtual std::string _debug_string() const = 0;
     virtual bool _can_ignore() const { return _runtime_filter_id != -1; }
     virtual uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                                      uint16_t size) const {
@@ -377,6 +421,7 @@ protected:
     }
 
     uint32_t _column_id;
+    PrimitiveType _primitive_type;
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
     int _runtime_filter_id = -1;
@@ -399,6 +444,9 @@ protected:
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
     std::shared_ptr<RuntimeProfile::Counter> _predicate_always_true_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+
+private:
+    ColumnPredicate(const ColumnPredicate& other) = default;
 };
 
 } //namespace doris

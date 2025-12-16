@@ -351,12 +351,15 @@ Status VOrcTransformer::write(const Block& block) {
     auto row_batch = _create_row_batch(sz);
     auto* root = dynamic_cast<orc::StructVectorBatch*>(row_batch.get());
     try {
+        DataTypeSerDe::FormatOptions options;
+        options.timezone = &_state->timezone_obj();
         for (size_t i = 0; i < block.columns(); i++) {
             const auto& col = block.get_by_position(i);
             const auto& raw_column = col.column;
             RETURN_IF_ERROR(_resize_row_batch(col.type, *raw_column, root->fields[i]));
-            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(
-                    _state->timezone(), *raw_column, nullptr, root->fields[i], 0, sz, arena));
+            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(_state->timezone(), *raw_column,
+                                                            nullptr, root->fields[i], 0, sz, arena,
+                                                            options));
         }
         root->numElements = sz;
         _writer->add(*row_batch);

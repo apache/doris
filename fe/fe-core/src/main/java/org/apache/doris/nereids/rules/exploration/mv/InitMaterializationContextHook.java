@@ -37,8 +37,10 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -279,11 +281,15 @@ public class InitMaterializationContextHook implements PlannerHook {
                         }
                         ConnectContext basicMvContext = MTMVPlanUtil.createBasicMvContext(
                                 cascadesContext.getConnectContext(),
-                                MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
+                                MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE, meta.getSessionVariables());
                         basicMvContext.setDatabase(meta.getDbName());
+
+                        boolean sessionVarMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
+                                ConnectContextUtil.getAffectQueryResultInPlanVariables(
+                                        cascadesContext.getConnectContext()), meta.getSessionVariables());
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
                                 basicMvContext, true,
-                                false, cascadesContext.getConnectContext());
+                                false, cascadesContext.getConnectContext(), !sessionVarMatch);
                         if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
                             contexts.add(new SyncMaterializationContext(
                                     mtmvCache.getAllRulesRewrittenPlanAndStructInfo().key(),
@@ -308,6 +314,26 @@ public class InitMaterializationContextHook implements PlannerHook {
             }
         }
         return getMaterializationContextByHint(contexts);
+    }
+
+    private boolean checkSessionVariablesMatch(Map<String, String> var1, Map<String, String> var2) {
+        if (var1 == null && var2 == null) {
+            return true;
+        } else if (var1 == null || var2 == null) {
+            return false;
+        }
+        // Check if all saved session variables match current ones
+        for (Map.Entry<String, String> entry : var1.entrySet()) {
+            String varName = entry.getKey();
+            String savedValue = entry.getValue();
+            String currentValue = var2.get(varName);
+
+            if (currentValue == null || !currentValue.equals(savedValue)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private String assembleCreateMvSqlForDupOrUniqueTable(String baseTableName, String mvName, List<Column> columns) {

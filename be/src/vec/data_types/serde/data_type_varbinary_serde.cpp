@@ -22,8 +22,8 @@
 namespace doris::vectorized {
 
 void DataTypeVarbinarySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                     Arena& arena, int32_t col_id,
-                                                     int64_t row_num) const {
+                                                     Arena& arena, int32_t col_id, int64_t row_num,
+                                                     const FormatOptions& options) const {
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                            "Data type {} read_one_cell_from_jsonb ostr not implement.",
                            column.get_name());
@@ -41,7 +41,7 @@ Status DataTypeVarbinarySerDe::write_column_to_mysql_binary(const IColumn& colum
                                                             int64_t row_idx, bool col_const,
                                                             const FormatOptions& options) const {
     auto col_index = index_check_const(row_idx, col_const);
-    auto data = assert_cast<const ColumnVarbinary&>(column).get_data()[col_index];
+    const auto& data = assert_cast<const ColumnVarbinary&>(column).get_data()[col_index];
 
     if (0 != result.push_string(data.data(), data.size())) {
         return Status::InternalError("pack mysql buffer failed.");
@@ -62,7 +62,7 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
                                                  builder.type()->name()));
                 continue;
             }
-            auto string_view = varbinary_column_data[i];
+            const auto& string_view = varbinary_column_data[i];
             RETURN_IF_ERROR(checkArrowStatus(builder.Append(string_view.data(), string_view.size()),
                                              column.get_name(), builder.type()->name()));
         }
@@ -85,7 +85,8 @@ Status DataTypeVarbinarySerDe::write_column_to_orc(const std::string& timezone,
                                                    const IColumn& column, const NullMap* null_map,
                                                    orc::ColumnVectorBatch* orc_col_batch,
                                                    int64_t start, int64_t end,
-                                                   vectorized::Arena& arena) const {
+                                                   vectorized::Arena& arena,
+                                                   const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
 
@@ -115,10 +116,15 @@ Status DataTypeVarbinarySerDe::deserialize_one_cell_from_json(IColumn& column, S
     return Status::OK();
 }
 
-void DataTypeVarbinarySerDe::to_string(const IColumn& column, size_t row_num,
-                                       BufferWritable& bw) const {
-    const auto value = assert_cast<const ColumnVarbinary&>(column).get_data_at(row_num);
-    bw.write(value.data, value.size);
+void DataTypeVarbinarySerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                       const FormatOptions& options) const {
+    const auto& value = assert_cast<const ColumnVarbinary&>(column).get_data()[row_num];
+    if (_nesting_level >= 2) { // in complex type, need to dump as hex string by hand
+        const auto& hex_str = value.dump_hex();
+        bw.write(hex_str.data(), hex_str.size());
+    } else { // mysql protocol will be handle as hex binary data directly
+        bw.write(value.data(), value.size());
+    }
 }
 
 } // namespace doris::vectorized

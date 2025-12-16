@@ -180,6 +180,7 @@ public:
             const std::map<std::string, vectorized::DataTypePtr>& target_cast_type_for_variants,
             const StorageReadOptions& read_options) {
         const doris::Field* col = schema.column(cid);
+        DCHECK(col != nullptr) << "Column not found in schema for cid=" << cid;
         vectorized::DataTypePtr storage_column_type =
                 get_data_type_of(col->get_desc(), read_options);
         if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||

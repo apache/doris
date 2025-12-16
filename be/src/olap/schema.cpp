@@ -171,6 +171,9 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
         ptr = doris::vectorized::PredicateColumnType<TYPE_DATETIME>::create();
         break;
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_TIMESTAMPTZ>::create();
+        break;
     case FieldType::OLAP_FIELD_TYPE_CHAR:
         if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
             ptr = doris::vectorized::ColumnDictI32::create(type);

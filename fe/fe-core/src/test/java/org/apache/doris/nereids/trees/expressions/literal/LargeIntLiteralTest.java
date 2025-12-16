@@ -29,7 +29,6 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.math.BigInteger;
 
 public class LargeIntLiteralTest {
@@ -73,9 +72,9 @@ public class LargeIntLiteralTest {
         Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
                 () -> new org.apache.doris.analysis.LargeIntLiteral("-170141183460469231731687303715884105729"));
         Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
-                () -> new org.apache.doris.analysis.LargeIntLiteral(new BigDecimal("170141183460469231731687303715884105728")));
+                () -> new org.apache.doris.analysis.LargeIntLiteral("170141183460469231731687303715884105728"));
         Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
-                () -> new org.apache.doris.analysis.LargeIntLiteral(new BigDecimal("-170141183460469231731687303715884105729")));
+                () -> new org.apache.doris.analysis.LargeIntLiteral("-170141183460469231731687303715884105729"));
         org.apache.doris.analysis.LargeIntLiteral largeIntLiteral = new org.apache.doris.analysis.LargeIntLiteral(
                 "170141183460469231731687303715884105727");
         Assertions.assertEquals("170141183460469231731687303715884105727", largeIntLiteral.toString());

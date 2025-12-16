@@ -58,7 +58,7 @@ using namespace doris::segment_v2;
 
 VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
-    _inverted_index_ctx->custom_analyzer = node.match_predicate.custom_analyzer;
+    _inverted_index_ctx->analyzer_name = node.match_predicate.analyzer_name;
     _inverted_index_ctx->parser_type =
             get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
     _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
@@ -87,9 +87,8 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         child_expr_name.emplace_back(child->expr_name());
     }
 
-    _function = SimpleFunctionFactory::instance().get_function(
-            _fn.name.function_name, argument_template, _data_type,
-            {.enable_decimal256 = state->enable_decimal256()});
+    _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
+                                                               argument_template, _data_type, {});
     if (_function == nullptr) {
         std::string type_str;
         for (auto arg : argument_template) {
@@ -137,7 +136,7 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
 
 Status VMatchPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
                                        ColumnPtr& result_column) const {
-    DCHECK(_open_finished || _getting_const_col);
+    DCHECK(_open_finished || block == nullptr);
     if (fast_execute(context, result_column)) {
         return Status::OK();
     }
