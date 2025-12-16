@@ -51,6 +51,7 @@
 #include "http/http_status.h"
 #include "service/backend_options.h"
 #include "util/threadpool.h"
+#include "util/ssl_key_logger.h"
 // #include <event2/bufferevent_ssl.h>
 #include <event2/listener.h>
 #include <openssl/err.h>
@@ -205,6 +206,8 @@ SSL_CTX* EvHttpServer::_create_ssl_context() {
     }
     int add_ret = X509_STORE_add_cert(store, ca_res.get());
     CHECK_OPENSSL_ERR(add_ret == 1, "Load CA certificate failed");
+
+    maybe_set_ssl_keylog_callback(ssl_ctx);
 
     return ssl_ctx;
 }

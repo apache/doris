@@ -29,6 +29,7 @@
 
 #include "common/certificate_manager.h"
 #include "common/config.h"
+#include "util/ssl_key_logger.h"
 
 namespace doris {
 
@@ -36,6 +37,7 @@ ReloadableSSLSocketFactory::ReloadableSSLSocketFactory(
         apache::thrift::transport::SSLProtocol protocol)
         : TSSLSocketFactory(protocol), protocol_(protocol) {
     // Base class constructor has already created the initial SSL_CTX
+    maybe_set_ssl_keylog_callback(ctx_->get());
     start_cert_monitoring();
 }
 
@@ -121,6 +123,8 @@ bool ReloadableSSLSocketFactory::create_and_swap_ssl_context() {
         LOG(WARNING) << "Load CA certificate failed";
         return false;
     }
+
+    maybe_set_ssl_keylog_callback(ctx);
 
     // Atomically replace SSL context - new connections will use new SSL_CTX, old connections continue using old one
     std::shared_ptr<apache::thrift::transport::SSLContext> old_ctx;

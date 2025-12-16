@@ -30,6 +30,8 @@
 #include "runtime/exec_env.h"
 #include "util/security.h"
 #include "util/stack_util.h"
+#include "util/ssl_key_logger.h"
+#include <openssl/ssl.h>
 
 namespace doris {
 
@@ -267,6 +269,11 @@ static const char* header_error_msg(CURLHcode code) {
     }
 }
 
+static CURLcode http_client_ssl_ctx_cb(CURL*, void* ssl_ctx, void*) {
+    maybe_set_ssl_keylog_callback(static_cast<SSL_CTX*>(ssl_ctx));
+    return CURLE_OK;
+}
+
 HttpClient::HttpClient() = default;
 
 HttpClient::~HttpClient() {
@@ -400,6 +407,11 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         if (code != CURLE_OK) {
             LOG(WARNING) << "fail to set CURLOPT_KEYPASSWD, msg=" << _to_errmsg(code);
             return Status::InternalError("fail to set CURLOPT_KEYPASSWD");
+        }
+        code = curl_easy_setopt(_curl, CURLOPT_SSL_CTX_FUNCTION, http_client_ssl_ctx_cb);
+        if (code != CURLE_OK) {
+            LOG(WARNING) << "fail to set CURLOPT_SSL_CTX_FUNCTION, msg=" << _to_errmsg(code);
+            return Status::InternalError("fail to set CURLOPT_SSL_CTX_FUNCTION");
         }
     }
 
