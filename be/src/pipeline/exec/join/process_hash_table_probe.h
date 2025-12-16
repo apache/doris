@@ -22,6 +22,7 @@
 #include "vec/columns/column.h"
 #include "vec/common/arena.h"
 #include "vec/common/custom_allocator.h"
+#include "vec/columns/column_vector.h"
 
 namespace doris {
 namespace vectorized {
