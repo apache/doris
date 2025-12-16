@@ -336,17 +336,8 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
 
     if (params.__isset.file_type) {
         _file_type = params.file_type;
-    } else if (!_paths.empty()) {
-        std::string lower_path = to_lower(_paths.front());
-        if (lower_path.starts_with("s3://")) {
-            _file_type = TFileType::FILE_S3;
-        } else if (lower_path.starts_with("hdfs://")) {
-            _file_type = TFileType::FILE_HDFS;
-        } else if (lower_path.starts_with("http://") || lower_path.starts_with("https://")) {
-            _file_type = TFileType::FILE_HTTP;
-        } else {
-            _file_type = TFileType::FILE_LOCAL;
-        }
+    } else {
+        return Status::InvalidArgument("Property 'file_type' must be set for parquet_metadata");
     }
     if (params.__isset.properties) {
         _properties = params.properties;

@@ -18,20 +18,18 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.proto.InternalService;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.rpc.BackendServiceProxy;
-import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
@@ -44,13 +42,10 @@ import com.google.common.collect.ImmutableSet;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -124,13 +119,11 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         if (Strings.isNullOrEmpty(rawPath)) {
             throw new AnalysisException("Property 'path' is required for parquet_metadata");
         }
-        List<String> parsedPaths = Arrays.stream(rawPath.split(","))
-                .map(String::trim)
-                .filter(token -> !token.isEmpty())
-                .collect(Collectors.toList());
-        if (parsedPaths.isEmpty()) {
+        String parsedPath = rawPath.trim();
+        if (parsedPath.isEmpty()) {
             throw new AnalysisException("Property 'path' must contain at least one location");
         }
+        List<String> parsedPaths = Collections.singletonList(parsedPath);
         List<String> normalizedPaths = parsedPaths;
 
         String rawMode = normalizedParams.getOrDefault(MODE, MODE_METADATA);
@@ -146,39 +139,38 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         } catch (URISyntaxException e) {
             scheme = null;
         }
-        StorageProperties storageProperties = null;
+        Map<String, String> storageParams = new HashMap<>(normalizedParams);
+        // StorageProperties detects provider by "uri", we also hint support by scheme.
+        storageParams.put("uri", firstPath);
         if (Strings.isNullOrEmpty(scheme) || "file".equalsIgnoreCase(scheme)) {
-            this.fileType = TFileType.FILE_LOCAL;
-            this.properties = Collections.emptyMap();
+            storageParams.put(StorageProperties.FS_LOCAL_SUPPORT, "true");
         } else {
-            Map<String, String> storageParams = new HashMap<>(normalizedParams);
-            // StorageProperties detects provider by "uri", we also hint support by scheme.
-            storageParams.put("uri", firstPath);
             forceStorageSupport(storageParams, scheme.toLowerCase());
-            try {
-                storageProperties = StorageProperties.createPrimary(storageParams);
-            } catch (RuntimeException e) {
-                throw new AnalysisException(
-                        "Failed to parse storage properties for parquet_metadata: " + e.getMessage(), e);
-            }
-            this.fileType = mapToFileType(storageProperties.getType());
-            Map<String, String> backendProps = storageProperties.getBackendConfigProperties();
-            try {
-                List<String> tmpPaths = new ArrayList<>(parsedPaths.size());
-                for (String path : parsedPaths) {
-                    tmpPaths.add(storageProperties.validateAndNormalizeUri(path));
-                }
-                normalizedPaths = tmpPaths;
-            } catch (UserException e) {
-                throw new AnalysisException(
-                        "Failed to normalize parquet_metadata paths: " + e.getMessage(), e);
-            }
-            if (this.fileType == TFileType.FILE_HTTP && !backendProps.containsKey("uri")) {
-                backendProps = new HashMap<>(backendProps);
-                backendProps.put("uri", normalizedPaths.get(0));
-            }
-            this.properties = backendProps;
         }
+        StorageProperties storageProperties;
+        try {
+            storageProperties = StorageProperties.createPrimary(storageParams);
+        } catch (RuntimeException e) {
+            throw new AnalysisException(
+                    "Failed to parse storage properties for parquet_metadata: " + e.getMessage(), e);
+        }
+        this.fileType = mapToFileType(storageProperties.getType());
+        Map<String, String> backendProps = storageProperties.getBackendConfigProperties();
+        try {
+            List<String> tmpPaths = new ArrayList<>(parsedPaths.size());
+            for (String path : parsedPaths) {
+                tmpPaths.add(storageProperties.validateAndNormalizeUri(path));
+            }
+            normalizedPaths = tmpPaths;
+        } catch (UserException e) {
+            throw new AnalysisException(
+                    "Failed to normalize parquet_metadata paths: " + e.getMessage(), e);
+        }
+        if (this.fileType == TFileType.FILE_HTTP && !backendProps.containsKey("uri")) {
+            backendProps = new HashMap<>(backendProps);
+            backendProps.put("uri", normalizedPaths.get(0));
+        }
+        this.properties = backendProps;
 
         // Expand any glob patterns (e.g. *.parquet) to concrete file paths.
         normalizedPaths = expandGlobPaths(normalizedPaths, storageProperties, this.fileType);
@@ -220,7 +212,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
                                                  StorageProperties storageProperties,
                                                  TFileType fileType) throws AnalysisException {
         if (fileType == TFileType.FILE_LOCAL) {
-            return globLocal(pattern);
+            return globLocal(pattern, storageProperties);
         }
         if (storageProperties == null) {
             throw new AnalysisException("Storage properties is required for glob pattern: " + pattern);
@@ -250,45 +242,28 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
     }
 
     /**
-     * Local glob expansion is executed on an arbitrary alive backend, because FE may not
-     * have access to BE local file system.
+     * Local glob expansion uses BrokerUtil to enumerate matching files.
      */
-    private static List<String> globLocal(String pattern) throws AnalysisException {
-        Backend backend;
-        try {
-            backend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values().stream()
-                    .filter(Backend::isAlive)
-                    .findFirst()
-                    .orElse(null);
-        } catch (AnalysisException e) {
-            throw e;
+    private static List<String> globLocal(String pattern,
+                                          StorageProperties storageProperties) throws AnalysisException {
+        if (storageProperties == null) {
+            throw new AnalysisException("Storage properties is required for glob pattern: " + pattern);
         }
-        if (backend == null) {
-            throw new AnalysisException("No alive backends to expand local glob pattern");
-        }
-        BackendServiceProxy proxy = BackendServiceProxy.getInstance();
-        InternalService.PGlobRequest.Builder requestBuilder = InternalService.PGlobRequest.newBuilder();
-        requestBuilder.setPattern(pattern);
-        long timeoutS = ConnectContext.get() == null ? 60
-                : Math.min(ConnectContext.get().getQueryTimeoutS(), 60);
+        List<TBrokerFileStatus> fileStatuses = new ArrayList<>();
+        BrokerDesc brokerDesc = new BrokerDesc("ParquetMetaLocal", storageProperties.getBackendConfigProperties());
         try {
-            Future<InternalService.PGlobResponse> response =
-                    proxy.glob(backend.getBrpcAddress(), requestBuilder.build());
-            InternalService.PGlobResponse globResponse =
-                    response.get(timeoutS, TimeUnit.SECONDS);
-            if (globResponse.getStatus().getStatusCode() != 0) {
-                throw new AnalysisException("Expand local glob pattern failed: "
-                        + globResponse.getStatus().getErrorMsgsList());
-            }
-            List<String> result = new ArrayList<>();
-            for (InternalService.PGlobResponse.PFileInfo fileInfo : globResponse.getFilesList()) {
-                result.add(fileInfo.getFile().trim());
-            }
-            return result;
-        } catch (Exception e) {
+            BrokerUtil.parseFile(pattern, brokerDesc, fileStatuses);
+        } catch (UserException e) {
             throw new AnalysisException("Failed to expand local glob pattern '" + pattern + "': "
                     + e.getMessage(), e);
         }
+        List<String> result = new ArrayList<>(fileStatuses.size());
+        for (TBrokerFileStatus status : fileStatuses) {
+            if (!status.isIsDir()) {
+                result.add(status.getPath());
+            }
+        }
+        return result;
     }
 
     /**
