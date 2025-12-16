@@ -889,6 +889,41 @@ Status ParquetReader::_process_page_index_filter(
         return Status::OK();
     }
 
+    std::vector<int> parquet_col_ids;
+    for (size_t idx = 0; idx < _read_table_columns.size(); idx++) {
+        const auto& read_table_col = _read_table_columns[idx];
+        const auto& read_file_col = _read_file_columns[idx];
+        if (!_colname_to_slot_id->contains(read_table_col)) {
+            continue;
+        }
+        auto* field = _file_metadata->schema().get_column(read_file_col);
+
+        std::function<void(FieldSchema * field)> f = [&](FieldSchema* field) {
+            if (!_column_ids.empty() &&
+                _column_ids.find(field->get_column_id()) == _column_ids.end()) {
+                return;
+            }
+
+            if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
+                f(&field->children[0]);
+            } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
+                f(&field->children[0]);
+                f(&field->children[1]);
+            } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
+                for (int i = 0; i < field->children.size(); ++i) {
+                    f(&field->children[i]);
+                }
+            } else {
+                int parquet_col_id = field->physical_column_index;
+                if (parquet_col_id >= 0) {
+                    parquet_col_ids.push_back(parquet_col_id);
+                }
+            }
+        };
+
+        f(field);
+    }
+
     auto parse_offset_index = [&]() -> Status {
         std::vector<uint8_t> off_index_buff(page_index._offset_index_size);
         Slice res(off_index_buff.data(), page_index._offset_index_size);
@@ -901,20 +936,8 @@ Status ParquetReader::_process_page_index_filter(
         _column_statistics.read_bytes += bytes_read;
         _column_statistics.page_index_read_calls++;
         _col_offsets.clear();
-        for (size_t idx = 0; idx < _read_table_columns.size(); idx++) {
-            const auto& read_table_col = _read_table_columns[idx];
-            const auto& read_file_col = _read_file_columns[idx];
-            if (!_colname_to_slot_id->contains(read_table_col)) {
-                // equal delete may add column to read_table_col, but this column no slot_id.
-                continue;
-            }
 
-            int parquet_col_id =
-                    _file_metadata->schema().get_column(read_file_col)->physical_column_index;
-            if (parquet_col_id < 0) {
-                // complex type, not support page index yet.
-                continue;
-            }
+        for (auto parquet_col_id : parquet_col_ids) {
             auto& chunk = row_group.columns[parquet_col_id];
             if (chunk.offset_index_length == 0) [[unlikely]] {
                 continue;
@@ -932,7 +955,7 @@ Status ParquetReader::_process_page_index_filter(
     RETURN_IF_ERROR(parse_offset_index());
 
     // Check if page index is needed for min-max filter.
-    if (!_enable_filter_by_min_max || _lazy_read_ctx.has_complex_type || push_down_pred.empty()) {
+    if (!_enable_filter_by_min_max || push_down_pred.empty()) {
         read_whole_row_group();
         return Status::OK();
     }
