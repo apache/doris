@@ -15,7 +15,7 @@
 \N
 
 -- !desc --
-k1	int	Yes	true	\N	
+k1	int	Yes	true	\N
 k2	agg_state<max_by(int not null, int null)>	No	false	NULL	GENERIC
 
 -- !length1 --
@@ -47,4 +47,3 @@ k2	agg_state<max_by(int not null, int null)>	No	false	NULL	GENERIC
 
 -- !max_by_null --
 \N	\N
-
