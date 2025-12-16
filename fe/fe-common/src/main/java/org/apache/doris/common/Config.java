@@ -2327,10 +2327,6 @@ public class Config extends ConfigBase {
             "Iceberg manifest cache expire after access in milliseconds. 0 or negative disables expiration."})
     public static long iceberg_manifest_cache_ttl_ms = 10_000L;
 
-    @ConfField(description = {"Iceberg Manifest 加载的超时时间（毫秒），用于保护异常慢的解析。",
-            "Iceberg manifest cache load timeout in milliseconds to guard slow parsing."})
-    public static long iceberg_manifest_cache_load_timeout_ms = 60_000L;
-
     /**
      * Github workflow test type, for setting some session variables
      * only for certain test type. E.g. only settting batch_size to small
