@@ -311,7 +311,7 @@ suite("analyze_agg") {
         '''
 
     sql "drop table if exists tbl_analyze_agg_3"
-    sql "create table tbl_analyze_agg_3 (a int, b int, c int) distributed by hash(a) properties('replication_num'='1');"
+    sql "create table tbl_analyze_agg_3 (a bigint, b bigint, c int) distributed by hash(a) properties('replication_num'='1');"
     sql """
     INSERT INTO tbl_analyze_agg_3 VALUES
     (1, NULL, 3), (2, NULL, 5), (3, NULL, 7),
@@ -332,4 +332,12 @@ suite("analyze_agg") {
         from tbl_analyze_agg_3
         order by sum(a + b) over (partition by b), rank() over(), a, b
         '''
+
+    //========================================================
+    // test for bind expression and no full group by
+    explainAnalyzedPlan  'bind_expr_1',  '''
+        select a
+        from tbl_analyze_agg_3
+        order by b, a + b
+    '''
 }

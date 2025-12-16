@@ -273,3 +273,10 @@ PhysicalResultSink
 4	5	27	1	5
 4	5	27	1	5
 
+-- !bind_expr_1 --
+LogicalResultSink ( outputExprs=[a#0] )
++--LogicalProject ( projects=[a#0] )
+   +--LogicalSort ( orderKeys=[b#1 asc null first, (a#0 + b#1) asc null first] )
+      +--LogicalProject ( projects=[a#0, b#1] )
+         +--LogicalOlapScan ( qualified=internal.regression_test_nereids_syntax_p0.tbl_analyze_agg_3 )
+
