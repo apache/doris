@@ -711,12 +711,11 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------PhysicalOlapScan[t1]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+------hashAgg[GLOBAL]
+--------PhysicalDistribute[DistributionSpecHash]
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------PhysicalOlapScan[t2]
 
 Hint log:
 Used: use_INFER_SET_OPERATOR_DISTINCT
