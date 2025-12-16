@@ -121,29 +121,6 @@ suite("test_export_variant_10k_columns", "p0") {
     def label = "label_${uuid}"
 
     try {
-        // for (int i = 0; i < 10; i++) {
-        //     // exec export
-        //     sql """
-        //         EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
-        //         PROPERTIES(
-        //             "label" = "${label}_${i}",
-        //             "format" = "${format}"
-        //         ) 
-        //     """
-        //     long startExport = System.currentTimeMillis()
-        //     def outfile_url = waiting_export.call("${label}_${i}")
-        //     long endExport = System.currentTimeMillis()
-        //     logger.info("Export 100k rows with variant took ${endExport - startExport} ms")
-        // }
-        // exec export
-        // sql """
-        //     EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
-        //     PROPERTIES(
-        //         "label" = "${label}",
-        //         "format" = "${format}"
-        //     ) 
-        // """
-
         sql """
             EXPORT TABLE ${table_export_name} TO "s3://${outFilePath}/"
             PROPERTIES(

@@ -31,7 +31,7 @@ suite("test_outfile_native", "p0") {
     def tableName = "outfile_native_test"
     def outFilePath = "${bucket}/outfile/native/exp_"
 
-    // 导出 helper：写到 S3，返回 FE 输出的 URL
+    // Export helper: write to S3 and return the URL output by FE
     def outfile_to_s3 = {
         def res = sql """
             SELECT * FROM ${tableName} t ORDER BY id
@@ -63,7 +63,7 @@ suite("test_outfile_native", "p0") {
         DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
 
-        // 插入 10 行测试数据（最后一行全 NULL）
+        // Insert 10 rows of test data (the last row is all NULL)
         StringBuilder sb = new StringBuilder()
         int i = 1
         for (; i < 10000; i ++) {
@@ -76,7 +76,7 @@ suite("test_outfile_native", "p0") {
             """)
         sql """ INSERT INTO ${tableName} VALUES ${sb.toString()} """
 
-        // baseline：本地表查询结果
+        // baseline: local table query result
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY id limit 10; """
 
         // 1) 导出为 Native 文件到 S3

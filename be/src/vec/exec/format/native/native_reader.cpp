@@ -355,8 +355,8 @@ Status NativeReader::_init_schema_from_pblock(const PBlock& pblock) {
 
     for (const auto& pcol_meta : pblock.column_metas()) {
         DataTypePtr type = make_nullable(DataTypeFactory::instance().create_data_type(pcol_meta));
-        LOG(INFO) << "init_schema_from_pblock, name=" << pcol_meta.name()
-                  << ", type=" << type->get_name();
+        VLOG_DEBUG << "init_schema_from_pblock, name=" << pcol_meta.name()
+                   << ", type=" << type->get_name();
         _schema_col_names.emplace_back(pcol_meta.name());
         _schema_col_types.emplace_back(type);
     }

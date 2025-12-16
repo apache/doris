@@ -70,7 +70,7 @@ Status VNativeTransformer::open() {
     DCHECK(_file_writer != nullptr);
     uint32_t version = DORIS_NATIVE_FORMAT_VERSION;
 
-    Slice magic_slice(const_cast<char*>(DORIS_NATIVE_MAGIC), sizeof(DORIS_NATIVE_MAGIC));
+    Slice magic_slice(DORIS_NATIVE_MAGIC, sizeof(DORIS_NATIVE_MAGIC));
     Slice version_slice(reinterpret_cast<char*>(&version), sizeof(uint32_t));
 
     RETURN_IF_ERROR(_file_writer->append(magic_slice));

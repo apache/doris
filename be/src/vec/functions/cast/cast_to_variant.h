@@ -133,7 +133,7 @@ struct CastToVariant {
     }
 };
 
-// create cresponding variant value to wrap from_type
+// create corresponding variant value to wrap from_type
 WrapperType create_cast_to_variant_wrapper(const DataTypePtr& from_type,
                                            const DataTypeVariant& to_type) {
     if (from_type->get_primitive_type() == TYPE_VARIANT) {
@@ -143,7 +143,7 @@ WrapperType create_cast_to_variant_wrapper(const DataTypePtr& from_type,
     return &CastToVariant::execute;
 }
 
-// create cresponding type convert from variant
+// create corresponding type convert from variant
 WrapperType create_cast_from_variant_wrapper(const DataTypeVariant& from_type,
                                              const DataTypePtr& to_type) {
     if (to_type->get_primitive_type() == TYPE_VARIANT) {
