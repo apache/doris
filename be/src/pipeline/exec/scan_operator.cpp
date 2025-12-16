@@ -323,6 +323,19 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                 _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot->slot_id()];
         return _is_predicate_acting_on_slot(slot, range);
     };
+    auto topn_predicate_checker = [&](const vectorized::VExprSPtrs& children,
+                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range) {
+        if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
+            // not a slot ref(column)
+            return false;
+        }
+        std::shared_ptr<vectorized::VSlotRef> slot =
+                std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
+        CHECK(slot != nullptr);
+        *slot_desc =
+                _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot->slot_id()];
+        return _is_predicate_acting_on_slot(slot, range);
+    };
 
     if (expr_root != nullptr) {
         if (is_leaf(expr_root)) {
@@ -351,7 +364,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                         vectorized::VExpr::expr_without_cast(child));
             }
             if (in_predicate_checker(expr_root->children(), &slot, &range) ||
-                eq_predicate_checker(expr_root->children(), &slot, &range)) {
+                eq_predicate_checker(expr_root->children(), &slot, &range) ||
+                topn_predicate_checker(expr_root->children(), &slot, &range)) {
                 Status status = Status::OK();
                 std::visit(
                         [&](auto& value_range) {
@@ -401,7 +415,14 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                                                         context, slot,
                                                         _slot_id_to_predicates[slot->id()], &pdt),
                                                 status);
-
+                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
+                                                        context, slot,
+                                                        _slot_id_to_predicates[slot->id()], &pdt),
+                                                status);
+                            RETURN_IF_PUSH_DOWN(_normalize_topn_filter(
+                                                        context, slot,
+                                                        _slot_id_to_predicates[slot->id()], &pdt),
+                                                status);
                             if (state()->enable_function_pushdown()) {
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_function_filters(context, slot, &pdt), status);
@@ -458,6 +479,26 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
                     rf_wrapper->predicate_input_rows_counter(),
                     rf_expr->predicate_always_true_rows_counter());
             *pdt = temp_pdt;
+        }
+    }
+    return Status::OK();
+}
+
+template <typename Derived>
+Status ScanLocalState<Derived>::_normalize_topn_filter(
+        vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
+    auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
+    if (expr->is_topn_filter()) {
+        PushDownType temp_pdt = _should_push_down_topn_filter();
+        if (temp_pdt != PushDownType::UNACCEPTABLE) {
+            auto& p = _parent->cast<typename Derived::Parent>();
+            auto& pred = _state->get_query_ctx()->get_runtime_predicate(
+                    assert_cast<vectorized::VTopNPred*>(expr.get())->source_node_id());
+            if (_push_down_topn(pred)) {
+                predicates.emplace_back(pred.get_predicate(p.node_id()));
+                *pdt = temp_pdt;
+            }
         }
     }
     return Status::OK();
@@ -1209,6 +1250,18 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->open(state));
         _conjuncts.emplace_back(conjunct);
     }
+    for (auto id : get_topn_filter_source_node_ids(state, true)) {
+        const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
+        vectorized::VExprSPtr topn_pred;
+        RETURN_IF_ERROR(vectorized::VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id,
+                                                                 topn_pred));
+
+        vectorized::VExprContextSPtr conjunct = vectorized::VExprContext::create_shared(topn_pred);
+        RETURN_IF_ERROR(conjunct->prepare(
+                state, _parent->cast<typename Derived::Parent>().row_descriptor()));
+        RETURN_IF_ERROR(conjunct->open(state));
+        _conjuncts.emplace_back(conjunct);
+    }
     return Status::OK();
 }
 
@@ -1333,8 +1386,9 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
             continue;
         }
 
-        state->get_query_ctx()->get_runtime_predicate(id).init_target(node_id(),
-                                                                      _slot_id_to_slot_desc);
+        RETURN_IF_ERROR(state->get_query_ctx()->get_runtime_predicate(id).init_target(
+                node_id(), _slot_id_to_slot_desc,
+                OperatorX<LocalStateType>::intermediate_row_desc()));
     }
 
     RETURN_IF_CANCELLED(state);
