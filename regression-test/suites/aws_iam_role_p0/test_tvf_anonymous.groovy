@@ -53,4 +53,17 @@ suite("test_tvf_anonymous") {
 
      countValue = result[0][0]
     assertTrue(countValue == expectDataCount.toInteger())
+
+    result = sql """
+        SELECT count(1) FROM S3 (                  
+        "uri"="${uri}",
+         "format" = "csv",     
+          "s3.region" = "${region}",  
+           "s3.endpoint" = 'https://s3.${region}.amazonaws.com", 
+           "s3.credentials_provider_type"="ANONYMOUS",
+           "column_separator" = ","              );
+        """
+
+    countValue = result[0][0]
+    assertTrue(countValue == expectDataCount.toInteger())
 }
