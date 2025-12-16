@@ -81,7 +81,6 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _agg_data(std::make_unique<AggregatedDataVariants>()),
-          _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
           _pre_aggregated_block(vectorized::Block::create_unique()) {}
 
@@ -776,6 +775,7 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
                    _agg_data->method_variant);
     }
     _close_with_serialized_key();
+    _agg_arena_pool.clear(true);
     return Base::close(state);
 }
 
