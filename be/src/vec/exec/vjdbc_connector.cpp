@@ -462,11 +462,6 @@ Status JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colum
 Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t column_size) {
     for (size_t column_index = 0; column_index < column_size; ++column_index) {
         auto* slot_desc = _tuple_desc->slots()[column_index];
-        // because the fe planner filter the non_materialize column
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-
         jint num_rows = 0;
         RETURN_IF_ERROR(
                 _executor_obj
