@@ -53,4 +53,3 @@ k2	agg_state<max_by(int not null, int null)>	No	false	NULL	GENERIC
 
 -- !approx_count_distinct --
 1
-
