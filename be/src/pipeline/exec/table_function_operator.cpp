@@ -78,8 +78,10 @@ Status TableFunctionLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void TableFunctionLocalState::_copy_output_slots(std::vector<vectorized::MutableColumnPtr>& columns,
-                                                 const TableFunctionOperatorX& p) {
+void TableFunctionLocalState::_copy_output_slots(
+        std::vector<vectorized::MutableColumnPtr>& columns, const TableFunctionOperatorX& p,
+        size_t output_row_count, std::vector<int64_t>& child_row_to_output_rows_indices,
+        std::vector<size_t>& handled_row_indices) {
     if (!_current_row_insert_times) {
         return;
     }
@@ -88,6 +90,11 @@ void TableFunctionLocalState::_copy_output_slots(std::vector<vectorized::Mutable
         columns[index]->insert_many_from(*src_column, _cur_child_offset, _current_row_insert_times);
     }
     _current_row_insert_times = 0;
+
+    if (_need_to_handle_outer_conjuncts) {
+        handled_row_indices.push_back(_cur_child_offset);
+        child_row_to_output_rows_indices.push_back(output_row_count);
+    }
 }
 
 // Returns the index of fn of the last eos counted from back to front
@@ -165,7 +172,6 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
     vectorized::MutableBlock m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
             output_block, p._output_slots);
     vectorized::MutableColumns& columns = m_block.mutable_columns();
-
     auto child_slot_count = p._child_slots.size();
     for (int i = 0; i < p._fn_num; i++) {
         if (columns[i + child_slot_count]->is_nullable()) {
@@ -184,20 +190,19 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
     while (columns[child_slot_count]->size() < batch_size) {
         RETURN_IF_CANCELLED(state);
 
+        // finished handling current child block
         if (_child_block->rows() == 0 || _cur_child_offset == -1) {
             break;
         }
 
         bool skip_child_row = false;
-        while (columns[child_slot_count]->size() < batch_size) {
+        size_t cur_row_count = 0;
+        while (cur_row_count = columns[child_slot_count]->size(), cur_row_count < batch_size) {
             int idx = _find_last_fn_eos_idx();
             if (idx == 0 || skip_child_row) {
-                _copy_output_slots(columns, p);
+                _copy_output_slots(columns, p, cur_row_count, child_row_to_output_rows_indices,
+                                   handled_row_indices);
                 // all table functions' results are exhausted, process next child row.
-                if (_need_to_handle_outer_conjuncts) {
-                    handled_row_indices.push_back(_cur_child_offset);
-                    child_row_to_output_rows_indices.push_back(columns[child_slot_count]->size());
-                }
                 process_next_child_row();
                 if (_cur_child_offset == -1) {
                     break;
@@ -216,6 +221,11 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
             }
 
             DCHECK_LE(1, p._fn_num);
+            // It may take multiple iterations of this while loop to process a child row if
+            // any table function produces a large number of rows.
+            // But for table function with outer conjuncts, we output all rows in one iteration
+            // even if it may exceed batch_size, because we need to make sure at least one row
+            // is output for the child row after evaluating the outer conjuncts.
             auto repeat_times = _fns[p._fn_num - 1]->get_value(
                     columns[child_slot_count + p._fn_num - 1],
                     //// It has already been checked that
@@ -226,17 +236,84 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
                             : batch_size - (int)columns[child_slot_count]->size());
             _current_row_insert_times += repeat_times;
             for (int i = 0; i < p._fn_num - 1; i++) {
+                LOG(INFO) << "xxxx Query: " << print_id(state->query_id())
+                          << " get_same_many_values for fn index: " << i;
                 _fns[i]->get_same_many_values(columns[i + child_slot_count], repeat_times);
             }
         }
     }
 
-    _copy_output_slots(columns, p);
+    _copy_output_slots(columns, p, columns[child_slot_count]->size(),
+                       child_row_to_output_rows_indices, handled_row_indices);
 
     size_t row_size = columns[child_slot_count]->size();
     for (auto index : p._useless_slot_indexs) {
         columns[index]->insert_many_defaults(row_size - columns[index]->size());
     }
+    // LOG(INFO) << "xxxx before filter output_block data: "
+    //           << output_block->dump_data(0, output_block->rows());
+
+    /**
+    Handle the outer conjuncts after unnest. Currently, only left outer is supported.
+    e.g., for the following example data,
+    select id, name, tags from items_dict_unnest_t order by id;
+    +------+---------------------+-------------------------------------------------+
+    | id   | name                | tags                                            |
+    +------+---------------------+-------------------------------------------------+
+    |    1 | Laptop              | ["Electronics", "Office", "High-End", "Laptop"] |
+    |    2 | Mechanical Keyboard | ["Electronics", "Accessories"]                  |
+    |    3 | Basketball          | ["Sports", "Outdoor"]                           |
+    |    4 | Badminton Racket    | ["Sports", "Equipment"]                         |
+    |    5 | Shirt               | ["Clothing", "Office", "Shirt"]                 |
+    +------+---------------------+-------------------------------------------------+
+    
+    for this query: ``` SELECT
+        id,
+        name,
+        tags,
+        t.tag
+    FROM
+        items_dict_unnest_t
+        LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;```
+    
+    after unnest, before evaluating the outer conjuncts, the result is:
+    +------+---------------------+-------------------------------------------------+--------------+
+    | id   | name                | tags                                            | unnest(tags) |
+    +------+---------------------+-------------------------------------------------+--------------+
+    |    1 | Laptop              | ["Electronics", "Office", "High-End", "Laptop"] | Electronics  |
+    |    1 | Laptop              | ["Electronics", "Office", "High-End", "Laptop"] | Office       |
+    |    1 | Laptop              | ["Electronics", "Office", "High-End", "Laptop"] | High-End     |
+    |    1 | Laptop              | ["Electronics", "Office", "High-End", "Laptop"] | Laptop       |
+    |    2 | Mechanical Keyboard | ["Electronics", "Accessories"]                  | Electronics  |
+    |    2 | Mechanical Keyboard | ["Electronics", "Accessories"]                  | Accessories  |
+    |    3 | Basketball          | ["Sports", "Outdoor"]                           | Sports       |
+    |    3 | Basketball          | ["Sports", "Outdoor"]                           | Outdoor      |
+    |    4 | Badminton Racket    | ["Sports", "Equipment"]                         | Sports       |
+    |    4 | Badminton Racket    | ["Sports", "Equipment"]                         | Equipment    |
+    |    5 | Shirt               | ["Clothing", "Office", "Shirt"]                 | Clothing     |
+    |    5 | Shirt               | ["Clothing", "Office", "Shirt"]                 | Office       |
+    |    5 | Shirt               | ["Clothing", "Office", "Shirt"]                 | Shirt        |
+    +------+---------------------+-------------------------------------------------+--------------+
+    13 rows in set (0.47 sec)
+    
+    the vector child_row_to_output_rows_indices is used to record the mapping relationship,
+    between child row and output rows, for example:
+    child row 0 -> output rows [0, 4)
+    child row 1 -> output rows [4, 6)
+    child row 2 -> output rows [6, 8)
+    child row 3 -> output rows [8, 10)
+    child row 4 -> output rows [10, 13)
+    it's contents are: [0, 4, 6, 8, 10, 13].
+    
+    After evaluating the left join conjuncts `t.tag = name`,
+    the content of filter is: [0, 0, 0, 1, // child row 0
+                               0, 0,       // child row 1
+                               0, 0,       // child row 2
+                               0, 0,       // child row 3
+                               0, 0, 1     // child row 4
+                               ]
+    child rows 1, 2, 3 are all filtered out, so we need to insert one row with NULL tag value for each of them.
+    */
     if (!_expand_conjuncts_ctxs.empty() && !child_block_empty) {
         auto output_row_count = output_block->rows();
         vectorized::IColumn::Filter filter;
@@ -246,6 +323,22 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
         RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
                 _expand_conjuncts_ctxs, output_block, columns_to_filter, column_count, filter));
         size_t remain_row_count = output_block->rows();
+        /*
+        LOG(INFO) << "xxxx after filter output_block row count: " << remain_row_count;
+        std::string debug_string("xxxx handled child rows: ");
+        for (auto v : handled_row_indices) {
+            debug_string += std::to_string(v) + ",";
+        }
+        debug_string += ", filter: ";
+        for (auto v : filter) {
+            debug_string += std::to_string(v) + ",";
+        }
+        debug_string += ", child_row_to_output_rows_indices: ";
+        for (auto v : child_row_to_output_rows_indices) {
+            debug_string += ", " + std::to_string(v);
+        }
+        LOG(INFO) << debug_string;
+        */
         // for outer table function, need to handle those child rows which all expanded rows are filtered out
         if (_need_to_handle_outer_conjuncts && remain_row_count < output_row_count) {
             auto handled_child_row_count = handled_row_indices.size();
@@ -281,6 +374,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
     }
 
     *eos = _child_eos && _cur_child_offset == -1;
+    // LOG(INFO) << "xxxx output_block rows: " << output_block->rows();
     return Status::OK();
 }
 
