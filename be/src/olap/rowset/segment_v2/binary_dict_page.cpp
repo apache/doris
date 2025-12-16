@@ -59,11 +59,6 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
                           : PLAIN_ENCODING) {}
 
 Status BinaryDictPageBuilder::init() {
-    LOG_INFO(
-            "[verbose] BinaryDictPageBuilder::init, _dict_word_page_encoding_type={}, "
-            "_fallback_binary_encoding_type={}",
-            EncodingTypePB_Name(_dict_word_page_encoding_type),
-            EncodingTypePB_Name(_fallback_binary_encoding_type));
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
     PageBuilder* data_page_builder_ptr = nullptr;

@@ -434,18 +434,6 @@ Status ScalarColumnWriter::init() {
 
     RETURN_IF_ERROR(EncodingInfo::get(get_field()->type(), _opts.meta->encoding(),
                                       _opts.encoding_preference, &_encoding_info));
-    LOG_INFO(
-            "[verbose] ScalarColumnWriter::init, _opts.encoding_preference: "
-            "integer_type_default_use_plain_encoding={}, binary_plain_encoding_default_impl={}",
-            _opts.encoding_preference.integer_type_default_use_plain_encoding,
-            BinaryPlainEncodingTypePB_Name(
-                    _opts.encoding_preference.binary_plain_encoding_default_impl));
-    LOG_INFO(
-            "[verbose] ScalarColumnWriter::init, cid={}, type={}, origin encoding={}, after, "
-            "encoding={}",
-            _opts.meta->column_id(), get_field()->type(),
-            EncodingTypePB_Name(_opts.meta->encoding()),
-            EncodingTypePB_Name(_encoding_info->encoding()));
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;
