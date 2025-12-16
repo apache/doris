@@ -62,7 +62,7 @@ private:
     Status _build_rows(std::vector<MutableColumnPtr>& columns);
     Status _append_file_rows(const std::string& path, std::vector<MutableColumnPtr>& columns);
 
-    enum class Mode { SCHEMA, METADATA };
+    enum class Mode { SCHEMA, METADATA, FILE_METADATA, KEY_VALUE_METADATA };
 
     RuntimeState* _state = nullptr;
     std::vector<SlotDescriptor*> _slots;

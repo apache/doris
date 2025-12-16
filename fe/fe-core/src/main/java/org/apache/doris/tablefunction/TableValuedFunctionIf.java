@@ -27,6 +27,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -80,6 +81,16 @@ public abstract class TableValuedFunctionIf {
                 return new TasksTableValuedFunction(params);
             case ParquetMetadataTableValuedFunction.NAME:
                 return new ParquetMetadataTableValuedFunction(params);
+            case ParquetMetadataTableValuedFunction.NAME_FILE_METADATA: {
+                Map<String, String> copy = new HashMap<>(params);
+                copy.put("mode", "parquet_file_metadata");
+                return new ParquetMetadataTableValuedFunction(copy);
+            }
+            case ParquetMetadataTableValuedFunction.NAME_KV_METADATA: {
+                Map<String, String> copy = new HashMap<>(params);
+                copy.put("mode", "parquet_kv_metadata");
+                return new ParquetMetadataTableValuedFunction(copy);
+            }
             case GroupCommitTableValuedFunction.NAME:
                 return new GroupCommitTableValuedFunction(params);
             case QueryTableValueFunction.NAME:

@@ -297,6 +297,107 @@ private:
     std::array<int, META_COLUMN_COUNT> _slot_pos {};
 };
 
+class ParquetFileMetadataModeHandler final : public ParquetMetadataReader::ModeHandler {
+public:
+    explicit ParquetFileMetadataModeHandler(RuntimeState* state) : ModeHandler(state) {}
+
+    void init_slot_pos_map(const std::vector<SlotDescriptor*>& slots) override {
+        const auto& name_to_pos = _build_name_to_pos_map(slots);
+        _init_slot_pos_map(name_to_pos, kFileMetadataColumnNames, &_slot_pos);
+    }
+
+    Status append_rows(const std::string& path, FileMetaData* metadata,
+                       std::vector<MutableColumnPtr>& columns) override {
+        const tparquet::FileMetaData& thrift_meta = metadata->to_thrift();
+
+        auto insert_if_requested = [&](FileMetadataColumnIndex idx, auto&& inserter,
+                                       auto&&... args) {
+            int pos = _slot_pos[idx];
+            if (pos >= 0) {
+                inserter(columns[pos], std::forward<decltype(args)>(args)...);
+            }
+        };
+
+        insert_if_requested(FILE_META_FILE_NAME, insert_string, path);
+        if (thrift_meta.__isset.created_by) {
+            insert_if_requested(FILE_META_CREATED_BY, insert_string, thrift_meta.created_by);
+        } else {
+            insert_if_requested(FILE_META_CREATED_BY, insert_null);
+        }
+        insert_if_requested(FILE_META_NUM_ROWS, insert_int64,
+                            static_cast<Int64>(thrift_meta.num_rows));
+        insert_if_requested(FILE_META_NUM_ROW_GROUPS, insert_int64,
+                            static_cast<Int64>(thrift_meta.row_groups.size()));
+        insert_if_requested(FILE_META_FORMAT_VERSION, insert_int64,
+                            static_cast<Int64>(thrift_meta.version));
+        if (thrift_meta.__isset.encryption_algorithm) {
+            const auto& algo = thrift_meta.encryption_algorithm;
+            std::string algo_name;
+            if (algo.__isset.AES_GCM_V1) {
+                algo_name = "AES_GCM_V1";
+            } else if (algo.__isset.AES_GCM_CTR_V1) {
+                algo_name = "AES_GCM_CTR_V1";
+            }
+            if (!algo_name.empty()) {
+                insert_if_requested(FILE_META_ENCRYPTION_ALGORITHM, insert_string, algo_name);
+            } else {
+                insert_if_requested(FILE_META_ENCRYPTION_ALGORITHM, insert_null);
+            }
+        } else {
+            insert_if_requested(FILE_META_ENCRYPTION_ALGORITHM, insert_null);
+        }
+        if (thrift_meta.__isset.footer_signing_key_metadata) {
+            insert_if_requested(FILE_META_FOOTER_SIGNING_KEY_METADATA, insert_string,
+                                thrift_meta.footer_signing_key_metadata);
+        } else {
+            insert_if_requested(FILE_META_FOOTER_SIGNING_KEY_METADATA, insert_null);
+        }
+        return Status::OK();
+    }
+
+private:
+    std::array<int, FILE_META_COLUMN_COUNT> _slot_pos {};
+};
+
+class ParquetKeyValueModeHandler final : public ParquetMetadataReader::ModeHandler {
+public:
+    explicit ParquetKeyValueModeHandler(RuntimeState* state) : ModeHandler(state) {}
+
+    void init_slot_pos_map(const std::vector<SlotDescriptor*>& slots) override {
+        const auto& name_to_pos = _build_name_to_pos_map(slots);
+        _init_slot_pos_map(name_to_pos, kKeyValueColumnNames, &_slot_pos);
+    }
+
+    Status append_rows(const std::string& path, FileMetaData* metadata,
+                       std::vector<MutableColumnPtr>& columns) override {
+        const tparquet::FileMetaData& thrift_meta = metadata->to_thrift();
+        if (!thrift_meta.__isset.key_value_metadata || thrift_meta.key_value_metadata.empty()) {
+            return Status::OK();
+        }
+
+        auto insert_if_requested = [&](KeyValueColumnIndex idx, auto&& inserter, auto&&... args) {
+            int pos = _slot_pos[idx];
+            if (pos >= 0) {
+                inserter(columns[pos], std::forward<decltype(args)>(args)...);
+            }
+        };
+
+        for (const auto& kv : thrift_meta.key_value_metadata) {
+            insert_if_requested(KV_FILE_NAME, insert_string, path);
+            insert_if_requested(KV_KEY, insert_string, kv.key);
+            if (kv.__isset.value) {
+                insert_if_requested(KV_VALUE, insert_string, kv.value);
+            } else {
+                insert_if_requested(KV_VALUE, insert_null);
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    std::array<int, KV_COLUMN_COUNT> _slot_pos {};
+};
+
 ParquetMetadataReader::ParquetMetadataReader(std::vector<SlotDescriptor*> slots,
                                              RuntimeState* state, RuntimeProfile* profile,
                                              TMetaScanRange scan_range)
@@ -310,6 +411,10 @@ Status ParquetMetadataReader::init_reader() {
     RETURN_IF_ERROR(_init_from_scan_range(_scan_range));
     if (_mode_type == Mode::SCHEMA) {
         _mode_handler = std::make_unique<ParquetSchemaModeHandler>(_state);
+    } else if (_mode_type == Mode::FILE_METADATA) {
+        _mode_handler = std::make_unique<ParquetFileMetadataModeHandler>(_state);
+    } else if (_mode_type == Mode::KEY_VALUE_METADATA) {
+        _mode_handler = std::make_unique<ParquetKeyValueModeHandler>(_state);
     } else {
         _mode_handler = std::make_unique<ParquetMetadataModeHandler>(_state);
     }
@@ -354,6 +459,12 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
     if (lower_mode == MODE_SCHEMA) {
         _mode_type = Mode::SCHEMA;
         _mode = MODE_SCHEMA;
+    } else if (lower_mode == MODE_FILE_METADATA) {
+        _mode_type = Mode::FILE_METADATA;
+        _mode = MODE_FILE_METADATA;
+    } else if (lower_mode == MODE_KEY_VALUE_METADATA) {
+        _mode_type = Mode::KEY_VALUE_METADATA;
+        _mode = MODE_KEY_VALUE_METADATA;
     } else {
         _mode_type = Mode::METADATA;
         _mode = MODE_METADATA;

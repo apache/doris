@@ -30,6 +30,8 @@ namespace doris::vectorized::parquet_utils {
 
 inline constexpr const char* MODE_SCHEMA = "parquet_schema";
 inline constexpr const char* MODE_METADATA = "parquet_metadata";
+inline constexpr const char* MODE_FILE_METADATA = "parquet_file_metadata";
+inline constexpr const char* MODE_KEY_VALUE_METADATA = "parquet_kv_metadata";
 
 enum SchemaColumnIndex : size_t {
     SCHEMA_FILE_NAME = 0,
@@ -71,6 +73,19 @@ enum MetadataColumnIndex : size_t {
     META_COLUMN_COUNT
 };
 
+enum FileMetadataColumnIndex : size_t {
+    FILE_META_FILE_NAME = 0,
+    FILE_META_CREATED_BY,
+    FILE_META_NUM_ROWS,
+    FILE_META_NUM_ROW_GROUPS,
+    FILE_META_FORMAT_VERSION,
+    FILE_META_ENCRYPTION_ALGORITHM,
+    FILE_META_FOOTER_SIGNING_KEY_METADATA,
+    FILE_META_COLUMN_COUNT
+};
+
+enum KeyValueColumnIndex : size_t { KV_FILE_NAME = 0, KV_KEY, KV_VALUE, KV_COLUMN_COUNT };
+
 inline constexpr std::array<const char*, SCHEMA_COLUMN_COUNT> kSchemaColumnNames = {
         "file_name",        "column_name",      "column_path", "physical_type", "logical_type",
         "repetition_level", "definition_level", "type_length", "precision",     "scale",
@@ -98,6 +113,18 @@ inline constexpr std::array<const char*, META_COLUMN_COUNT> kMetadataColumnNames
         "total_uncompressed_size",
         "statistics_min",
         "statistics_max"};
+
+inline constexpr std::array<const char*, FILE_META_COLUMN_COUNT> kFileMetadataColumnNames = {
+        "file_name",
+        "created_by",
+        "num_rows",
+        "num_row_groups",
+        "format_version",
+        "encryption_algorithm",
+        "footer_signing_key_metadata"};
+
+inline constexpr std::array<const char*, KV_COLUMN_COUNT> kKeyValueColumnNames = {"file_name",
+                                                                                  "key", "value"};
 
 std::string join_path(const std::vector<std::string>& items);
 

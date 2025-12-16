@@ -56,17 +56,23 @@ import java.util.stream.Collectors;
  * Currently works in two modes:
  * - parquet_meta (mode parquet_metadata): row-group/column statistics similar to DuckDB parquet_metadata()
  * - parquet_schema: logical schema similar to DuckDB parquet_schema()
+ * - parquet_file_metadata: file-level metadata aligned with DuckDB parquet_file_metadata()
+ * - parquet_kv_metadata: file key/value metadata aligned with DuckDB parquet_kv_metadata()
  */
 public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunction {
 
     public static final String NAME = "parquet_meta";
+    public static final String NAME_FILE_METADATA = "parquet_file_metadata";
+    public static final String NAME_KV_METADATA = "parquet_kv_metadata";
     private static final String PATH = "path";
     private static final String MODE = "mode";
 
     private static final String MODE_METADATA = "parquet_metadata";
     private static final String MODE_SCHEMA = "parquet_schema";
+    private static final String MODE_FILE_METADATA = "parquet_file_metadata";
+    private static final String MODE_KV_METADATA = "parquet_kv_metadata";
     private static final ImmutableSet<String> SUPPORTED_MODES =
-            ImmutableSet.of(MODE_METADATA, MODE_SCHEMA);
+            ImmutableSet.of(MODE_METADATA, MODE_SCHEMA, MODE_FILE_METADATA, MODE_KV_METADATA);
 
     private static final ImmutableList<Column> PARQUET_SCHEMA_COLUMNS = ImmutableList.of(
             new Column("file_name", PrimitiveType.STRING, true),
@@ -104,6 +110,22 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             new Column("total_uncompressed_size", PrimitiveType.BIGINT, true),
             new Column("statistics_min", ScalarType.createStringType(), true),
             new Column("statistics_max", ScalarType.createStringType(), true)
+    );
+
+    private static final ImmutableList<Column> PARQUET_FILE_METADATA_COLUMNS = ImmutableList.of(
+            new Column("file_name", PrimitiveType.STRING, true),
+            new Column("created_by", PrimitiveType.STRING, true),
+            new Column("num_rows", PrimitiveType.BIGINT, true),
+            new Column("num_row_groups", PrimitiveType.BIGINT, true),
+            new Column("format_version", PrimitiveType.BIGINT, true),
+            new Column("encryption_algorithm", PrimitiveType.STRING, true),
+            new Column("footer_signing_key_metadata", PrimitiveType.STRING, true)
+    );
+
+    private static final ImmutableList<Column> PARQUET_KV_METADATA_COLUMNS = ImmutableList.of(
+            new Column("file_name", PrimitiveType.STRING, true),
+            new Column("key", ScalarType.createStringType(), true),
+            new Column("value", ScalarType.createStringType(), true)
     );
 
     private final List<String> paths;
@@ -397,6 +419,12 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
     public List<Column> getTableColumns() {
         if (MODE_SCHEMA.equals(mode)) {
             return PARQUET_SCHEMA_COLUMNS;
+        }
+        if (MODE_FILE_METADATA.equals(mode)) {
+            return PARQUET_FILE_METADATA_COLUMNS;
+        }
+        if (MODE_KV_METADATA.equals(mode)) {
+            return PARQUET_KV_METADATA_COLUMNS;
         }
         return PARQUET_METADATA_COLUMNS;
     }
