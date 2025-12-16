@@ -393,9 +393,11 @@ public class AuditLogHelper {
                             MetricRepo.updateClusterQueryLatency(physicalClusterName, elapseMs);
                         }
                         if (elapseMs > Config.qe_slow_log_ms) {
+                            MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
+                        }
+                        if (elapseMs > Config.sql_digest_threshold_ms) {
                             String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                             auditEventBuilder.setSqlDigest(sqlDigest);
-                            MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
                         }
                     }
                 }
