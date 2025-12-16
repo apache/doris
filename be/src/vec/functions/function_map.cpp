@@ -91,9 +91,10 @@ public:
         DCHECK(arguments.size() % 2 == 0)
                 << "function: " << get_name() << ", arguments should not be even number";
         LOG(INFO) << "[FunctionMap.execute_impl] input_rows_count: " << input_rows_count;
-        for (size_t i =0;i < arguments.size();++i) {
+        for (size_t i = 0; i < arguments.size(); ++i) {
             auto& col = block.get_by_position(arguments[i]).column;
-            LOG(INFO) << "[FunctionMap.execute_impl] argument " << i << " column type: " << col->get_name()<<" data:"<<col->dump_structure();
+            LOG(INFO) << "[FunctionMap.execute_impl] argument " << i
+                      << " column type: " << col->get_name() << " data:" << col->dump_structure();
         }
         size_t num_element = arguments.size();
 
@@ -798,16 +799,16 @@ public:
 private:
 };
 
-class FunctionMapConcat : public IFunction{
+class FunctionMapConcat : public IFunction {
 public:
     static constexpr auto name = "map_concat";
-    static FunctionPtr create() {return std::make_shared<FunctionMapConcat>();}
+    static FunctionPtr create() { return std::make_shared<FunctionMapConcat>(); }
     String get_name() const override { return name; }
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 1; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(arguments.size()>0)
-                <<"function: "<<get_name()<<", arguments should not be empty";
+        DCHECK(arguments.size() > 0)
+                << "function: " << get_name() << ", arguments should not be empty";
         return arguments[0];
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -815,9 +816,10 @@ public:
         auto result_col = block.get_by_position(result).type->create_column();
         ColumnMap* result_map_column = nullptr;
         ColumnNullable* result_nullable_column = nullptr;
-        if (result_col->is_nullable()){
+        if (result_col->is_nullable()) {
             result_nullable_column = reinterpret_cast<ColumnNullable*>(result_col.get());
-            result_map_column = check_and_get_column<ColumnMap>(result_nullable_column->get_nested_column());
+            result_map_column =
+                    check_and_get_column<ColumnMap>(result_nullable_column->get_nested_column());
         } else {
             result_map_column = check_and_get_column<ColumnMap>(result_col.get());
         }
@@ -836,27 +838,29 @@ public:
         }
 
         size_t off = 0;
-        for(size_t row = 0; row < input_rows_count ; row++) {
-            for(size_t col: arguments){
+        for (size_t row = 0; row < input_rows_count; row++) {
+            for (size_t col : arguments) {
                 const ColumnMap* map_column = nullptr;
-                auto src_column = 
+                auto src_column =
                         block.get_by_position(col).column->convert_to_full_column_if_const();
-                if (src_column->is_nullable()){
-                    auto nullable_column = reinterpret_cast<const ColumnNullable*>(src_column.get());
-                    map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+                if (src_column->is_nullable()) {
+                    auto nullable_column =
+                            reinterpret_cast<const ColumnNullable*>(src_column.get());
+                    map_column =
+                            check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
                 } else {
                     map_column = check_and_get_column<ColumnMap>(*src_column.get());
                 }
-                if (!map_column){
+                if (!map_column) {
                     return Status::RuntimeError("unsupported types for function {}({})", get_name(),
-                                        block.get_by_position(col).type->get_name());
+                                                block.get_by_position(col).type->get_name());
                 }
                 const auto& src_column_offsets = map_column->get_offsets();
                 const size_t length = src_column_offsets[row] - src_column_offsets[row - 1];
                 off += length;
-                for(size_t i=src_column_offsets[row-1];i<src_column_offsets[row];i++){
-                    result_col_map_keys_data.insert_from(map_column->get_keys(),i);
-                    result_col_map_vals_data.insert_from(map_column->get_values(),i);
+                for (size_t i = src_column_offsets[row - 1]; i < src_column_offsets[row]; i++) {
+                    result_col_map_keys_data.insert_from(map_column->get_keys(), i);
+                    result_col_map_vals_data.insert_from(map_column->get_values(), i);
                 }
             }
             column_offsets[row] = off;

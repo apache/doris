@@ -353,20 +353,20 @@ bool insert_array_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const Any
 }
 
 bool insert_map_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell,
-                       bool datetime_is_string_format) {
+                     bool datetime_is_string_format) {
     auto origin_input_array = any_cast<TestArray>(cell);
     DataTypePtr key_type = assert_cast<const DataTypeMap*>(type_ptr.get())->get_key_type();
     DataTypePtr value_type = assert_cast<const DataTypeMap*>(type_ptr.get())->get_value_type();
     MutableColumnPtr key_column = key_type->create_column();
     MutableColumnPtr value_column = value_type->create_column();
-    for(size_t i=0;i<origin_input_array.size();i+=2){
-        const auto&key = origin_input_array[i];
-        const auto&value = origin_input_array[i+1];
+    for (size_t i = 0; i < origin_input_array.size(); i += 2) {
+        const auto& key = origin_input_array[i];
+        const auto& value = origin_input_array[i + 1];
         insert_cell(key_column, key_type, key, datetime_is_string_format);
         insert_cell(value_column, value_type, value, datetime_is_string_format);
     }
     Array key_array, value_array;
-    for(int i=0; i<origin_input_array.size()/2;i++){
+    for (int i = 0; i < origin_input_array.size() / 2; i++) {
         key_array.push_back((*key_column)[i]);
         value_array.push_back((*value_column)[i]);
     }
@@ -376,7 +376,6 @@ bool insert_map_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyTy
     column->insert(Field::create_field<TYPE_MAP>(map));
     return true;
 }
-
 
 // NOLINTBEGIN(readability-function-size)
 bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell,
@@ -562,7 +561,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             }
             break;
         }
-        case PrimitiveType::TYPE_MAP:  {
+        case PrimitiveType::TYPE_MAP: {
             RETURN_IF_FALSE((insert_map_cell(column, type_ptr, cell, datetime_is_string_format)));
             break;
         }
