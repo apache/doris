@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
@@ -228,16 +227,16 @@ public class SumAggWriter extends DefaultPlanRewriter<SumAggContext> {
     }
 
     private boolean checkStats(Plan plan, SumAggContext context) {
-        if (ConnectContext.get() == null) {
-            return false;
-        }
-        int mode = ConnectContext.get().getSessionVariable().eagerAggregationMode;
-        if (mode < 0) {
-            return false;
-        }
-        if (mode > 0) {
-            return true;
-        }
+        // if (ConnectContext.get() == null) {
+        //     return false;
+        // }
+        // int mode = ConnectContext.get().getSessionVariable().eagerAggregationMode;
+        // if (mode < 0) {
+        //     return false;
+        // }
+        // if (mode > 0) {
+        //     return true;
+        // }
         Statistics stats = plan.getStats();
         if (stats == null) {
             stats = plan.accept(derive, new StatsDerive.DeriveContext());
