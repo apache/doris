@@ -29,8 +29,9 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 Status ExprPushDownHelper::_extract_predicates(const VExprSPtr& expr, int& cid,
-                                               DataTypePtr& data_type, std::vector<Field>& values,
-                                               bool null_pred, bool& parsed) const {
+                                               DataTypePtr& data_type,
+                                               std::vector<StringRef>& values, bool null_pred,
+                                               bool& parsed) const {
     parsed = false;
     values.clear();
     if (!expr->children()[0]->is_slot_ref()) [[unlikely]] {
@@ -53,7 +54,7 @@ Status ExprPushDownHelper::_extract_predicates(const VExprSPtr& expr, int& cid,
         if (literal->get_column_ptr()->is_null_at(0)) {
             continue;
         }
-        values.emplace_back(literal->get_column_ptr()->operator[](0));
+        values.emplace_back(literal->get_column_ptr()->get_data_at(0));
         parsed = true;
     }
     return Status::OK();
@@ -68,7 +69,7 @@ Status ExprPushDownHelper::convert_predicates(
 
     int cid;
     DataTypePtr data_type;
-    std::vector<Field> values;
+    std::vector<StringRef> values;
     bool parsed = false;
     for (const auto& expr : exprs) {
         cid = -1;
@@ -76,26 +77,29 @@ Status ExprPushDownHelper::convert_predicates(
         parsed = false;
         switch (expr->node_type()) {
         case TExprNodeType::BINARY_PRED: {
-            decltype(create_comparison_predicate<PredicateType::UNKNOWN>)* create = nullptr;
-            if (expr->op() == TExprOpcode::EQ) {
-                create = create_comparison_predicate<PredicateType::EQ>;
-            } else if (expr->op() == TExprOpcode::NE) {
-                create = create_comparison_predicate<PredicateType::NE>;
-            } else if (expr->op() == TExprOpcode::LT) {
-                create = create_comparison_predicate<PredicateType::LT>;
-            } else if (expr->op() == TExprOpcode::LE) {
-                create = create_comparison_predicate<PredicateType::LE>;
-            } else if (expr->op() == TExprOpcode::GT) {
-                create = create_comparison_predicate<PredicateType::GT>;
-            } else if (expr->op() == TExprOpcode::GE) {
-                create = create_comparison_predicate<PredicateType::GE>;
-            } else {
-                break;
-            }
             RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, false, parsed));
             if (parsed) {
-                // TODO(gabriel): Use string view
-                predicates.push_back(create(data_type, cid, values[0].to_string(), false, arena));
+                if (expr->op() == TExprOpcode::EQ) {
+                    predicates.push_back(create_comparison_predicate0<PredicateType::EQ>(
+                            cid, data_type, values[0], false, arena));
+                } else if (expr->op() == TExprOpcode::NE) {
+                    predicates.push_back(create_comparison_predicate0<PredicateType::NE>(
+                            cid, data_type, values[0], false, arena));
+                } else if (expr->op() == TExprOpcode::LT) {
+                    predicates.push_back(create_comparison_predicate0<PredicateType::LT>(
+                            cid, data_type, values[0], false, arena));
+                } else if (expr->op() == TExprOpcode::LE) {
+                    predicates.push_back(create_comparison_predicate0<PredicateType::LE>(
+                            cid, data_type, values[0], false, arena));
+                } else if (expr->op() == TExprOpcode::GT) {
+                    predicates.push_back(create_comparison_predicate0<PredicateType::GT>(
+                            cid, data_type, values[0], false, arena));
+                } else if (expr->op() == TExprOpcode::GE) {
+                    predicates.push_back(create_comparison_predicate0<PredicateType::GE>(
+                            cid, data_type, values[0], false, arena));
+                } else {
+                    break;
+                }
                 root->add_column_predicate(
                         SingleColumnBlockPredicate::create_unique(predicates.back()));
             }
@@ -104,15 +108,57 @@ Status ExprPushDownHelper::convert_predicates(
         case TExprNodeType::IN_PRED: {
             switch (expr->op()) {
             case TExprOpcode::FILTER_IN: {
+                std::shared_ptr<HybridSetBase> set;
                 RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, false, parsed));
                 if (parsed) {
-                    // TODO(gabriel): Use string view
-                    std::vector<std::string> conditions(values.size());
-                    for (size_t i = 0; i < conditions.size(); i++) {
-                        conditions[i] = values[i].to_string();
+                    switch (data_type->get_primitive_type()) {
+#define BUILD_SET_CASE(PType)     \
+    case PType: {                 \
+        set = build_set<PType>(); \
+        break;                    \
+    }
+                        BUILD_SET_CASE(TYPE_TINYINT);
+                        BUILD_SET_CASE(TYPE_SMALLINT);
+                        BUILD_SET_CASE(TYPE_INT);
+                        BUILD_SET_CASE(TYPE_BIGINT);
+                        BUILD_SET_CASE(TYPE_LARGEINT);
+                        BUILD_SET_CASE(TYPE_FLOAT);
+                        BUILD_SET_CASE(TYPE_DOUBLE);
+                        BUILD_SET_CASE(TYPE_CHAR);
+                        BUILD_SET_CASE(TYPE_STRING);
+                        BUILD_SET_CASE(TYPE_DATE);
+                        BUILD_SET_CASE(TYPE_DATETIME);
+                        BUILD_SET_CASE(TYPE_DATEV2);
+                        BUILD_SET_CASE(TYPE_DATETIMEV2);
+                        BUILD_SET_CASE(TYPE_BOOLEAN);
+                        BUILD_SET_CASE(TYPE_IPV4);
+                        BUILD_SET_CASE(TYPE_IPV6);
+                        BUILD_SET_CASE(TYPE_DECIMALV2);
+                        BUILD_SET_CASE(TYPE_DECIMAL32);
+                        BUILD_SET_CASE(TYPE_DECIMAL64);
+                        BUILD_SET_CASE(TYPE_DECIMAL128I);
+                        BUILD_SET_CASE(TYPE_DECIMAL256);
+                    case TYPE_VARCHAR: {
+                        set = build_set<TYPE_STRING>();
+                        break;
                     }
-                    predicates.push_back(create_list_predicate<PredicateType::IN_LIST>(
-                            data_type, cid, conditions, false, arena));
+#undef BUILD_SET_CASE
+                    default:
+                        throw Exception(Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                                "unsupported data type in delete handler. type={}",
+                                type_to_string(data_type->get_primitive_type())));
+                    }
+                    if (is_string_type(data_type->get_primitive_type())) {
+                        for (size_t i = 0; i < values.size(); i++) {
+                            set->insert(reinterpret_cast<const void*>(&values[i]));
+                        }
+                    } else {
+                        for (size_t i = 0; i < values.size(); i++) {
+                            set->insert(reinterpret_cast<const void*>(values[i].data));
+                        }
+                    }
+                    predicates.push_back(create_in_list_predicate<PredicateType::IN_LIST>(
+                            cid, data_type, set, false));
                     root->add_column_predicate(
                             SingleColumnBlockPredicate::create_unique(predicates.back()));
                 }
