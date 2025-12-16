@@ -17,8 +17,8 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
