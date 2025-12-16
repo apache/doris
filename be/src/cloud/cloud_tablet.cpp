@@ -900,10 +900,6 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
-    context.encoding_preference = {.integer_type_default_use_plain_encoding =
-                                           tablet_meta()->integer_type_default_use_plain_encoding(),
-                                   .binary_plain_encoding_default_impl =
-                                           tablet_meta()->binary_plain_encoding_default_impl()};
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
@@ -946,10 +942,6 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
-    context.encoding_preference = {.integer_type_default_use_plain_encoding =
-                                           tablet_meta()->integer_type_default_use_plain_encoding(),
-                                   .binary_plain_encoding_default_impl =
-                                           tablet_meta()->binary_plain_encoding_default_impl()};
     // TODO(liaoxin) enable packed file for transient rowset
     context.allow_packed_file = false;
 

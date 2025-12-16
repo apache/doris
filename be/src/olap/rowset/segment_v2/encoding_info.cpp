@@ -373,6 +373,12 @@ EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
         EncodingTypePB target_encoding;
     };
 
+    LOG_INFO(
+            "[verbose] EncodingInfoResolver::get_default_encoding, type={}, "
+            "integer_type_default_use_plain_encoding={}, binary_plain_encoding_default_impl={}",
+            type, encoding_preference.integer_type_default_use_plain_encoding,
+            BinaryPlainEncodingTypePB_Name(encoding_preference.binary_plain_encoding_default_impl));
+
     // Static array of hooks for default encoding transformations
     static const std::vector<EncodingTransform> hooks = {
             // Hook 1: Binary types - PLAIN_ENCODING -> PLAIN_ENCODING_V2

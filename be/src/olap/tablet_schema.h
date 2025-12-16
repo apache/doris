@@ -696,6 +696,22 @@ public:
         _is_external_segment_column_meta_used = v;
     }
 
+    bool integer_type_default_use_plain_encoding() const {
+        return _integer_type_default_use_plain_encoding;
+    }
+
+    void set_integer_type_default_use_plain_encoding(bool v) {
+        _integer_type_default_use_plain_encoding = v;
+    }
+
+    BinaryPlainEncodingTypePB binary_plain_encoding_default_impl() const {
+        return _binary_plain_encoding_default_impl;
+    }
+
+    void set_binary_plain_encoding_default_impl(BinaryPlainEncodingTypePB impl) {
+        _binary_plain_encoding_default_impl = impl;
+    }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -778,6 +794,10 @@ private:
 
     // Default behavior for new segments: use external ColumnMeta region + CMO table if true
     bool _is_external_segment_column_meta_used = false;
+
+    bool _integer_type_default_use_plain_encoding {false};
+    BinaryPlainEncodingTypePB _binary_plain_encoding_default_impl {
+            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

@@ -303,8 +303,16 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     opts.footer = &_footer;
     opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
 
-    opts.encoding_preference = _opts.rowset_ctx->encoding_preference;
-
+    opts.encoding_preference = {.integer_type_default_use_plain_encoding =
+                                        _tablet_schema->integer_type_default_use_plain_encoding(),
+                                .binary_plain_encoding_default_impl =
+                                        _tablet_schema->binary_plain_encoding_default_impl()};
+    LOG_INFO(
+            "[verbose] VerticalSegmentWriter::_create_column_writer, opts.encoding_preference: "
+            "integer_type_default_use_plain_encoding={}, binary_plain_encoding_default_impl={}",
+            opts.encoding_preference.integer_type_default_use_plain_encoding,
+            BinaryPlainEncodingTypePB_Name(
+                    opts.encoding_preference.binary_plain_encoding_default_impl));
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());

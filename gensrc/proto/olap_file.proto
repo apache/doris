@@ -459,6 +459,9 @@ message TabletSchemaPB {
     // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
     optional bool is_external_segment_column_meta_used = 32 [default = false];
 
+    optional bool integer_type_default_use_plain_encoding = 33;
+    optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 34;
+
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
@@ -497,6 +500,9 @@ message TabletSchemaCloudPB {
 
     // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
     optional bool is_external_segment_column_meta_used = 33 [default = false];
+
+    optional bool integer_type_default_use_plain_encoding = 34;
+    optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 35;
 
     optional bool is_dynamic_schema = 100 [default=false];
 
@@ -594,9 +600,6 @@ message TabletMetaPB {
     optional int64 time_series_compaction_level_threshold = 33 [default = 1];
     optional EncryptionAlgorithmPB encryption_algorithm = 34;
 
-    optional bool integer_type_default_use_plain_encoding = 35;
-    optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 36;
-
     // For cloud
     optional int64 index_id = 1000;
     optional bool is_in_memory = 1001;
@@ -653,9 +656,6 @@ message TabletMetaCloudPB {
     optional int64 time_series_compaction_empty_rowsets_threshold = 37 [default = 5];
     optional int64 time_series_compaction_level_threshold = 38 [default = 1];
     optional EncryptionAlgorithmPB encryption_algorithm = 39;
-
-    optional bool integer_type_default_use_plain_encoding = 40;
-    optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 41;
 
     // Use for selectdb-cloud
     optional string table_name = 101;

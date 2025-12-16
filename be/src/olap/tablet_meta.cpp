@@ -408,8 +408,11 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_is_external_segment_column_meta_used(true);
         _schema->set_external_segment_meta_used_default(true);
 
-        tablet_meta_pb.set_integer_type_default_use_plain_encoding(true);
-        tablet_meta_pb.set_binary_plain_encoding_default_impl(
+        schema->set_integer_type_default_use_plain_encoding(true);
+        _schema->set_integer_type_default_use_plain_encoding(true);
+        schema->set_binary_plain_encoding_default_impl(
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+        _schema->set_binary_plain_encoding_default_impl(
                 BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
         break;
     default:
@@ -835,14 +838,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     if (tablet_meta_pb.has_encryption_algorithm()) {
         _encryption_algorithm = tablet_meta_pb.encryption_algorithm();
     }
-
-    if (tablet_meta_pb.has_integer_type_default_use_plain_encoding()) {
-        _integer_type_default_use_plain_encoding =
-                tablet_meta_pb.integer_type_default_use_plain_encoding();
-    }
-    if (tablet_meta_pb.has_binary_plain_encoding_default_impl()) {
-        _binary_plain_encoding_default_impl = tablet_meta_pb.binary_plain_encoding_default_impl();
-    }
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_meta) {
@@ -936,10 +931,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
             time_series_compaction_level_threshold());
 
     tablet_meta_pb->set_encryption_algorithm(_encryption_algorithm);
-
-    tablet_meta_pb->set_integer_type_default_use_plain_encoding(
-            _integer_type_default_use_plain_encoding);
-    tablet_meta_pb->set_binary_plain_encoding_default_impl(_binary_plain_encoding_default_impl);
 }
 
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {

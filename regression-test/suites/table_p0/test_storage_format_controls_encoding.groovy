@@ -38,8 +38,8 @@ suite('test_storage_format_controls_encoding') {
     logger.info("begin curl ${metaUrl}")
     def jsonMeta = Http.GET(metaUrl, true, false)
 
-    assert jsonMeta.integer_type_default_use_plain_encoding == true
-    assert jsonMeta.binary_plain_encoding_default_impl == "BINARY_PLAIN_ENCODING_V2"
+    assert jsonMeta.schema.integer_type_default_use_plain_encoding == true
+    assert jsonMeta.schema.binary_plain_encoding_default_impl == "BINARY_PLAIN_ENCODING_V2"
 
 
     tableName = "test_storage_format_controls_encoding2"
@@ -62,6 +62,6 @@ suite('test_storage_format_controls_encoding') {
     logger.info("begin curl ${metaUrl}")
     jsonMeta = Http.GET(metaUrl, true, false)
 
-    assert jsonMeta.integer_type_default_use_plain_encoding == false
-    assert jsonMeta.binary_plain_encoding_default_impl == "BINARY_PLAIN_ENCODING_V1"
+    assert jsonMeta.schema.integer_type_default_use_plain_encoding == false
+    assert jsonMeta.schema.binary_plain_encoding_default_impl == "BINARY_PLAIN_ENCODING_V1"
 }

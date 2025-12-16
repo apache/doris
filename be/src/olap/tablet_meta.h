@@ -310,13 +310,6 @@ public:
 
     EncryptionAlgorithmPB encryption_algorithm() const { return _encryption_algorithm; }
 
-    bool integer_type_default_use_plain_encoding() const {
-        return _integer_type_default_use_plain_encoding;
-    }
-    BinaryPlainEncodingTypePB binary_plain_encoding_default_impl() const {
-        return _binary_plain_encoding_default_impl;
-    }
-
 private:
     Status _save_meta(DataDir* data_dir);
     void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
@@ -380,10 +373,6 @@ private:
     int64_t _ttl_seconds = 0;
 
     EncryptionAlgorithmPB _encryption_algorithm = PLAINTEXT;
-
-    bool _integer_type_default_use_plain_encoding {false};
-    BinaryPlainEncodingTypePB _binary_plain_encoding_default_impl {
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
 
     // Persisted storage format for this tablet (e.g. V2, V3). Used to derive
     // schema-level defaults such as external ColumnMeta usage.
