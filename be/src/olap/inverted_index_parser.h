@@ -56,7 +56,7 @@ struct InvertedIndexAnalyzerConfig {
     CharFilterMap char_filter_map;
 };
 
-// Runtime context for analyzer (SRP: only used during query execution)
+// Runtime context for analyzer
 // Contains only the fields needed at runtime
 struct InvertedIndexAnalyzerCtx {
     // Used by execute_column path to determine if tokenization should be skipped

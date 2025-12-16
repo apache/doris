@@ -69,6 +69,8 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     } else {
         config.lower_case = INVERTED_INDEX_PARSER_FALSE;
     }
+    DBUG_EXECUTE_IF("inverted_index_parser.get_parser_lowercase_from_properties",
+                    { config.lower_case = ""; })
     config.stop_words = node.match_predicate.parser_stopwords;
 
     // Step 2: Use config to create analyzer (factory method)
