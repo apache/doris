@@ -410,10 +410,15 @@ private:
     int init_storage_vault_accessors();
 
     /**
-     * Scan key-value pairs between [`begin`, `end`), and perform `recycle_func` on each key-value pair.
+     * Scan key-value pairs between [`begin`, `end`) with multiple rounds of range get(`RangeGetIterator`),
+     * and perform `recycle_func` on each key-value pair.
      *
-     * @param recycle_func defines how to recycle resources corresponding to a key-value pair. Returns 0 if the recycling is successful.
-     * @param loop_done is called after `RangeGetIterator` has no next kv. Usually used to perform a batch recycling. Returns 0 if success. 
+     * @param recycle_func defines how to recycle resources corresponding to a key-value pair.
+     *                     The scan will stop if recycle_func() returns non-zero.
+     *                     recycle_func() returns 0 if the recycling is successful or the scan can continue with ignorable errors.
+     * @param loop_done is called after a round (`RangeGetIterator`) in the scan has no next kv. Usually used to perform a batch recycling.
+     *                  The scan will stop if loop_done() returns non-zero.
+     *                  loop_done() returns 0 if the recycling is successful or the scan can continue with ignorable errors.
      * @return 0 if all corresponding resources are recycled successfully, otherwise non-zero
      */
     int scan_and_recycle(std::string begin, std::string_view end,
