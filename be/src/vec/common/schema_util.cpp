@@ -251,7 +251,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // datetimev2 needs scale
-    if (type == PrimitiveType::TYPE_DATETIMEV2) {
+    if (type == PrimitiveType::TYPE_DATETIMEV2 || type == PrimitiveType::TYPE_TIMESTAMPTZ) {
         column.set_precision(-1);
         column.set_frac(data_type->get_scale());
         return;

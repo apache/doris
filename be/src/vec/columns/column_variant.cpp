@@ -1356,26 +1356,28 @@ void ColumnVariant::Subcolumn::wrapp_array_nullable() {
     }
 }
 
-void ColumnVariant::serialize_one_row_to_string(int64_t row, std::string* output) const {
+void ColumnVariant::serialize_one_row_to_string(int64_t row, std::string* output,
+                                                const DataTypeSerDe::FormatOptions& options) const {
     auto tmp_col = ColumnString::create();
     VectorBufferWriter write_buffer(*tmp_col.get());
     if (is_scalar_variant()) {
-        subcolumns.get_root()->data.serialize_text_json(row, write_buffer);
+        subcolumns.get_root()->data.serialize_text_json(row, write_buffer, options);
     } else {
         // TODO preallocate memory
-        serialize_one_row_to_json_format(row, write_buffer, nullptr);
+        serialize_one_row_to_json_format(row, write_buffer, nullptr, options);
     }
     write_buffer.commit();
     auto str_ref = tmp_col->get_data_at(0);
     *output = std::string(str_ref.data, str_ref.size);
 }
 
-void ColumnVariant::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
+void ColumnVariant::serialize_one_row_to_string(int64_t row, BufferWritable& output,
+                                                const DataTypeSerDe::FormatOptions& options) const {
     if (is_scalar_variant()) {
-        subcolumns.get_root()->data.serialize_text_json(row, output);
+        subcolumns.get_root()->data.serialize_text_json(row, output, options);
         return;
     }
-    serialize_one_row_to_json_format(row, output, nullptr);
+    serialize_one_row_to_json_format(row, output, nullptr, options);
 }
 
 /// Struct that represents elements of the JSON path.
@@ -1497,11 +1499,12 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
     return !root->data.is_null_at(nrow);
 }
 
-void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
-                                                     bool* is_null) const {
+void ColumnVariant::serialize_one_row_to_json_format(
+        int64_t row_num, BufferWritable& output, bool* is_null,
+        const DataTypeSerDe::FormatOptions& options) const {
     // root is not eighther null or empty, we should only process root value
     if (is_visible_root_value(row_num)) {
-        subcolumns.get_root()->data.serialize_text_json(row_num, output);
+        subcolumns.get_root()->data.serialize_text_json(row_num, output, options);
         return;
     }
     const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
@@ -1600,17 +1603,17 @@ void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWrit
         // Serialize value of current path.
         if (auto subcolumn_it = subcolumn_path_map.find(path);
             subcolumn_it != subcolumn_path_map.end()) {
-            DataTypeSerDe::FormatOptions options;
-            options.escape_char = '\\';
-            subcolumn_it->second.serialize_text_json(row_num, output, options);
+            DataTypeSerDe::FormatOptions options2 = options;
+            options2.escape_char = '\\';
+            subcolumn_it->second.serialize_text_json(row_num, output, options2);
         } else {
             // To serialize value stored in shared data we should first deserialize it from binary format.
             Subcolumn tmp_subcolumn(0, true);
             tmp_subcolumn.deserialize_from_sparse_column(sparse_data_values,
                                                          index_in_sparse_data_values++);
-            DataTypeSerDe::FormatOptions options;
-            options.escape_char = '\\';
-            tmp_subcolumn.serialize_text_json(0, output, options);
+            DataTypeSerDe::FormatOptions options2 = options;
+            options2.escape_char = '\\';
+            tmp_subcolumn.serialize_text_json(0, output, options2);
         }
     }
 

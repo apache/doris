@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -97,22 +96,6 @@ public class BrokerMgr {
                 break;
             case OP_DROP_ALL:
                 dropAllBroker(modifyBrokerOp.getBrokerName());
-                break;
-            default:
-                break;
-        }
-    }
-
-    public void execute(ModifyBrokerClause clause) throws DdlException {
-        switch (clause.getOp()) {
-            case OP_ADD:
-                addBrokers(clause.getBrokerName(), clause.getHostPortPairs());
-                break;
-            case OP_DROP:
-                dropBrokers(clause.getBrokerName(), clause.getHostPortPairs());
-                break;
-            case OP_DROP_ALL:
-                dropAllBroker(clause.getBrokerName());
                 break;
             default:
                 break;

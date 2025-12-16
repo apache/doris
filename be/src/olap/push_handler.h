@@ -139,6 +139,7 @@ private:
 
     // col names from _slot_descs
     std::vector<std::string> _all_col_names;
+    std::unordered_map<std::string, uint32_t> _col_name_to_block_idx;
     vectorized::VExprContextSPtrs _push_down_exprs;
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
     // single slot filter conjuncts

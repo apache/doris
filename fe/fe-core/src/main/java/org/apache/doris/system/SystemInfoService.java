@@ -17,8 +17,6 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.analysis.ModifyBackendClause;
-import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -971,68 +969,6 @@ public class SystemInfoService {
         }
         be.setHost(op.getNewHost());
         Env.getCurrentEnv().getEditLog().logModifyBackend(be);
-    }
-
-    public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
-        Backend be = getBackendWithHeartbeatPort(clause.getHost(), clause.getPort());
-        if (be == null) {
-            throw new DdlException("backend does not exists[" + NetUtils
-                    .getHostPortInAccessibleFormat(clause.getHost(), clause.getPort()) + "]");
-        }
-        if (be.getHost().equals(clause.getNewHost())) {
-            // no need to modify
-            return;
-        }
-        be.setHost(clause.getNewHost());
-        Env.getCurrentEnv().getEditLog().logModifyBackend(be);
-    }
-
-    public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
-        List<HostInfo> hostInfos = alterClause.getHostInfos();
-        List<Backend> backends = Lists.newArrayList();
-        if (hostInfos.isEmpty()) {
-            List<String> ids = alterClause.getIds();
-            for (String id : ids) {
-                long backendId = Long.parseLong(id);
-                Backend be = getBackend(backendId);
-                if (be == null) {
-                    throw new DdlException("backend does not exists[" + backendId + "]");
-                }
-                backends.add(be);
-            }
-        } else {
-            for (HostInfo hostInfo : hostInfos) {
-                Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
-                if (be == null) {
-                    throw new DdlException(
-                            "backend does not exists[" + NetUtils
-                                    .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
-                }
-                backends.add(be);
-            }
-        }
-
-        for (Backend be : backends) {
-            boolean shouldModify = false;
-            Map<String, String> tagMap = alterClause.getTagMap();
-            if (!tagMap.isEmpty()) {
-                be.setTagMap(tagMap);
-                shouldModify = true;
-            }
-
-            if (alterClause.isQueryDisabled() != null) {
-                shouldModify = be.setQueryDisabled(alterClause.isQueryDisabled());
-            }
-
-            if (alterClause.isLoadDisabled() != null) {
-                shouldModify = be.setLoadDisabled(alterClause.isLoadDisabled());
-            }
-
-            if (shouldModify) {
-                Env.getCurrentEnv().getEditLog().logModifyBackend(be);
-                LOG.info("finished to modify backend {} ", be);
-            }
-        }
     }
 
     public void modifyBackends(ModifyBackendOp op) throws UserException {

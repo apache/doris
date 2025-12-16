@@ -196,6 +196,7 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DATEV2 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DATETIME ||
            field_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ ||
            field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||

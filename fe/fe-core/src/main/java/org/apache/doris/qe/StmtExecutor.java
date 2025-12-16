@@ -862,6 +862,9 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
+        if (parsedStmt != null && statementContext.getParsedStatement() == null) {
+            statementContext.setParsedStatement(parsedStmt);
+        }
     }
 
     public void finalizeQuery() {
@@ -1305,12 +1308,6 @@ public class StmtExecutor {
                 return;
             }
 
-            if (context.isRunProcedure()) {
-                // plsql will get the returned results without sending them to mysql client.
-                // see org/apache/doris/plsql/executor/DorisRowResult.java
-                return;
-            }
-
             boolean isDryRun = ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery;
             while (true) {
                 // register the fetch result time.
@@ -1748,6 +1745,7 @@ public class StmtExecutor {
                             break;
                         case DATETIME:
                         case DATETIMEV2:
+                        case TIMESTAMPTZ:
                             DateTimeV2Literal datetime = new DateTimeV2Literal(item);
                             long microSecond = datetime.getMicroSecond();
                             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html
@@ -1986,14 +1984,6 @@ public class StmtExecutor {
 
     public Coordinator getCoord() {
         return coord;
-    }
-
-    public List<String> getColumns() {
-        return parsedStmt.getColLabels();
-    }
-
-    public List<Type> getReturnTypes() {
-        return exprToType(parsedStmt.getResultExprs());
     }
 
     public List<Type> getReturnTypes(Queriable stmt) {

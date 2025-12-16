@@ -36,6 +36,7 @@
 #include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -177,7 +178,9 @@ public:
     [[nodiscard]] const std::string& expr_name() const;
     [[nodiscard]] bool is_blockable() const;
 
-    VExprSPtr root() { return _root; }
+    [[nodiscard]] Status execute_const_expr(ColumnWithTypeAndName& result);
+
+    VExprSPtr root() const { return _root; }
     void set_root(const VExprSPtr& expr) { _root = expr; }
     void set_index_context(std::shared_ptr<IndexExecContext> index_context) {
         _index_context = std::move(index_context);

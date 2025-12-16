@@ -93,8 +93,8 @@ TEST_F(JsonbDocumentTest, writer) {
 
     writer.writeEndObject();
 
-    JsonbDocument* doc = writer.getDocument();
-    auto* root = doc->getValue();
+    const JsonbDocument* doc = writer.getDocument();
+    const auto* root = doc->getValue();
     ASSERT_TRUE(root->type == JsonbType::T_Object)
             << "invalid root type:" << static_cast<JsonbTypeUnder>(root->type);
 
@@ -242,8 +242,8 @@ TEST_F(JsonbDocumentTest, forobject) {
 
     writer.writeEndObject();
 
-    JsonbDocument* doc = writer.getDocument();
-    auto* root = doc->getValue();
+    const JsonbDocument* doc = writer.getDocument();
+    const auto* root = doc->getValue();
     std::cout << JsonbToJson {}.to_json_string(root) << std::endl;
     EXPECT_EQ(
             JsonbToJson {}.to_json_string(root),
@@ -277,6 +277,21 @@ TEST_F(JsonbDocumentTest, forobject) {
             EXPECT_TRUE(val != nullptr);
         }
     }
+}
+
+TEST_F(JsonbDocumentTest, invaild_jsonb_document) {
+    const JsonbDocument* doc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(nullptr, 0, &doc);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(doc != nullptr);
+    EXPECT_TRUE(doc->getValue()->isNull());
+
+    JsonbToJson jsonb_to_json;
+    std::string json_null = jsonb_to_json.to_json_string(doc->getValue());
+    EXPECT_EQ(json_null, "null");
+
+    std::string json_string = JsonbToJson::jsonb_to_json_string(nullptr, 0);
+    EXPECT_EQ(json_null, json_string);
 }
 
 } // namespace doris

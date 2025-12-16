@@ -29,6 +29,7 @@ namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
                                                     const DataTypes& argument_types,
+                                                    const DataTypePtr& result_type,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 2) {
@@ -50,10 +51,11 @@ using creator =
         creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
                                TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32, TYPE_DECIMAL64,
                                TYPE_DECIMAL128I, TYPE_DECIMAL256, TYPE_VARCHAR, TYPE_DATEV2,
-                               TYPE_DATETIMEV2, TYPE_IPV4, TYPE_IPV6>;
+                               TYPE_DATETIMEV2, TYPE_TIMESTAMPTZ, TYPE_IPV4, TYPE_IPV6>;
 
 AggregateFunctionPtr create_aggregate_function_topn_array(const std::string& name,
                                                           const DataTypes& argument_types,
+                                                          const DataTypePtr& result_type,
                                                           const bool result_is_nullable,
                                                           const AggregateFunctionAttr& attr) {
     bool has_default_param = (argument_types.size() == 3);
@@ -73,6 +75,7 @@ using ImplWeightWithDefault = AggregateFunctionTopNImplWeight<T, true>;
 
 AggregateFunctionPtr create_aggregate_function_topn_weighted(const std::string& name,
                                                              const DataTypes& argument_types,
+                                                             const DataTypePtr& result_type,
                                                              const bool result_is_nullable,
                                                              const AggregateFunctionAttr& attr) {
     bool has_default_param = (argument_types.size() == 4);

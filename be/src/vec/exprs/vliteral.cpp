@@ -49,23 +49,36 @@ Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& desc, VExprCo
     return Status::OK();
 }
 
-Status VLiteral::execute_column(VExprContext* context, const Block* block,
+Status VLiteral::execute_column(VExprContext* context, const Block* block, size_t count,
                                 ColumnPtr& result_column) const {
-    size_t row_size = std::max(block->rows(), _column_ptr->size());
-    result_column = _column_ptr->clone_resized(row_size);
+    result_column = _column_ptr->clone_resized(count);
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 
-std::string VLiteral::value() const {
+std::string VLiteral::value(const DataTypeSerDe::FormatOptions& options) const {
     DCHECK(_column_ptr->size() == 1);
-    return _data_type->to_string(*_column_ptr, 0);
+    return _data_type->to_string(*_column_ptr, 0, options);
 }
 
+#ifdef BE_TEST
+std::string VLiteral::value() const {
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto timezone = cctz::utc_time_zone();
+    format_options.timezone = &timezone;
+    return value(format_options);
+}
+#endif
+
 std::string VLiteral::debug_string() const {
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto timezone = cctz::utc_time_zone();
+    format_options.timezone = &timezone;
+
     std::stringstream out;
     out << "VLiteral (name = " << _expr_name;
     out << ", type = " << _data_type->get_name();
-    out << ", value = (" << value();
+    out << ", value = (" << value(format_options);
     out << "))";
     return out.str();
 }
