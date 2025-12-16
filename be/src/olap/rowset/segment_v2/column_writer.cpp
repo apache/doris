@@ -107,6 +107,7 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
 
     null_options.need_zone_map = false;
     null_options.need_bloom_filter = false;
+    null_options.encoding_preference = opts.encoding_preference;
 
     TabletColumn null_column =
             TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type, false,
@@ -133,6 +134,7 @@ Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
         column_options.meta = opts.meta->mutable_children_columns(i);
         column_options.need_zone_map = false;
         column_options.need_bloom_filter = sub_column.is_bf_column();
+        column_options.encoding_preference = opts.encoding_preference;
         std::unique_ptr<ColumnWriter> sub_column_writer;
         RETURN_IF_ERROR(
                 ColumnWriter::create(column_options, &sub_column, file_writer, &sub_column_writer));
@@ -160,6 +162,7 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     item_options.meta = opts.meta->mutable_children_columns(0);
     item_options.need_zone_map = false;
     item_options.need_bloom_filter = item_column.is_bf_column();
+    item_options.encoding_preference = opts.encoding_preference;
     std::unique_ptr<ColumnWriter> item_writer;
     RETURN_IF_ERROR(ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
 
@@ -179,6 +182,7 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
 
     length_options.need_zone_map = false;
     length_options.need_bloom_filter = false;
+    length_options.encoding_preference = opts.encoding_preference;
 
     TabletColumn length_column =
             TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
@@ -218,6 +222,7 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
         item_options.meta = opts.meta->mutable_children_columns(i);
         item_options.need_zone_map = false;
         item_options.need_bloom_filter = item_column.is_bf_column();
+        item_options.encoding_preference = opts.encoding_preference;
         std::unique_ptr<ColumnWriter> item_writer;
         RETURN_IF_ERROR(
                 ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
@@ -241,6 +246,7 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
 
     length_options.need_zone_map = false;
     length_options.need_bloom_filter = false;
+    length_options.encoding_preference = opts.encoding_preference;
 
     TabletColumn length_column =
             TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
@@ -426,13 +432,14 @@ Status ScalarColumnWriter::init() {
 
     PageBuilder* page_builder = nullptr;
 
-    RETURN_IF_ERROR(
-            EncodingInfo::get(get_field()->type(), _opts.meta->encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(get_field()->type(), _opts.meta->encoding(),
+                                      _opts.encoding_preference, &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;
     opts.data_page_size = _opts.data_page_size;
     opts.dict_page_size = _opts.dict_page_size;
+    opts.encoding_preference = _opts.encoding_preference;
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
         return Status::NotSupported("Failed to create page builder for type {} and encoding {}",
