@@ -34,6 +34,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h"  // for OwnedSlice
 
@@ -78,6 +79,9 @@ struct ColumnWriterOptions {
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
     const TabletIndex* ann_index = nullptr;
+
+    EncodingPreference encoding_preference {};
+
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()

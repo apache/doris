@@ -306,7 +306,7 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
     if (_type_info == nullptr) {
         return Status::NotSupported("unsupported typeinfo, type={}", meta->type());
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info->type(), meta->encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type_info->type(), meta->encoding(), {}, &_encoding_info));
 
     for (int i = 0; i < meta->indexes_size(); i++) {
         const auto& index_meta = meta->indexes(i);
@@ -1957,7 +1957,8 @@ Status FileColumnIterator::_read_dict_data() {
                                        &dict_data, &dict_footer, _compress_codec, true));
     const EncodingInfo* encoding_info;
     RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                      dict_footer.dict_page_footer().encoding(), &encoding_info));
+                                      dict_footer.dict_page_footer().encoding(), {},
+                                      &encoding_info));
     RETURN_IF_ERROR(encoding_info->create_page_decoder(dict_data, {}, _dict_decoder));
     RETURN_IF_ERROR(_dict_decoder->init());
 

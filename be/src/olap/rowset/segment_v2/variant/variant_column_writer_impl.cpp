@@ -501,6 +501,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         opts.compression_type = _opts.compression_type;
         opts.rowset_ctx = _opts.rowset_ctx;
         opts.file_writer = _opts.file_writer;
+        opts.encoding_preference = _opts.encoding_preference;
         std::unique_ptr<ColumnWriter> writer;
         vectorized::schema_util::inherit_column_attributes(*_tablet_column, tablet_column);
 

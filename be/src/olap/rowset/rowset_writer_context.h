@@ -151,6 +151,8 @@ struct RowsetWriterContext {
 
     std::optional<EncryptionAlgorithmPB> encrypt_algorithm;
 
+    EncodingPreference encoding_preference {};
+
     bool is_local_rowset() const { return !storage_resource; }
 
     std::string segment_path(int seg_id) const {
