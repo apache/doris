@@ -63,6 +63,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -220,6 +221,7 @@ public class FederationBackendPolicy {
     public Multimap<Backend, Split> computeScanRangeAssignment(List<Split> splits) throws UserException {
         ListMultimap<Backend, Split> assignment = ArrayListMultimap.create();
 
+        Collections.shuffle(splits, new Random(123456789L));
         List<Split> remainingSplits;
 
         List<Backend> backends = new ArrayList<>();
@@ -228,7 +230,7 @@ public class FederationBackendPolicy {
         }
         ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
 
-        boolean splitsToBeRedistributed = false;
+        boolean splitsToBeRedistributed = true;
 
         // optimizedLocalScheduling enables prioritized assignment of splits to local nodes when splits contain
         // locality information
@@ -499,3 +501,4 @@ public class FederationBackendPolicy {
         }
     }
 }
+
