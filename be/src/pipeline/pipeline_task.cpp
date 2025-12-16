@@ -553,6 +553,12 @@ Status PipelineTask::execute(bool* done) {
                 }
             }
 
+            if (_eos && !_sink->need_rerun(_state)) {
+                if (auto ctx = _fragment_context.lock().get(); ctx && ctx->need_notify_close()) {
+                    RETURN_IF_ERROR(close(Status::OK(), false));
+                }
+            }
+
             DBUG_EXECUTE_IF("PipelineTask::execute.sink_eos_sleep", {
                 auto required_pipeline_id =
                         DebugPoints::instance()->get_debug_param_or_default<int32_t>(
