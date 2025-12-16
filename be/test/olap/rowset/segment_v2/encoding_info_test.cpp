@@ -44,7 +44,9 @@ public:
 TEST_F(EncodingInfoTest, normal) {
     const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
     const EncodingInfo* encoding_info = nullptr;
-    auto status = EncodingInfo::get(type_info->type(), PLAIN_ENCODING, &encoding_info);
+    EncodingPreference encoding_preference;
+    auto status = EncodingInfo::get(type_info->type(), PLAIN_ENCODING, encoding_preference,
+                                    &encoding_info);
     EXPECT_TRUE(status.ok());
     EXPECT_NE(nullptr, encoding_info);
 }
@@ -52,7 +54,9 @@ TEST_F(EncodingInfoTest, normal) {
 TEST_F(EncodingInfoTest, no_encoding) {
     const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
     const EncodingInfo* encoding_info = nullptr;
-    auto status = EncodingInfo::get(type_info->type(), DICT_ENCODING, &encoding_info);
+    EncodingPreference encoding_preference;
+    auto status = EncodingInfo::get(type_info->type(), DICT_ENCODING, encoding_preference,
+                                    &encoding_info);
     EXPECT_FALSE(status.ok());
 }
 
@@ -61,73 +65,96 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
     auto test_dict_type_encoding = [](FieldType type, const std::string& type_name) {
         const auto* type_info = get_scalar_type_info(type);
 
-        // Test with binary_plain_encoding_default_impl = "v1" (default)
+        // Test with BINARY_PLAIN_ENCODING_V1 (default)
         // String and JSON types default to DICT_ENCODING
-        config::binary_plain_encoding_default_impl = "v1";
-        EncodingTypePB encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
+        EncodingPreference pref_v1;
+        pref_v1.binary_plain_encoding_default_impl =
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
+        EncodingTypePB encoding_type =
+                EncodingInfo::get_default_encoding(type_info->type(), pref_v1, false);
         EXPECT_EQ(DICT_ENCODING, encoding_type)
-                << "Type " << type_name << " should use DICT_ENCODING when config is false";
+                << "Type " << type_name << " should use DICT_ENCODING with V1 preference";
 
-        // Test with binary_plain_encoding_default_impl = "v2"
-        // Config doesn't affect DICT_ENCODING types
-        config::binary_plain_encoding_default_impl = "v2";
-        encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
+        // Test with BINARY_PLAIN_ENCODING_V2
+        // Preference doesn't affect DICT_ENCODING types
+        EncodingPreference pref_v2;
+        pref_v2.binary_plain_encoding_default_impl =
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
+        encoding_type = EncodingInfo::get_default_encoding(type_info->type(), pref_v2, false);
         EXPECT_EQ(DICT_ENCODING, encoding_type)
-                << "Type " << type_name << " should still use DICT_ENCODING when config is true";
+                << "Type " << type_name << " should still use DICT_ENCODING with V2 preference";
     };
 
     // Helper lambda to test aggregate state types with PLAIN_ENCODING as default
     auto test_plain_type_encoding = [](FieldType type, const std::string& type_name) {
         const auto* type_info = get_scalar_type_info(type);
 
-        // Test with binary_plain_encoding_default_impl = "v1" (default)
-        config::binary_plain_encoding_default_impl = "v1";
-        EncodingTypePB encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
+        // Test with BINARY_PLAIN_ENCODING_V1 (default)
+        EncodingPreference pref_v1;
+        pref_v1.binary_plain_encoding_default_impl =
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
+        EncodingTypePB encoding_type =
+                EncodingInfo::get_default_encoding(type_info->type(), pref_v1, false);
         EXPECT_EQ(PLAIN_ENCODING, encoding_type)
-                << "Type " << type_name << " should use PLAIN_ENCODING when config is false";
+                << "Type " << type_name << " should use PLAIN_ENCODING with V1 preference";
 
-        // Test with binary_plain_encoding_default_impl = "v2"
-        config::binary_plain_encoding_default_impl = "v2";
-        encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
+        // Test with BINARY_PLAIN_ENCODING_V2
+        EncodingPreference pref_v2;
+        pref_v2.binary_plain_encoding_default_impl =
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
+        encoding_type = EncodingInfo::get_default_encoding(type_info->type(), pref_v2, false);
         EXPECT_EQ(PLAIN_ENCODING_V2, encoding_type)
-                << "Type " << type_name << " should use PLAIN_ENCODING_V2 when config is true";
+                << "Type " << type_name << " should use PLAIN_ENCODING_V2 with V2 preference";
     };
 
-    // Test string types (default to DICT_ENCODING, not affected by config)
+    // Test string types (default to DICT_ENCODING, not affected by preference)
     test_dict_type_encoding(FieldType::OLAP_FIELD_TYPE_VARCHAR, "VARCHAR");
     test_dict_type_encoding(FieldType::OLAP_FIELD_TYPE_STRING, "STRING");
     test_dict_type_encoding(FieldType::OLAP_FIELD_TYPE_CHAR, "CHAR");
 
-    // Test JSON/variant types (default to DICT_ENCODING, not affected by config)
+    // Test JSON/variant types (default to DICT_ENCODING, not affected by preference)
     test_dict_type_encoding(FieldType::OLAP_FIELD_TYPE_JSONB, "JSONB");
     test_dict_type_encoding(FieldType::OLAP_FIELD_TYPE_VARIANT, "VARIANT");
 
-    // Test aggregate state types (default to PLAIN_ENCODING, affected by config)
+    // Test aggregate state types (default to PLAIN_ENCODING, affected by preference)
     test_plain_type_encoding(FieldType::OLAP_FIELD_TYPE_HLL, "HLL");
     test_plain_type_encoding(FieldType::OLAP_FIELD_TYPE_BITMAP, "BITMAP");
     test_plain_type_encoding(FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, "QUANTILE_STATE");
     test_plain_type_encoding(FieldType::OLAP_FIELD_TYPE_AGG_STATE, "AGG_STATE");
 
-    // Test non-binary type (BIGINT) - should not be affected by the config
+    // Test non-binary type (BIGINT) - should not be affected by binary preference
     const auto* bigint_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
 
-    config::binary_plain_encoding_default_impl = "v1";
-    auto expected_encoding =
-            (config::integer_type_default_use_plain_encoding) ? PLAIN_ENCODING : BIT_SHUFFLE;
-    EncodingTypePB encoding_type =
-            EncodingInfo::get_default_encoding(bigint_type_info->type(), false);
-    EXPECT_EQ(expected_encoding, encoding_type);
+    // Test with plain encoding disabled for integers (default)
+    EncodingPreference pref_plain_disabled;
+    pref_plain_disabled.integer_type_default_use_plain_encoding = false;
+    pref_plain_disabled.binary_plain_encoding_default_impl =
+            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
+    EncodingTypePB encoding_type = EncodingInfo::get_default_encoding(bigint_type_info->type(),
+                                                                      pref_plain_disabled, false);
+    EXPECT_EQ(BIT_SHUFFLE, encoding_type);
 
-    config::binary_plain_encoding_default_impl = "v2";
-    encoding_type = EncodingInfo::get_default_encoding(bigint_type_info->type(), false);
-    EXPECT_EQ(expected_encoding, encoding_type); // Should remain BIT_SHUFFLE
+    // Test with plain encoding enabled for integers
+    EncodingPreference pref_plain_enabled;
+    pref_plain_enabled.integer_type_default_use_plain_encoding = true;
+    pref_plain_enabled.binary_plain_encoding_default_impl =
+            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
+    encoding_type =
+            EncodingInfo::get_default_encoding(bigint_type_info->type(), pref_plain_enabled, false);
+    EXPECT_EQ(PLAIN_ENCODING, encoding_type);
 
-    // Reset to default
-    config::binary_plain_encoding_default_impl = "v1";
+    // Verify binary preference doesn't affect integer types
+    pref_plain_enabled.binary_plain_encoding_default_impl =
+            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
+    encoding_type =
+            EncodingInfo::get_default_encoding(bigint_type_info->type(), pref_plain_enabled, false);
+    EXPECT_EQ(PLAIN_ENCODING, encoding_type); // Should still be PLAIN_ENCODING
 }
 
 // Comprehensive test for _data_page_pre_decoder for all encoding types
 TEST_F(EncodingInfoTest, test_all_pre_decoders) {
+    EncodingPreference encoding_preference;
+
     // Test BIT_SHUFFLE encoding - should have BitShufflePagePreDecoder
     // Test various integer types
     std::vector<FieldType> bitshuffle_types = {
@@ -146,7 +173,7 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
 
     for (auto type : bitshuffle_types) {
         const EncodingInfo* encoding_info = nullptr;
-        auto status = EncodingInfo::get(type, BIT_SHUFFLE, &encoding_info);
+        auto status = EncodingInfo::get(type, BIT_SHUFFLE, encoding_preference, &encoding_info);
         if (status.ok()) {
             ASSERT_NE(nullptr, encoding_info);
             auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
@@ -168,7 +195,7 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
 
     for (auto type : dict_types) {
         const EncodingInfo* encoding_info = nullptr;
-        auto status = EncodingInfo::get(type, DICT_ENCODING, &encoding_info);
+        auto status = EncodingInfo::get(type, DICT_ENCODING, encoding_preference, &encoding_info);
         ASSERT_TRUE(status.ok()) << "Type " << static_cast<int>(type)
                                  << " should support DICT_ENCODING";
         ASSERT_NE(nullptr, encoding_info);
@@ -192,7 +219,8 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
 
     for (auto type : plain_v2_types) {
         const EncodingInfo* encoding_info = nullptr;
-        auto status = EncodingInfo::get(type, PLAIN_ENCODING_V2, &encoding_info);
+        auto status =
+                EncodingInfo::get(type, PLAIN_ENCODING_V2, encoding_preference, &encoding_info);
         ASSERT_TRUE(status.ok()) << "Type " << static_cast<int>(type)
                                  << " should support PLAIN_ENCODING_V2";
         ASSERT_NE(nullptr, encoding_info);
@@ -239,7 +267,7 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
 
     for (auto type : plain_encoding_types) {
         const EncodingInfo* encoding_info = nullptr;
-        auto status = EncodingInfo::get(type, PLAIN_ENCODING, &encoding_info);
+        auto status = EncodingInfo::get(type, PLAIN_ENCODING, encoding_preference, &encoding_info);
         if (status.ok() && encoding_info != nullptr) {
             auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
             EXPECT_EQ(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
@@ -258,7 +286,7 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
 
     for (auto type : for_encoding_types) {
         const EncodingInfo* encoding_info = nullptr;
-        auto status = EncodingInfo::get(type, FOR_ENCODING, &encoding_info);
+        auto status = EncodingInfo::get(type, FOR_ENCODING, encoding_preference, &encoding_info);
         if (status.ok() && encoding_info != nullptr) {
             auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
             EXPECT_EQ(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
@@ -275,7 +303,7 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
 
     for (auto type : prefix_encoding_types) {
         const EncodingInfo* encoding_info = nullptr;
-        auto status = EncodingInfo::get(type, PREFIX_ENCODING, &encoding_info);
+        auto status = EncodingInfo::get(type, PREFIX_ENCODING, encoding_preference, &encoding_info);
         if (status.ok() && encoding_info != nullptr) {
             auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
             EXPECT_EQ(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
@@ -286,7 +314,8 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
     // Test RLE - should NOT have pre_decoder (only for BOOL)
     {
         const EncodingInfo* encoding_info = nullptr;
-        auto status = EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_BOOL, RLE, &encoding_info);
+        auto status = EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_BOOL, RLE, encoding_preference,
+                                        &encoding_info);
         if (status.ok() && encoding_info != nullptr) {
             auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
             EXPECT_EQ(nullptr, pre_decoder) << "BOOL with RLE should NOT have pre_decoder";
