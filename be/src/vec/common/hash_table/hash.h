@@ -202,6 +202,27 @@ struct HashCRC32<doris::vectorized::UInt72> {
 };
 
 template <>
+struct HashCRC32<doris::vectorized::UInt96> {
+    size_t operator()(const doris::vectorized::UInt96& x) const {
+        doris::vectorized::UInt64 crc = -1ULL;
+        crc = _mm_crc32_u32(crc, x.a);
+        crc = _mm_crc32_u64(crc, x.b);
+        return crc;
+    }
+};
+
+template <>
+struct HashCRC32<doris::vectorized::UInt104> {
+    size_t operator()(const doris::vectorized::UInt104& x) const {
+        doris::vectorized::UInt64 crc = -1ULL;
+        crc = _mm_crc32_u8(crc, x.a);
+        crc = _mm_crc32_u32(crc, x.b);
+        crc = _mm_crc32_u64(crc, x.c);
+        return crc;
+    }
+};
+
+template <>
 struct HashCRC32<doris::vectorized::UInt136> {
     size_t operator()(const doris::vectorized::UInt136& x) const {
         doris::vectorized::UInt64 crc = -1ULL;

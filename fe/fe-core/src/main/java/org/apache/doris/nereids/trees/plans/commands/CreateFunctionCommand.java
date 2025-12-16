@@ -893,6 +893,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             case TIMEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIMEV2);
                 break;
+            case TIMESTAMPTZ:
+                typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMPTZ);
+                break;
             case DECIMALV2:
             case DECIMAL128:
                 typeBuilder.setId(Types.PGenericType.TypeId.DECIMAL128)
@@ -1145,11 +1148,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                     expression.getDataType().toCatalogDataType(), hasVarArguments,
                     "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
-            FunctionCallExpr functionCallExpr;
             // create catalog FunctionCallExpr without analyze again
-            functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-            functionCallExpr.setNullableFromNereids(expression.nullable());
-            return functionCallExpr;
+            return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), expression.nullable());
         }
     }
 }

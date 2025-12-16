@@ -55,10 +55,13 @@ TransactionalHiveReader::TransactionalHiveReader(std::unique_ptr<GenericReader> 
 }
 
 Status TransactionalHiveReader::init_reader(
-        const std::vector<std::string>& column_names, const VExprContextSPtrs& conjuncts,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+        const std::vector<std::string>& column_names,
+        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+        const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+        const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+    _col_name_to_block_idx = col_name_to_block_idx;
     auto* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
     _col_names.insert(_col_names.end(), column_names.begin(), column_names.end());
     _col_names.insert(_col_names.end(), TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
@@ -108,9 +111,9 @@ Status TransactionalHiveReader::init_reader(
         }
     }
 
-    Status status = orc_reader->init_reader(&_col_names, conjuncts, true, tuple_descriptor,
-                                            row_descriptor, not_single_slot_filter_conjuncts,
-                                            slot_id_to_filter_conjuncts, table_info_node_ptr);
+    Status status = orc_reader->init_reader(
+            &_col_names, col_name_to_block_idx, conjuncts, true, tuple_descriptor, row_descriptor,
+            not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts, table_info_node_ptr);
     return status;
 }
 
@@ -119,11 +122,15 @@ Status TransactionalHiveReader::get_next_block_inner(Block* block, size_t* read_
         DataTypePtr data_type = get_data_type_with_default_argument(
                 DataTypeFactory::instance().create_data_type(i.type, false));
         MutableColumnPtr data_column = data_type->create_column();
+        (*_col_name_to_block_idx)[i.column_lower_case] = static_cast<uint32_t>(block->columns());
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, i.column_lower_case));
     }
     auto res = _file_format_reader->get_next_block(block, read_rows, eof);
     Block::erase_useless_column(block, block->columns() - TransactionalHive::READ_PARAMS.size());
+    for (const auto& i : TransactionalHive::READ_PARAMS) {
+        _col_name_to_block_idx->erase(i.column_lower_case);
+    }
     return res;
 }
 
@@ -200,8 +207,10 @@ Status TransactionalHiveReader::init_row_filters() {
         }
 
         RETURN_IF_ERROR(delete_reader.init_reader(
-                &TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE, {}, false, nullptr, nullptr,
-                nullptr, nullptr, acid_info_node));
+                &TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE,
+                const_cast<std::unordered_map<std::string, uint32_t>*>(
+                        &TransactionalHive::DELETE_COL_NAME_TO_BLOCK_IDX),
+                {}, false, nullptr, nullptr, nullptr, nullptr, acid_info_node));
 
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;

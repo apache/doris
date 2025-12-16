@@ -1745,6 +1745,7 @@ public class StmtExecutor {
                             break;
                         case DATETIME:
                         case DATETIMEV2:
+                        case TIMESTAMPTZ:
                             DateTimeV2Literal datetime = new DateTimeV2Literal(item);
                             long microSecond = datetime.getMicroSecond();
                             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html

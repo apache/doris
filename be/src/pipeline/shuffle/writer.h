@@ -46,7 +46,7 @@ private:
                              size_t rows, vectorized::Block* block, bool eos);
 
     template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const;
+    Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const;
 
     vectorized::PaddedPODArray<uint32_t> _row_idx;
     vectorized::PaddedPODArray<uint32_t> _partition_rows_histogram;

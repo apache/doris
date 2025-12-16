@@ -41,7 +41,7 @@ public class IndexSchemaProcNodeTest {
         Column column2 = new Column("mv_bitmap_union_v1", Type.BITMAP, false, AggregateType.BITMAP_UNION, true, "", "");
         TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, "db1", "t1");
         SlotRef slotRef = new SlotRef(tableNameInfo, "v1");
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr("to_bitmap", Lists.newArrayList(slotRef));
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("to_bitmap", Lists.newArrayList(slotRef), true);
         column2.setDefineExpr(functionCallExpr);
         columnList.add(column1);
         columnList.add(column2);

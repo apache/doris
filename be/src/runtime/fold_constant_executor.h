@@ -30,6 +30,7 @@
 #include "runtime/types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 
@@ -55,7 +56,8 @@ private:
 
     Status _get_result(void* src, size_t size, const vectorized::DataTypePtr& type,
                        vectorized::ColumnPtr column_ptr, vectorized::DataTypePtr column_type,
-                       std::string& result);
+                       std::string& result,
+                       const vectorized::DataTypeSerDe::FormatOptions& options);
 
     std::unique_ptr<RuntimeState> _runtime_state;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;

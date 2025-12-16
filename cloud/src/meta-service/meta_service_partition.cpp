@@ -205,6 +205,13 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     commit_index_log.set_table_id(request->table_id());
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    if (!request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "db_id is required for versioned write, please upgrade your FE version";
+        return;
+    }
+
     CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
@@ -253,7 +260,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         txn->remove(key);
 
         // Save the index meta/index keys
-        if (request->has_db_id() && is_version_write_enabled(instance_id)) {
+        if (is_versioned_write) {
             int64_t db_id = request->db_id();
             int64_t table_id = request->table_id();
             std::string index_meta_key = versioned::meta_index_key({instance_id, index_id});
@@ -279,7 +286,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         }
     }
 
-    if (request->has_db_id() && request->has_is_new_table() && request->is_new_table()) {
+    if (request->has_is_new_table() && request->is_new_table()) {
         if (is_versioned_read) {
             // Read the table version, to build the operation log visible version range.
             Versionstamp table_version;
@@ -355,6 +362,13 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     bool need_commit = false;
     bool is_versioned_write = is_version_write_enabled(instance_id);
     bool is_versioned_read = is_version_read_enabled(instance_id);
+
+    if (is_versioned_write && !request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for versioned write, please upgrade your FE version";
+        return;
+    }
+
     DropIndexLogPB drop_index_log;
     drop_index_log.set_db_id(request->db_id());
     drop_index_log.set_table_id(request->table_id());
@@ -648,6 +662,12 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
     bool is_versioned_write = is_version_write_enabled(instance_id);
+    if (is_versioned_write && !request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for versioned write, please upgrade your FE version";
+        return;
+    }
+
     CloneChainReader reader(instance_id, resource_mgr_.get());
     size_t num_commit = 0;
     for (auto part_id : partition_ids) {
@@ -702,7 +722,7 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
         num_commit += 1;
 
         // Save the partition meta/index keys
-        if (request->has_db_id() && is_versioned_write) {
+        if (is_versioned_write) {
             int64_t db_id = request->db_id();
             int64_t table_id = request->table_id();
             std::string part_meta_key = versioned::meta_partition_key({instance_id, part_id});
@@ -734,19 +754,17 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
     }
 
     // update table versions
-    if (request->has_db_id()) {
-        if (is_versioned_read) {
-            // Read the table version, to build the operation log visible version range.
-            Versionstamp table_version;
-            err = reader.get_table_version(txn.get(), request->table_id(), &table_version, true);
-            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get table version, err={}", err);
-                return;
-            }
+    if (is_versioned_read) {
+        // Read the table version, to build the operation log visible version range.
+        Versionstamp table_version;
+        err = reader.get_table_version(txn.get(), request->table_id(), &table_version, true);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get table version, err={}", err);
+            return;
         }
-        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
     }
+    update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
 
     if (commit_partition_log.partition_ids_size() > 0 && is_version_write_enabled(instance_id)) {
         std::string operation_log_key = versioned::log_key({instance_id});
@@ -787,6 +805,12 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         !request->has_table_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty partition_ids or index_ids or table_id";
+        return;
+    }
+
+    if (!request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for drop_partition";
         return;
     }
 
@@ -873,8 +897,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     if (!need_commit) return;
 
     // Update table version only when deleting non-empty partitions
-    if (request->has_db_id() && request->has_need_update_table_version() &&
-        request->need_update_table_version()) {
+    if (request->has_need_update_table_version() && request->need_update_table_version()) {
         if (is_versioned_read) {
             // Read the table version, to build the operation log visible version range.
             Versionstamp table_version;
