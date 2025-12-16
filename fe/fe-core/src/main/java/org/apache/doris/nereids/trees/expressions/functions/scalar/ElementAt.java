@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -36,6 +38,7 @@ import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -95,5 +98,48 @@ public class ElementAt extends ScalarFunction
             return new StructElement(child(0), child(1));
         }
         return this;
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        List<Expression> arguments = getArguments();
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
+        boolean findVariantType = false;
+
+        for (int i = 0; i < arguments.size(); i++) {
+            // Get signature type for current argument position
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+
+            // Get actual type of the argument expression
+            DataType expressionType = arguments.get(i).getDataType();
+
+            // If both signature type and expression type are variant,
+            // use expression type and update return type
+            if (sigType instanceof VariantType && expressionType instanceof VariantType) {
+                // return type is variant, update return type to expression type
+                if (signature.returnType instanceof VariantType) {
+                    signature = signature.withReturnType(expressionType);
+                    if (findVariantType) {
+                        throw new AnalysisException("variant type is not supported in multiple arguments");
+                    } else {
+                        findVariantType = true;
+                    }
+                }
+                newArgTypes.add(expressionType);
+            } else {
+                // Otherwise keep original signature type
+                newArgTypes.add(sigType);
+            }
+        }
+
+        // Update signature with new argument types
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
+        return super.computeSignature(signature);
     }
 }
