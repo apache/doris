@@ -559,7 +559,7 @@ public:
     explicit ParquetSchemaModeHandler(RuntimeState* state) : ModeHandler(state) {}
 
     void init_slot_pos_map(const std::vector<SlotDescriptor*>& slots) override {
-        std::unordered_map<std::string, int> name_to_pos = _build_name_to_pos_map(slots);
+        const auto& name_to_pos = _build_name_to_pos_map(slots);
         _init_slot_pos_map(name_to_pos, kSchemaColumnNames, &_slot_pos);
     }
 
