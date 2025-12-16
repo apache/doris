@@ -381,6 +381,10 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         TMetaScanRange scanRange = new TMetaScanRange();
         scanRange.setMetadataType(TMetadataType.PARQUET);
         scanRange.setParquetParams(parquetParams);
+        // Fan out: one file per split so MetadataScanNode can distribute across BEs.
+        if (paths != null && !paths.isEmpty()) {
+            scanRange.setSerializedSplits(paths);
+        }
         return scanRange;
     }
 

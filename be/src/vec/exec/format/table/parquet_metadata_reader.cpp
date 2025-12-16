@@ -323,10 +323,16 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
                 "Missing parquet parameters for parquet_metadata table function");
     }
     const TParquetMetadataParams& params = scan_range.parquet_params;
-    if (!params.__isset.paths || params.paths.empty()) {
+    std::vector<std::string> resolved_paths;
+    if (scan_range.__isset.serialized_splits && !scan_range.serialized_splits.empty()) {
+        resolved_paths.assign(scan_range.serialized_splits.begin(),
+                              scan_range.serialized_splits.end());
+    } else if (params.__isset.paths && !params.paths.empty()) {
+        resolved_paths.assign(params.paths.begin(), params.paths.end());
+    } else {
         return Status::InvalidArgument("Property 'path' must be set for parquet_metadata");
     }
-    _paths.assign(params.paths.begin(), params.paths.end());
+    _paths.swap(resolved_paths);
 
     if (params.__isset.mode) {
         _mode = params.mode;
