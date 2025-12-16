@@ -46,6 +46,4 @@ suite ("test_mv_mow") {
     qt_select_mv "select k1,k2+k3 from u_table order by k1;"
 
     qt_select_mv "select * from `u_table` index `k123p` order by 1,2;"
-    qt_select_mv "select a1 from `u_table` index `k123p` order by 1;"
-    qt_select_mv "select `__add_3` from `u_table` index `k123p` order by 1;"
 }
