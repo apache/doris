@@ -124,4 +124,3 @@ void build_path_map(const FieldSchema& field, const std::string& prefix,
                     std::unordered_map<std::string, const FieldSchema*>* map);
 
 } // namespace doris::vectorized::parquet_utils
-

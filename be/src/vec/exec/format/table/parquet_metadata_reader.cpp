@@ -16,7 +16,6 @@
 // under the License.
 
 #include "vec/exec/format/table/parquet_metadata_reader.h"
-#include "vec/exec/format/table/parquet_utils.h"
 
 #include <fmt/format.h>
 
@@ -37,6 +36,7 @@
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
+#include "vec/exec/format/table/parquet_utils.h"
 
 namespace doris::vectorized {
 

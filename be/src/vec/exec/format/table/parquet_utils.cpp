@@ -432,4 +432,3 @@ void build_path_map(const FieldSchema& field, const std::string& prefix,
 }
 
 } // namespace doris::vectorized::parquet_utils
-
