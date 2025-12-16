@@ -149,13 +149,13 @@ void ParquetReader::_init_profile() {
         _parquet_profile.filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "RowGroupsFiltered", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowGroupFilteredByMinMax", TUnit::UNIT, parquet_profile, 1);
+                _profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_row_groups_by_bloom_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowGroupFilteredByBloomFilter", TUnit::UNIT, parquet_profile, 1);
+                _profile, "RowGroupsFilteredByBloomFilter", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.to_read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowGroupReadNum", TUnit::UNIT, parquet_profile, 1);
+                _profile, "RowGroupsReadNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.total_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowGroupTotalNum", TUnit::UNIT, parquet_profile, 1);
+                _profile, "RowGroupsTotalNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "FilteredRowsByGroup", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
