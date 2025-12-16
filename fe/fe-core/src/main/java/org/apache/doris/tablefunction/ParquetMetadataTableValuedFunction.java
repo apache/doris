@@ -52,9 +52,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
- * Table-valued function for reading Parquet metadata.
+ * Table-valued function parquet_meta for reading Parquet metadata.
  * Currently works in two modes:
- * - parquet_metadata: row-group/column statistics similar to DuckDB parquet_metadata()
+ * - parquet_meta (mode parquet_metadata): row-group/column statistics similar to DuckDB parquet_metadata()
  * - parquet_schema: logical schema similar to DuckDB parquet_schema()
  */
 public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunction {
@@ -120,7 +120,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         ));
         String rawPath = normalizedParams.get(PATH);
         if (Strings.isNullOrEmpty(rawPath)) {
-            throw new AnalysisException("Property 'path' is required for parquet_metadata");
+            throw new AnalysisException("Property 'path' is required for parquet_meta");
         }
         String parsedPath = rawPath.trim();
         if (parsedPath.isEmpty()) {
@@ -157,7 +157,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             storageProperties = StorageProperties.createPrimary(storageParams);
         } catch (RuntimeException e) {
             throw new AnalysisException(
-                    "Failed to parse storage properties for parquet_metadata: " + e.getMessage(), e);
+                    "Failed to parse storage properties for parquet_meta: " + e.getMessage(), e);
         }
         this.fileType = mapToFileType(storageProperties.getType());
         Map<String, String> backendProps = storageProperties.getBackendConfigProperties();
@@ -169,7 +169,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             normalizedPaths = tmpPaths;
         } catch (UserException e) {
             throw new AnalysisException(
-                    "Failed to normalize parquet_metadata paths: " + e.getMessage(), e);
+                    "Failed to normalize parquet_meta paths: " + e.getMessage(), e);
         }
         if (this.fileType == TFileType.FILE_HTTP && !backendProps.containsKey("uri")) {
             backendProps = new HashMap<>(backendProps);
@@ -202,7 +202,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             expanded.addAll(expandSingleGlob(path, storageProperties, storageParams, fileType));
         }
         if (expanded.isEmpty()) {
-            throw new AnalysisException("No files matched parquet_metadata path patterns: " + inputPaths);
+            throw new AnalysisException("No files matched parquet_meta path patterns: " + inputPaths);
         }
         return expanded;
     }
@@ -361,7 +361,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             case AZURE:
                 return TFileType.FILE_S3;
             default:
-                throw new AnalysisException("Unsupported storage type for parquet_metadata: " + type);
+                throw new AnalysisException("Unsupported storage type for parquet_meta: " + type);
         }
     }
 
