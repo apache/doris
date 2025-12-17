@@ -27,14 +27,9 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,18 +41,14 @@ import java.util.Optional;
 public class MapConcat extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature
-                    .ret(MapType.of(new AnyDataType(0), new AnyDataType(1)))
-                    .varArgs(MapType.of(new AnyDataType(0), new AnyDataType(1)))
-        );
-
-    private static final Logger LOG = LogManager.getLogger(MapConcat.class);
+            FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args()
+    );
 
     /**
      * constructor with more than 0 arguments.
      */
-    public MapConcat(Expression arg, Expression... varArgs) {
-        super("map_concat", ExpressionUtils.mergeArguments(arg, varArgs));
+    public MapConcat(Expression... varArgs) {
+        super("map_concat", varArgs);
     }
 
     /**
@@ -69,7 +60,6 @@ public class MapConcat extends ScalarFunction
 
     @Override
     public MapConcat withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
         return new MapConcat(getFunctionParams(children));
     }
 
@@ -110,7 +100,7 @@ public class MapConcat extends ScalarFunction
             DataType valueType = commonValueType.get();
             return MapType.of(keyType, valueType);
         }
-        throw new RuntimeException("unreachable");
+        return MapType.SYSTEM_DEFAULT;
     }
 
     @Override
