@@ -35,6 +35,8 @@ namespace segment_v2 {
 class OrdinalIndexReader;
 class ColumnReader;
 
+enum class PrefetcherInitMethod : int { FROM_ROWIDS = 0, ALL_DATA_BLOCKS = 1 };
+
 // Configuration for segment prefetcher
 struct SegmentPrefetcherConfig {
     // Number of file cache blocks to prefetch ahead
@@ -43,7 +45,6 @@ struct SegmentPrefetcherConfig {
     // File cache block size in bytes (default 1MB)
     size_t block_size = 1024 * 1024;
 
-    SegmentPrefetcherConfig() = default;
     SegmentPrefetcherConfig(size_t window_size, size_t blk_size)
             : prefetch_window_size(window_size), block_size(blk_size) {}
 };
@@ -70,7 +71,6 @@ struct BlockInfo {
 
 struct SegmentPrefetchParams {
     SegmentPrefetcherConfig config;
-    const roaring::Roaring& row_bitmap;
     const StorageReadOptions& read_options;
 };
 
@@ -81,47 +81,24 @@ struct SegmentPrefetchParams {
 // - Monotonic reading: rowids are read in order (forward or backward)
 // - Trigger condition: when current_rowid reaches a block boundary, prefetch next N blocks
 // - No deduplication needed: reading is monotonic, blocks are naturally processed in order
-//
-// Usage:
-//   SegmentPrefetcher prefetcher(config);
-//   prefetcher.init(row_bitmap, ordinal_index, is_reverse);
-//   // In each next_batch():
-//   std::vector<BlockRange> ranges;
-//   if (prefetcher.need_prefetch(current_first_rowid, &ranges)) {
-//       for (auto& range : ranges) {
-//           file_reader->prefetch_range(range.offset, range.size);
-//       }
-//   }
-//
 class SegmentPrefetcher {
 public:
     explicit SegmentPrefetcher(const SegmentPrefetcherConfig& config) : _config(config) {}
 
     ~SegmentPrefetcher() = default;
 
-    // Initialize prefetcher with the full row bitmap and ordinal index.
-    //
-    // Parameters:
-    //   row_bitmap: The complete bitmap of rowids to scan
-    //   column_reader: Column reader for accessing ordinal index
-    //   read_options: Storage read options
-    //
-    // Returns OK on success, error status on failure
-    Status init(const roaring::Roaring& row_bitmap, std::shared_ptr<ColumnReader> column_reader,
+    Status init(std::shared_ptr<ColumnReader> column_reader,
                 const StorageReadOptions& read_options);
 
-    // Check if prefetch is needed for current_rowid and return blocks to prefetch.
-    // This maintains N blocks ahead of the current reading position.
-    //
-    // Parameters:
-    //   current_rowid: The first rowid being read in current batch
-    //   out_ranges: Output vector of BlockRange to prefetch (only filled if return true)
-    //
-    // Returns true if prefetch is needed, false otherwise
     bool need_prefetch(rowid_t current_rowid, std::vector<BlockRange>* out_ranges);
 
+    static void build_blocks_by_rowids(const roaring::Roaring& row_bitmap,
+                                       const std::vector<SegmentPrefetcher*>& prefetchers);
+    void begin_build_blocks_by_rowids();
     void add_rowids(const rowid_t* rowids, uint32_t num);
-    void finish_build_blocks();
+    void finish_build_blocks_by_rowids();
+
+    void build_all_data_blocks();
 
 private:
     // Parameters:
@@ -148,6 +125,8 @@ private:
                 _is_forward, _prefetched_index, _current_block_index, window_size(),
                 _block_sequence.size(), _path);
     }
+
+    void reset_blocks();
 
 private:
     SegmentPrefetcherConfig _config;
