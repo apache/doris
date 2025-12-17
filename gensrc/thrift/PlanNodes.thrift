@@ -1403,7 +1403,7 @@ struct TPlanNode {
   4: required i64 limit
   5: required list<Types.TTupleId> row_tuples
 
-  // nullable_tuples[i] is true if row_tuples[i] is nullable
+  // Deprecated
   6: required list<bool> nullable_tuples
   7: optional list<Exprs.TExpr> conjuncts
 

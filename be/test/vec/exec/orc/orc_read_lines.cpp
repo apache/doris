@@ -108,7 +108,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                                        "col9");
     DescriptorTbl* desc_tbl = builder.build();
     auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-    RowDescriptor row_desc(tuple_desc, false);
+    RowDescriptor row_desc(tuple_desc);
     TFileScanRangeParams params;
     params.file_type = TFileType::FILE_LOCAL;
     TFileRangeDesc range;
