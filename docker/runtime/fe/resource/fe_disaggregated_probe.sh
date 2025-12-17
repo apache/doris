@@ -24,11 +24,26 @@ DEFAULT_HTTP_PORT=8030
 DEFAULT_QUERY_PORT=9030
 PROBE_TYPE=$1
 
+log_stderr()
+{
+    echo "[`date`] $@" >&2
+}
+
 function parse_config_file_with_key()
 {
-    local key=$1
-    local value=`grep "^\s*$key\s*=" $CONFIG_FILE | sed "s|^\s*$key\s*=\s*\(.*\)\s*$|\1|g"`
-    echo $value
+    local confkey=$1
+
+    esc_key=$(printf '%s\n' "$confkey" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    local confvalue=$(
+        grep -v '^[[:space:]]*#' "$CONFIG_FILE" |
+        grep -E "^[[:space:]]*${esc_key}[[:space:]]*=" |
+        tail -n1 |
+        sed -E 's/^[[:space:]]*[^=]+[[:space:]]*=[[:space:]]*//' |
+        sed -E 's/[[:space:]]*#.*$//' |
+        sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
+    )
+    log_stderr "[info] read 'fe.conf' config [ $confkey: $confvalue]"
+    echo "$confvalue"
 }
 
 parse_tls_connection_variables()

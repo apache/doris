@@ -292,7 +292,8 @@ Status FullTextIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterato
 Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                   const std::string& column_name, const void* query_value,
                                   InvertedIndexQueryType query_type,
-                                  std::shared_ptr<roaring::Roaring>& bit_map) {
+                                  std::shared_ptr<roaring::Roaring>& bit_map,
+                                  const InvertedIndexAnalyzerCtx* analyzer_ctx) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = *reinterpret_cast<const std::string*>(query_value);
@@ -313,8 +314,16 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                      query_info);
         } else {
             SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-            query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                    search_str, _index_meta.properties());
+            if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
+                auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
+                        analyzer_ctx->char_filter_map);
+                reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
+                query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                        reader, analyzer_ctx->analyzer);
+            } else {
+                query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                        search_str, _index_meta.properties());
+            }
         }
 
         if (query_info.term_infos.empty()) {
@@ -394,7 +403,8 @@ Status StringTypeInvertedIndexReader::new_iterator(std::unique_ptr<IndexIterator
 Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                             const std::string& column_name, const void* query_value,
                                             InvertedIndexQueryType query_type,
-                                            std::shared_ptr<roaring::Roaring>& bit_map) {
+                                            std::shared_ptr<roaring::Roaring>& bit_map,
+                                            const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = *reinterpret_cast<const std::string*>(query_value);
@@ -688,7 +698,8 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
 
 Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
-                             std::shared_ptr<roaring::Roaring>& bit_map) {
+                             std::shared_ptr<roaring::Roaring>& bit_map,
+                             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     try {

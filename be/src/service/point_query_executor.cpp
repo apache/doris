@@ -145,7 +145,7 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(output_exprs, _output_exprs_ctxs));
-    RowDescriptor row_desc(tuple_desc(), false);
+    RowDescriptor row_desc(tuple_desc());
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_exprs_ctxs, _runtime_state.get()));
