@@ -31,11 +31,17 @@ suite("decompose_repeat") {
     order_qt_upper_ref """
     select c1+10,a,b,c from (select a,b,c,sum(d) c1 from t1 group by rollup(a,b,c)) t group by c1+10,a,b,c;
     """
+    order_qt_another_cte """
+        with cte1 as (select 1 as c1 union all select 2)
+        select c1 from (
+        select c1,1 c2, 2 c3 from cte1 union select c1, 2,3 from cte1
+        ) t
+        group by rollup(c1,c2,c3);
+    """
 
     // negative case
     order_qt_grouping_func "select a,b,c,d,sum(d),grouping_id(a) from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c))"
     order_qt_avg "select a,b,c,d,avg(d) from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c));"
     order_qt_distinct "select a,b,c,d,sum(distinct d) from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c));"
     order_qt_less_equal_than_3 "select a,b,c,d,sum(distinct d) from t1 group by grouping sets((a,b,c),(a,b,c,d),());"
-
 }
