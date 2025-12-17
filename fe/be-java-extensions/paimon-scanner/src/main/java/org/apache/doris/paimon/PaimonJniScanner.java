@@ -83,6 +83,27 @@ public class PaimonJniScanner extends JniScanner {
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
     }
 
+    @Override
+    public void open() throws IOException {
+        try {
+            // When the user does not specify hive-site.xml, Paimon will look for the file from the classpath:
+            //    org.apache.paimon.hive.HiveCatalog.createHiveConf:
+            //        `Thread.currentThread().getContextClassLoader().getResource(HIVE_SITE_FILE)`
+            // so we need to provide a classloader, otherwise it will cause NPE.
+            Thread.currentThread().setContextClassLoader(classLoader);
+            preExecutionAuthenticator.execute(() -> {
+                initTable();
+                initReader();
+                return null;
+            });
+            resetDatetimeV2Precision();
+
+        } catch (Throwable e) {
+            LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
+            throw new RuntimeException(e);
+        }
+    }
+
     private void initReader() throws IOException {
         ReadBuilder readBuilder = table.newReadBuilder();
         if (this.fields.length > this.paimonAllFieldNames.size()) {
@@ -205,85 +226,5 @@ public class PaimonJniScanner extends JniScanner {
         }
     }
 
-    // Java
-    @Override
-    public void open() throws IOException {
-        ClassLoader original = Thread.currentThread().getContextClassLoader();
-        ClassLoader combined = new DelegatingClassLoader(this.classLoader, original);
-        try {
-            Thread.currentThread().setContextClassLoader(combined);
-            preExecutionAuthenticator.execute(() -> {
-                initTable();
-                initReader();
-                return null;
-            });
-            resetDatetimeV2Precision();
-        } catch (Throwable e) {
-            LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
-            throw new RuntimeException(e);
-        } finally {
-            Thread.currentThread().setContextClassLoader(original);
-        }
-    }
-
-
-    private static final class DelegatingClassLoader extends ClassLoader {
-        private final ClassLoader primary;
-        private final ClassLoader fallback;
-
-        DelegatingClassLoader(ClassLoader primary, ClassLoader fallback) {
-            super(null);
-            this.primary = primary;
-            this.fallback = fallback;
-        }
-
-        @Override
-        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-            try {
-                Class<?> c = (primary != null) ? primary.loadClass(name) : null;
-                if (resolve && c != null) {
-                    resolveClass(c);
-                }
-                if (c != null) {
-                    return c;
-                }
-            } catch (ClassNotFoundException ignore) {
-                // ignore
-                LOG.info("Failed to load class: " + name);
-            }
-            if (fallback != null) {
-                Class<?> c = fallback.loadClass(name);
-                if (resolve) {
-                    resolveClass(c);
-                }
-                return c;
-            }
-            throw new ClassNotFoundException(name);
-        }
-
-        @Override
-        public java.net.URL getResource(String name) {
-            java.net.URL url = (primary != null) ? primary.getResource(name) : null;
-            return (url != null) ? url : (fallback != null ? fallback.getResource(name) : null);
-        }
-
-        @Override
-        public java.util.Enumeration<java.net.URL> getResources(String name) throws IOException {
-            java.util.Vector<java.net.URL> all = new java.util.Vector<>();
-            if (primary != null) {
-                java.util.Enumeration<java.net.URL> e1 = primary.getResources(name);
-                while (e1.hasMoreElements()) {
-                    all.add(e1.nextElement());
-                }
-            }
-            if (fallback != null) {
-                java.util.Enumeration<java.net.URL> e2 = fallback.getResources(name);
-                while (e2.hasMoreElements()) {
-                    all.add(e2.nextElement());
-                }
-            }
-            return all.elements();
-        }
-    }
 }
 
