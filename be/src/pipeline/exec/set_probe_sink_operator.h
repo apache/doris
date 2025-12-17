@@ -66,6 +66,8 @@ private:
 
     RuntimeProfile::Counter* _extract_probe_data_timer = nullptr;
     RuntimeProfile::Counter* _probe_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_size = nullptr;
+    RuntimeProfile::Counter* _valid_element_in_hash_table = nullptr;
 };
 
 template <bool is_intersect>
