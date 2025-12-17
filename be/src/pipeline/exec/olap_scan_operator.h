@@ -303,7 +303,7 @@ public:
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
 
-    uint32_t get_column_id(const std::string& col_name) const override {
+    int get_column_id(const std::string& col_name) const override {
         if (!_tablet_schema) {
             return -1;
         }

@@ -46,7 +46,7 @@ public:
 
     Status init_target(int32_t target_node_id,
                        phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
-                       const uint32_t column_id);
+                       const int column_id);
 
     bool enable() const {
         // when sort node and scan node are not in the same fragment, predicate will be disabled

@@ -57,7 +57,7 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
 
 Status RuntimePredicate::init_target(
         int32_t target_node_id, phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
-        const uint32_t column_id) {
+        const int column_id) {
     if (column_id < 0) {
         return Status::OK();
     }
@@ -67,7 +67,8 @@ Status RuntimePredicate::init_target(
         _contexts[target_node_id].col_name =
                 slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
                         ->col_name();
-        _contexts[target_node_id].predicate = SharedPredicate::create_shared(column_id);
+        _contexts[target_node_id].predicate =
+                SharedPredicate::create_shared(cast_set<uint32_t>(column_id));
     }
     _detected_target = true;
     return Status::OK();
