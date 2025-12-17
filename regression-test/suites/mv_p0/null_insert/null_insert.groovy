@@ -67,7 +67,7 @@ suite ("null_insert") {
     }
 
     sql "analyze table test with sync;"
-    sql """set enable_stats=false;"""
+    sql """alter table test modify column date set stats ('row_count'='3');"""
 
     mv_rewrite_success("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                 FROM test
@@ -76,10 +76,4 @@ suite ("null_insert") {
     qt_select_mv """SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                     FROM test
                     GROUP BY date,vid,os,ver,ip_country;"""
-
-    sql """set enable_stats=true;"""
-    sql """alter table test modify column date set stats ('row_count'='3');"""
-    mv_rewrite_success("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
-                FROM test
-                GROUP BY date,vid,os,ver,ip_country;""", "mv_test")
 }

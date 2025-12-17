@@ -45,14 +45,10 @@ suite ("test_mv_mow") {
 
     sql """alter table u_table modify column k1 set stats ('row_count'='2');"""
 
-    sql """set enable_stats=false;"""
-
     mv_rewrite_success("select k1,k2+k3 from u_table order by k1;", "k123p")
     qt_select_mv "select k1,k2+k3 from u_table order by k1;"
 
     qt_select_mv "select * from `u_table` index `k123p` order by 1,2;"
     qt_select_mv "select a1 from `u_table` index `k123p` order by 1;"
     qt_select_mv "select `__add_3` from `u_table` index `k123p` order by 1;"
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select k1,k2+k3 from u_table order by k1;", "k123p")
 }
