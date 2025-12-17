@@ -916,20 +916,20 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         }
     }
 
-    private boolean equalsAllColumns(DistributionSpecHash base, DistributionSpecHash required) {
-        List<ExprId> check = base.getOrderedShuffledColumns();
-        if (check.size() != required.getOrderedShuffledColumns().size()) {
+    private boolean equalsAllColumns(DistributionSpecHash required, DistributionSpecHash provided) {
+        List<ExprId> requiredColumnIds = required.getOrderedShuffledColumns();
+        List<ExprId> providedColumnIds = provided.getOrderedShuffledColumns();
+        if (requiredColumnIds.size() != providedColumnIds.size()) {
             return false;
         }
-        List<ExprId> requiredOrderedShuffledColumns = required.getOrderedShuffledColumns();
-        Map<ExprId, Integer> exprIdToEquivalenceSet = required.getExprIdToEquivalenceSet();
-        for (int i = 0; i < check.size(); i++) {
-            ExprId checkExprId = check.get(i);
-            Integer id = exprIdToEquivalenceSet.get(checkExprId);
-            if (id == null) {
-                id = checkExprId.asInt();
+        Map<ExprId, Integer> equalSet = provided.getExprIdToEquivalenceSet();
+        for (int i = 0; i < requiredColumnIds.size(); i++) {
+            ExprId requiredColumnId = requiredColumnIds.get(i);
+            Integer equalId = equalSet.get(requiredColumnId);
+            if (equalId == null) {
+                equalId = requiredColumnId.asInt();
             }
-            if (requiredOrderedShuffledColumns.get(i).asInt() != id) {
+            if (providedColumnIds.get(i).asInt() != equalId) {
                 return false;
             }
         }
