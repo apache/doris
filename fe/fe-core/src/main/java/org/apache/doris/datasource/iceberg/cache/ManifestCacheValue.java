@@ -60,20 +60,6 @@ public class ManifestCacheValue {
     }
 
     private static long estimateWeight(List<DataFile> dataFiles, List<DeleteFile> deleteFiles) {
-        // A coarse weight estimation based on path lengths and fixed object overhead.
-        long total = 0;
-        for (DataFile file : dataFiles) {
-            total += 128L; // base object overhead
-            if (file != null && file.path() != null) {
-                total += file.path().toString().length();
-            }
-        }
-        for (DeleteFile file : deleteFiles) {
-            total += 128L;
-            if (file != null && file.path() != null) {
-                total += file.path().toString().length();
-            }
-        }
-        return total;
+        return ContentFileEstimater.estimate(dataFiles) + ContentFileEstimater.estimate(deleteFiles);
     }
 }
