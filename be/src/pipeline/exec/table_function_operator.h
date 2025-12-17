@@ -57,9 +57,7 @@ private:
     MOCK_FUNCTION Status _clone_table_function(RuntimeState* state);
 
     void _copy_output_slots(std::vector<vectorized::MutableColumnPtr>& columns,
-                            const TableFunctionOperatorX& p, size_t output_row_count,
-                            std::vector<int64_t>& child_row_to_output_rows_indices,
-                            std::vector<size_t>& handled_row_indices);
+                            const TableFunctionOperatorX& p);
     bool _roll_table_functions(int last_eos_idx);
     // return:
     //  0: all fns are eos
@@ -67,6 +65,9 @@ private:
     // >0: some of fns are eos
     int _find_last_fn_eos_idx() const;
     bool _is_inner_and_empty();
+
+    Status _get_expanded_block_for_outer_conjuncts(RuntimeState* state,
+                                                   vectorized::Block* output_block, bool* eos);
 
     std::vector<vectorized::TableFunction*> _fns;
     vectorized::VExprContextSPtrs _vfn_ctxs;
@@ -77,6 +78,7 @@ private:
     std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
     bool _child_eos = false;
+    std::vector<bool> _child_rows_has_output;
 
     RuntimeProfile::Counter* _init_function_timer = nullptr;
     RuntimeProfile::Counter* _process_rows_timer = nullptr;
@@ -116,6 +118,7 @@ public:
             SCOPED_TIMER(local_state._init_function_timer);
             RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
+        local_state._child_rows_has_output.resize(input_block->rows(), false);
         local_state.process_next_child_row();
         return Status::OK();
     }
