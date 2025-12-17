@@ -60,11 +60,9 @@ std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, i
 
 void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both(
-            "min_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                           AggregateFunctionMinByData>);
+            "min_by", create_aggregate_function_min_max_by<AggregateFunctionMinByData>);
     factory.register_function_both(
-            "max_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                           AggregateFunctionMaxByData>);
+            "max_by", create_aggregate_function_min_max_by<AggregateFunctionMaxByData>);
 }
 
 } // namespace doris
