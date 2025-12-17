@@ -25,11 +25,11 @@ suite("test_packed_file_query_with_table_drop", "p0, nonConcurrent") {
     getBackendIpHttpAndBrpcPort(backendId_to_backendIP, backendId_to_backendHttpPort, backendId_to_backendBrpcPort)
 
     setBeConfigTemporary([
-        "enable_merge_file": "true",
+        "enable_packed_file": "true",
         "small_file_threshold_bytes": "102400"  // 100KB threshold
     ]) {
         // Create main table that will be queried
-        def mainTableName = "test_merge_file_main_table"
+        def mainTableName = "test_packed_file_main_table"
         sql """ DROP TABLE IF EXISTS ${mainTableName} """
         sql """
             CREATE TABLE IF NOT EXISTS ${mainTableName} (
@@ -49,7 +49,7 @@ suite("test_packed_file_query_with_table_drop", "p0, nonConcurrent") {
         def otherTableNames = []
         def otherTableCount = 5
         for (int i = 0; i < otherTableCount; i++) {
-            def tableName = "test_merge_file_other_table_${i}"
+            def tableName = "test_packed_file_other_table_${i}"
             otherTableNames.add(tableName)
             sql """ DROP TABLE IF EXISTS ${tableName} """
             sql """
@@ -67,7 +67,7 @@ suite("test_packed_file_query_with_table_drop", "p0, nonConcurrent") {
             """
         }
 
-        // Load data into main table (small files that will trigger merge)
+        // Load data into main table (small files that will trigger packed)
         def mainTableLoadCount = 8
         def mainTableLoadThreads = []
         def loadMainTable = { table_name, thread_id ->
@@ -101,7 +101,7 @@ suite("test_packed_file_query_with_table_drop", "p0, nonConcurrent") {
             }
         }
 
-        // Load data into other tables (small files that will trigger merge)
+        // Load data into other tables (small files that will trigger packed)
         def otherTableLoadThreads = []
         def loadOtherTable = { table_name, thread_id ->
             try {

@@ -146,6 +146,7 @@ public:
     // 'count' indicates the number of rows in the result column returned by this expression.
     // In the future this interface will add an additional parameter, Selector, which specifies
     // which rows in the block should be evaluated.
+    // If expr is executing constant expressions, then block should be nullptr.
     virtual Status execute_column(VExprContext* context, const Block* block, size_t count,
                                   ColumnPtr& result_column) const = 0;
 
@@ -209,6 +210,7 @@ public:
         return std::ranges::any_of(_children.begin(), _children.end(),
                                    [](VExprSPtr child) { return child->is_rf_wrapper(); });
     }
+    virtual bool is_topn_filter() const { return false; }
 
     virtual void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) {
         for (auto child : _children) {
@@ -250,8 +252,6 @@ public:
     virtual std::string debug_string() const;
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);
-
-    void set_getting_const_col(bool val = true) { _getting_const_col = val; }
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
 
@@ -408,8 +408,6 @@ protected:
     // get_const_col()
     std::shared_ptr<ColumnPtrWrapper> _constant_col;
     bool _prepared = false; // for base class VExpr
-    bool _getting_const_col =
-            false; // if true, current execute() is in prepare() (that is, can't check _prepared)
     // for concrete classes
     bool _prepare_finished = false;
     bool _open_finished = false;
@@ -600,6 +598,13 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_timev2_literal(timev2_literal);
         (*node).__set_node_type(TExprNodeType::TIMEV2_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2, precision, scale));
+    } else if constexpr (T == TYPE_VARBINARY) {
+        const auto* origin_value = reinterpret_cast<const std::string*>(data);
+        (*node).__set_node_type(TExprNodeType::VARBINARY_LITERAL);
+        TVarBinaryLiteral varbinary_literal;
+        varbinary_literal.__set_value(*origin_value);
+        (*node).__set_varbinary_literal(varbinary_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_VARBINARY));
     } else {
         return Status::InvalidArgument("Invalid argument type!");
     }

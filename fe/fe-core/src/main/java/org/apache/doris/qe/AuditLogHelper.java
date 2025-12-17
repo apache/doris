@@ -178,7 +178,7 @@ public class AuditLogHelper {
         }
     }
 
-    private static String truncateByBytes(String str, int maxLen, String suffix) {
+    public static String truncateByBytes(String str, int maxLen, String suffix) {
         // use `getBytes().length` to get real byte length
         if (maxLen >= str.getBytes().length) {
             return str;

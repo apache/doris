@@ -243,9 +243,9 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     auto varbinary_column =
             assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
     auto& data = varbinary_column->get_data();
-    EXPECT_EQ(data[0].dump_hex(), "X'550E8400E29B41D4A716446655440000'");
-    EXPECT_EQ(data[1].dump_hex(), "X'123E4567E89B12D3A456426614174000'");
-    EXPECT_EQ(data[2].dump_hex(), "X'00000000000000000000000000000000'");
+    EXPECT_EQ(data[0].dump_hex(), "0x550E8400E29B41D4A716446655440000");
+    EXPECT_EQ(data[1].dump_hex(), "0x123E4567E89B12D3A456426614174000");
+    EXPECT_EQ(data[2].dump_hex(), "0x00000000000000000000000000000000");
 }
 
 TEST_F(ParquetReaderTest, varbinary_varbinary) {
@@ -316,9 +316,9 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     auto varbinary_column =
             assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
     auto& data = varbinary_column->get_data();
-    EXPECT_EQ(data[0].dump_hex(), "X'0123456789ABCDEF'");
-    EXPECT_EQ(data[1].dump_hex(), "X'FEDCBA9876543210'");
-    EXPECT_EQ(data[2].dump_hex(), "X'00'");
+    EXPECT_EQ(data[0].dump_hex(), "0x0123456789ABCDEF");
+    EXPECT_EQ(data[1].dump_hex(), "0xFEDCBA9876543210");
+    EXPECT_EQ(data[2].dump_hex(), "0x00");
 }
 
 TEST_F(ParquetReaderTest, varbinary_string) {
@@ -391,9 +391,9 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     auto varbinary_column =
             assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
     auto& data = varbinary_column->get_data();
-    EXPECT_EQ(data[0].dump_hex(), "X'0123456789ABCDEF'");
-    EXPECT_EQ(data[1].dump_hex(), "X'FEDCBA9876543210'");
-    EXPECT_EQ(data[2].dump_hex(), "X'00'");
+    EXPECT_EQ(data[0].dump_hex(), "0x0123456789ABCDEF");
+    EXPECT_EQ(data[1].dump_hex(), "0xFEDCBA9876543210");
+    EXPECT_EQ(data[2].dump_hex(), "0x00");
 }
 
 TEST_F(ParquetReaderTest, varbinary_string2) {
@@ -465,9 +465,9 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     auto nullable_column = assert_cast<const ColumnNullable*>(col.get());
     auto string_column =
             assert_cast<const ColumnString*>(nullable_column->get_nested_column_ptr().get());
-    EXPECT_EQ(StringView(string_column->get_data_at(0)).dump_hex(), "X'0123456789ABCDEF'");
-    EXPECT_EQ(StringView(string_column->get_data_at(1)).dump_hex(), "X'FEDCBA9876543210'");
-    EXPECT_EQ(StringView(string_column->get_data_at(2)).dump_hex(), "X'00'");
+    EXPECT_EQ(StringView(string_column->get_data_at(0)).dump_hex(), "0x0123456789ABCDEF");
+    EXPECT_EQ(StringView(string_column->get_data_at(1)).dump_hex(), "0xFEDCBA9876543210");
+    EXPECT_EQ(StringView(string_column->get_data_at(2)).dump_hex(), "0x00");
 }
 
 } // namespace vectorized

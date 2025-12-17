@@ -499,7 +499,6 @@ import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.JoinSkewInfo;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -2070,10 +2069,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 connectContext.setStatementContext(statementContext);
                 statementContext.setConnectContext(connectContext);
             }
-            Pair<LogicalPlan, StatementContext> planAndContext = Pair.of(
-                    ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext);
-            statementContext.setParsedStatement(new LogicalPlanAdapter(planAndContext.first, statementContext));
-            logicalPlans.add(planAndContext);
+            logicalPlans.add(Pair.of(
+                    ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
             List<Placeholder> params = new ArrayList<>(tokenPosToParameters.values());
             statementContext.setPlaceholders(params);
             tokenPosToParameters.clear();
