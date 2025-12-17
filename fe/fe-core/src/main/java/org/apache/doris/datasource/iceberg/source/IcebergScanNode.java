@@ -97,6 +97,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
@@ -387,86 +388,109 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
-    private Expression buildIcebergFilter() {
-        Expression combined = null;
-        for (Expr conjunct : conjuncts) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, icebergTable.schema());
-            if (expression != null) {
-                combined = combined == null ? expression : Expressions.and(combined, expression);
-            }
-        }
-        return combined;
-    }
-
     private CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(TableScan scan) throws IOException {
+        // Get the snapshot from the scan; return empty if no snapshot exists
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
             return CloseableIterable.withNoopClose(Collections.emptyList());
         }
 
+        // Initialize manifest cache for efficient manifest file access
         IcebergManifestCache cache = IcebergUtils.getManifestCache();
-        Expression filterExpr = buildIcebergFilter();
+
+        // Convert query conjuncts to Iceberg filter expression
+        // This combines all predicates with AND logic for partition/file pruning
+        Expression filterExpr = conjuncts.stream()
+                .map(conjunct -> IcebergUtils.convertToIcebergExpr(conjunct, icebergTable.schema()))
+                .filter(Objects::nonNull)
+                .reduce(Expressions.alwaysTrue(), Expressions::and);
+
+        // Get all partition specs by their IDs for later use
         Map<Integer, PartitionSpec> specsById = icebergTable.specs();
         boolean caseSensitive = true;
 
+        // Create residual evaluators for each partition spec
+        // Residual evaluators compute the remaining filter expression after partition pruning
         Map<Integer, ResidualEvaluator> residualEvaluators = new HashMap<>();
         specsById.forEach((id, spec) -> residualEvaluators.put(id,
                 ResidualEvaluator.of(spec, filterExpr == null ? Expressions.alwaysTrue() : filterExpr,
                         caseSensitive)));
+
+        // Create metrics evaluator for file-level pruning based on column statistics
         InclusiveMetricsEvaluator metricsEvaluator = filterExpr == null ? null
                 : new InclusiveMetricsEvaluator(icebergTable.schema(), filterExpr, caseSensitive);
 
+        // ========== Phase 1: Load delete files from delete manifests ==========
         List<DeleteFile> deleteFiles = new ArrayList<>();
-        // Load delete manifests
         List<ManifestFile> deleteManifests = snapshot.deleteManifests(icebergTable.io());
         for (ManifestFile manifest : deleteManifests) {
+            // Skip non-delete manifests
             if (manifest.content() != ManifestContent.DELETES) {
                 continue;
             }
+            // Get the partition spec for this manifest
             PartitionSpec spec = specsById.get(manifest.partitionSpecId());
             if (spec == null) {
                 continue;
             }
+            // Create manifest evaluator for partition-level pruning
             ManifestEvaluator evaluator = filterExpr == null ? null
                     : ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive);
+            // Skip manifest if it doesn't match the filter expression (partition pruning)
             if (evaluator != null && !evaluator.eval(manifest)) {
                 continue;
             }
+            // Load delete files from cache (or from storage if not cached)
             ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache, manifest,
                     icebergTable);
             deleteFiles.addAll(value.getDeleteFiles());
         }
+
+        // Build delete file index for efficient lookup of deletes applicable to each data file
         DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
                 .specsById(specsById)
                 .caseSensitive(caseSensitive)
                 .build();
 
+        // ========== Phase 2: Load data files and create scan tasks ==========
         List<FileScanTask> tasks = new ArrayList<>();
         try (CloseableIterable<ManifestFile> dataManifests =
                      IcebergUtils.getMatchingManifest(snapshot.dataManifests(icebergTable.io()),
                              specsById, filterExpr)) {
             for (ManifestFile manifest : dataManifests) {
+                // Skip non-data manifests
                 if (manifest.content() != ManifestContent.DATA) {
                     continue;
                 }
+                // Get the partition spec for this manifest
                 PartitionSpec spec = specsById.get(manifest.partitionSpecId());
                 if (spec == null) {
                     continue;
                 }
+                // Get the residual evaluator for this partition spec
                 ResidualEvaluator residualEvaluator = residualEvaluators.get(manifest.partitionSpecId());
+
+                // Load data files from cache (or from storage if not cached)
                 ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache, manifest,
                         icebergTable);
+
+                // Process each data file in the manifest
                 for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {
+                    // Skip file if column statistics indicate no matching rows (metrics-based pruning)
                     if (metricsEvaluator != null && !metricsEvaluator.eval(dataFile)) {
                         continue;
                     }
+                    // Skip file if partition values don't match the residual filter
                     if (residualEvaluator != null) {
                         if (residualEvaluator.residualFor(dataFile.partition()).equals(Expressions.alwaysFalse())) {
                             continue;
                         }
                     }
+                    // Find all delete files that apply to this data file based on sequence number
                     List<DeleteFile> deletes = Arrays.asList(
                             deleteIndex.forDataFile(dataFile.dataSequenceNumber(), dataFile));
+
+                    // Create a FileScanTask containing the data file, associated deletes, and metadata
                     tasks.add(new BaseFileScanTask(
                             dataFile,
                             deletes.toArray(new DeleteFile[0]),
@@ -478,6 +502,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
 
+        // Split tasks into smaller chunks based on target split size for parallel processing
         long targetSplitSize = getRealFileSplitSize(0);
         return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
     }
