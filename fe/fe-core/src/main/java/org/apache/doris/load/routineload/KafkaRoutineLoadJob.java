@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -84,6 +85,7 @@ import java.util.UUID;
  */
 public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
+    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
 
     public static final String KAFKA_FILE_CATALOG = "kafka";
     public static final String PROP_GROUP_ID = "group.id";
@@ -262,7 +264,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void updateCloudProgress() throws UserException {
         Cloud.GetRLTaskCommitAttachRequest.Builder builder =
-                Cloud.GetRLTaskCommitAttachRequest.newBuilder();
+                Cloud.GetRLTaskCommitAttachRequest.newBuilder().setRequestIp(REQUEST_IP);
         builder.setCloudUniqueId(Config.cloud_unique_id);
         builder.setDbId(dbId);
         builder.setJobId(id);
@@ -747,7 +749,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             }
 
             if (Config.isCloudMode()) {
-                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder();
+                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
+                        .setRequestIp(REQUEST_IP);
                 builder.setCloudUniqueId(Config.cloud_unique_id);
                 builder.setDbId(dbId);
                 builder.setJobId(id);

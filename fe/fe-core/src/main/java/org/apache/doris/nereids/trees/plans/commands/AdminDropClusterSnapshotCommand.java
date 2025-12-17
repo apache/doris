@@ -32,7 +32,9 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 public class AdminDropClusterSnapshotCommand extends Command implements ForwardWithSync {
 
     private static final String SNAPSHOT_ID = "snapshot_id";
+    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
     private static final Logger LOG = LogManager.getLogger(AdminDropClusterSnapshotCommand.class);
 
     private String key;
@@ -95,7 +98,10 @@ public class AdminDropClusterSnapshotCommand extends Command implements ForwardW
     private void dropSnapshot() throws DdlException {
         try {
             Cloud.DropSnapshotRequest request = Cloud.DropSnapshotRequest.newBuilder()
-                    .setCloudUniqueId(Config.cloud_unique_id).setSnapshotId(value).build();
+                    .setCloudUniqueId(Config.cloud_unique_id)
+                    .setRequestIp(REQUEST_IP)
+                    .setSnapshotId(value)
+                    .build();
             Cloud.DropSnapshotResponse response = MetaServiceProxy.getInstance().dropSnapshot(request);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("dropSnapshot response: {} ", response);

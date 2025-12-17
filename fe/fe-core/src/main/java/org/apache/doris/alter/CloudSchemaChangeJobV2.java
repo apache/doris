@@ -36,6 +36,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
@@ -55,6 +56,7 @@ import java.util.stream.Collectors;
 
 public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
+    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
 
     public CloudSchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId,
             String tableName, long timeoutMs) {
@@ -230,7 +232,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
 
                 Cloud.CreateTabletsRequest.Builder requestBuilder =
-                        Cloud.CreateTabletsRequest.newBuilder();
+                        Cloud.CreateTabletsRequest.newBuilder().setRequestIp(REQUEST_IP);
                 for (Tablet shadowTablet : shadowIdx.getTablets()) {
                     OlapFile.TabletMetaCloudPB.Builder builder =
                             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

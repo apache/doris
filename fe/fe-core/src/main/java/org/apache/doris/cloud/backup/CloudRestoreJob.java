@@ -53,6 +53,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -73,6 +74,7 @@ import java.util.Map;
 public class CloudRestoreJob extends RestoreJob {
 
     private static final Logger LOG = LogManager.getLogger(CloudRestoreJob.class);
+    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     private static final String PROP_STORAGE_VAULT_NAME = RestoreCommand.PROP_STORAGE_VAULT_NAME;
 
@@ -376,7 +378,8 @@ public class CloudRestoreJob extends RestoreJob {
             for (int i = 0; i < restoreTablets.size(); i += maxCreateTabletBatchSize) {
                 int end = Math.min(i + maxCreateTabletBatchSize, restoreTablets.size());
                 List<Tablet> subRestoreTablets = restoreTablets.subList(i, end);
-                Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
+                Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder()
+                        .setRequestIp(REQUEST_IP);
                 for (Tablet restoreTablet : subRestoreTablets) {
                     try {
                         requestBuilder.addTabletMetas(((CloudInternalCatalog) Env.getCurrentInternalCatalog())

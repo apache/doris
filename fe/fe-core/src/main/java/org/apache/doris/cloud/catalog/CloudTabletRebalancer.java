@@ -39,6 +39,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncRequest;
@@ -71,6 +72,7 @@ import java.util.stream.Collectors;
 
 public class CloudTabletRebalancer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudTabletRebalancer.class);
+    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     private volatile ConcurrentHashMap<Long, Set<Tablet>> beToTabletsGlobal =
             new ConcurrentHashMap<Long, Set<Tablet>>();
@@ -606,7 +608,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 }
                 LOG.info("prepare to notify meta service be {} decommissioned", backend.getAddress());
                 Cloud.AlterClusterRequest.Builder builder =
-                        Cloud.AlterClusterRequest.newBuilder();
+                        Cloud.AlterClusterRequest.newBuilder().setRequestIp(REQUEST_IP);
                 builder.setCloudUniqueId(Config.cloud_unique_id);
                 builder.setOp(Cloud.AlterClusterRequest.Operation.NOTIFY_DECOMMISSIONED);
 

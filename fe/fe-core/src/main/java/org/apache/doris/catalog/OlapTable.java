@@ -65,6 +65,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -133,6 +134,7 @@ import java.util.stream.Collectors;
 public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProcessable,
         SupportBinarySearchFilteringPartitions {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
+    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     @Override
     public Map<Long, PartitionItem> getOriginPartitions(CatalogRelation scan) {
@@ -3286,6 +3288,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(REQUEST_IP)
                 .setDbId(this.getDatabase().getId())
                 .setTableId(this.id)
                 .setBatchMode(false)
@@ -3339,6 +3342,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(REQUEST_IP)
                 .setDbId(-1)
                 .setTableId(-1)
                 .setPartitionId(-1)

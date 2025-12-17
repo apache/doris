@@ -35,6 +35,9 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
+
+import com.google.common.base.Strings;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -43,6 +46,7 @@ import java.util.stream.Collectors;
  * Represents the command for SHOW STORAGE VAULT or SHOW STORAGE VAULTS.
  */
 public class ShowStorageVaultCommand extends ShowCommand {
+    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     public ShowStorageVaultCommand() {
         super(PlanType.SHOW_STORAGE_VAULT_COMMAND);
@@ -67,7 +71,9 @@ public class ShowStorageVaultCommand extends ShowCommand {
         List<List<String>> rows;
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
-                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder()
+                            .setRequestIp(REQUEST_IP)
+                            .build());
             AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
             UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()

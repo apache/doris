@@ -37,6 +37,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -51,6 +52,7 @@ import java.util.Optional;
  * ShowCreateStorageVaultCommand
  */
 public class ShowCreateStorageVaultCommand extends ShowCommand {
+    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
             .addColumn(new Column("StorageVaultName", ScalarType.createVarchar(128)))
@@ -76,7 +78,9 @@ public class ShowCreateStorageVaultCommand extends ShowCommand {
         List<List<String>> rows = Lists.newArrayList();
         try {
             Cloud.GetObjStoreInfoResponse response = MetaServiceProxy.getInstance()
-                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder()
+                            .setRequestIp(REQUEST_IP)
+                            .build());
             AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
             UserIdentity user = ctx.getCurrentUserIdentity();
 

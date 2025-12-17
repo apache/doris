@@ -32,7 +32,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,6 +49,7 @@ import java.util.stream.Collectors;
  */
 public class CloudPartition extends Partition {
     private static final Logger LOG = LogManager.getLogger(CloudPartition.class);
+    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     // not Serialized
     @SerializedName(value = "dbId")
@@ -137,6 +140,7 @@ public class CloudPartition extends Partition {
         }
 
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(REQUEST_IP)
                 .setDbId(this.dbId)
                 .setTableId(this.tableId)
                 .setPartitionId(super.getId())
@@ -297,6 +301,7 @@ public class CloudPartition extends Partition {
                 "partition ids size: " + partitionIds.size() + " should equals to tablet ids size: " + tableIds.size();
 
         Cloud.GetVersionRequest req = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(REQUEST_IP)
                 .setDbId(-1)
                 .setTableId(-1)
                 .setPartitionId(-1)

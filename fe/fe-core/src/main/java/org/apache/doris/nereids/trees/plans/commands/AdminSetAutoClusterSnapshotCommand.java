@@ -31,7 +31,9 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,6 +48,7 @@ public class AdminSetAutoClusterSnapshotCommand extends Command implements Forwa
     public static final String PROP_MAX_RESERVED_SNAPSHOTS = "max_reserved_snapshots";
     public static final String PROP_SNAPSHOT_INTERVAL_SECONDS = "snapshot_interval_seconds";
     private static final Logger LOG = LogManager.getLogger(AdminSetAutoClusterSnapshotCommand.class);
+    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     private Map<String, String> properties;
     private long maxReservedSnapshots;
@@ -65,6 +68,7 @@ public class AdminSetAutoClusterSnapshotCommand extends Command implements Forwa
         validate(ctx);
 
         Cloud.AlterInstanceRequest.Builder builder = Cloud.AlterInstanceRequest.newBuilder()
+                .setRequestIp(REQUEST_IP)
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setOp(Cloud.AlterInstanceRequest.Operation.SET_SNAPSHOT_PROPERTY);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
