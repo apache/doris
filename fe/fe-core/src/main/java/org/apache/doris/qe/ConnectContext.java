@@ -977,11 +977,8 @@ public class ConnectContext {
     public TUniqueId nextInstanceId() {
         if (loadId != null) {
             return new TUniqueId(loadId.hi, loadId.lo + instanceIdGenerator.incrementAndGet());
-        } else if (queryId != null) {
-            return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
         } else {
-            // for test
-            return new TUniqueId(0, instanceIdGenerator.incrementAndGet());
+            return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
         }
     }
 

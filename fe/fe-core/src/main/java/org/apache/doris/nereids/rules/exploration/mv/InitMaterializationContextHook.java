@@ -200,10 +200,8 @@ public class InitMaterializationContextHook implements PlannerHook {
             return ImmutableList.of();
         }
         if (CollectionUtils.isEmpty(availableMTMVs)) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, query id "
-                        + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
-            }
+            LOG.info("Enable materialized view rewrite but availableMTMVs is empty, query id "
+                    + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
             return ImmutableList.of();
         }
         List<MaterializationContext> asyncMaterializationContext = new ArrayList<>();
