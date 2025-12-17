@@ -36,6 +36,7 @@
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h"  // for OwnedSlice
+#include "vec/columns/column_variant.h"
 
 namespace doris {
 
@@ -605,7 +606,7 @@ private:
     bool _is_finalized = false;
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
-    vectorized::MutableColumnPtr _column;
+    vectorized::ColumnVariant::MutablePtr _column;
     const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
