@@ -152,6 +152,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
             InvertedIndexResultBitmap& bitmap_result) const override;
 
     Status evaluate_inverted_index_with_search_param(
