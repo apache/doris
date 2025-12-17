@@ -66,6 +66,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
+import io.airlift.slice.SizeOf;
 import lombok.Data;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.fs.BlockLocation;
@@ -235,6 +236,17 @@ public class HiveMetaStoreCache {
         fileCacheGauge.addLabel(new MetricLabel("type", "file"));
         fileCacheGauge.addLabel(new MetricLabel("catalog", catalog.getName()));
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(fileCacheGauge);
+
+        // file cache memory size in bytes
+        GaugeMetric<Long> fileCacheMemoryGauge = new GaugeMetric<Long>("hive_file_cache_memory_bytes",
+                Metric.MetricUnit.BYTES, "hive file cache memory size in bytes") {
+            @Override
+            public Long getValue() {
+                return getTotalFileCacheMemorySizeBytes();
+            }
+        };
+        fileCacheMemoryGauge.addLabel(new MetricLabel("catalog", catalog.getName()));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(fileCacheMemoryGauge);
     }
 
     private HivePartitionValues loadPartitionValues(PartitionValueCacheKey key) {
@@ -836,6 +848,8 @@ public class HiveMetaStoreCache {
 
     @Data
     public static class FileCacheKey {
+        private static final long INSTANCE_SIZE = SizeOf.instanceSize(FileCacheKey.class);
+
         private long dummyKey = 0;
         private String location;
         // not in key
@@ -892,10 +906,19 @@ public class HiveMetaStoreCache {
         public String toString() {
             return "FileCacheKey{" + "location='" + location + '\'' + ", inputFormat='" + inputFormat + '\'' + '}';
         }
+
+        public long getRetainedSizeInBytes() {
+            return INSTANCE_SIZE
+                    + SizeOf.estimatedSizeOf(location)
+                    + SizeOf.estimatedSizeOf(inputFormat)
+                    + SizeOf.estimatedSizeOf(partitionValues, SizeOf::estimatedSizeOf);
+        }
     }
 
     @Data
     public static class FileCacheValue {
+        private static final long INSTANCE_SIZE = SizeOf.instanceSize(FileCacheValue.class);
+
         // File Cache for self splitter.
         private final List<HiveFileStatus> files = Lists.newArrayList();
         private boolean isSplittable;
@@ -954,10 +977,21 @@ public class HiveMetaStoreCache {
             }
             return false;
         }
+
+        public long getRetainedSizeInBytes() {
+            return INSTANCE_SIZE
+                    + SizeOf.estimatedSizeOf(files, HiveFileStatus::getRetainedSizeInBytes)
+                    + SizeOf.estimatedSizeOf(partitionValues, SizeOf::estimatedSizeOf);
+            // Note: acidInfo is rare (only for ACID tables), skip for simplicity
+        }
     }
 
     @Data
     public static class HiveFileStatus {
+        private static final long INSTANCE_SIZE = SizeOf.instanceSize(HiveFileStatus.class);
+        private static final long LOCATION_PATH_INSTANCE_SIZE = SizeOf.instanceSize(LocationPath.class);
+        private static final long ESTIMATED_BLOCK_LOCATION_SIZE = 200;
+
         BlockLocation[] blockLocations;
         LocationPath path;
         long length;
@@ -966,6 +1000,20 @@ public class HiveMetaStoreCache {
         boolean splittable;
         List<String> partitionValues;
         AcidInfo acidInfo;
+
+        public long getRetainedSizeInBytes() {
+            long size = INSTANCE_SIZE;
+            if (blockLocations != null) {
+                size += SizeOf.sizeOfObjectArray(blockLocations.length);
+                size += (long) blockLocations.length * ESTIMATED_BLOCK_LOCATION_SIZE;
+            }
+            if (path != null) {
+                size += LOCATION_PATH_INSTANCE_SIZE;
+                size += SizeOf.estimatedSizeOf(path.getNormalizedLocation());
+            }
+            // Note: partitionValues and acidInfo are not set in addFile(), so they are always null
+            return size;
+        }
     }
 
     @Data
@@ -1037,6 +1085,23 @@ public class HiveMetaStoreCache {
     }
 
     /**
+     * Calculate total memory size of file cache in bytes.
+     * This iterates through all cache entries to sum up their retained sizes.
+     */
+    public long getTotalFileCacheMemorySizeBytes() {
+        LoadingCache<FileCacheKey, FileCacheValue> fileCache = fileCacheRef.get();
+        if (fileCache == null) {
+            return 0;
+        }
+        long totalSize = 0;
+        for (Map.Entry<FileCacheKey, FileCacheValue> entry : fileCache.asMap().entrySet()) {
+            totalSize += entry.getKey().getRetainedSizeInBytes();
+            totalSize += entry.getValue().getRetainedSizeInBytes();
+        }
+        return totalSize;
+    }
+
+    /**
      * get cache stats
      * @return <cache name -> <metric name -> metric value>>
      */
@@ -1046,8 +1111,13 @@ public class HiveMetaStoreCache {
                 partitionCache.estimatedSize()));
         res.put("hive_partition_cache",
                 ExternalMetaCacheMgr.getCacheStats(partitionCache.stats(), partitionCache.estimatedSize()));
-        res.put("hive_file_cache",
-                ExternalMetaCacheMgr.getCacheStats(fileCacheRef.get().stats(), fileCacheRef.get().estimatedSize()));
+
+        // File cache with memory size
+        Map<String, String> fileCacheStats = ExternalMetaCacheMgr.getCacheStats(
+                fileCacheRef.get().stats(), fileCacheRef.get().estimatedSize());
+        fileCacheStats.put("memory_size_bytes", String.valueOf(getTotalFileCacheMemorySizeBytes()));
+        res.put("hive_file_cache", fileCacheStats);
+
         return res;
     }
 }
