@@ -55,8 +55,7 @@ public:
     friend class RecCTESinkLocalState;
     RecCTESinkOperatorX(int sink_id, int dest_id, const TPlanNode& tnode,
                         const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, dest_id),
-              _row_descriptor(descs, tnode.row_tuples) {}
+            : Base(sink_id, tnode.node_id, dest_id), _row_descriptor(descs, tnode.row_tuples) {}
 
     ~RecCTESinkOperatorX() override = default;
 
