@@ -46,7 +46,8 @@ namespace {
 void handle_sigchld(int sig_no) {
     int status = 0;
     pid_t pid;
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {}
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+    }
 }
 
 // Check CDC client health
