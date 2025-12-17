@@ -21,17 +21,25 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
+import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public class S3PropertyUtils {
     private static final Logger LOG = LogManager.getLogger(S3PropertyUtils.class);
+
+    // Schemes that already follow the "bucket/key" style we expect. In external queries, paths
+    // always use one of these schemes so we can skip the heavyweight S3URI parser entirely.
+    private static final Set<String> S3_COMPATIBLE_SCHEMES = ImmutableSet.of(
+            "s3", "s3a", "s3n", "bos", "oss", "cos", "cosn", "gs", "obs", "azure");
 
     /**
      * Constructs the S3 endpoint from a given URI in the props map.
@@ -132,8 +140,17 @@ public class S3PropertyUtils {
         if (StringUtils.isBlank(path)) {
             throw new StoragePropertiesException("path is null");
         }
-        if (path.startsWith("s3://")) {
-            return path;
+
+        // If the scheme is already "s3" or another compatible scheme, convert directly
+        String scheme = extractScheme(path);
+        if (scheme != null && S3_COMPATIBLE_SCHEMES.contains(scheme)) {
+            if ("s3".equals(scheme)) {
+                return path;
+            }
+            int schemeEnd = path.indexOf(S3URI.SCHEME_DELIM);
+            if (schemeEnd > 0) {
+                return "s3" + path.substring(schemeEnd);
+            }
         }
 
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
@@ -177,5 +194,13 @@ public class S3PropertyUtils {
         } catch (URISyntaxException e) {
             return path;
         }
+    }
+
+    private static String extractScheme(String path) {
+        int schemeIdx = path.indexOf(':');
+        if (schemeIdx <= 0) {
+            return null;
+        }
+        return path.substring(0, schemeIdx).toLowerCase(Locale.ROOT);
     }
 }
