@@ -1757,7 +1757,6 @@ void FileScanner::update_realtime_counters() {
             _file_cache_statistics->bytes_read_from_local - _last_bytes_read_from_local;
     int64_t delta_bytes_read_from_remote =
             _file_cache_statistics->bytes_read_from_remote - _last_bytes_read_from_remote;
-
     if (_file_cache_statistics->bytes_read_from_local == 0 &&
         _file_cache_statistics->bytes_read_from_remote == 0) {
         _state->get_query_ctx()
