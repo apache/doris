@@ -456,13 +456,11 @@ private:
 // case)
 class RowDescriptor {
 public:
-    RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples,
-                  const std::vector<bool>& nullable_tuples);
+    RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples);
 
     // standard copy c'tor, made explicit here
     RowDescriptor(const RowDescriptor& desc)
             : _tuple_desc_map(desc._tuple_desc_map),
-              _tuple_idx_nullable_map(desc._tuple_idx_nullable_map),
               _tuple_idx_map(desc._tuple_idx_map),
               _has_varlen_slots(desc._has_varlen_slots) {
         auto it = desc._tuple_desc_map.begin();
@@ -472,7 +470,7 @@ public:
         }
     }
 
-    RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable);
+    RowDescriptor(TupleDescriptor* tuple_desc);
 
     RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc);
 
@@ -522,9 +520,6 @@ private:
 
     // map from position of tuple w/in row to its descriptor
     std::vector<TupleDescriptor*> _tuple_desc_map;
-
-    // _tuple_idx_nullable_map[i] is true if tuple i can be null
-    std::vector<bool> _tuple_idx_nullable_map;
 
     // map from TupleId to position of tuple w/in row
     std::vector<int> _tuple_idx_map;

@@ -58,7 +58,7 @@ UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, int dest_id, O
         : Base(sink_id, tnode.node_id, dest_id),
           _first_materialized_child_idx(
                   cast_set<int>(tnode.union_node.first_materialized_child_idx)),
-          _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+          _row_descriptor(descs, tnode.row_tuples),
           _cur_child_id(child_id),
           _child_size(tnode.num_children),
           _distribute_exprs(tnode.__isset.distribute_expr_lists

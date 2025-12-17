@@ -1130,8 +1130,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
                         !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
                                 ? RowDescriptor(state->desc_tbl(),
                                                 {thrift_sink.multi_cast_stream_sink.sinks[i]
-                                                         .output_tuple_id},
-                                                {false})
+                                                         .output_tuple_id})
                                 : row_desc;
                 exchange_row_desc = pool->add(new RowDescriptor(tmp_row_desc));
             }

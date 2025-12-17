@@ -67,14 +67,13 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, Init) {
     ASSERT_EQ(desc_tbl.get_tuple_descs().size(), 2);
 
     tnode.row_tuples.push_back(desc_tbl.get_tuple_descs().front()->id());
-    tnode.nullable_tuples.push_back(false);
 
     PartitionedHashJoinSinkOperatorX operator_x(
             _helper.obj_pool.get(), 0, 0, tnode, desc_tbl,
             PartitionedHashJoinTestHelper::TEST_PARTITION_COUNT);
 
     auto child = std::make_shared<MockChildOperator>();
-    child->_row_descriptor = RowDescriptor(_helper.runtime_state->desc_tbl(), {1}, {false});
+    child->_row_descriptor = RowDescriptor(_helper.runtime_state->desc_tbl(), {1});
     EXPECT_TRUE(operator_x.set_child(child));
 
     ASSERT_TRUE(operator_x.init(tnode, _helper.runtime_state.get()));
@@ -306,7 +305,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     // prepare & set child operator
     auto child = std::dynamic_pointer_cast<MockChildOperator>(sink_operator->child());
 
-    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {1}, {false});
+    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {1});
     child->_row_descriptor = row_desc;
     EXPECT_EQ(child->row_desc().num_slots(), 1);
 
