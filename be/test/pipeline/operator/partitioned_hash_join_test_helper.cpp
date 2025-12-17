@@ -46,8 +46,6 @@ TPlanNode PartitionedHashJoinTestHelper::create_test_plan_node() {
 
     tnode.row_tuples.push_back(0);
     tnode.row_tuples.push_back(1);
-    tnode.nullable_tuples.push_back(false);
-    tnode.nullable_tuples.push_back(false);
     tnode.node_type = TPlanNodeType::HASH_JOIN_NODE;
     tnode.hash_join_node.join_op = TJoinOp::INNER_JOIN;
     tnode.__isset.hash_join_node = true;
@@ -125,10 +123,10 @@ PartitionedHashJoinTestHelper::create_operators() {
     auto [probe_pipeline, _] = generate_hash_join_pipeline(probe_operator, probe_side_sink_operator,
                                                            sink_operator, child_operator);
 
-    RowDescriptor row_desc(runtime_state->desc_tbl(), {1}, {false});
+    RowDescriptor row_desc(runtime_state->desc_tbl(), {1});
     child_operator->_row_descriptor = row_desc;
 
-    RowDescriptor row_desc_probe(runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor row_desc_probe(runtime_state->desc_tbl(), {0});
     probe_side_source_operator->_row_descriptor = row_desc_probe;
 
     EXPECT_TRUE(probe_operator->set_child(probe_side_source_operator));

@@ -47,12 +47,12 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -87,11 +87,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
     // ids materialized by the tree rooted at this node
     protected ArrayList<TupleId> tupleIds;
-
-    // A set of nullable TupleId produced by this node. It is a subset of tupleIds.
-    // A tuple is nullable within a particular plan tree if it's the "nullable" side of
-    // an outer join, which has nothing to do with the schema.
-    protected Set<TupleId> nullableTupleIds = Sets.newHashSet();
 
     protected List<Expr> conjuncts = Lists.newArrayList();
 
@@ -174,7 +169,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         this.limit = node.limit;
         this.offset = node.offset;
         this.tupleIds = Lists.newArrayList(node.tupleIds);
-        this.nullableTupleIds = Sets.newHashSet(node.nullableTupleIds);
         this.conjuncts = Expr.cloneList(node.conjuncts, null);
 
         this.cardinality = -1;
@@ -191,7 +185,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
      */
     protected void clearTupleIds() {
         tupleIds.clear();
-        nullableTupleIds.clear();
     }
 
     protected void setPlanNodeName(String s) {
@@ -284,15 +277,13 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         return tupleIds;
     }
 
-    public Set<TupleId> getNullableTupleIds() {
-        Preconditions.checkState(nullableTupleIds != null);
-        return nullableTupleIds;
-    }
-
     public List<Expr> getConjuncts() {
         return conjuncts;
     }
 
+    /**
+     * NOTICE: this function is only used for explain
+     */
     public static Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
@@ -300,7 +291,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             for (int i = 0; i < targetConjuncts.size(); i += 2) {
                 Expr expr = i + 1 < targetConjuncts.size()
                         ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
-                        targetConjuncts.get(i + 1)) : targetConjuncts.get(i);
+                        targetConjuncts.get(i + 1), true) : targetConjuncts.get(i);
                 newTargetConjuncts.add(expr);
             }
             targetConjuncts = newTargetConjuncts;
@@ -409,8 +400,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         if (detailLevel.equals(TExplainLevel.VERBOSE)) {
             expBuilder.append(detailPrefix + "tuple ids: ");
             for (TupleId tupleId : tupleIds) {
-                String nullIndicator = nullableTupleIds.contains(tupleId) ? "N" : "";
-                expBuilder.append(tupleId.asInt() + nullIndicator + " ");
+                expBuilder.append(tupleId.asInt() + " ");
             }
             expBuilder.append("\n");
         }
@@ -479,8 +469,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         msg.limit = limit;
         for (TupleId tid : tupleIds) {
             msg.addToRowTuples(tid.asInt());
-            msg.addToNullableTuples(nullableTupleIds.contains(tid));
         }
+        msg.setNullableTuples(Collections.emptyList());
 
         for (Expr e : conjuncts) {
             msg.addToConjuncts(e.treeToThrift());
@@ -568,14 +558,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
                 .collect(Collectors.toSet());
         normalizedPlan.setTupleIds(
                 tupleIds.stream()
-                    .map(normalizer::normalizeTupleId)
-                    .collect(Collectors.toSet())
-        );
-        normalizedPlan.setNullableTuples(
-                nullableTupleIds
-                    .stream()
-                    .map(Id::asInt)
-                    .filter(tupleIds::contains)
                     .map(normalizer::normalizeTupleId)
                     .collect(Collectors.toSet())
         );

@@ -189,6 +189,7 @@ struct ArrayAggregateImpl {
             execute_type<TYPE_DECIMAL256>(res, type, data, offsets) ||
             execute_type<TYPE_DATEV2>(res, type, data, offsets) ||
             execute_type<TYPE_DATETIMEV2>(res, type, data, offsets) ||
+            execute_type<TYPE_TIMESTAMPTZ>(res, type, data, offsets) ||
             execute_type<TYPE_VARCHAR>(res, type, data, offsets)) {
             block.replace_by_position(result, std::move(res));
             return Status::OK();
@@ -258,7 +259,8 @@ struct ArrayAggregateImpl {
             if constexpr ((operation == AggregateOperation::SUM ||
                            operation == AggregateOperation::PRODUCT ||
                            operation == AggregateOperation::AVERAGE) &&
-                          (is_date_type(Element) || is_decimalv3(Element))) {
+                          (is_date_type(Element) || is_timestamptz_type(Element) ||
+                           is_decimalv3(Element))) {
                 return false;
             } else {
                 using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;

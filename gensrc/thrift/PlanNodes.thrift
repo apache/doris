@@ -1174,16 +1174,10 @@ struct TAnalyticNode {
   // order_by_exprs are empty
   7: optional Types.TTupleId buffered_tuple_id
 
-  // predicate that checks: child tuple is in the same partition as the buffered tuple,
-  // i.e. each partition expr is equal or both are not null. Only set if
-  // buffered_tuple_id is set; should be evaluated over a row that is composed of the
-  // child tuple and the buffered tuple
+  // Deprecated
   8: optional Exprs.TExpr partition_by_eq
 
-  // predicate that checks: the order_by_exprs are equal or both NULL when evaluated
-  // over the child tuple and the buffered tuple. only set if buffered_tuple_id is set;
-  // should be evaluated over a row that is composed of the child tuple and the buffered
-  // tuple
+  // Deprecated
   9: optional Exprs.TExpr order_by_eq
 
   10: optional bool is_colocate
@@ -1408,7 +1402,7 @@ struct TPlanNode {
   4: required i64 limit
   5: required list<Types.TTupleId> row_tuples
 
-  // nullable_tuples[i] is true if row_tuples[i] is nullable
+  // Deprecated
   6: required list<bool> nullable_tuples
   7: optional list<Exprs.TExpr> conjuncts
 

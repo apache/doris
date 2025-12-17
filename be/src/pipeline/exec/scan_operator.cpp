@@ -25,8 +25,6 @@
 #include <memory>
 
 #include "common/global_types.h"
-#include "olap/bloom_filter_predicate.h"
-#include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/predicate_creator.h"
 #include "pipeline/exec/es_scan_operator.h"
@@ -59,7 +57,6 @@
 namespace doris::pipeline {
 
 #include "common/compile_check_begin.h"
-const static int32_t ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT = 10000;
 
 #define RETURN_IF_PUSH_DOWN(stmt, status)    \
     if (pdt == PushDownType::UNACCEPTABLE) { \
@@ -213,6 +210,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     M(DATETIME)                     \
     M(DATEV2)                       \
     M(DATETIMEV2)                   \
+    M(TIMESTAMPTZ)                  \
     M(VARCHAR)                      \
     M(STRING)                       \
     M(HLL)                          \
@@ -302,32 +300,41 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
     static constexpr auto is_leaf = [](auto&& expr) { return !expr->is_and_expr(); };
     auto in_predicate_checker = [&](const vectorized::VExprSPtrs& children,
                                     SlotDescriptor** slot_desc, ColumnValueRangeType** range) {
-        if (children.empty() || vectorized::VExpr::expr_without_cast(children[0])->node_type() !=
-                                        TExprNodeType::SLOT_REF) {
+        if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
             return false;
         }
         std::shared_ptr<vectorized::VSlotRef> slot =
-                std::dynamic_pointer_cast<vectorized::VSlotRef>(
-                        vectorized::VExpr::expr_without_cast(children[0]));
+                std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
         *slot_desc =
                 _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot->slot_id()];
-        return _is_predicate_acting_on_slot(slot, children[0], range);
+        return _is_predicate_acting_on_slot(slot, range);
     };
     auto eq_predicate_checker = [&](const vectorized::VExprSPtrs& children,
                                     SlotDescriptor** slot_desc, ColumnValueRangeType** range) {
-        if (children.empty() || vectorized::VExpr::expr_without_cast(children[0])->node_type() !=
-                                        TExprNodeType::SLOT_REF) {
+        if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
             return false;
         }
         std::shared_ptr<vectorized::VSlotRef> slot =
-                std::dynamic_pointer_cast<vectorized::VSlotRef>(
-                        vectorized::VExpr::expr_without_cast(children[0]));
+                std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
         CHECK(slot != nullptr);
         *slot_desc =
                 _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot->slot_id()];
-        return _is_predicate_acting_on_slot(slot, children[0], range);
+        return _is_predicate_acting_on_slot(slot, range);
+    };
+    auto topn_predicate_checker = [&](const vectorized::VExprSPtrs& children,
+                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range) {
+        if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
+            // not a slot ref(column)
+            return false;
+        }
+        std::shared_ptr<vectorized::VSlotRef> slot =
+                std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
+        CHECK(slot != nullptr);
+        *slot_desc =
+                _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot->slot_id()];
+        return _is_predicate_acting_on_slot(slot, range);
     };
 
     if (expr_root != nullptr) {
@@ -357,7 +364,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                         vectorized::VExpr::expr_without_cast(child));
             }
             if (in_predicate_checker(expr_root->children(), &slot, &range) ||
-                eq_predicate_checker(expr_root->children(), &slot, &range)) {
+                eq_predicate_checker(expr_root->children(), &slot, &range) ||
+                topn_predicate_checker(expr_root->children(), &slot, &range)) {
                 Status status = Status::OK();
                 std::visit(
                         [&](auto& value_range) {
@@ -407,7 +415,14 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                                                         context, slot,
                                                         _slot_id_to_predicates[slot->id()], &pdt),
                                                 status);
-
+                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
+                                                        context, slot,
+                                                        _slot_id_to_predicates[slot->id()], &pdt),
+                                                status);
+                            RETURN_IF_PUSH_DOWN(_normalize_topn_filter(
+                                                        context, slot,
+                                                        _slot_id_to_predicates[slot->id()], &pdt),
+                                                status);
                             if (state()->enable_function_pushdown()) {
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_function_filters(context, slot, &pdt), status);
@@ -464,6 +479,26 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
                     rf_wrapper->predicate_input_rows_counter(),
                     rf_expr->predicate_always_true_rows_counter());
             *pdt = temp_pdt;
+        }
+    }
+    return Status::OK();
+}
+
+template <typename Derived>
+Status ScanLocalState<Derived>::_normalize_topn_filter(
+        vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
+    auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
+    if (expr->is_topn_filter()) {
+        PushDownType temp_pdt = _should_push_down_topn_filter();
+        if (temp_pdt != PushDownType::UNACCEPTABLE) {
+            auto& p = _parent->cast<typename Derived::Parent>();
+            auto& pred = _state->get_query_ctx()->get_runtime_predicate(
+                    assert_cast<vectorized::VTopNPred*>(expr.get())->source_node_id());
+            if (_push_down_topn(pred)) {
+                predicates.emplace_back(pred.get_predicate(p.node_id()));
+                *pdt = temp_pdt;
+            }
         }
     }
     return Status::OK();
@@ -528,8 +563,7 @@ Status ScanLocalState<Derived>::_normalize_function_filters(vectorized::VExprCon
 
 template <typename Derived>
 bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
-        const std::shared_ptr<vectorized::VSlotRef>& slot_ref,
-        const vectorized::VExprSPtr& child_contains_slot, ColumnValueRangeType** range) {
+        const std::shared_ptr<vectorized::VSlotRef>& slot_ref, ColumnValueRangeType** range) {
     auto entry = _slot_id_to_predicates.find(slot_ref->slot_id());
     if (_slot_id_to_predicates.end() == entry) {
         return false;
@@ -537,29 +571,11 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
     if (is_complex_type(slot_ref->data_type()->get_primitive_type())) {
         return false;
     }
-    auto& p = _parent->cast<typename Derived::Parent>();
     auto sid_to_range = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
     *range = &(sid_to_range->second);
-    SlotDescriptor* src_slot_desc = p._slot_id_to_slot_desc[slot_ref->slot_id()];
-    DCHECK(child_contains_slot != nullptr);
-    if (child_contains_slot->data_type()->get_primitive_type() !=
-                src_slot_desc->type()->get_primitive_type() ||
-        child_contains_slot->data_type()->get_precision() !=
-                src_slot_desc->type()->get_precision() ||
-        child_contains_slot->data_type()->get_scale() != src_slot_desc->type()->get_scale()) {
-        return _ignore_cast(src_slot_desc, child_contains_slot.get());
-    }
-    if ((child_contains_slot->data_type()->get_primitive_type() == PrimitiveType::TYPE_DATETIME ||
-         child_contains_slot->data_type()->get_primitive_type() ==
-                 PrimitiveType::TYPE_DATETIMEV2) &&
-        child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
-        // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
-        // push down.
-        return false;
-    }
     return true;
 }
 
@@ -578,17 +594,6 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     }
 
     return fmt::to_string(debug_string_buffer);
-}
-
-template <typename Derived>
-bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr) {
-    // only one level cast expr could push down for variant type
-    // check if expr is cast and it's children is slot
-    if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        return expr->node_type() == TExprNodeType::CAST_EXPR &&
-               expr->children().at(0)->is_slot_ref();
-    }
-    return false;
 }
 
 template <typename Derived>
@@ -992,7 +997,8 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                          (PrimitiveType == TYPE_IPV6) || (PrimitiveType == TYPE_DECIMAL32) ||
                          (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||
-                         (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
+                         (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2) ||
+                         (PrimitiveType == TYPE_TIMESTAMPTZ)) {
         if constexpr (IsFixed) {
             func(temp_range,
                  reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
@@ -1244,6 +1250,18 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->open(state));
         _conjuncts.emplace_back(conjunct);
     }
+    for (auto id : get_topn_filter_source_node_ids(state, true)) {
+        const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
+        vectorized::VExprSPtr topn_pred;
+        RETURN_IF_ERROR(vectorized::VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id,
+                                                                 topn_pred));
+
+        vectorized::VExprContextSPtr conjunct = vectorized::VExprContext::create_shared(topn_pred);
+        RETURN_IF_ERROR(conjunct->prepare(
+                state, _parent->cast<typename Derived::Parent>().row_descriptor()));
+        RETURN_IF_ERROR(conjunct->open(state));
+        _conjuncts.emplace_back(conjunct);
+    }
     return Status::OK();
 }
 
@@ -1333,27 +1351,17 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         _topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
     }
 
-    // The first branch is kept for compatibility with the old version of the FE
-    if (!query_options.__isset.enable_adaptive_pipeline_task_serial_read_on_limit) {
-        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
-            // Which means the request could be fullfilled in a single segment iterator request.
+    // Which means the request could be fullfilled in a single segment iterator request.
+    // the unique_table has a condition of delete_sign = 0 awalys, so it's not have plan for one instance to scan table,
+    // now add some check for unique_table let running only one instance for select limit n.
+    if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
+        DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
+        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty() ||
+            (tnode.conjuncts.size() == 1 && tnode.__isset.olap_scan_node &&
+             tnode.olap_scan_node.keyType == TKeysType::UNIQUE_KEYS)) {
             if (tnode.limit > 0 &&
-                tnode.limit <= ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT) {
+                tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
                 _should_run_serial = true;
-            }
-        }
-    } else {
-        // The set of enable_adaptive_pipeline_task_serial_read_on_limit
-        // is checked in previous branch.
-        if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
-            DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
-            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty() ||
-                (tnode.conjuncts.size() == 1 && tnode.__isset.olap_scan_node &&
-                 tnode.olap_scan_node.keyType == TKeysType::UNIQUE_KEYS)) {
-                if (tnode.limit > 0 &&
-                    tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
-                    _should_run_serial = true;
-                }
             }
         }
     }
@@ -1378,8 +1386,9 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
             continue;
         }
 
-        state->get_query_ctx()->get_runtime_predicate(id).init_target(node_id(),
-                                                                      _slot_id_to_slot_desc);
+        RETURN_IF_ERROR(state->get_query_ctx()->get_runtime_predicate(id).init_target(
+                node_id(), _slot_id_to_slot_desc,
+                OperatorX<LocalStateType>::intermediate_row_desc()));
     }
 
     RETURN_IF_CANCELLED(state);

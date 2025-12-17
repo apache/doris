@@ -21,6 +21,7 @@
 #include "io/cache/block_file_cache.h"
 
 #include <cstdio>
+#include <exception>
 #include <fstream>
 #include <unordered_set>
 
@@ -55,6 +56,85 @@
 #include "vec/common/uint128.h"
 namespace doris::io {
 #include "common/compile_check_begin.h"
+
+// Insert a block pointer into one shard while swallowing allocation failures.
+bool NeedUpdateLRUBlocks::insert(FileBlockSPtr block) {
+    if (!block) {
+        return false;
+    }
+    try {
+        auto* raw_ptr = block.get();
+        auto idx = shard_index(raw_ptr);
+        auto& shard = _shards[idx];
+        std::lock_guard lock(shard.mutex);
+        auto [_, inserted] = shard.entries.emplace(raw_ptr, std::move(block));
+        if (inserted) {
+            _size.fetch_add(1, std::memory_order_relaxed);
+        }
+        return inserted;
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to enqueue block for LRU update: " << e.what();
+    } catch (...) {
+        LOG(WARNING) << "Failed to enqueue block for LRU update: unknown error";
+    }
+    return false;
+}
+
+// Drain up to `limit` unique blocks to the caller, keeping the structure consistent on failures.
+size_t NeedUpdateLRUBlocks::drain(size_t limit, std::vector<FileBlockSPtr>* output) {
+    if (limit == 0 || output == nullptr) {
+        return 0;
+    }
+    size_t drained = 0;
+    try {
+        output->reserve(output->size() + std::min(limit, size()));
+        for (auto& shard : _shards) {
+            if (drained >= limit) {
+                break;
+            }
+            std::lock_guard lock(shard.mutex);
+            auto it = shard.entries.begin();
+            size_t shard_drained = 0;
+            while (it != shard.entries.end() && drained + shard_drained < limit) {
+                output->emplace_back(std::move(it->second));
+                it = shard.entries.erase(it);
+                ++shard_drained;
+            }
+            if (shard_drained > 0) {
+                _size.fetch_sub(shard_drained, std::memory_order_relaxed);
+                drained += shard_drained;
+            }
+        }
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to drain LRU update blocks: " << e.what();
+    } catch (...) {
+        LOG(WARNING) << "Failed to drain LRU update blocks: unknown error";
+    }
+    return drained;
+}
+
+// Remove every pending block, guarding against unexpected exceptions.
+void NeedUpdateLRUBlocks::clear() {
+    try {
+        for (auto& shard : _shards) {
+            std::lock_guard lock(shard.mutex);
+            if (!shard.entries.empty()) {
+                auto removed = shard.entries.size();
+                shard.entries.clear();
+                _size.fetch_sub(removed, std::memory_order_relaxed);
+            }
+        }
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to clear LRU update blocks: " << e.what();
+    } catch (...) {
+        LOG(WARNING) << "Failed to clear LRU update blocks: unknown error";
+    }
+}
+
+size_t NeedUpdateLRUBlocks::shard_index(FileBlock* ptr) const {
+    DCHECK(ptr != nullptr);
+    return std::hash<FileBlock*> {}(ptr)&kShardMask;
+}
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
@@ -627,11 +707,8 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
 }
 
 void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
-    bool ret = _need_update_lru_blocks.enqueue(block);
-    if (ret) [[likely]] {
-        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size_approx();
-    } else {
-        LOG_WARNING("Failed to push FileBlockSPtr to _need_update_lru_blocks");
+    if (_need_update_lru_blocks.insert(std::move(block))) {
+        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
     }
 }
 
@@ -2189,8 +2266,7 @@ void BlockFileCache::run_background_evict_in_advance() {
 
 void BlockFileCache::run_background_block_lru_update() {
     Thread::set_self_name("run_background_block_lru_update");
-    FileBlockSPtr block;
-    size_t batch_count = 0;
+    std::vector<FileBlockSPtr> batch;
     while (!_close) {
         int64_t interval_ms = config::file_cache_background_block_lru_update_interval_ms;
         size_t batch_limit =
@@ -2203,18 +2279,24 @@ void BlockFileCache::run_background_block_lru_update() {
             }
         }
 
+        batch.clear();
+        batch.reserve(batch_limit);
+        size_t drained = _need_update_lru_blocks.drain(batch_limit, &batch);
+        if (drained == 0) {
+            *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
+            continue;
+        }
+
         int64_t duration_ns = 0;
         {
             SCOPED_CACHE_LOCK(_mutex, this);
             SCOPED_RAW_TIMER(&duration_ns);
-            while (batch_count < batch_limit && _need_update_lru_blocks.try_dequeue(block)) {
+            for (auto& block : batch) {
                 update_block_lru(block, cache_lock);
-                batch_count++;
             }
         }
         *_update_lru_blocks_latency_us << (duration_ns / 1000);
-        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size_approx();
-        batch_count = 0;
+        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
     }
 }
 
@@ -2356,14 +2438,8 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
 }
 
 void BlockFileCache::clear_need_update_lru_blocks() {
-    constexpr size_t kBatchSize = 1024;
-    std::vector<FileBlockSPtr> buffer(kBatchSize);
-    size_t drained = 0;
-    while ((drained = _need_update_lru_blocks.try_dequeue_bulk(buffer.data(), buffer.size())) > 0) {
-        for (size_t i = 0; i < drained; ++i) {
-            buffer[i].reset();
-        }
-    }
+    _need_update_lru_blocks.clear();
+    *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
 }
 
 std::string BlockFileCache::clear_file_cache_directly() {

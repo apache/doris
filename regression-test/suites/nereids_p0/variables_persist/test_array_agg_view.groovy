@@ -56,11 +56,11 @@ suite("test_array_agg_view") {
     qt_avg2 "select * from v_test_array_avg order by 1,2,3,4,5,6, 7;"
 
     multi_sql """set enable_decimal256=true;
-    drop view if EXISTS v_test_array_product;
-    create view v_test_array_product as select kint, array_product(a_int), array_product(a_float), array_product(a_double), array_product(a_dec_v3_64), array_product(a_dec_v3_128), array_product(a_dec_v3_256) from test_array_agg_view;"""
-    qt_product1 "select * from v_test_array_product order by 1,2,3,4,5,6, 7;"
+    drop view if EXISTS v_test_array_product2;
+    create view v_test_array_product2 as select kint, array_product(a_int), array_product(a_float), array_product(a_double), array_product(a_dec_v3_64), array_product(a_dec_v3_128), array_product(a_dec_v3_256) from test_array_agg_view;"""
+    qt_product1 "select * from v_test_array_product2 order by 1,2,3,4,5,6, 7;"
     sql "set enable_decimal256=false;"
-    qt_product2 "select * from v_test_array_product order by 1,2,3,4,5,6, 7;"
+    qt_product2 "select * from v_test_array_product2 order by 1,2,3,4,5,6, 7;"
 
     sql """set enable_decimal256=true; """
     qt_cum_sum1 "select *, array_cum_sum(a_int), array_cum_sum(a_float), array_cum_sum(a_double), array_cum_sum(a_dec_v3_64), array_cum_sum(a_dec_v3_128), array_cum_sum(a_dec_v3_256) from test_array_agg_view order by 1,2,3,4,5,6, 7;"

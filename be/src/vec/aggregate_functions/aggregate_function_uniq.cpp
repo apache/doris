@@ -40,9 +40,9 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
     return creator_with_type_list<
             TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
             TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256, TYPE_VARCHAR,
-            TYPE_ARRAY, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DATEV2,
-            TYPE_DATETIMEV2>::create<AggregateFunctionUniq, Data>(argument_types,
-                                                                  result_is_nullable, attr);
+            TYPE_ARRAY, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DATEV2, TYPE_DATETIMEV2,
+            TYPE_TIMESTAMPTZ>::create<AggregateFunctionUniq, Data>(argument_types,
+                                                                   result_is_nullable, attr);
 }
 
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory) {

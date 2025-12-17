@@ -44,23 +44,23 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
         }
     }
 
-    // Get merge file total small file count metric from all backends
-    def get_merge_file_total_small_file_count = {
+    // Get packed file total small file count metric from all backends
+    def get_packed_file_total_small_file_count = {
         long total_count = 0
         for (String backend_id: backendId_to_backendIP.keySet()) {
             def ip = backendId_to_backendIP.get(backend_id)
             def brpc_port = backendId_to_backendBrpcPort.get(backend_id)
             try {
-                def count = getBrpcMetrics(ip, brpc_port, "merge_file_total_small_file_num")
+                def count = getBrpcMetrics(ip, brpc_port, "packed_file_total_small_file_num")
                 if (count > 0) {
                     total_count += count
-                    logger.info("BE ${ip}:${brpc_port} merge_file_total_small_file_num = ${count}")
+                    logger.info("BE ${ip}:${brpc_port} packed_file_total_small_file_num = ${count}")
                 }
             } catch (Exception e) {
                 logger.warn("Failed to get metrics from BE ${ip}:${brpc_port}: ${e.getMessage()}")
             }
         }
-        logger.info("Total merge_file_total_small_file_num across all backends: ${total_count}")
+        logger.info("Total packed_file_total_small_file_num across all backends: ${total_count}")
         return total_count
     }
 
@@ -199,14 +199,14 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
         }
     }
 
-    // Enable merge file feature and set small file threshold using framework's temporary config function
+    // Enable packed file feature and set small file threshold using framework's temporary config function
     // This will automatically restore configs after test completes
     setBeConfigTemporary([
-        "enable_merge_file": "true",
+        "enable_packed_file": "true",
         "small_file_threshold_bytes": "102400"  // 100KB threshold
     ]) {
         // Test case 1: Mixed load (small and large files) - check query results
-        def tableName1 = "test_merge_file_mixed_load_query"
+        def tableName1 = "test_packed_file_mixed_load_query"
         sql """ DROP TABLE IF EXISTS ${tableName1} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName1} (
@@ -220,10 +220,10 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
         """
 
         def load_threads = []
-        def small_load_count = 5  // Small loads that will trigger merge
-        def large_load_count = 3  // Large loads that won't trigger merge
+        def small_load_count = 5  // Small loads that will trigger packed
+        def large_load_count = 3  // Large loads that won't trigger packed
 
-        // Small load function - generates files smaller than threshold (will be merged)
+        // Small load function - generates files smaller than threshold (will be packed)
         def small_load = { table_name, thread_id ->
             try {
                 for (int i = 0; i < 3; i++) {
@@ -255,7 +255,7 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
             }
         }
 
-        // Large load function - generates files larger than threshold (won't be merged)
+        // Large load function - generates files larger than threshold (won't be packed)
         def large_load = { table_name, thread_id ->
             try {
                 for (int i = 0; i < 2; i++) {
@@ -308,7 +308,7 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
             t.join(120000)  // 2 minutes timeout
         }
 
-        // Wait a bit for merge operations to complete
+        // Wait a bit for packed operations to complete
         sleep(5000)
 
         // Verify query results - should include data from both small and large loads
@@ -343,7 +343,7 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
         logger.info("✓ Test case 1.1 passed: Query results are correct after clearing file cache")
 
         // Test case 2: Mixed load - check index and delete bitmap
-        def tableName2 = "test_merge_file_mixed_load_index"
+        def tableName2 = "test_packed_file_mixed_load_index"
         sql """ DROP TABLE IF EXISTS ${tableName2} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName2} (

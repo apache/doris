@@ -25,6 +25,7 @@
 #include "olap/accept_null_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/predicate_creator.h"
+#include "runtime/define_primitive_type.h"
 
 namespace doris::vectorized {
 
@@ -54,16 +55,31 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
                                 : create_comparison_predicate0<PredicateType::GE>;
 }
 
-void RuntimePredicate::init_target(
-        int32_t target_node_id, phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc) {
+Status RuntimePredicate::init_target(
+        int32_t target_node_id, phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
+        const doris::RowDescriptor& desc) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     check_target_node_id(target_node_id);
     if (target_is_slot(target_node_id)) {
         _contexts[target_node_id].col_name =
                 slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
                         ->col_name();
+        auto slot_id = get_texpr(target_node_id).nodes[0].slot_ref.slot_id;
+        auto column_id = desc.get_column_id(slot_id);
+        if (column_id < 0) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "RuntimePredicate has invalid slot id: {}, name: {}, desc: {}, slot_desc: {}",
+                    slot_id,
+                    slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
+                            ->col_name(),
+                    desc.debug_string(),
+                    slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
+                            ->debug_string());
+        }
+        _contexts[target_node_id].predicate = SharedPredicate::create_shared(column_id);
     }
     _detected_target = true;
+    return Status::OK();
 }
 
 StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveType type) {
@@ -111,6 +127,11 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
         const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>();
         return StringRef((char*)&v, sizeof(v));
     }
+    case PrimitiveType::TYPE_TIMESTAMPTZ: {
+        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType>();
+        return StringRef((char*)&v, sizeof(v));
+        break;
+    }
     case PrimitiveType::TYPE_DATE: {
         const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>();
         return StringRef((char*)&v, sizeof(v));
@@ -151,6 +172,15 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
         const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>();
         return StringRef((char*)&v, sizeof(v));
     }
+    case doris::PrimitiveType::TYPE_VARBINARY: {
+        // For VARBINARY type, use StringViewField to store binary data
+        const auto& v = field.get<StringViewField>();
+        auto length = v.size();
+        char* buffer = _predicate_arena.alloc(length);
+        memset(buffer, 0, length);
+        memcpy(buffer, v.data(), length);
+        return {buffer, length};
+    }
     default:
         break;
     }
@@ -161,7 +191,7 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
 
 bool RuntimePredicate::_init(PrimitiveType type) {
     return is_int_or_bool(type) || is_decimal(type) || is_string_type(type) || is_date_type(type) ||
-           is_time_type(type) || is_ip(type);
+           is_time_type(type) || is_ip(type) || is_varbinary(type);
 }
 
 Status RuntimePredicate::update(const Field& value) {

@@ -34,9 +34,6 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_page_reader.h"
 
-namespace cctz {
-class time_zone;
-} // namespace cctz
 namespace doris {
 class BlockCompressionCodec;
 
@@ -54,9 +51,29 @@ template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
 
+struct ColumnChunkReaderStatistics {
+    int64_t decompress_time = 0;
+    int64_t decompress_cnt = 0;
+    int64_t decode_header_time = 0;
+    int64_t decode_value_time = 0;
+    int64_t decode_dict_time = 0;
+    int64_t decode_level_time = 0;
+    int64_t skip_page_header_num = 0;
+    int64_t parse_page_header_num = 0;
+};
+
 /**
  * Read and decode parquet column data into doris block column.
- * <p>Usage:</p>
+ * <p>Usage:</p>    struct ColumnChunkReaderStatistics {
+        int64_t decompress_time = 0;
+        int64_t decompress_cnt = 0;
+        int64_t decode_header_time = 0;
+        int64_t decode_value_time = 0;
+        int64_t decode_dict_time = 0;
+        int64_t decode_level_time = 0;
+        int64_t skip_page_header_num = 0;
+        int64_t parse_page_header_num = 0;
+    };
  * // Create chunk reader
  * ColumnChunkReader chunk_reader(BufferedStreamReader* reader,
  *                                tparquet::ColumnChunk* column_chunk,
@@ -74,58 +91,27 @@ using ColumnString = ColumnStr<UInt32>;
  *   chunk_reader.decode_values(slice, num_values);
  * }
  */
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
 class ColumnChunkReader {
 public:
-    struct Statistics {
-        int64_t decompress_time = 0;
-        int64_t decompress_cnt = 0;
-        int64_t decode_header_time = 0;
-        int64_t decode_value_time = 0;
-        int64_t decode_dict_time = 0;
-        int64_t decode_level_time = 0;
-        int64_t skip_page_header_num = 0;
-        int64_t parse_page_header_num = 0;
-    };
-
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
                       FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
-                      const cctz::time_zone* ctz, io::IOContext* io_ctx);
+                      size_t total_row, io::IOContext* io_ctx);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
     Status init();
 
     // Whether the chunk reader has a more page to read.
-    bool has_next_page() const { return _chunk_parsed_values < _metadata.num_values; }
-
-    // Deprecated
-    // Seek to the specific page, page_header_offset must be the start offset of the page header.
-    // _end_offset may exceed the actual data area, so we can only use the number of parsed values
-    // to determine whether there are remaining pages to read. That's to say we can't use the
-    // PageLocation in parquet metadata to seek to the specified page. We should call next_page()
-    // and skip_page() to skip pages one by one.
-    // todo: change this interface to seek_to_page(int64_t page_header_offset, size_t num_parsed_values)
-    // and set _chunk_parsed_values = num_parsed_values
-    // [[deprecated]]
-    void seek_to_page(int64_t page_header_offset) {
-        _remaining_num_values = 0;
-        _page_reader->seek_to_page(page_header_offset);
-        _state = INITIALIZED;
-    }
-
-    // Seek to next page. Only read and parse the page header.
-    Status next_page();
-
-    // Skip current page(will not read and parse) if the page is filtered by predicates.
-    Status skip_page() {
-        Status res = Status::OK();
-        _remaining_num_values = 0;
-        if (_state == HEADER_PARSED) {
-            res = _page_reader->skip_page();
+    bool has_next_page() const {
+        if constexpr (OFFSET_INDEX) {
+            return _page_reader->has_next_page();
+        } else {
+            // no offset need parse all page header.
+            return _chunk_parsed_values < _metadata.num_values;
         }
-        _state = PAGE_SKIPPED;
-        return res;
     }
+
     // Skip some values(will not read and parse) in current page if the values are filtered by predicates.
     // when skip_data = false, the underlying decoder will not skip data,
     // only used when maintaining the consistency of _remaining_num_values.
@@ -142,16 +128,6 @@ public:
     }
     // The remaining number of values in current page(including null values). Decreased when reading or skipping.
     uint32_t remaining_num_values() const { return _remaining_num_values; }
-    // null values are generated from definition levels
-    // the caller should maintain the consistency after analyzing null values from definition levels.
-    void insert_null_values(MutableColumnPtr& doris_column, size_t num_values);
-    // Get the raw data of current page.
-    Slice& get_page_data() { return _page_data; }
-
-    // Get the repetition levels
-    size_t get_rep_levels(level_t* levels, size_t n);
-    // Get the definition levels
-    size_t get_def_levels(level_t* levels, size_t n);
 
     // Decode values in current page into doris column.
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
@@ -170,7 +146,7 @@ public:
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
 
-    Statistics& statistics() {
+    ColumnChunkReaderStatistics& statistics() {
         _statistics.decode_header_time = _page_reader->statistics().decode_header_time;
         _statistics.skip_page_header_num = _page_reader->statistics().skip_page_header_num;
         _statistics.parse_page_header_num = _page_reader->statistics().parse_page_header_num;
@@ -187,33 +163,70 @@ public:
                 ->convert_dict_column_to_string_column(dict_column);
     }
 
+    size_t page_start_row() const { return _page_reader->start_row(); }
+
+    size_t page_end_row() const { return _page_reader->end_row(); }
+
+    Status parse_page_header();
+    Status next_page();
+
+    Status seek_to_nested_row(size_t left_row);
+    Status skip_nested_values(const std::vector<level_t>& def_levels);
+    Status fill_def(std::vector<level_t>& def_values) {
+        auto before_sz = def_values.size();
+        auto append_sz = _remaining_def_nums - _remaining_rep_nums;
+        def_values.resize(before_sz + append_sz, 0);
+        if (max_def_level() != 0) {
+            auto ptr = def_values.data() + before_sz;
+            _def_level_decoder.get_levels(ptr, append_sz);
+        }
+        _remaining_def_nums -= append_sz;
+        return Status::OK();
+    }
+
+    Status load_page_nested_rows(std::vector<level_t>& rep_levels, size_t max_rows,
+                                 size_t* result_rows, bool* cross_page);
+    Status load_cross_page_nested_row(std::vector<level_t>& rep_levels, bool* cross_page);
+
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
+    // for check dict page.
+    Status _parse_first_page_header();
     Status _decode_dict_page();
+
     void _reserve_decompress_buf(size_t size);
     int32_t _get_type_length();
+
     void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
+    Status _skip_nested_rows_in_page(size_t num_rows);
 
     ColumnChunkReaderState _state = NOT_INIT;
     FieldSchema* _field_schema = nullptr;
-    level_t _max_rep_level;
-    level_t _max_def_level;
-    tparquet::LogicalType _parquet_logical_type;
+    const level_t _max_rep_level;
+    const level_t _max_def_level;
 
     io::BufferedStreamReader* _stream_reader = nullptr;
     tparquet::ColumnMetaData _metadata;
-    const tparquet::OffsetIndex* _offset_index;
-    //    cctz::time_zone* _ctz;
+    const tparquet::OffsetIndex* _offset_index = nullptr;
+    size_t _current_row = 0;
+    size_t _total_rows = 0;
     io::IOContext* _io_ctx = nullptr;
 
-    std::unique_ptr<PageReader> _page_reader;
+    std::unique_ptr<PageReader<IN_COLLECTION, OFFSET_INDEX>> _page_reader;
     BlockCompressionCodec* _block_compress_codec = nullptr;
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;
     size_t _chunk_parsed_values = 0;
+    // this page remaining rep/def nums
+    // if max_rep_level = 0 / max_def_level = 0, this value retail hava value.
+    uint32_t _remaining_rep_nums = 0;
+    uint32_t _remaining_def_nums = 0;
+    // this page remaining values to be processed (for read/skip).
+    // need parse this page header.
     uint32_t _remaining_num_values = 0;
+
     Slice _page_data;
     DorisUniqueBufferPtr<uint8_t> _decompress_buf;
     size_t _decompress_buf_size = 0;
@@ -225,7 +238,7 @@ private:
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
-    Statistics _statistics;
+    ColumnChunkReaderStatistics _statistics;
 };
 #include "common/compile_check_end.h"
 

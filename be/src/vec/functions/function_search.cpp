@@ -187,6 +187,7 @@ Status FunctionSearch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<IndexIterator*> iterators, uint32_t num_rows,
+        const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
         InvertedIndexResultBitmap& bitmap_result) const {
     return Status::OK();
 }
@@ -571,7 +572,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             std::vector<TermInfo> phrase_term_infos =
                     QueryHelper::build_phrase_term_infos(term_infos);
             if (phrase_term_infos.size() == 1) {
-                const auto& term_info = term_infos[0];
+                const auto& term_info = phrase_term_infos[0];
                 if (term_info.is_single_term()) {
                     std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
                     *out = std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr);
@@ -584,11 +585,12 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                     *out = builder.build();
                 }
             } else {
-                if (QueryHelper::is_simple_phrase(term_infos)) {
-                    *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr, term_infos);
+                if (QueryHelper::is_simple_phrase(phrase_term_infos)) {
+                    *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr,
+                                                                   phrase_term_infos);
                 } else {
                     *out = std::make_shared<query_v2::MultiPhraseQuery>(context, field_wstr,
-                                                                        term_infos);
+                                                                        phrase_term_infos);
                 }
             }
 

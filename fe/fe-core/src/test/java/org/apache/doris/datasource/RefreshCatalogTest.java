@@ -137,17 +137,18 @@ public class RefreshCatalogTest extends TestWithFeService {
     @Test
     public void testRefreshCatalogLastUpdateTime() throws Exception {
         CatalogIf test2 = env.getCatalogMgr().getCatalog("test2");
-        // init is 0
+        // lastUpdateTime is set when catalog is created (via resetToUninitialized -> onRefreshCache)
         long l1 = test2.getLastUpdateTime();
-        Assertions.assertTrue(l1 == 0);
+        Assertions.assertTrue(l1 > 0);
         TestExternalTable table = (TestExternalTable) test2.getDbNullable("db1").getTable("tbl11").get();
-        // getDb() triggered init method
+        // getDb() triggered init method, but lastUpdateTime was already set
         long l2 = test2.getLastUpdateTime();
-        Assertions.assertTrue(l2 > l1);
+        Assertions.assertTrue(l2 >= l1);
         Assertions.assertFalse(table.isObjectCreated());
         table.makeSureInitialized();
         Assertions.assertTrue(table.isObjectCreated());
 
+        Thread.sleep(100); // wait a bit to ensure time difference
         RefreshCatalogCommand refreshCatalogCommand = new RefreshCatalogCommand("test2", null);
         Assertions.assertTrue(refreshCatalogCommand.isInvalidCache());
         try {
@@ -155,9 +156,9 @@ public class RefreshCatalogTest extends TestWithFeService {
         } catch (Exception e) {
             // Do nothing
         }
-        // not triggered init method
+        // refresh should update lastUpdateTime
         long l3 = test2.getLastUpdateTime();
-        Assertions.assertTrue(l3 == l2);
+        Assertions.assertTrue(l3 > l2);
         // the table will be recreated after refresh.
         // so we need to get table again
         table = (TestExternalTable) test2.getDbNullable("db1").getTable("tbl11").get();

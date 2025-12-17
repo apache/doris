@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
+#include "util/runtime_profile.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -32,6 +33,8 @@ Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateIn
     SCOPED_TIMER(_init_timer);
     _get_data_timer = ADD_TIMER(custom_profile(), "GetDataTime");
     _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
+    _get_data_from_hashtable_rows =
+            ADD_COUNTER(custom_profile(), "GetDataFromHashTableRows", TUnit::UNIT);
     _shared_state->probe_finished_children_dependency.resize(
             _parent->cast<SetSourceOperatorX<is_intersect>>()._child_quantity, nullptr);
     return Status::OK();
@@ -151,6 +154,7 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
 
     *eos = iter == hash_table_ctx.end;
 
+    COUNTER_UPDATE(local_state._get_data_from_hashtable_rows, local_state._result_indexs.size());
     local_state._add_result_columns();
 
     if (!output_block->mem_reuse()) {

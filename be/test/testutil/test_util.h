@@ -97,10 +97,12 @@ std::string rand_rng_by_type(FieldType fieldType);
 
 void load_columns_data_from_file(vectorized::MutableColumns& columns,
                                  vectorized::DataTypeSerDeSPtrs serders, char col_spliter,
-                                 std::set<int> idxes, const std::string& column_data_file);
+                                 std::set<int> idxes, const std::string& column_data_file,
+                                 const cctz::time_zone* tz = nullptr);
 void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
                         vectorized::MutableColumns& columns, const std::string& file_path,
-                        const char spliter = ';', const std::set<int> idxes = {0});
+                        const char spliter = ';', const std::set<int> idxes = {0},
+                        const cctz::time_zone* tz = nullptr);
 void check_or_generate_res_file(const std::string& res_file_path,
                                 const std::vector<std::vector<std::string>>& res_columns);
 

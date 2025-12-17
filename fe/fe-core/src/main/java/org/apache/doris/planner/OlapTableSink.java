@@ -673,6 +673,7 @@ public class OlapTableSink extends DataSink {
             // set start keys. min value is a REAL value. should be legal.
             if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 for (int i = 0; i < partColNum; i++) {
+                    range.lowerEndpoint().getKeys().get(i).setNullable(false);
                     tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
@@ -681,6 +682,7 @@ public class OlapTableSink extends DataSink {
             // see VOlapTablePartition's ctor in tablet_info.h
             if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 for (int i = 0; i < partColNum; i++) {
+                    range.upperEndpoint().getKeys().get(i).setNullable(false);
                     tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
@@ -694,6 +696,7 @@ public class OlapTableSink extends DataSink {
                     if (literalExpr.isNullLiteral()) {
                         tExprNodes.add(NullLiteral.create(literalExpr.getType()).treeToThrift().getNodes().get(0));
                     } else {
+                        literalExpr.setNullable(false);
                         tExprNodes.add(literalExpr.treeToThrift().getNodes().get(0));
                     }
                 }
@@ -863,6 +866,9 @@ public class OlapTableSink extends DataSink {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         for (Long id : systemInfoService.getAllBackendIds(false)) {
             Backend backend = systemInfoService.getBackend(id);
+            if (backend == null) {
+                continue;
+            }
             nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
         return nodesInfo;

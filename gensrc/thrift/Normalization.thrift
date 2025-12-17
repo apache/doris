@@ -51,6 +51,7 @@ struct TNormalizedPlanNode {
   2: optional PlanNodes.TPlanNodeType node_type
   3: optional i32 num_children
   5: optional set<Types.TTupleId> tuple_ids
+  // Deprecated
   6: optional set<Types.TTupleId> nullable_tuples
   7: optional list<Exprs.TExpr> conjuncts
   8: optional list<Exprs.TExpr> projects

@@ -58,7 +58,7 @@ public:
         thrift_tbl.slotDescriptors = slot_descs;
         std::ignore = DescriptorTbl::create(obj_pool.get(), thrift_tbl, &descs);
 
-        row_desc = RowDescriptor(*descs, {0, 1}, {true, true});
+        row_desc = RowDescriptor(*descs, {0, 1});
         sink.__set_dest_node_id(1);
     }
 
@@ -105,8 +105,6 @@ TEST_F(ProfileSpecTest, SourceOperatorNameSuffixTest1) {
     tnode.__set_node_type(TPlanNodeType::AGGREGATION_NODE);
     tnode.row_tuples.push_back(TTupleId(0));
     tnode.row_tuples.push_back(TTupleId(1));
-    std::vector<bool> null_map {false, false};
-    tnode.nullable_tuples = null_map;
 
     MockOperatorX op(obj_pool.get(), tnode, 1, *descs);
 
@@ -122,8 +120,6 @@ TEST_F(ProfileSpecTest, SourceOperatorNameSuffixTest2) {
     tnode.__set_node_type(TPlanNodeType::AGGREGATION_NODE);
     tnode.row_tuples.push_back(TTupleId(0));
     tnode.row_tuples.push_back(TTupleId(1));
-    std::vector<bool> null_map {false, false};
-    tnode.nullable_tuples = null_map;
 
     MockOperatorX op(obj_pool.get(), tnode, 1, *descs);
     op._nereids_id = 100;
@@ -158,8 +154,6 @@ TEST_F(ProfileSpecTest, CommonCountersCustomCounters) {
     tnode.__set_node_type(TPlanNodeType::AGGREGATION_NODE);
     tnode.row_tuples.push_back(TTupleId(0));
     tnode.row_tuples.push_back(TTupleId(1));
-    std::vector<bool> null_map {false, false};
-    tnode.nullable_tuples = null_map;
 
     MockOperatorX op(obj_pool.get(), tnode, 1, *descs);
 

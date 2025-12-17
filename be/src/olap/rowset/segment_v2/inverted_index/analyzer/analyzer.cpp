@@ -17,6 +17,8 @@
 
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 
+#include <glog/logging.h>
+
 #include "CLucene.h"
 #include "CLucene/analysis/LanguageBasedAnalyzer.h"
 
@@ -42,14 +44,19 @@
 namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
 
-ReaderPtr InvertedIndexAnalyzer::create_reader(CharFilterMap& char_filter_map) {
+ReaderPtr InvertedIndexAnalyzer::create_reader(const CharFilterMap& char_filter_map) {
     ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
     if (!char_filter_map.empty()) {
-        if (char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE] ==
-            INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
-            reader = std::make_shared<CharReplaceCharFilter>(
-                    reader, char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
-                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]);
+        auto it_type = char_filter_map.find(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
+        if (it_type != char_filter_map.end() &&
+            it_type->second == INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
+            auto it_pattern = char_filter_map.find(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
+            auto it_replacement =
+                    char_filter_map.find(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT);
+            if (it_pattern != char_filter_map.end() && it_replacement != char_filter_map.end()) {
+                reader = std::make_shared<CharReplaceCharFilter>(reader, it_pattern->second,
+                                                                 it_replacement->second);
+            }
         }
     }
     return reader;
@@ -123,21 +130,19 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
     return analyzer;
 }
 
-std::shared_ptr<lucene::analysis::Analyzer> InvertedIndexAnalyzer::create_analyzer(
-        const InvertedIndexCtx* inverted_index_ctx) {
-    const std::string& analyzer_name = inverted_index_ctx->custom_analyzer;
+AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
+    DCHECK(config != nullptr);
+    const std::string& analyzer_name = config->analyzer_name;
     if (analyzer_name.empty()) {
-        return create_builtin_analyzer(
-                inverted_index_ctx->parser_type, inverted_index_ctx->parser_mode,
-                inverted_index_ctx->lower_case, inverted_index_ctx->stop_words);
+        return create_builtin_analyzer(config->parser_type, config->parser_mode, config->lower_case,
+                                       config->stop_words);
     }
 
     if (is_builtin_analyzer(analyzer_name)) {
         InvertedIndexParserType parser_type =
                 get_inverted_index_parser_type_from_string(analyzer_name);
-        return create_builtin_analyzer(parser_type, inverted_index_ctx->parser_mode,
-                                       inverted_index_ctx->lower_case,
-                                       inverted_index_ctx->stop_words);
+        return create_builtin_analyzer(parser_type, config->parser_mode, config->lower_case,
+                                       config->stop_words);
     }
 
     auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
@@ -176,18 +181,16 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
         const std::string& search_str, const std::map<std::string, std::string>& properties) {
-    InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
-            get_custom_analyzer_string_from_properties(properties),
-            get_inverted_index_parser_type_from_string(
-                    get_parser_string_from_properties(properties)),
-            get_parser_mode_string_from_properties(properties),
-            get_parser_phrase_support_string_from_properties(properties),
-            get_parser_char_filter_map_from_properties(properties),
-            get_parser_lowercase_from_properties(properties),
-            get_parser_stopwords_from_properties(properties));
-    auto analyzer = create_analyzer(inverted_index_ctx.get());
-    inverted_index_ctx->analyzer = analyzer.get();
-    auto reader = create_reader(inverted_index_ctx->char_filter_map);
+    InvertedIndexAnalyzerConfig config;
+    config.analyzer_name = get_analyzer_name_from_properties(properties);
+    config.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(properties));
+    config.parser_mode = get_parser_mode_string_from_properties(properties);
+    config.lower_case = get_parser_lowercase_from_properties(properties);
+    config.stop_words = get_parser_stopwords_from_properties(properties);
+    config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
+    auto analyzer = create_analyzer(&config);
+    auto reader = create_reader(config.char_filter_map);
     reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
     return get_analyse_result(reader, analyzer.get());
 }
@@ -195,7 +198,7 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 bool InvertedIndexAnalyzer::should_analyzer(const std::map<std::string, std::string>& properties) {
     auto parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(properties));
-    auto analyzer_name = get_custom_analyzer_string_from_properties(properties);
+    auto analyzer_name = get_analyzer_name_from_properties(properties);
     if (!analyzer_name.empty()) {
         return true;
     }

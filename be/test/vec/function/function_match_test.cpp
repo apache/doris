@@ -34,19 +34,20 @@ namespace doris::vectorized {
 
 // Helper structure to manage analyzer lifetime
 struct TestInvertedIndexCtx {
-    std::unique_ptr<InvertedIndexCtx> ctx;
+    std::unique_ptr<InvertedIndexAnalyzerCtx> ctx;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer_holder;
 };
 
 // Helper function to create inverted index context
 TestInvertedIndexCtx create_inverted_index_ctx(InvertedIndexParserType parser_type) {
     TestInvertedIndexCtx test_ctx;
-    test_ctx.ctx = std::make_unique<InvertedIndexCtx>();
+    test_ctx.ctx = std::make_unique<InvertedIndexAnalyzerCtx>();
     test_ctx.ctx->parser_type = parser_type;
     if (parser_type != InvertedIndexParserType::PARSER_NONE) {
+        InvertedIndexAnalyzerConfig config;
+        config.parser_type = parser_type;
         test_ctx.analyzer_holder =
-                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
-                        test_ctx.ctx.get());
+                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
         test_ctx.ctx->analyzer = test_ctx.analyzer_holder.get();
     }
     return test_ctx;
@@ -63,7 +64,7 @@ TEST(FunctionMatchTest, analyse_query_str) {
     }
 
     {
-        auto inverted_index_ctx = std::make_unique<InvertedIndexCtx>();
+        auto inverted_index_ctx = std::make_unique<InvertedIndexAnalyzerCtx>();
         inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
         auto query_tokens = func_match_phrase.analyse_query_str_token(inverted_index_ctx.get(),
                                                                       "a b c", "name");
@@ -71,10 +72,12 @@ TEST(FunctionMatchTest, analyse_query_str) {
     }
 
     {
-        auto inverted_index_ctx = std::make_unique<InvertedIndexCtx>();
+        auto inverted_index_ctx = std::make_unique<InvertedIndexAnalyzerCtx>();
         inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-        auto analyzer = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
-                inverted_index_ctx.get());
+        InvertedIndexAnalyzerConfig config;
+        config.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+        auto analyzer =
+                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
         inverted_index_ctx->analyzer = analyzer.get();
         auto query_tokens = func_match_phrase.analyse_query_str_token(inverted_index_ctx.get(),
                                                                       "a b c", "name");
@@ -582,12 +585,12 @@ TEST(FunctionMatchTest, custom_analyzer_handling) {
     auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
 
     // Test without custom analyzer
-    ctx.ctx->custom_analyzer = "";
+    ctx.ctx->analyzer_name = "";
     auto tokens1 = match_any.analyse_query_str_token(ctx.ctx.get(), "test query", "test_col");
     EXPECT_GT(tokens1.size(), 0);
 
     // Test with custom analyzer (should be handled appropriately)
-    ctx.ctx->custom_analyzer = "custom_analyzer_name";
+    ctx.ctx->analyzer_name = "custom_analyzer_name";
     auto tokens2 = match_any.analyse_query_str_token(ctx.ctx.get(), "test query", "test_col");
     // Custom analyzer handling would depend on implementation details
     EXPECT_GE(tokens2.size(), 0);

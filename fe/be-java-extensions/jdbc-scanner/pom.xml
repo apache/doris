@@ -39,11 +39,12 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>java-common</artifactId>
             <version>${project.version}</version>
+            <scope>provided</scope>
         </dependency>
+        <!-- For JDBC Scanner PreLoad-->
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.semver4j</groupId>

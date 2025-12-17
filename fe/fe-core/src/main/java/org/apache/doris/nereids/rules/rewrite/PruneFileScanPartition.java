@@ -17,11 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
@@ -96,11 +93,10 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
-        if (externalTable instanceof SupportBinarySearchFilteringPartitions) {
-            NereidsSortedPartitionsCacheManager partitionsCacheManager = Env.getCurrentEnv()
-                    .getSortedPartitionsCacheManager();
-            sortedPartitionRanges = (Optional) partitionsCacheManager.get(
-                            (SupportBinarySearchFilteringPartitions) externalTable, scan);
+        boolean enableBinarySearch = ctx.getConnectContext() == null
+                || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
+        if (enableBinarySearch) {
+            sortedPartitionRanges = (Optional) externalTable.getSortedPartitionRanges(scan);
         }
         Pair<List<String>, Optional<Expression>> res = PartitionPruner.prune(
                 partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,

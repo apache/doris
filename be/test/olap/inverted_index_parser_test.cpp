@@ -246,32 +246,35 @@ TEST_F(InvertedIndexParserTest, TestGetParserDictCompressionFromProperties) {
     EXPECT_EQ(get_parser_dict_compression_from_properties(properties), "false");
 }
 
-// Test InvertedIndexCtx structure
-TEST_F(InvertedIndexParserTest, TestInvertedIndexCtxStructure) {
-    InvertedIndexCtx ctx;
+TEST_F(InvertedIndexParserTest, TestGetAnalyzerNameFromProperties) {
+    std::map<std::string, std::string> properties;
 
-    // Test default initialization
+    EXPECT_EQ(get_analyzer_name_from_properties(properties), "");
+
+    properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "my_analyzer";
+    EXPECT_EQ(get_analyzer_name_from_properties(properties), "my_analyzer");
+
+    properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "";
+    properties[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "my_normalizer";
+    EXPECT_EQ(get_analyzer_name_from_properties(properties), "my_normalizer");
+
+    properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "another_analyzer";
+    properties[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "another_normalizer";
+    EXPECT_EQ(get_analyzer_name_from_properties(properties), "another_analyzer");
+}
+
+TEST_F(InvertedIndexParserTest, TestInvertedIndexAnalyzerCtxShouldTokenize) {
+    InvertedIndexAnalyzerCtx ctx;
+    ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
+    ctx.analyzer_name.clear();
+    EXPECT_FALSE(ctx.should_tokenize());
+
     ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-    ctx.parser_mode = INVERTED_INDEX_PARSER_FINE_GRANULARITY;
-    ctx.lower_case = INVERTED_INDEX_PARSER_TRUE;
-    ctx.stop_words = "a,an,the";
-    ctx.analyzer = nullptr;
+    EXPECT_TRUE(ctx.should_tokenize());
 
-    EXPECT_EQ(ctx.parser_type, InvertedIndexParserType::PARSER_ENGLISH);
-    EXPECT_EQ(ctx.parser_mode, INVERTED_INDEX_PARSER_FINE_GRANULARITY);
-    EXPECT_EQ(ctx.lower_case, INVERTED_INDEX_PARSER_TRUE);
-    EXPECT_EQ(ctx.stop_words, "a,an,the");
-    EXPECT_EQ(ctx.analyzer, nullptr);
-
-    // Test char_filter_map
-    ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE] = "char_replace";
-    ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN] = "._";
-    ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT] = " ";
-
-    EXPECT_EQ(ctx.char_filter_map.size(), 3);
-    EXPECT_EQ(ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE], "char_replace");
-    EXPECT_EQ(ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN], "._");
-    EXPECT_EQ(ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT], " ");
+    ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
+    ctx.analyzer_name = "custom_analyzer";
+    EXPECT_TRUE(ctx.should_tokenize());
 }
 
 // Test constants

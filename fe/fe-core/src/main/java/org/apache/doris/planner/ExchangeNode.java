@@ -64,7 +64,7 @@ public class ExchangeNode extends PlanNode {
         offset = 0;
         limit = -1;
         this.conjuncts = Collections.emptyList();
-        this.children.add(inputNode);
+        children.add(inputNode);
         TupleDescriptor outputTupleDesc = inputNode.getOutputTupleDesc();
         updateTupleIds(outputTupleDesc);
     }
@@ -81,11 +81,9 @@ public class ExchangeNode extends PlanNode {
         if (outputTupleDesc != null) {
             clearTupleIds();
             tupleIds.add(outputTupleDesc.getId());
-            nullableTupleIds.add(outputTupleDesc.getId());
         } else {
             clearTupleIds();
             tupleIds.addAll(getChild(0).getOutputTupleIds());
-            nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
         }
     }
 
@@ -155,15 +153,8 @@ public class ExchangeNode extends PlanNode {
      */
     @Override
     public boolean isSerialOperator() {
-        return (
-                (
-                    ConnectContext.get() != null
-                        && ConnectContext.get().getSessionVariable().isUseSerialExchange()
-                        && (partitionType != TPartitionType.RANDOM_LOCAL_SHUFFLE)
-                )
-                || partitionType == TPartitionType.UNPARTITIONED
-            )
-            && mergeInfo == null;
+        return (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isUseSerialExchange()
+                || partitionType == TPartitionType.UNPARTITIONED) && mergeInfo == null;
     }
 
     @Override
