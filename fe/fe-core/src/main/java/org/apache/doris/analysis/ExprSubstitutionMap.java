@@ -20,7 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -52,7 +51,6 @@ public final class ExprSubstitutionMap {
      * across query blocks. It is not required that the lhsExpr is analyzed.
      */
     public void put(Expr lhsExpr, Expr rhsExpr) {
-        Preconditions.checkState(rhsExpr.isAnalyzed(), "Rhs expr must be analyzed.");
         lhs.add(lhsExpr);
         rhs.add(rhsExpr);
     }

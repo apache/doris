@@ -53,11 +53,6 @@ public class SearchPredicateTest {
             typeField.setAccessible(true);
             typeField.set(slotRef, Type.STRING);
 
-            // Set analyzed flag to true from parent class Expr
-            java.lang.reflect.Field analyzedField = Expr.class.getDeclaredField("isAnalyzed");
-            analyzedField.setAccessible(true);
-            analyzedField.set(slotRef, true);
-
             // Create a mock SlotDescriptor and set it
             java.lang.reflect.Field descField = SlotRef.class.getDeclaredField("desc");
             descField.setAccessible(true);

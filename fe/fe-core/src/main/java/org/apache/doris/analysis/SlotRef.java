@@ -86,7 +86,6 @@ public class SlotRef extends Expr {
         }
         this.subColPath = desc.getSubColLables();
         this.nullable = desc.getIsNullable();
-        analysisDone();
     }
 
     // nereids use this constructor to build aggFnParam
@@ -122,7 +121,6 @@ public class SlotRef extends Expr {
     }
 
     public SlotId getSlotId() {
-        Preconditions.checkState(isAnalyzed);
         Preconditions.checkNotNull(desc);
         return desc.getId();
     }
@@ -369,7 +367,6 @@ public class SlotRef extends Expr {
 
     @Override
     public boolean isBound(SlotId slotId) {
-        Preconditions.checkState(isAnalyzed);
         return desc.getId().equals(slotId);
     }
 

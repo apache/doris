@@ -53,7 +53,6 @@ public class FloatLiteral extends NumericLiteralExpr {
         this.value = value.doubleValue();
         this.type = type;
         this.nullable = false;
-        analysisDone();
     }
 
     public FloatLiteral(String value) throws AnalysisException {
