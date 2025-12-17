@@ -16,7 +16,7 @@
 // under the License.
 
 
-
+import com.google.common.base.Strings;
 suite("test_tvf_anonymous") {
     if (Strings.isNullOrEmpty(context.config.otherConfigs.get("enableTestTvfAnonymous"))) {
         return
