@@ -24,6 +24,7 @@
 #include <cctype>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 
@@ -456,7 +457,7 @@ public:
                         "Invalid column index {} for parquet_bloom_probe", parquet_col_id));
             }
             const auto& column_chunk = thrift_meta.row_groups[rg_idx].columns[parquet_col_id];
-            bool excludes = false;
+            std::optional<bool> excludes;
             if (column_chunk.__isset.meta_data &&
                 column_chunk.meta_data.__isset.bloom_filter_offset) {
                 ParquetPredicate::ColumnStat stat;
@@ -529,7 +530,7 @@ private:
                             physical_type, _column));
     }
 
-    void _emit_row(const std::string& path, Int64 row_group_id, bool excludes,
+    void _emit_row(const std::string& path, Int64 row_group_id, std::optional<bool> excludes,
                    std::vector<MutableColumnPtr>& columns) {
         if (_slot_pos[BLOOM_FILE_NAME] >= 0) {
             insert_string(columns[_slot_pos[BLOOM_FILE_NAME]], path);
@@ -538,7 +539,11 @@ private:
             insert_int32(columns[_slot_pos[BLOOM_ROW_GROUP_ID]], static_cast<Int32>(row_group_id));
         }
         if (_slot_pos[BLOOM_EXCLUDES] >= 0) {
-            insert_bool(columns[_slot_pos[BLOOM_EXCLUDES]], excludes);
+            int32_t excludes_val = -1; // -1: no bloom filter present
+            if (excludes.has_value()) {
+                excludes_val = excludes.value() ? 1 : 0;
+            }
+            insert_int32(columns[_slot_pos[BLOOM_EXCLUDES]], excludes_val);
         }
     }
 };
@@ -573,7 +578,7 @@ Status ParquetMetadataReader::init_reader() {
 Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_range) {
     if (!scan_range.__isset.parquet_params) {
         return Status::InvalidArgument(
-                "Missing parquet parameters for parquet_metadata table function");
+                "Missing parquet parameters for parquet_meta table function");
     }
     const TParquetMetadataParams& params = scan_range.parquet_params;
     std::vector<std::string> resolved_paths;
@@ -583,7 +588,7 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
     } else if (params.__isset.paths && !params.paths.empty()) {
         resolved_paths.assign(params.paths.begin(), params.paths.end());
     } else {
-        return Status::InvalidArgument("Property 'path' must be set for parquet_metadata");
+        return Status::InvalidArgument("Property 'path' must be set for parquet_meta");
     }
     _paths.swap(resolved_paths);
 

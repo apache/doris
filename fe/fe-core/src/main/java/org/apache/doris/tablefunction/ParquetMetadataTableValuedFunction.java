@@ -19,17 +19,13 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.datasource.property.storage.LocalProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.proto.InternalService;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.rpc.BackendServiceProxy;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -47,8 +43,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -66,10 +60,8 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
     public static final String NAME_FILE_METADATA = "parquet_file_metadata";
     public static final String NAME_KV_METADATA = "parquet_kv_metadata";
     public static final String NAME_BLOOM_PROBE = "parquet_bloom_probe";
-    private static final String PATH = "path";
     private static final String MODE = "mode";
     private static final String COLUMN = "column";
-    private static final String COLUMN_NAME = "column_name";
     private static final String VALUE = "value";
 
     private static final String MODE_METADATA = "parquet_metadata";
@@ -138,7 +130,8 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
     private static final ImmutableList<Column> PARQUET_BLOOM_PROBE_COLUMNS = ImmutableList.of(
             new Column("file_name", PrimitiveType.STRING, true),
             new Column("row_group_id", PrimitiveType.INT, true),
-            new Column("bloom_filter_excludes", PrimitiveType.BOOLEAN, true)
+            // 1 = excluded by BF, 0 = might contain, -1 = no bloom filter in file
+            new Column("bloom_filter_excludes", PrimitiveType.INT, true)
     );
 
     private final List<String> paths;
@@ -155,16 +148,24 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
                 Map.Entry::getValue,
                 (value1, value2) -> value2
         ));
-        String rawPath = normalizedParams.get(PATH);
+        String rawPath = normalizedParams.get(ExternalFileTableValuedFunction.URI_KEY);
         if (Strings.isNullOrEmpty(rawPath)) {
-            throw new AnalysisException("Property 'path' is required for parquet_meta");
+            rawPath = normalizedParams.get("path");
+        }
+        if (Strings.isNullOrEmpty(rawPath)) {
+            rawPath = normalizedParams.get(LocalProperties.PROP_FILE_PATH);
+        }
+        if (Strings.isNullOrEmpty(rawPath)) {
+            throw new AnalysisException(
+                    "Property 'uri' or 'path' (or file_path) is required for parquet_meta");
         }
         String parsedPath = rawPath.trim();
         if (parsedPath.isEmpty()) {
-            throw new AnalysisException("Property 'path' must contain at least one location");
+            throw new AnalysisException(
+                    "Property 'uri' or 'path' must contain at least one location");
         }
-        List<String> parsedPaths = Collections.singletonList(parsedPath);
-        List<String> normalizedPaths = parsedPaths;
+        List<String> normalizedPaths = new ArrayList<>(1);
+        normalizedPaths.add(parsedPath);
 
         String rawMode = normalizedParams.getOrDefault(MODE, MODE_METADATA);
         mode = rawMode.toLowerCase();
@@ -175,9 +176,6 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         String tmpBloomLiteral = null;
         if (MODE_BLOOM_PROBE.equals(mode)) {
             tmpBloomColumn = normalizedParams.get(COLUMN);
-            if (Strings.isNullOrEmpty(tmpBloomColumn)) {
-                tmpBloomColumn = normalizedParams.get(COLUMN_NAME);
-            }
             tmpBloomLiteral = normalizedParams.get(VALUE);
             if (Strings.isNullOrEmpty(tmpBloomColumn) || Strings.isNullOrEmpty(tmpBloomLiteral)) {
                 throw new AnalysisException(
@@ -191,7 +189,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             }
         }
 
-        String firstPath = parsedPaths.get(0);
+        String firstPath = parsedPath;
         String scheme = null;
         try {
             scheme = new URI(firstPath).getScheme();
@@ -199,14 +197,13 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             scheme = null;
         }
         Map<String, String> storageParams = new HashMap<>(normalizedParams);
-        // StorageProperties detects provider by "uri", we also hint support by scheme.
+        // StorageProperties detects provider by "uri".
         if (!Strings.isNullOrEmpty(scheme)) {
             storageParams.put("uri", firstPath);
-        }
-        if (Strings.isNullOrEmpty(scheme) || "file".equalsIgnoreCase(scheme)) {
-            storageParams.put(StorageProperties.FS_LOCAL_SUPPORT, "true");
         } else {
-            forceStorageSupport(storageParams, scheme.toLowerCase());
+            // Local file path, hint local fs support.
+            storageParams.put(StorageProperties.FS_LOCAL_SUPPORT, "true");
+            storageParams.put(LocalProperties.PROP_FILE_PATH, firstPath);
         }
         StorageProperties storageProperties;
         try {
@@ -218,8 +215,8 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         this.fileType = mapToFileType(storageProperties.getType());
         Map<String, String> backendProps = storageProperties.getBackendConfigProperties();
         try {
-            List<String> tmpPaths = new ArrayList<>(parsedPaths.size());
-            for (String path : parsedPaths) {
+            List<String> tmpPaths = new ArrayList<>(normalizedPaths.size());
+            for (String path : normalizedPaths) {
                 tmpPaths.add(storageProperties.validateAndNormalizeUri(path));
             }
             normalizedPaths = tmpPaths;
@@ -277,7 +274,15 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
                                                  Map<String, String> storageParams,
                                                  TFileType fileType) throws AnalysisException {
         if (fileType == TFileType.FILE_LOCAL) {
-            return globLocal(pattern);
+            Map<String, String> localProps = new HashMap<>(storageParams);
+            // Allow Local TVF to pick any alive backend when backend_id is not provided.
+            localProps.putIfAbsent(LocalTableValuedFunction.PROP_SHARED_STORAGE, "true");
+            // Local TVF expects the uri/path in properties; storageParams already contains it.
+            LocalTableValuedFunction localTvf = new LocalTableValuedFunction(localProps);
+            return localTvf.getFileStatuses().stream()
+                    .filter(status -> !status.isIsDir())
+                    .map(TBrokerFileStatus::getPath)
+                    .collect(Collectors.toList());
         }
         if (fileType == TFileType.FILE_HTTP) {
             throw new AnalysisException("Glob patterns are not supported for file type: " + fileType);
@@ -305,97 +310,6 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
                 .filter(file -> !file.isIsDir())
                 .map(TBrokerFileStatus::getPath)
                 .collect(Collectors.toList());
-    }
-
-    /**
-     * Local glob expansion is executed on an arbitrary alive backend, because FE may not
-     * have access to BE local file system.
-     */
-    private static List<String> globLocal(String pattern) throws AnalysisException {
-        Backend backend;
-        try {
-            backend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values().stream()
-                    .filter(Backend::isAlive)
-                    .findFirst()
-                    .orElse(null);
-        } catch (AnalysisException e) {
-            throw e;
-        }
-        if (backend == null) {
-            throw new AnalysisException("No alive backends to expand local glob pattern");
-        }
-        BackendServiceProxy proxy = BackendServiceProxy.getInstance();
-        String patternForBe = pattern;
-        // BE safe_glob prepends user_files_secure_path (default ${DORIS_HOME}); strip it to avoid double prefix.
-        List<String> securePrefixCandidates = new ArrayList<>();
-        String envSecure = System.getenv("USER_FILES_SECURE_PATH");
-        if (!Strings.isNullOrEmpty(envSecure)) {
-            securePrefixCandidates.add(envSecure);
-        }
-        String envDorisHome = System.getenv("DORIS_HOME");
-        if (!Strings.isNullOrEmpty(envDorisHome)) {
-            securePrefixCandidates.add(envDorisHome);
-        }
-        // 兜底：用路径所在目录作为前缀尝试剥离（针对在安全目录内的绝对路径）
-        int lastSlash = pattern.lastIndexOf('/');
-        if (pattern.startsWith("/") && lastSlash > 0) {
-            securePrefixCandidates.add(pattern.substring(0, lastSlash));
-        }
-        for (String prefix : securePrefixCandidates) {
-            if (Strings.isNullOrEmpty(prefix)) {
-                continue;
-            }
-            String normalized = prefix.endsWith("/") ? prefix : prefix + "/";
-            if (pattern.startsWith(normalized)) {
-                patternForBe = pattern.substring(normalized.length());
-                break;
-            }
-        }
-        InternalService.PGlobRequest.Builder requestBuilder = InternalService.PGlobRequest.newBuilder();
-        requestBuilder.setPattern(patternForBe);
-        long timeoutS = ConnectContext.get() == null ? 60
-                : Math.min(ConnectContext.get().getQueryTimeoutS(), 60);
-        try {
-            Future<InternalService.PGlobResponse> response =
-                    proxy.glob(backend.getBrpcAddress(), requestBuilder.build());
-            InternalService.PGlobResponse globResponse =
-                    response.get(timeoutS, TimeUnit.SECONDS);
-            if (globResponse.getStatus().getStatusCode() != 0) {
-                throw new AnalysisException("Expand local glob pattern failed: "
-                        + globResponse.getStatus().getErrorMsgsList());
-            }
-            List<String> result = new ArrayList<>();
-            for (InternalService.PGlobResponse.PFileInfo fileInfo : globResponse.getFilesList()) {
-                result.add(fileInfo.getFile().trim());
-            }
-            return result;
-        } catch (Exception e) {
-            throw new AnalysisException("Failed to expand local glob pattern '" + pattern + "': "
-                    + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Add fs.* support hints so StorageProperties can be created from URI-only inputs.
-     */
-    private static void forceStorageSupport(Map<String, String> params, String scheme) {
-        if ("s3".equals(scheme) || "s3a".equals(scheme) || "s3n".equals(scheme)) {
-            params.put(StorageProperties.FS_S3_SUPPORT, "true");
-        } else if ("oss".equals(scheme)) {
-            params.put(StorageProperties.FS_OSS_SUPPORT, "true");
-        } else if ("obs".equals(scheme)) {
-            params.put(StorageProperties.FS_OBS_SUPPORT, "true");
-        } else if ("cos".equals(scheme)) {
-            params.put(StorageProperties.FS_COS_SUPPORT, "true");
-        } else if ("gs".equals(scheme) || "gcs".equals(scheme)) {
-            params.put(StorageProperties.FS_GCS_SUPPORT, "true");
-        } else if ("minio".equals(scheme)) {
-            params.put(StorageProperties.FS_MINIO_SUPPORT, "true");
-        } else if ("azure".equals(scheme)) {
-            params.put(StorageProperties.FS_AZURE_SUPPORT, "true");
-        } else if ("http".equals(scheme) || "https".equals(scheme) || "hf".equals(scheme)) {
-            params.put(StorageProperties.FS_HTTP_SUPPORT, "true");
-        }
     }
 
     /**
