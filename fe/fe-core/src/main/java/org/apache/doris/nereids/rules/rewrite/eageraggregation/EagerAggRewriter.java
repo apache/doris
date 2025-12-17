@@ -114,8 +114,14 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
 
-        //TODO: push count() to other side
-        PushDownAggContext childContext = context.withGoupKeys(childGroupByKeys);
+        PushDownAggContext childContext = context.withGroupKeys(childGroupByKeys);
+        Statistics stats = join.right().getStats();
+        if (stats == null) {
+            stats = join.right().accept(derive, new StatsDerive.DeriveContext());
+        }
+        if (stats.getRowCount() > PushDownAggContext.BIG_JOIN_BUILD_SIZE) {
+            childContext = childContext.passThroughBigJoin();
+        }
         if (toLeft) {
             Plan newLeft = join.left().accept(this, childContext);
             if (newLeft != join.left()) {
@@ -189,7 +195,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             aliasMap.put(newAggFunc, (Alias) alias.withChildren(newAggFunc));
             aggFunctions.add(newAggFunc);
         }
-        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, context.getCascadesContext());
+        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
+                context.getCascadesContext(), context.isPassThroughBigJoin());
     }
 
     @Override
@@ -308,6 +315,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private boolean checkStats(Plan plan, PushDownAggContext context) {
+        if (!context.isPassThroughBigJoin()) {
+            return false;
+        }
         if (ConnectContext.get() == null) {
             return false;
         }

@@ -37,6 +37,7 @@ import java.util.Set;
  * PushDownAggContext
  */
 public class PushDownAggContext {
+    public static final int BIG_JOIN_BUILD_SIZE = 400_000;
     private final List<AggregateFunction> aggFunctions;
     private final List<NamedExpression> groupKeys;
     private final Map<AggregateFunction, Alias> aliasMap;
@@ -48,20 +49,22 @@ public class PushDownAggContext {
     // cascadesContext is used for normalizeAgg
     private final CascadesContext cascadesContext;
 
+    private final boolean passThroughBigJoin;
     /**
      * constructor
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<NamedExpression> groupKeys,
             CascadesContext cascadesContext) {
-        this(aggFunctions, groupKeys, null, cascadesContext);
+        this(aggFunctions, groupKeys, null, cascadesContext, false);
     }
 
     /**
      * constructor
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
-            List<NamedExpression> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext) {
+            List<NamedExpression> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
+            boolean passThroughBigJoin) {
         this.groupKeys = groupKeys;
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
@@ -81,6 +84,11 @@ public class PushDownAggContext {
                 .flatMap(aggFunction -> aggFunction.getInputSlots().stream())
                 .filter(Slot.class::isInstance)
                 .collect(ImmutableSet.toImmutableSet());
+        this.passThroughBigJoin = passThroughBigJoin;
+    }
+
+    public PushDownAggContext passThroughBigJoin() {
+        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext, true);
     }
 
     public Map<AggregateFunction, Alias> getAliasMap() {
@@ -95,8 +103,8 @@ public class PushDownAggContext {
         return groupKeys;
     }
 
-    public PushDownAggContext withGoupKeys(List<NamedExpression> groupKeys) {
-        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext);
+    public PushDownAggContext withGroupKeys(List<NamedExpression> groupKeys) {
+        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext, passThroughBigJoin);
     }
 
     public Set<Slot> getAggFunctionsInputSlots() {
@@ -113,5 +121,9 @@ public class PushDownAggContext {
 
     public CascadesContext getCascadesContext() {
         return cascadesContext;
+    }
+
+    public boolean isPassThroughBigJoin() {
+        return passThroughBigJoin;
     }
 }

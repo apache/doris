@@ -50,12 +50,7 @@ public class PushdownSumIfAggregation extends DefaultPlanRewriter<JobContext> im
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        int mode = ConnectContext.get().getSessionVariable().eagerAggregationMode;
-        if (mode < 0) {
-            return plan;
-        } else {
-            return plan.accept(this, jobContext);
-        }
+        return plan.accept(this, jobContext);
     }
 
     @Override

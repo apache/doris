@@ -38,13 +38,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
-------------------------------hashAgg[GLOBAL]
---------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------hashAgg[LOCAL]
-------------------------------------PhysicalProject
---------------------------------------filter(( not ss_customer_sk IS NULL))
-----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
+------------------------------PhysicalProject
+--------------------------------filter(( not ss_customer_sk IS NULL))
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
 ------------------------------PhysicalProject
 --------------------------------filter(d_year IN (2000, 2001, 2002, 2003))
 ----------------------------------PhysicalOlapScan[date_dim]
