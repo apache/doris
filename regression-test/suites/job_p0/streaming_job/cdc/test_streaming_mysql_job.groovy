@@ -23,8 +23,8 @@ import static java.util.concurrent.TimeUnit.SECONDS
 suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_docker_mysql") {
     def jobName = "test_streaming_mysql_job_name"
     def currentDb = (sql "select database()")[0][0]
-    def table1 = "user_info1"
-    def table2 = "user_info2"
+    def table1 = "user_info_normal1"
+    def table2 = "user_info_normal2"
     def mysqlDb = "test_cdc_db"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
@@ -89,6 +89,8 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
                   "table.create.properties.replication_num" = "1"
                 )
             """
+        def showAllTables = sql """ show tables from ${currentDb}"""
+        log.info("showAllTables: " + showAllTables)
         // check table created
         def showTables = sql """ show tables from ${currentDb} like '${table1}'; """
         assert showTables.size() == 1

@@ -150,9 +150,6 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         return null;
     }
 
-    /**
-     *
-     */
     @Override
     public void updateOffset(Offset offset) {
         this.currentOffset = (JdbcOffset) offset;
@@ -487,5 +484,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             return false;
         }
         return DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startMode);
+    }
+
+    public void cleanMeta(Long jobId) {
+        // clean meta table
+        StreamingJobUtils.deleteJobMeta(jobId);
+        // todo: close cdc client source
     }
 }

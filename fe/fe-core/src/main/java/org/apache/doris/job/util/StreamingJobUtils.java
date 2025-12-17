@@ -70,7 +70,7 @@ public class StreamingJobUtils {
     public static final String INTERNAL_STREAMING_JOB_META_TABLE_NAME = "streaming_job_meta";
     public static final String FULL_QUALIFIED_META_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
             + "." + FeConstants.INTERNAL_DB_NAME + "." + INTERNAL_STREAMING_JOB_META_TABLE_NAME;
-    private static final String CREATE_META_TABLE = "CREATE TABLE %s(\n"
+    private static final String CREATE_META_TABLE = "CREATE TABLE IF NOT EXISTS %s(\n"
             + "id         int,\n"
             + "job_id     bigint,\n"
             + "table_name string,\n"
@@ -87,7 +87,10 @@ public class StreamingJobUtils {
             "('${id}', '${job_id}', '${table_name}', '${chunk_list}')";
 
     private static final String SELECT_SPLITS_TABLE_TEMPLATE =
-            "SELECT table_name, chunk_list from " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s' ORDER BY id ASC";
+            "SELECT table_name, chunk_list FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s' ORDER BY id ASC";
+
+    private static final String DELETE_JOB_META_TEMPLATE =
+            "DELETE FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s'";
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -100,15 +103,14 @@ public class StreamingJobUtils {
             throw new JobException("Internal database does not exist");
         }
         Database database = optionalDatabase.get();
-        Table t = database.getTableNullable(FULL_QUALIFIED_META_TBL_NAME);
+        Table t = database.getTableNullable(INTERNAL_STREAMING_JOB_META_TABLE_NAME);
         if (t == null) {
-            executeInsert(String.format(CREATE_META_TABLE, FULL_QUALIFIED_META_TBL_NAME));
-        }
-
-        // double check
-        t = database.getTableNullable(INTERNAL_STREAMING_JOB_META_TABLE_NAME);
-        if (t == null) {
-            throw new JobException(String.format("Table %s doesn't exist", FULL_QUALIFIED_META_TBL_NAME));
+            execute(String.format(CREATE_META_TABLE, FULL_QUALIFIED_META_TBL_NAME));
+            // double check
+            t = database.getTableNullable(INTERNAL_STREAMING_JOB_META_TABLE_NAME);
+            if (t == null) {
+                throw new JobException(String.format("Table %s doesn't exist", FULL_QUALIFIED_META_TBL_NAME));
+            }
         }
     }
 
@@ -132,6 +134,16 @@ public class StreamingJobUtils {
         return tableSplits;
     }
 
+    public static void deleteJobMeta(Long jobId) {
+        String sql = String.format(DELETE_JOB_META_TEMPLATE, jobId);
+        try {
+            execute(sql);
+        } catch (Exception e) {
+            log.info("Failed to delete job meta for job id {}: {}",
+                    jobId, e.getMessage(), e);
+        }
+    }
+
     public static void insertSplitsToMeta(Long jobId, Map<String, List<SnapshotSplit>> tableSplits) throws Exception {
         List<String> values = new ArrayList<>();
         int index = 1;
@@ -153,19 +165,19 @@ public class StreamingJobUtils {
         if (values.isEmpty()) {
             return;
         }
-        StringBuilder query = new StringBuilder(BATCH_INSERT_INTO_META_TABLE_TEMPLATE);
+        StringBuilder insertSQL = new StringBuilder(BATCH_INSERT_INTO_META_TABLE_TEMPLATE);
         for (int i = 0; i < values.size(); i++) {
-            query.append(values.get(i));
+            insertSQL.append(values.get(i));
             if (i + 1 != values.size()) {
-                query.append(",");
+                insertSQL.append(",");
             } else {
-                query.append(";");
+                insertSQL.append(";");
             }
         }
-        executeInsert(query.toString());
+        execute(insertSQL.toString());
     }
 
-    private static void executeInsert(String sql) throws Exception {
+    private static void execute(String sql) throws Exception {
         try (AutoCloseConnectContext context
                 = new AutoCloseConnectContext(buildConnectContext())) {
             StmtExecutor stmtExecutor = new StmtExecutor(context.connectContext, sql);

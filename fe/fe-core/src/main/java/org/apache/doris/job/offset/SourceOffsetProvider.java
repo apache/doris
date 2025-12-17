@@ -110,6 +110,5 @@ public interface SourceOffsetProvider {
         return null;
     }
 
-    ;
 }
 

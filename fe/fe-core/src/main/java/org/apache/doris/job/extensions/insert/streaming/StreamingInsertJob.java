@@ -1125,4 +1125,35 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             offsetProvider.replayIfNeed(this);
         }
     }
+
+    /**
+     * 1. Clean offset info in ms (s3 tvf)
+     * 2. Clean chunk info in meta table (jdbc)
+     */
+    public void cleanup() throws JobException {
+        // s3 tvf clean offset
+        if (tvfType != null && Config.isCloudMode()) {
+            Cloud.DeleteStreamingJobResponse resp = null;
+            try {
+                Cloud.DeleteStreamingJobRequest req = Cloud.DeleteStreamingJobRequest.newBuilder()
+                        .setCloudUniqueId(Config.cloud_unique_id)
+                        .setDbId(getDbId())
+                        .setJobId(getJobId())
+                        .build();
+                resp = MetaServiceProxy.getInstance().deleteStreamingJob(req);
+                if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                    log.warn("failed to delete streaming job, response: {}", resp);
+                    throw new JobException("deleteJobKey failed for jobId=%s, dbId=%s, status=%s",
+                            getJobId(), getJobId(), resp.getStatus());
+                }
+            } catch (RpcException e) {
+                log.warn("failed to delete streaming job {}", resp, e);
+            }
+        }
+
+        if (this.offsetProvider instanceof JdbcSourceOffsetProvider) {
+            // jdbc clean chunk meta table
+            ((JdbcSourceOffsetProvider) this.offsetProvider).cleanMeta(getJobId());
+        }
+    }
 }

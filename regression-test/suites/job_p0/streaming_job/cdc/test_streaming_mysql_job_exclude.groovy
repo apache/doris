@@ -23,8 +23,8 @@ import static java.util.concurrent.TimeUnit.SECONDS
 suite("test_streaming_mysql_job_exclude", "p0,external,mysql,external_docker,external_docker_mysql") {
     def jobName = "test_streaming_mysql_job_exclude_name"
     def currentDb = (sql "select database()")[0][0]
-    def table1 = "user_info1"
-    def table2 = "user_info2"
+    def table1 = "user_info_exclude1"
+    def table2 = "user_info_exclude2"
     def mysqlDb = "test_cdc_db"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""

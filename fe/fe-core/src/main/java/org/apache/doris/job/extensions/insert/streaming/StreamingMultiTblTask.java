@@ -250,7 +250,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     @Override
     public void closeOrReleaseResources() {
-        // close cdc client connection
+        // no need
     }
 
     public boolean isTimeout() {
