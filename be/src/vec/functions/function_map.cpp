@@ -805,7 +805,7 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionMapConcat>(); }
     String get_name() const override { return name; }
     bool is_variadic() const override { return true; }
-    size_t get_number_of_arguments() const override { return 1; }
+    size_t get_number_of_arguments() const override { return 0; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(arguments.size() > 0)
                 << "function: " << get_name() << ", arguments should not be empty";
@@ -823,15 +823,11 @@ public:
         } else {
             result_map_column = check_and_get_column<ColumnMap>(result_col.get());
         }
-        // map keys column
         auto& result_col_map_keys_data = result_map_column->get_keys();
-        // map values column
         auto& result_col_map_vals_data = result_map_column->get_values();
         ColumnArray::Offsets64& column_offsets = result_map_column->get_offsets();
         column_offsets.resize(input_rows_count);
 
-        // Initialize null map if result is nullable
-        // reference to ColumnNullable::size()
         if (result_nullable_column) {
             auto& null_map_data = result_nullable_column->get_null_map_data();
             null_map_data.resize_fill(input_rows_count, 0);
