@@ -199,7 +199,7 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
             auto is_null_function = std::make_shared<FunctionIsNull>();
             EXPECT_TRUE(is_null_function
                                 ->evaluate_inverted_index(arguments, data_type_with_names,
-                                                          iterators, 3, bitmap_result)
+                                                          iterators, 3, nullptr, bitmap_result)
                                 .ok());
             EXPECT_TRUE(!bitmap_result.is_empty());
             EXPECT_EQ(expected_result, bitmap_result.get_data_bitmap()->cardinality());
@@ -207,7 +207,7 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
             auto is_not_null_function = std::make_shared<FunctionIsNotNull>();
             EXPECT_TRUE(is_not_null_function
                                 ->evaluate_inverted_index(arguments, data_type_with_names,
-                                                          iterators, 3, bitmap_result)
+                                                          iterators, 3, nullptr, bitmap_result)
                                 .ok());
             EXPECT_TRUE(!bitmap_result.is_empty());
             EXPECT_EQ(expected_result, bitmap_result.get_data_bitmap()->cardinality());
@@ -264,7 +264,7 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
         segment_v2::InvertedIndexResultBitmap bitmap_result;
         EXPECT_TRUE(is_null_function
                             ->evaluate_inverted_index(arguments, data_type_with_names, iterators, 3,
-                                                      bitmap_result)
+                                                      nullptr, bitmap_result)
                             .ok());
         EXPECT_TRUE(bitmap_result.is_empty());
     }
@@ -273,7 +273,7 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
         segment_v2::InvertedIndexResultBitmap bitmap_result;
         EXPECT_TRUE(is_not_null_function
                             ->evaluate_inverted_index(arguments, data_type_with_names, iterators, 3,
-                                                      bitmap_result)
+                                                      nullptr, bitmap_result)
                             .ok());
         EXPECT_TRUE(bitmap_result.is_empty());
     }
@@ -285,7 +285,7 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
         segment_v2::InvertedIndexResultBitmap bitmap_result;
         EXPECT_TRUE(is_null_function
                             ->evaluate_inverted_index(arguments, data_type_with_names, iterators, 3,
-                                                      bitmap_result)
+                                                      nullptr, bitmap_result)
                             .ok());
         EXPECT_TRUE(bitmap_result.is_empty());
     }
@@ -295,7 +295,7 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
         segment_v2::InvertedIndexResultBitmap bitmap_result;
         EXPECT_TRUE(is_not_null_function
                             ->evaluate_inverted_index(arguments, data_type_with_names, iterators, 3,
-                                                      bitmap_result)
+                                                      nullptr, bitmap_result)
                             .ok());
         EXPECT_TRUE(bitmap_result.is_empty());
     }
@@ -374,7 +374,7 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
         segment_v2::InvertedIndexResultBitmap bitmap_result1;
         EXPECT_TRUE(is_null_function
                             ->evaluate_inverted_index(arguments, data_type_with_names, iterators, 3,
-                                                      bitmap_result1)
+                                                      nullptr, bitmap_result1)
                             .ok());
         // When there's no null data, the result should be empty or have 0 cardinality
         // depending on whether has_null() returns false
@@ -382,7 +382,7 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
         segment_v2::InvertedIndexResultBitmap bitmap_result2;
         EXPECT_TRUE(is_not_null_function
                             ->evaluate_inverted_index(arguments, data_type_with_names, iterators, 3,
-                                                      bitmap_result2)
+                                                      nullptr, bitmap_result2)
                             .ok());
         // Similar test for is_not_null
     }
