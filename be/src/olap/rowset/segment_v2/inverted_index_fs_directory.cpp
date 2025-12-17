@@ -905,8 +905,8 @@ DorisFSDirectory* DorisFSDirectoryFactory::getDirectory(const io::FileSystemSPtr
     if (config::inverted_index_ram_dir_enable && can_use_ram_dir) {
         dir = _CLNEW DorisRAMFSDirectory();
     } else {
-        // cloud mode does not need to create directory
-        if (!config::is_cloud_mode()) {
+        // local and HDFS file systems need to create directories explicitly
+        if (_fs->type() == io::FileSystemType::LOCAL || _fs->type() == io::FileSystemType::HDFS) {
             bool exists = false;
             auto st = _fs->exists(file, &exists);
             DBUG_EXECUTE_IF("DorisFSDirectoryFactory::getDirectory_exists_status_is_not_ok", {
