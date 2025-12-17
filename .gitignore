@@ -16,7 +16,6 @@ core.*
 nohup.out
 /custom_env.sh
 /custom_env_mac.sh
-/maven-settings-aliyun.xml
 derby.log
 dependency-reduced-pom.xml
 yarn.lock
@@ -143,6 +142,3 @@ docker/runtime/be/resource/apache-doris/
 # other
 compile_commands.json
 .github
-
-sfe
-sbe
