@@ -20,10 +20,15 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <atomic>
 #include <initializer_list>
 #include <type_traits>
 #include <vector>
+
+#include "common/logging.h"
+#include "util/stack_util.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -314,9 +319,27 @@ protected:
 public:
     MutablePtr mutate() const&& { return shallow_mutate(); }
 
-    MutablePtr assume_mutable() const { return const_cast<COW*>(this)->get_ptr(); }
+    MutablePtr assume_mutable() const {
+        if (this->use_count() != 1) {
+            LOG_WARNING("Assume mutable called on shared object")
+                    .tag("use_count", this->use_count())
+                    .tag("column name", derived()->get_name())
+                    .tag("stack_trace\n\n", get_stack_trace(1));
+        }
 
-    Derived& assume_mutable_ref() const { return const_cast<Derived&>(*derived()); }
+        return const_cast<COW*>(this)->get_ptr();
+    }
+
+    Derived& assume_mutable_ref() const {
+        if (this->use_count() != 1) {
+            LOG_WARNING("Assume mutable ref called on shared object")
+                    .tag("use_count", this->use_count())
+                    .tag("column name", derived()->get_name())
+                    .tag("stack_trace\n\n", get_stack_trace(1));
+        }
+
+        return const_cast<Derived&>(*derived());
+    }
 
 protected:
     /// It works as immutable_ptr if it is const and as mutable_ptr if it is non const.
