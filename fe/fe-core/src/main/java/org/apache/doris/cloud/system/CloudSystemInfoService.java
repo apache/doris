@@ -809,6 +809,9 @@ public class CloudSystemInfoService extends SystemInfoService {
     public List<Backend> getBackendsByClusterName(final String clusterName) {
         String physicalClusterName = getPhysicalCluster(clusterName);
         String clusterId = clusterNameToId.getOrDefault(physicalClusterName, "");
+        LOG.debug("getBackendsByClusterName clusterName={} "
+            + "physicalClusterName={} clusterId={} clusterNameToId={} clusterIdToBackend={}",
+            clusterName, physicalClusterName, clusterId, clusterNameToId, clusterIdToBackend);
         if (clusterId.isEmpty()) {
             return new ArrayList<>();
         }
@@ -820,6 +823,9 @@ public class CloudSystemInfoService extends SystemInfoService {
         String clusterName = getClusterNameByClusterId(clusterId);
         String physicalClusterName = getPhysicalCluster(clusterName);
         String physicalClusterId = getCloudClusterIdByName(physicalClusterName);
+        LOG.debug("getBackendsByClusterId clusterName={} "
+                + "physicalClusterName={} clusterId={} clusterNameToId={} clusterIdToBackend={}",
+            clusterName, physicalClusterName, clusterId, clusterNameToId, clusterIdToBackend);
 
         // copy a new List
         return new ArrayList<>(clusterIdToBackend.getOrDefault(physicalClusterId, new ArrayList<>()));

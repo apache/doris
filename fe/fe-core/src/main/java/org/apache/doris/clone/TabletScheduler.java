@@ -351,6 +351,7 @@ public class TabletScheduler extends MasterDaemon {
      */
     @Override
     public void runAfterCatalogReady() {
+        long start = System.currentTimeMillis();
         if (!updateWorkingSlots()) {
             return;
         }
@@ -361,6 +362,9 @@ public class TabletScheduler extends MasterDaemon {
         schedulePendingTablets();
 
         stat.counterTabletScheduleRound.incrementAndGet();
+        // Add a log message to indicate that this thread is operating normally.
+        LOG.info("finished to tablet scheduler. cost: {} ms",
+                System.currentTimeMillis() - start);
     }
 
 
