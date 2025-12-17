@@ -78,10 +78,8 @@ Status TableFunctionLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void TableFunctionLocalState::_copy_output_slots(
-        std::vector<vectorized::MutableColumnPtr>& columns, const TableFunctionOperatorX& p,
-        size_t output_row_count, std::vector<int64_t>& child_row_to_output_rows_indices,
-        std::vector<size_t>& handled_row_indices) {
+void TableFunctionLocalState::_copy_output_slots(std::vector<vectorized::MutableColumnPtr>& columns,
+                                                 const TableFunctionOperatorX& p) {
     if (!_current_row_insert_times) {
         return;
     }
@@ -90,11 +88,6 @@ void TableFunctionLocalState::_copy_output_slots(
         columns[index]->insert_many_from(*src_column, _cur_child_offset, _current_row_insert_times);
     }
     _current_row_insert_times = 0;
-
-    if (_need_to_handle_outer_conjuncts) {
-        handled_row_indices.push_back(_cur_child_offset);
-        child_row_to_output_rows_indices.push_back(output_row_count);
-    }
 }
 
 // Returns the index of fn of the last eos counted from back to front
@@ -168,40 +161,33 @@ bool TableFunctionLocalState::_is_inner_and_empty() {
 
 Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
                                                    vectorized::Block* output_block, bool* eos) {
+    SCOPED_TIMER(_process_rows_timer);
+    if (_need_to_handle_outer_conjuncts) {
+        return _get_expanded_block_for_outer_conjuncts(state, output_block, eos);
+    }
+
     auto& p = _parent->cast<TableFunctionOperatorX>();
     vectorized::MutableBlock m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
             output_block, p._output_slots);
     vectorized::MutableColumns& columns = m_block.mutable_columns();
-    auto child_slot_count = p._child_slots.size();
+
     for (int i = 0; i < p._fn_num; i++) {
-        if (columns[i + child_slot_count]->is_nullable()) {
+        if (columns[i + p._child_slots.size()]->is_nullable()) {
             _fns[i]->set_nullable();
         }
     }
-    std::vector<int64_t> child_row_to_output_rows_indices;
-    std::vector<size_t> handled_row_indices;
-    bool child_block_empty = _child_block->empty();
-    if (_need_to_handle_outer_conjuncts && !child_block_empty) {
-        child_row_to_output_rows_indices.push_back(0);
-    }
-    SCOPED_TIMER(_process_rows_timer);
-    auto batch_size = state->batch_size();
-    int32_t max_batch_size = std::numeric_limits<int32_t>::max();
-    while (columns[child_slot_count]->size() < batch_size) {
+    while (columns[p._child_slots.size()]->size() < state->batch_size()) {
         RETURN_IF_CANCELLED(state);
 
-        // finished handling current child block
-        if (_child_block->rows() == 0 || _cur_child_offset == -1) {
+        if (_child_block->rows() == 0) {
             break;
         }
 
         bool skip_child_row = false;
-        size_t cur_row_count = 0;
-        while (cur_row_count = columns[child_slot_count]->size(), cur_row_count < batch_size) {
+        while (columns[p._child_slots.size()]->size() < state->batch_size()) {
             int idx = _find_last_fn_eos_idx();
             if (idx == 0 || skip_child_row) {
-                _copy_output_slots(columns, p, cur_row_count, child_row_to_output_rows_indices,
-                                   handled_row_indices);
+                _copy_output_slots(columns, p);
                 // all table functions' results are exhausted, process next child row.
                 process_next_child_row();
                 if (_cur_child_offset == -1) {
@@ -223,35 +209,109 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
             DCHECK_LE(1, p._fn_num);
             // It may take multiple iterations of this while loop to process a child row if
             // any table function produces a large number of rows.
-            // But for table function with outer conjuncts, we output all rows in one iteration
-            // even if it may exceed batch_size, because we need to make sure at least one row
-            // is output for the child row after evaluating the outer conjuncts.
             auto repeat_times = _fns[p._fn_num - 1]->get_value(
-                    columns[child_slot_count + p._fn_num - 1],
+                    columns[p._child_slots.size() + p._fn_num - 1],
                     //// It has already been checked that
                     // columns[p._child_slots.size()]->size() < state->batch_size(),
                     // so columns[p._child_slots.size()]->size() will not exceed the range of int.
-                    _need_to_handle_outer_conjuncts
-                            ? max_batch_size
-                            : batch_size - (int)columns[child_slot_count]->size());
+                    state->batch_size() - (int)columns[p._child_slots.size()]->size());
             _current_row_insert_times += repeat_times;
             for (int i = 0; i < p._fn_num - 1; i++) {
-                LOG(INFO) << "xxxx Query: " << print_id(state->query_id())
-                          << " get_same_many_values for fn index: " << i;
-                _fns[i]->get_same_many_values(columns[i + child_slot_count], repeat_times);
+                _fns[i]->get_same_many_values(columns[i + p._child_slots.size()], repeat_times);
             }
         }
     }
 
-    _copy_output_slots(columns, p, columns[child_slot_count]->size(),
-                       child_row_to_output_rows_indices, handled_row_indices);
+    _copy_output_slots(columns, p);
 
-    size_t row_size = columns[child_slot_count]->size();
+    size_t row_size = columns[p._child_slots.size()]->size();
     for (auto index : p._useless_slot_indexs) {
         columns[index]->insert_many_defaults(row_size - columns[index]->size());
     }
-    // LOG(INFO) << "xxxx before filter output_block data: "
-    //           << output_block->dump_data(0, output_block->rows());
+
+    {
+        SCOPED_TIMER(_filter_timer); // 3. eval conjuncts
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_expand_conjuncts_ctxs, output_block,
+                                                               output_block->columns()));
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
+                                                               output_block->columns()));
+    }
+
+    *eos = _child_eos && _cur_child_offset == -1;
+    return Status::OK();
+}
+
+Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
+        RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    auto& p = _parent->cast<TableFunctionOperatorX>();
+    vectorized::MutableBlock m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
+            output_block, p._output_slots);
+    vectorized::MutableColumns& columns = m_block.mutable_columns();
+    auto child_slot_count = p._child_slots.size();
+    for (int i = 0; i < p._fn_num; i++) {
+        if (columns[i + child_slot_count]->is_nullable()) {
+            _fns[i]->set_nullable();
+        }
+    }
+
+    std::vector<int64_t> child_row_to_output_rows_indices;
+    std::vector<size_t> handled_row_indices;
+    bool child_block_empty = _child_block->empty();
+    if (!child_block_empty) {
+        child_row_to_output_rows_indices.push_back(0);
+    }
+
+    auto batch_size = state->batch_size();
+    auto output_row_count = columns[child_slot_count]->size();
+    while (output_row_count < batch_size) {
+        RETURN_IF_CANCELLED(state);
+
+        // finished handling current child block
+        if (_cur_child_offset == -1) {
+            break;
+        }
+
+        bool skip_child_row = false;
+        while (output_row_count < batch_size) {
+            // if table function is not outer and has empty result, go to next child row
+            if (_fns[0]->eos() || skip_child_row) {
+                _copy_output_slots(columns, p);
+                if (!skip_child_row) {
+                    handled_row_indices.push_back(_cur_child_offset);
+                    child_row_to_output_rows_indices.push_back(output_row_count);
+                }
+                process_next_child_row();
+                if (_cur_child_offset == -1) {
+                    break;
+                }
+            }
+            if (skip_child_row = _is_inner_and_empty(); skip_child_row) {
+                _child_rows_has_output[_cur_child_offset] = true;
+                continue;
+            }
+
+            // It may take multiple iterations of this while loop to process a child row if
+            // the table function produces a large number of rows.
+            auto repeat_times = _fns[0]->get_value(columns[child_slot_count],
+                                                   batch_size - (int)output_row_count);
+            _current_row_insert_times += repeat_times;
+            output_row_count = columns[child_slot_count]->size();
+        }
+    }
+    // Two scenarios the loop above will exit:
+    // 1. current child block is finished processing
+    //    _cur_child_offset == -1
+    // 2. output_block reaches batch size
+    //    fn maybe or maybe not eos
+    if (output_row_count >= batch_size) {
+        _copy_output_slots(columns, p);
+        handled_row_indices.push_back(_cur_child_offset);
+        child_row_to_output_rows_indices.push_back(output_row_count);
+    }
+    for (auto index : p._useless_slot_indexs) {
+        columns[index]->insert_many_defaults(output_row_count - columns[index]->size());
+    }
+    output_block->set_columns(std::move(columns));
 
     /**
     Handle the outer conjuncts after unnest. Currently, only left outer is supported.
@@ -314,8 +374,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
                                ]
     child rows 1, 2, 3 are all filtered out, so we need to insert one row with NULL tag value for each of them.
     */
-    if (!_expand_conjuncts_ctxs.empty() && !child_block_empty) {
-        auto output_row_count = output_block->rows();
+    if (!child_block_empty) {
         vectorized::IColumn::Filter filter;
         auto column_count = output_block->columns();
         vectorized::ColumnNumbers columns_to_filter(column_count);
@@ -323,44 +382,45 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
         RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
                 _expand_conjuncts_ctxs, output_block, columns_to_filter, column_count, filter));
         size_t remain_row_count = output_block->rows();
-        /*
-        LOG(INFO) << "xxxx after filter output_block row count: " << remain_row_count;
-        std::string debug_string("xxxx handled child rows: ");
-        for (auto v : handled_row_indices) {
-            debug_string += std::to_string(v) + ",";
-        }
-        debug_string += ", filter: ";
-        for (auto v : filter) {
-            debug_string += std::to_string(v) + ",";
-        }
-        debug_string += ", child_row_to_output_rows_indices: ";
-        for (auto v : child_row_to_output_rows_indices) {
-            debug_string += ", " + std::to_string(v);
-        }
-        LOG(INFO) << debug_string;
-        */
         // for outer table function, need to handle those child rows which all expanded rows are filtered out
-        if (_need_to_handle_outer_conjuncts && remain_row_count < output_row_count) {
-            auto handled_child_row_count = handled_row_indices.size();
+        auto handled_child_row_count = handled_row_indices.size();
+        if (remain_row_count < output_row_count) {
             for (size_t i = 0; i < handled_child_row_count; ++i) {
                 auto start_row_idx = child_row_to_output_rows_indices[i];
                 auto end_row_idx = child_row_to_output_rows_indices[i + 1];
-                if (!simd::contain_byte((uint8_t*)filter.data() + start_row_idx,
-                                        end_row_idx - start_row_idx, 1)) {
-                    for (auto index : p._output_slot_indexs) {
-                        auto src_column = _child_block->get_by_position(index).column;
-                        columns[index]->insert_from(*src_column, handled_row_indices[i]);
-                    }
-                    for (auto index : p._useless_slot_indexs) {
-                        columns[index]->insert_default();
-                    }
-                    for (int j = 0; j != p._fn_num; j++) {
-                        columns[j + child_slot_count]->insert_default();
-                    }
+                if (simd::contain_byte((uint8_t*)filter.data() + start_row_idx,
+                                       end_row_idx - start_row_idx, 1)) {
+                    _child_rows_has_output[handled_row_indices[i]] = true;
                 }
             }
+        } else {
+            for (auto row_idx : handled_row_indices) {
+                _child_rows_has_output[row_idx] = true;
+            }
         }
-        if (_cur_child_offset == -1) {
+
+        if (-1 == _cur_child_offset) {
+            // Finished handling current child block,
+            vectorized::MutableBlock m_block2 =
+                    vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+                                                                               p._output_slots);
+            vectorized::MutableColumns& columns2 = m_block2.mutable_columns();
+            auto child_block_row_count = _child_block->rows();
+            for (size_t i = 0; i != child_block_row_count; i++) {
+                if (!_child_rows_has_output[i]) {
+                    // insert one row with NULL for this child row
+                    for (auto index : p._output_slot_indexs) {
+                        auto src_column = _child_block->get_by_position(index).column;
+                        columns2[index]->insert_from(*src_column, i);
+                    }
+                    for (auto index : p._useless_slot_indexs) {
+                        columns2[index]->insert_default();
+                    }
+                    columns2[child_slot_count]->insert_default();
+                }
+            }
+            output_block->set_columns(std::move(columns2));
+            _child_rows_has_output.clear();
             _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
                                                     ._child->row_desc()
                                                     .num_materialized_slots());
@@ -374,7 +434,6 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
     }
 
     *eos = _child_eos && _cur_child_offset == -1;
-    // LOG(INFO) << "xxxx output_block rows: " << output_block->rows();
     return Status::OK();
 }
 
@@ -387,9 +446,9 @@ void TableFunctionLocalState::process_next_child_row() {
             fn->process_close();
         }
 
-        // if there are any _expand_conjuncts_ctxs, don't clear child block here,
+        // if there are any _expand_conjuncts_ctxs and it's outer, don't clear child block here,
         // because we still need _child_block to output NULL rows for outer table function
-        if (_expand_conjuncts_ctxs.empty()) {
+        if (!_need_to_handle_outer_conjuncts) {
             _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
                                                     ._child->row_desc()
                                                     .num_materialized_slots());

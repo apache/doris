@@ -444,32 +444,20 @@ suite("nereids_unnest_fn") {
         "replication_num" = "1"
     );
     '''
+    // one child row unnest to batch_size or more output rows
     sql '''
     insert into big_array_unnest_t values
-    (1, [1,2,3,4,5,6,7,8,9,10,11,12]),
-    (2, [3,4,5,6,7,8,9,10,11,12,13,14]),
-    (3, [3,4,5,6,7,8,9,10,11,12,13,14,15]);
+    (1, [1,2,1,4,5,6,7,8,9,10]),
+    (2, [1,3,3,4,5,6,7,8,9,10]),
+    (3, [1,2]),
+    (4, [4,4]),
+    (5, null),
+    (6, [1,null,2,null,5]),
+    (7, [1, 7]),
+    (8, [1, 9]),
+    (9, [1,2,3,4,5,6,  1,2,3,4,5,6,7,8,9,9]),
+    (10, [1,2,3,4,5,6,  1,2,3,4,5,6,7,8,9,10]);
     '''
-    /*
-    streamLoad {
-        table "big_array_unnest_t"
-        file """big_array.csv"""
-        set 'column_separator', '|'
-        set 'strict_mode', 'true'
-        set 'max_filter_ratio', '0'
-
-        check { result, exception, startTime, endTime ->
-            if (exception != null) {
-                throw exception
-            }
-            def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(4, json.NumberTotalRows)
-            assertEquals(4, json.NumberLoadedRows)
-            assertEquals(0, json.NumberFilteredRows)
-        }
-    }
-    */
     qt_big_array_unnest_all '''
     select id, array_size(tags), array_sort(tags) from big_array_unnest_t order by id;
     '''
@@ -483,6 +471,84 @@ suite("nereids_unnest_fn") {
     '''
 
     qt_big_array_unnest_outer0 '''
+    select id, t.tag from big_array_unnest_t LEFT JOIN lateral unnest(tags) AS t(tag) ON tag = id order by id, tag;
+    '''
+
+    sql """
+    truncate table big_array_unnest_t;
+    """
+    sql '''
+    insert into big_array_unnest_t values
+    (1, [1,2,3]),
+    (2, [3,4,5,6,7,8,9,10,11,12,13,14]),
+    (3, [3,3,4,5,6,7,8,9,10,11,12,13,14,15]);
+    '''
+    qt_big_array_unnest_all_1 '''
+    select id, array_size(tags), array_sort(tags) from big_array_unnest_t order by id;
+    '''
+
+    qt_big_array_unnest1 '''
+    select id, array_size(tags), array_sort(tags), unnest(tags) as tag from big_array_unnest_t order by id, tag;
+    '''
+
+    qt_big_array_unnest_inner1 '''
+    select id, t.tag from big_array_unnest_t INNER JOIN lateral unnest(tags) AS t(tag) ON tag = id order by id, tag;
+    '''
+
+    qt_big_array_unnest_outer1 '''
+    select id, t.tag from big_array_unnest_t LEFT JOIN lateral unnest(tags) AS t(tag) ON tag = id order by id, tag;
+    '''
+
+    sql """
+    truncate table big_array_unnest_t;
+    """
+    sql '''
+    insert into big_array_unnest_t values
+    (1, [1, 2, 3,4,5,6,7,8,9,10]),
+    (2, [1,3,4]),
+    (3, [3,3,4,5,6,7,8,9,10,11,12,13,14,15]);
+    '''
+    qt_big_array_unnest_all_2 '''
+    select id, array_size(tags), array_sort(tags) from big_array_unnest_t order by id;
+    '''
+
+    qt_big_array_unnest2 '''
+    select id, array_size(tags), array_sort(tags), unnest(tags) as tag from big_array_unnest_t order by id, tag;
+    '''
+
+    qt_big_array_unnest_inner2 '''
+    select id, t.tag from big_array_unnest_t INNER JOIN lateral unnest(tags) AS t(tag) ON tag = id order by id, tag;
+    '''
+
+    qt_big_array_unnest_outer2 '''
+    select id, t.tag from big_array_unnest_t LEFT JOIN lateral unnest(tags) AS t(tag) ON tag = id order by id, tag;
+    '''
+
+    sql """
+    truncate table big_array_unnest_t;
+    """
+    sql '''
+    insert into big_array_unnest_t values
+    (1, [1, 2, 3]),
+    (2, [1,3,4]),
+    (3, [3,3,4,5,6,7,8,9,10,11,12,13,14,15]),
+    (4, []),
+    (5, null),
+    (6, [1,null,2, 6]);
+    '''
+    qt_big_array_unnest_all_3 '''
+    select id, array_size(tags), array_sort(tags) from big_array_unnest_t order by id;
+    '''
+
+    qt_big_array_unnest3 '''
+    select id, array_size(tags), array_sort(tags), unnest(tags) as tag from big_array_unnest_t order by id, tag;
+    '''
+
+    qt_big_array_unnest_inner3 '''
+    select id, t.tag from big_array_unnest_t INNER JOIN lateral unnest(tags) AS t(tag) ON tag = id order by id, tag;
+    '''
+
+    qt_big_array_unnest_outer3 '''
     select id, t.tag from big_array_unnest_t LEFT JOIN lateral unnest(tags) AS t(tag) ON tag = id order by id, tag;
     '''
 
