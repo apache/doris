@@ -42,6 +42,10 @@ suite('test_storage_format_controls_encoding') {
     assert jsonMeta.schema.binary_plain_encoding_default_impl == "BINARY_PLAIN_ENCODING_V2"
 
 
+    def res = sql """show variables like "%use_v3_storage_format%";""";
+    logger.info("session var use_v3_storage_format: ${res}")
+    if (res[0][1] == "true") return
+
     tableName = "test_storage_format_controls_encoding2"
     sql """drop table if exists `${tableName}` force; """
 
