@@ -513,6 +513,8 @@ public class SessionVariable implements Serializable, Writable {
 
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
+    // Min/max optimization for Iceberg reads
+    public static final String ENABLE_ICEBERG_MIN_MAX_OPTIMIZATION = "enable_iceberg_min_max_optimization";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -2172,6 +2174,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    @VariableMgr.VarAttr(name = ENABLE_ICEBERG_MIN_MAX_OPTIMIZATION, needForward = true)
+    public boolean enableIcebergMinMaxOptimization = true;
 
     // Target file size for Iceberg write operations
     // Default 0 means use config::iceberg_sink_max_file_size
@@ -4421,6 +4426,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isTrimTailingSpacesForExternalTableQuery() {
         return trimTailingSpacesForExternalTableQuery;
+    }
+
+    public boolean isEnableIcebergMinMaxOptimization() {
+        return enableIcebergMinMaxOptimization;
     }
 
     public void setTrimTailingSpacesForExternalTableQuery(boolean trimTailingSpacesForExternalTableQuery) {

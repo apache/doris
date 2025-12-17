@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
@@ -731,6 +732,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
 
         } else if (logicalScan instanceof LogicalFileScan) {
+            TableType tableType = ((LogicalFileScan) logicalScan).getTable().getType();
+            boolean isIcebergTable = (tableType == TableType.ICEBERG_EXTERNAL_TABLE || tableType == TableType.ICEBERG);
+            if (isIcebergTable && !isEnableIcebergMinMaxOptimization() && mergeOp == PushDownAggOp.MIN_MAX) {
+                return canNotPush;
+            }
             Rule rule = (logicalScan instanceof LogicalHudiScan) ? new LogicalHudiScanToPhysicalHudiScan().build()
                     : new LogicalFileScanToPhysicalFileScan().build();
             PhysicalFileScan physicalScan = (PhysicalFileScan) rule.transform(logicalScan, cascadesContext)
@@ -759,5 +765,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private boolean enablePushDownNoGroupAgg() {
         ConnectContext connectContext = ConnectContext.get();
         return connectContext == null || connectContext.getSessionVariable().enablePushDownNoGroupAgg();
+    }
+
+    private boolean isEnableIcebergMinMaxOptimization() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext != null && connectContext.getSessionVariable().isEnableIcebergMinMaxOptimization();
     }
 }

@@ -1174,9 +1174,10 @@ Status FileScanner::_get_next_reader() {
         }
 
         _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
-        if (_get_push_down_agg_type() == TPushAggOp::type::COUNT &&
-            range.__isset.table_format_params &&
-            range.table_format_params.table_level_row_count >= 0) {
+        if ((_get_push_down_agg_type() == TPushAggOp::type::COUNT &&
+             range.__isset.table_format_params &&
+             range.table_format_params.table_level_row_count >= 0) ||
+            _could_use_iceberg_min_max_optimization) {
             // This is a table level count push down operation, no need to call
             // _set_fill_or_truncate_columns.
             // in _set_fill_or_truncate_columns, we will use [range.start_offset, end offset]
@@ -1206,7 +1207,7 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
         range.table_format_params.table_format_type == "iceberg") {
         std::unique_ptr<IcebergParquetReader> iceberg_reader = IcebergParquetReader::create_unique(
                 std::move(parquet_reader), _profile, _state, *_params, range, _kv_cache,
-                _io_ctx.get(), file_meta_cache_ptr);
+                _io_ctx.get(), file_meta_cache_ptr, _could_use_iceberg_min_max_optimization);
         init_status = iceberg_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), _col_name_to_slot_id,
@@ -1314,7 +1315,7 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
                range.table_format_params.table_format_type == "iceberg") {
         std::unique_ptr<IcebergOrcReader> iceberg_reader = IcebergOrcReader::create_unique(
                 std::move(orc_reader), _profile, _state, *_params, range, _kv_cache, _io_ctx.get(),
-                file_meta_cache_ptr);
+                file_meta_cache_ptr, _could_use_iceberg_min_max_optimization);
 
         init_status = iceberg_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
@@ -1636,6 +1637,8 @@ Status FileScanner::_init_expr_ctxes() {
     }
 
     _num_of_columns_from_file = _params->num_of_columns_from_file;
+    _could_use_iceberg_min_max_optimization =
+            (_get_push_down_agg_type() == TPushAggOp::type::MINMAX);
 
     for (const auto& slot_info : _params->required_slots) {
         auto slot_id = slot_info.slot_id;
@@ -1643,6 +1646,9 @@ Status FileScanner::_init_expr_ctxes() {
         if (it == std::end(full_src_slot_map)) {
             return Status::InternalError(
                     fmt::format("Unknown source slot descriptor, slot_id={}", slot_id));
+        }
+        if (!_current_range.min_max_values.contains(slot_id)) {
+            _could_use_iceberg_min_max_optimization = false;
         }
         if (it->second->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             _row_id_column_iterator_pair.second = _default_val_row_desc->get_column_id(slot_id);

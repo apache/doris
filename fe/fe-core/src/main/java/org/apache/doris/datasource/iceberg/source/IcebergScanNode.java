@@ -46,6 +46,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExprMinMaxValue;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
@@ -235,6 +236,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+        rangeDesc.setMinMaxValues(icebergSplit.getMinMaxValues());
     }
 
     @Override
@@ -330,6 +332,9 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         TableScan scan = icebergTable.newScan().metricsReporter(new IcebergMetricsReporter());
 
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.MINMAX) {
+            scan = scan.includeColumnStats();
+        }
         // set snapshot
         IcebergTableQueryInfo info = getSpecifiedSnapshot();
         if (info != null) {
@@ -376,6 +381,14 @@ public class IcebergScanNode extends FileQueryScanNode {
                 storagePropertiesMap,
                 new ArrayList<>(),
                 originalPath);
+        if ((getPushDownAggNoGroupingOp() == TPushAggOp.MINMAX) && fileScanTask.file().nullValueCounts() != null
+                && fileScanTask.file().valueCounts() != null) {
+            Map<Integer, TExprMinMaxValue> tExprMinMaxValueMap = IcebergUtils.toThriftMinMaxValueBySlots(
+                    icebergTable.schema(), fileScanTask.file().lowerBounds(), fileScanTask.file().upperBounds(),
+                    fileScanTask.file().nullValueCounts(), fileScanTask.file().valueCounts(), desc.getSlots());
+            split.setMinMaxValues(tExprMinMaxValueMap);
+        }
+
         if (!fileScanTask.deletes().isEmpty()) {
             split.setDeleteFileFilters(getDeleteFileFilters(fileScanTask));
         }

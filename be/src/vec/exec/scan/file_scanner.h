@@ -198,6 +198,7 @@ protected:
     int32_t _skip_bitmap_col_idx {-1};
     int32_t _sequence_map_col_uid {-1};
     int32_t _sequence_col_uid {-1};
+    bool _could_use_iceberg_min_max_optimization = false;
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;

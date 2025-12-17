@@ -322,4 +322,13 @@ struct TExprList {
   1: required list<TExpr> exprs
 }
 
+struct TExprMinMaxValue {
+  1: required Types.TPrimitiveType type
+  2: required bool has_null
+  3: optional i64 min_int_value
+  4: optional i64 max_int_value
+  5: optional double min_float_value
+  6: optional double max_float_value
+}
+
 

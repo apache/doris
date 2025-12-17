@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -73,7 +75,7 @@ public:
     IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
                        const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
-                       FileMetaCache* meta_cache);
+                       FileMetaCache* meta_cache, bool could_use_iceberg_min_max_optimization);
     ~IcebergTableReader() override = default;
 
     Status init_row_filters() final;
@@ -154,7 +156,9 @@ protected:
 
     void _gen_position_delete_file_range(Block& block, DeleteFile* const position_delete,
                                          size_t read_rows, bool file_path_column_dictionary_coded);
-
+    Status _insert_min_max_value_column(Block* block);
+    Status _insert_value_to_column(MutableColumnPtr& column, const TExprMinMaxValue& value);
+    bool _could_use_iceberg_min_max_optimization = false;
     // equality delete
     Block _equality_delete_block;
     std::unique_ptr<EqualityDeleteBase> _equality_delete_impl;
@@ -167,9 +171,11 @@ public:
     IcebergParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                          RuntimeState* state, const TFileScanRangeParams& params,
                          const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                         io::IOContext* io_ctx, FileMetaCache* meta_cache)
+                         io::IOContext* io_ctx, FileMetaCache* meta_cache,
+                         bool could_use_iceberg_min_max_optimization)
             : IcebergTableReader(std::move(file_format_reader), profile, state, params, range,
-                                 kv_cache, io_ctx, meta_cache) {}
+                                 kv_cache, io_ctx, meta_cache,
+                                 could_use_iceberg_min_max_optimization) {}
     Status init_reader(
             const std::vector<std::string>& file_col_names,
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
@@ -209,9 +215,10 @@ public:
     IcebergOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                      RuntimeState* state, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
-                     FileMetaCache* meta_cache)
+                     FileMetaCache* meta_cache, bool could_use_iceberg_min_max_optimization)
             : IcebergTableReader(std::move(file_format_reader), profile, state, params, range,
-                                 kv_cache, io_ctx, meta_cache) {}
+                                 kv_cache, io_ctx, meta_cache,
+                                 could_use_iceberg_min_max_optimization) {}
 
     void set_delete_rows() final {
         auto* orc_reader = (OrcReader*)_file_format_reader.get();

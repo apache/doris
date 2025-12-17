@@ -32,6 +32,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableScanParams;
@@ -64,12 +65,15 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.thrift.TExprMinMaxValue;
 import org.apache.doris.thrift.TExprOpcode;
+import org.apache.doris.thrift.TPrimitiveType;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -102,6 +106,7 @@ import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
@@ -129,6 +134,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -1549,6 +1555,155 @@ public class IcebergUtils {
         return String.format("CREATE VIEW `%s` AS ", icebergExternalTable.getName())
                 +
                 icebergExternalTable.getViewText();
+    }
+
+    private static final Set<org.apache.iceberg.types.Type.TypeID> MIN_MAX_SUPPORTED_TYPES = ImmutableSet.of(
+            org.apache.iceberg.types.Type.TypeID.BOOLEAN,
+            org.apache.iceberg.types.Type.TypeID.INTEGER,
+            org.apache.iceberg.types.Type.TypeID.LONG,
+            org.apache.iceberg.types.Type.TypeID.FLOAT,
+            org.apache.iceberg.types.Type.TypeID.DOUBLE,
+            org.apache.iceberg.types.Type.TypeID.DATE,
+            org.apache.iceberg.types.Type.TypeID.TIME
+    );
+
+    public static class MinMaxValue {
+        Object minValue;
+        Object maxValue;
+        long nullValueCount;
+        long valueCount;
+
+        private boolean toThrift(SlotDescriptor slot, TExprMinMaxValue texpr) {
+            texpr.setHasNull((nullValueCount > 0));
+            if (valueCount == nullValueCount) {
+                texpr.setType(TPrimitiveType.NULL_TYPE);
+                return true;
+            }
+            if (minValue == null || maxValue == null) {
+                return false;
+            }
+            switch (slot.getType().getPrimitiveType()) {
+                case BOOLEAN:
+                    texpr.setType(TPrimitiveType.BOOLEAN);
+                    texpr.setMinIntValue((Boolean) minValue ? 1 : 0);
+                    texpr.setMaxIntValue((Boolean) maxValue ? 1 : 0);
+                    break;
+                case TINYINT:
+                    texpr.setType(TPrimitiveType.TINYINT);
+                    texpr.setMinIntValue((Integer) minValue);
+                    texpr.setMaxIntValue((Integer) maxValue);
+                    break;
+                case SMALLINT:
+                    texpr.setType(TPrimitiveType.SMALLINT);
+                    texpr.setMinIntValue((Integer) minValue);
+                    texpr.setMaxIntValue((Integer) maxValue);
+                    break;
+                case INT:
+                    texpr.setType(TPrimitiveType.INT);
+                    texpr.setMinIntValue((Integer) minValue);
+                    texpr.setMaxIntValue((Integer) maxValue);
+                    break;
+                case DATE:
+                    texpr.setType(TPrimitiveType.DATEV2);
+                    texpr.setMinIntValue((Integer) minValue);
+                    texpr.setMaxIntValue((Integer) maxValue);
+                    break;
+                case BIGINT:
+                    texpr.setType(TPrimitiveType.BIGINT);
+                    if (minValue instanceof Integer) {
+                        texpr.setMinIntValue(((Integer) minValue).longValue());
+                    } else {
+                        texpr.setMinIntValue((Long) minValue);
+                    }
+                    if (maxValue instanceof Integer) {
+                        texpr.setMaxIntValue(((Integer) maxValue).longValue());
+                    } else {
+                        texpr.setMaxIntValue((Long) maxValue);
+                    }
+                    break;
+                case FLOAT:
+                    texpr.setType(TPrimitiveType.FLOAT);
+                    texpr.setMinFloatValue((Float) minValue);
+                    texpr.setMaxFloatValue((Float) maxValue);
+                    break;
+                case DOUBLE:
+                    texpr.setType(TPrimitiveType.DOUBLE);
+                    texpr.setMinFloatValue((Double) minValue);
+                    texpr.setMaxFloatValue((Double) maxValue);
+                    break;
+                default:
+                    return false;
+            }
+            return true;
+        }
+
+        public void toThrift(Map<Integer, TExprMinMaxValue> tExprMinMaxValueMap, SlotDescriptor slot) {
+            TExprMinMaxValue texpr = new TExprMinMaxValue();
+            if (toThrift(slot, texpr)) {
+                tExprMinMaxValueMap.put(slot.getId().asInt(), texpr);
+            }
+        }
+    }
+
+    public static Map<Integer, TExprMinMaxValue> toThriftMinMaxValueBySlots(Schema schema,
+                                                                            Map<Integer, ByteBuffer> lowerBounds,
+                                                                            Map<Integer, ByteBuffer> upperBounds,
+                                                                            Map<Integer, Long> nullValueCounts,
+                                                                            Map<Integer, Long> valueCounts,
+                                                                            List<SlotDescriptor> slots) {
+        Map<Integer, TExprMinMaxValue> result = new HashMap<>();
+        Map<Integer, MinMaxValue> minMaxValues =
+                parseMinMaxValueBySlots(schema, lowerBounds, upperBounds, nullValueCounts, valueCounts, slots);
+        for (SlotDescriptor slot : slots) {
+            Types.NestedField field = schema.findField(slot.getColumn().getName());
+            if (field == null) {
+                continue;
+            }
+            int fieldId = field.fieldId();
+            MinMaxValue minMaxValue = minMaxValues.get(fieldId);
+            if (minMaxValue == null) {
+                continue;
+            }
+            minMaxValue.toThrift(result, slot);
+        }
+        return result;
+    }
+
+    @VisibleForTesting
+    public static Map<Integer, MinMaxValue> parseMinMaxValueBySlots(Schema schema,
+                                                                    Map<Integer, ByteBuffer> lowerBounds,
+                                                                    Map<Integer, ByteBuffer> upperBounds,
+                                                                    Map<Integer, Long> nullValueCounts,
+                                                                    Map<Integer, Long> valueCounts,
+                                                                    List<SlotDescriptor> slots) {
+        lowerBounds = lowerBounds == null ? Collections.emptyMap() : lowerBounds;
+        upperBounds = upperBounds == null ? Collections.emptyMap() : upperBounds;
+        Map<Integer, MinMaxValue> minMaxValues = new HashMap<>();
+        for (SlotDescriptor slot : slots) {
+            if (!slot.getType().isScalarType()) {
+                continue;
+            }
+            Types.NestedField field = schema.findField(slot.getColumn().getName());
+            if (field == null) {
+                continue;
+            }
+            org.apache.iceberg.types.Type type = field.type();
+            if (!MIN_MAX_SUPPORTED_TYPES.contains(type.typeId())) {
+                continue;
+            }
+            if (!nullValueCounts.containsKey(field.fieldId()) || !valueCounts.containsKey(field.fieldId())) {
+                continue;
+            }
+            MinMaxValue minMaxValue = new MinMaxValue();
+            minMaxValues.put(field.fieldId(), minMaxValue);
+            minMaxValue.nullValueCount = nullValueCounts.get(field.fieldId());
+            minMaxValue.valueCount = valueCounts.get(field.fieldId());
+            Object low = Conversions.fromByteBuffer(field.type(), lowerBounds.get(field.fieldId()));
+            Object high = Conversions.fromByteBuffer(field.type(), upperBounds.get(field.fieldId()));
+            minMaxValue.minValue = low;
+            minMaxValue.maxValue = high;
+        }
+        return minMaxValues;
     }
 
 }

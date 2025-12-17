@@ -18,8 +18,10 @@
 #include "iceberg_reader.h"
 
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
@@ -82,10 +84,12 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
                                        RuntimeProfile* profile, RuntimeState* state,
                                        const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                                       io::IOContext* io_ctx, FileMetaCache* meta_cache)
+                                       io::IOContext* io_ctx, FileMetaCache* meta_cache,
+                                       bool could_use_iceberg_min_max_optimization)
         : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx,
                             meta_cache),
-          _kv_cache(kv_cache) {
+          _kv_cache(kv_cache),
+          _could_use_iceberg_min_max_optimization(could_use_iceberg_min_max_optimization) {
     static const char* iceberg_profile = "IcebergProfile";
     ADD_TIMER(_profile, iceberg_profile);
     _iceberg_profile.num_delete_files =
@@ -99,6 +103,14 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
 }
 
 Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
+    if (_could_use_iceberg_min_max_optimization) {
+        RETURN_IF_ERROR(_insert_min_max_value_column(block));
+        LOG(INFO) << "asd min max optimization applied." << block->dump_structure();
+        *read_rows = 3;
+        *eof = true;
+        return Status::OK();
+    }
+
     RETURN_IF_ERROR(_expand_block_if_need(block));
 
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
@@ -143,6 +155,81 @@ Status IcebergTableReader::init_row_filters() {
     }
 
     COUNTER_UPDATE(_iceberg_profile.num_delete_files, table_desc.delete_files.size());
+    return Status::OK();
+}
+
+Status IcebergTableReader::_insert_min_max_value_column(Block* block) {
+    const auto& min_max_values = _range.min_max_values;
+    auto mutate_columns = block->mutate_columns();
+    for (const auto& [slot_id, min_max_value] : min_max_values) {
+        size_t column_index = 0;
+        bool found = false;
+        for (size_t i = 0; i < _params.required_slots.size(); ++i) {
+            if (_params.required_slots[i].slot_id == slot_id) {
+                column_index = i;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            return Status::InternalError(
+                    "Slot id {} from min_max_values not found in required_slots", slot_id);
+        }
+
+        if (column_index >= mutate_columns.size()) {
+            return Status::InternalError("Column index {} out of range, mutate_columns size: {}",
+                                         column_index, mutate_columns.size());
+        }
+
+        auto& column = mutate_columns[column_index];
+        RETURN_IF_ERROR(_insert_value_to_column(column, min_max_value));
+    }
+    block->set_columns(std::move(mutate_columns));
+    return Status::OK();
+}
+
+Status IcebergTableReader::_insert_value_to_column(MutableColumnPtr& column,
+                                                   const TExprMinMaxValue& value) {
+    if (value.has_null) {
+        column->insert_default();
+    }
+    if (value.type != TPrimitiveType::NULL_TYPE) {
+        switch (value.type) {
+        case TPrimitiveType::BOOLEAN:
+        case TPrimitiveType::TINYINT:
+        case TPrimitiveType::SMALLINT:
+        case TPrimitiveType::INT: {
+            column->insert_data(reinterpret_cast<const char*>(&value.min_int_value),
+                                sizeof(int64_t));
+            column->insert_data(reinterpret_cast<const char*>(&value.max_int_value),
+                                sizeof(int64_t));
+            break;
+        }
+        case TPrimitiveType::DOUBLE:
+        case TPrimitiveType::FLOAT: {
+            column->insert_data(reinterpret_cast<const char*>(&value.min_float_value),
+                                sizeof(double));
+            column->insert_data(reinterpret_cast<const char*>(&value.max_float_value),
+                                sizeof(double));
+            break;
+        }
+        case TPrimitiveType::DATE: {
+            auto min_date = static_cast<uint32_t>(value.min_int_value);
+            auto max_date = static_cast<uint32_t>(value.max_int_value);
+            column->insert_data(reinterpret_cast<const char*>(&min_date), sizeof(uint32_t));
+            column->insert_data(reinterpret_cast<const char*>(&max_date), sizeof(uint32_t));
+            break;
+        }
+
+        default:
+            return Status::InternalError("Unsupported TExprNodeType {}", value.type);
+        }
+    }
+    while (column->size() < 3) {
+        column->insert_from(*column, 0);
+    }
+
     return Status::OK();
 }
 
