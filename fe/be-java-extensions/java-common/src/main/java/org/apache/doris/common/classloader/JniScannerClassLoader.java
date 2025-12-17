@@ -66,7 +66,7 @@ public class JniScannerClassLoader extends URLClassLoader {
             return clazz;
         }
 
-        // 2) Always delegate platform/JDK classes to parent first
+        // 2) Parent-first for platform/framework namespaces (including Trino/Hadoop)
         if (isPlatformClass(name)) {
             return super.loadClass(name, resolve);
         }
@@ -129,6 +129,17 @@ public class JniScannerClassLoader extends URLClassLoader {
                 || name.startsWith("sun.")
                 || name.startsWith("jdk.")
                 || name.startsWith("org.w3c.")
-                || name.startsWith("org.xml.");
+                || name.startsWith("org.xml.")
+                // Trino core/server APIs
+                || name.startsWith("io.trino.")
+                // Common frameworks shared with app loader
+                || name.startsWith("com.google.inject.")
+                || name.startsWith("javax.inject.")
+                || name.startsWith("com.fasterxml.jackson.")
+                || name.startsWith("org.slf4j.")
+                || name.startsWith("ch.qos.logback.")
+                || name.startsWith("org.apache.logging.log4j.")
+                || name.startsWith("org.apache.commons.")
+                || name.startsWith("com.google.common.");
     }
 }
