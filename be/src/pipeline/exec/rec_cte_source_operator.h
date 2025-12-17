@@ -134,12 +134,12 @@ public:
 private:
     Status _send_close(RuntimeState* state) {
         if (!_already_send_close && !_is_used_by_other_rec_cte) {
-            RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::close));
             _already_send_close = true;
-
             auto* round_counter = ADD_COUNTER(get_local_state(state).Base::custom_profile(),
                                               "RecursiveRound", TUnit::UNIT);
             round_counter->set(int64_t(get_local_state(state)._shared_state->current_round));
+
+            RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::close));
         }
         return Status::OK();
     }
