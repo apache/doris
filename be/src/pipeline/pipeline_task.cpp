@@ -555,7 +555,7 @@ Status PipelineTask::execute(bool* done) {
             }
 
             if (_eos && !_sink->need_rerun(_state)) {
-                if (auto* source = dynamic_cast<RecCTESourceOperatorX*>(_root); !source) {
+                if (auto* source = dynamic_cast<RecCTESourceOperatorX*>(_root); source) {
                     RETURN_IF_ERROR(close(Status::OK(), false));
                 }
             }
