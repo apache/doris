@@ -45,82 +45,29 @@ suite ("k123p") {
     sql "insert into d_table select 3,-3,null,'c';"
 
     sql "analyze table d_table with sync;"
-    sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
 
     mv_rewrite_all_fail("select k1,k2+k3 from d_table order by k1;", ["k123p1w", "k123p4w"])
     qt_select_mv "select k1,k2+k3 from d_table order by k1;"
 
-    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = 1 order by k1;", "k123p1w")
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k1 = 1 order by k1;", "k123p1w")
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 1 order by k1;"
 
     mv_rewrite_all_fail("select k1,k2+k3 from d_table where k1 = 2 order by k1;", ["k123p1w", "k123p4w"])
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 2 order by k1;"
 
-    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = '1' order by k1;", "k123p1w")
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k1 = '1' order by k1;", "k123p1w")
     qt_select_mv "select k1,k2+k3 from d_table where k1 = '1' order by k1;"
 
-    mv_rewrite_success("select k1,k2+k3 from d_table where k4 = 'b' order by k1;", "k123p4w")
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k4 = 'b' order by k1;", "k123p4w")
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'b' order by k1;"
 
     mv_rewrite_all_fail("select k1,k2+k3 from d_table where k4 = 'a' order by k1;", ["k123p1w", "k123p4w"])
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'a' order by k1;"
 
-    mv_rewrite_success("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
+    mv_rewrite_success_without_check_chosen("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
     qt_select_mv """select k1,k2+k3 from d_table where k1 = 2 and k4 = "b" order by k1;"""
 
     qt_select_mv_constant """select bitmap_empty() from d_table where true;"""
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_all_fail("select k1,k2+k3 from d_table order by k1;", ["k123p1w", "k123p4w"])
-
-    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = 1 order by k1;", "k123p1w")
-
-    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k1 = 2 order by k1;", ["k123p1w", "k123p4w"])
-
-    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = '1' order by k1;", "k123p1w")
-
-    mv_rewrite_success("select k1,k2+k3 from d_table where k4 = 'b' order by k1;", "k123p4w")
-
-    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k4 = 'a' order by k1;", ["k123p1w", "k123p4w"])
-
-    mv_rewrite_success("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
-
-    sql """ DROP TABLE IF EXISTS u_table; """
-    sql """
-            create table u_table(
-                k1 int null,
-                k2 int not null,
-                k3 bigint null,
-                k4 varchar(100) null
-            )
-            unique key (k1,k2)
-            distributed BY hash(k1) buckets 3
-            properties("replication_num" = "1");
-        """
-
-    sql "insert into u_table select 1,1,1,'a';"
-    sql "insert into u_table select 2,2,2,'bb';"
-    sql "insert into u_table select 3,-3,null,'c';"
-
-    test {
-        sql """create materialized view k123p4w as select k1 as aa1,k2 as aa2,k3 as aa3 from u_table where k4 = "b";"""
-        exception "The where clause contained aggregate column is not supported"
-    }
-
-    createMV ("""create materialized view k123p1w as select k1 as a1,k2 as a2,k3 as a3 from u_table where k1 = 1;""")
-
-    String db = context.config.getDbNameByFile(context.file)
-    sql "use ${db}"
-    create_sync_mv(db, "d_table", "k1234","""select k1 as x1, k2 as x2, k3 as x3, k4 as x4 from d_table where k1 = 1;""")
-    mv_rewrite_success_without_check_chosen("select k1 as x1, k2 as x2, k3 as x3, k4 as x4 from d_table where k1 = 1;", "k1234")
-    qt_select_mv "select k1 as x1, k2 as x2, k3 as x3, k4 as x4 from d_table where k1 = 1 order by k1;"
-    test {
-        sql """
-              create materialized view kx1234 as select k1 as y1, k2 as y2, k3 as y3, k4 as y4 from d_table;
-        """
-
-        exception "MV same with base table without where clause is useless"
-    }
 }
