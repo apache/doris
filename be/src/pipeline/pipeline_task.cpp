@@ -32,6 +32,7 @@
 #include "pipeline/dependency.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/rec_cte_source_operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_fragment_context.h"
@@ -554,7 +555,7 @@ Status PipelineTask::execute(bool* done) {
             }
 
             if (_eos && !_sink->need_rerun(_state)) {
-                if (auto ctx = _fragment_context.lock().get(); ctx && ctx->need_notify_close()) {
+                if (auto* source = dynamic_cast<RecCTESourceOperatorX*>(_root); !source) {
                     RETURN_IF_ERROR(close(Status::OK(), false));
                 }
             }
