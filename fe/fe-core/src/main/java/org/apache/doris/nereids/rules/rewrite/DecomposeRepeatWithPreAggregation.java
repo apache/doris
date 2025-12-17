@@ -101,6 +101,20 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
     }
 
     @Override
+    public Plan visitLogicalCTEAnchor(
+            LogicalCTEAnchor<? extends Plan, ? extends Plan> anchor, DistinctSelectorContext ctx) {
+        Plan child1 = anchor.child(0).accept(this, ctx);
+        DistinctSelectorContext consumerContext =
+                new DistinctSelectorContext(ctx.statementContext, ctx.cascadesContext);
+        Plan child2 = anchor.child(1).accept(this, consumerContext);
+        for (int i = consumerContext.cteProducerList.size() - 1; i >= 0; i--) {
+            LogicalCTEProducer<? extends Plan> producer = consumerContext.cteProducerList.get(i);
+            child2 = new LogicalCTEAnchor<>(producer.getCteId(), producer, child2);
+        }
+        return anchor.withChildren(ImmutableList.of(child1, child2));
+    }
+
+    @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, DistinctSelectorContext ctx) {
         aggregate = visitChildren(this, aggregate, ctx);
         int maxGroupIndex = canOptimize(aggregate);
