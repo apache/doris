@@ -74,7 +74,7 @@ public class ScannerLoader {
         redirectStdStreamsToLog4j();
         String basePath = System.getenv("DORIS_HOME");
         File scannerRoot = new File(basePath, "/lib/java_extensions/");
-        File hadoopLib = new File(basePath, "/lib/hadoop_deps/lib/");
+        File hadoopLib = new File(basePath, "/lib/hadoop_hdfs/lib/");
 
 
         listFiles(scannerRoot).stream()
