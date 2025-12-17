@@ -76,9 +76,6 @@ private:
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(Jni::Env::Get(&env));
 
-        if (env == nullptr) {
-            return Status::JniError("Failed to get/create JVM");
-        }
         // Find JniUtil class and create a global ref.
         jclass local_jni_util_cl = env->FindClass("org/apache/doris/common/jni/utils/JniUtil");
         if (local_jni_util_cl == nullptr) {
@@ -88,13 +85,13 @@ private:
             return Status::JniError("Failed to find JniUtil class.");
         }
         jni_util_cl_ = reinterpret_cast<jclass>(env->NewGlobalRef(local_jni_util_cl));
+        env->DeleteLocalRef(local_jni_util_cl);
         if (jni_util_cl_ == nullptr) {
             if (env->ExceptionOccurred()) {
                 env->ExceptionDescribe();
             }
             return Status::JniError("Failed to create global reference to JniUtil class.");
         }
-        env->DeleteLocalRef(local_jni_util_cl);
         if (env->ExceptionOccurred()) {
             return Status::JniError("Failed to delete local reference to JniUtil class.");
         }
@@ -424,8 +421,8 @@ public:
             RETURN_ERROR_IF_EXC(_env);
         } else if constexpr (std::is_same_v<return_type, jobject>) {
             jobject tmp = CallHelper<tag>::call_impl(_env, _base, _method, _args.data());
-            RETURN_ERROR_IF_EXC(_env);
             _env->DeleteLocalRef(tmp);
+            RETURN_ERROR_IF_EXC(_env);
         } else {
             static_assert(false);
         }
@@ -532,6 +529,33 @@ private:
     DISALLOW_COPY_AND_ASSIGN(NonvirtualFunctionCall);
 };
 
+/**
+ * When writing JNI code, developers usually need to pay extra attention to several error-prone aspects, including:
+ * 1. The reference type of jobject (local vs. global)
+ * 2. The lifetime and scope of JNI references
+ * 3. Proper release of references after use
+ * 4. Explicit exception checking after JNI calls
+ * Because these concerns are verbose and easy to overlook, they often lead to bugs or inconsistent code. To simplify this, 
+ * we provide a wrapper framework around raw JNI APIs. The following describes how to use it (assuming the user already 
+ * understands the basic JNI programming model).
+ *
+ * 0. Get JNIEnv* env: `Status st = Jni::Env::Get(&env)`
+ * 1. Choose the reference type
+ *   First, determine whether the JNI object should be a local or global reference. Based on this, create the corresponding C++ wrapper object:
+ *   LocalObject / GlobalObject. If the exact JNI type is known, use specialized wrappers such as <Local/Global><Array/String/Class>. 
+ * 2. Initialize the object
+ *   For `jclass`, typically use: `Status st = Jni::Util::find_class(xxx);`
+ *   For other object types, they are usually initialized via: `Status st = clazz.new_object(xxx).with_arg(xxx).call(&object) or by calling methods on existing objects.
+ * 3. Call methods and retrieve results
+ *   To invoke a method and obtain a return value, use: `Status st = object.call_<return_type>_method(xxx).call(&result);` 
+ * 
+ * Notes
+ * 1. All JNI references are automatically released in the wrapper’s destructor, ensuring safe and deterministic cleanup.
+ * 2. All framework method invocations return a Status.
+ * The actual JNI return value is written to the address passed to call().
+ * 
+ * Example: be/test/util/jni_util_test.cpp
+*/
 template <RefType Ref>
 class Object {
     // env->GetObjectRefType
@@ -559,7 +583,7 @@ public:
     template <CallTag tag>
     friend class NonvirtualFunctionCall;
 
-    ~Object() {
+    virtual ~Object() {
         if (_obj != nullptr) [[likely]] {
             JNIEnv* env = nullptr;
             if (Status st = RefHelper<Ref>::get_env(&env); !st.ok()) [[unlikely]] {
