@@ -961,6 +961,21 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
                   << ", sort_limit: " << _olap_scan_node.sort_limit
                   << ", isset.sort_limit: " << _olap_scan_node.__isset.sort_limit;
     })
+
+    if (_olap_scan_node.__isset.columns_desc && !_olap_scan_node.columns_desc.empty() &&
+        _olap_scan_node.columns_desc[0].col_unique_id >= 0) {
+        _tablet_schema = std::make_shared<TabletSchema>();
+        _tablet_schema->clear_columns();
+        for (const auto& column_desc : _olap_scan_node.columns_desc) {
+            _tablet_schema->append_column(TabletColumn(column_desc));
+        }
+        if (_olap_scan_node.__isset.schema_version) {
+            _tablet_schema->set_schema_version(_olap_scan_node.schema_version);
+        }
+        if (_olap_scan_node.__isset.indexes_desc) {
+            _tablet_schema->update_indexes_from_thrift(_olap_scan_node.indexes_desc);
+        }
+    }
 }
 
 #include "common/compile_check_end.h"

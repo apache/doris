@@ -116,31 +116,6 @@ Status TabletReader::init(const ReaderParams& read_params) {
     return res;
 }
 
-// When only one rowset has data, and this rowset is nonoverlapping, we can read directly without aggregation
-bool TabletReader::_optimize_for_single_rowset(
-        const std::vector<RowsetReaderSharedPtr>& rs_readers) {
-    bool has_delete_rowset = false;
-    bool has_overlapping = false;
-    int nonoverlapping_count = 0;
-    for (const auto& rs_reader : rs_readers) {
-        if (rs_reader->rowset()->rowset_meta()->delete_flag()) {
-            has_delete_rowset = true;
-            break;
-        }
-        if (rs_reader->rowset()->rowset_meta()->num_rows() > 0) {
-            if (rs_reader->rowset()->rowset_meta()->is_segments_overlapping()) {
-                // when there are overlapping segments, can not do directly read
-                has_overlapping = true;
-                break;
-            } else if (++nonoverlapping_count > 1) {
-                break;
-            }
-        }
-    }
-
-    return !has_overlapping && nonoverlapping_count == 1 && !has_delete_rowset;
-}
-
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_capture_rs_readers_timer_ns);
     if (read_params.rs_splits.empty()) {
