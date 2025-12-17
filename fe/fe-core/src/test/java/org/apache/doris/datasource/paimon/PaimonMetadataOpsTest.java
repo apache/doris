@@ -47,21 +47,27 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 
-public class IcebergMetadataOpsTest {
+public class PaimonMetadataOpsTest {
+    public static String warehouse;
     public static PaimonExternalCatalog paimonCatalog;
     public static PaimonMetadataOps ops;
     public static String dbName = "testdb";
 
     @BeforeClass
     public static void beforeClass() throws Throwable {
+        Path warehousePath = Files.createTempDirectory("test_warehouse_");
+        warehouse = "file://" + warehousePath.toAbsolutePath() + "/";
         HashMap<String, String> param = new HashMap<>();
         param.put("type", "paimon");
         param.put("paimon.catalog.type", "hms");
+        param.put("warehouse", warehouse);
         // create catalog
         CreateCatalogCommand createCatalogCommand = new CreateCatalogCommand("paimon", true, "", "comment", param);
         paimonCatalog = (PaimonExternalCatalog) CatalogFactory.createFromCommand(1, createCatalogCommand);
