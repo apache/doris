@@ -66,7 +66,7 @@ public class PaimonMetadataOpsTest {
         warehouse = "file://" + warehousePath.toAbsolutePath() + "/";
         HashMap<String, String> param = new HashMap<>();
         param.put("type", "paimon");
-        param.put("paimon.catalog.type", "hms");
+        param.put("paimon.catalog.type", "filesystem");
         param.put("warehouse", warehouse);
         // create catalog
         CreateCatalogCommand createCatalogCommand = new CreateCatalogCommand("paimon", true, "", "comment", param);
