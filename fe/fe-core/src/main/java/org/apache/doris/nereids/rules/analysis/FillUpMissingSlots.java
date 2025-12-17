@@ -31,11 +31,13 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SqlModeHelper;
@@ -188,6 +190,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         private final List<NamedExpression> newOutputSlots = Lists.newArrayList();
         private final Map<Slot, Expression> outputSubstitutionMap;
         private final Optional<Scope> outerScope;
+        private final boolean isRepeat;
 
         Resolver(Aggregate<?> aggregate, Optional<Scope> outerScope) {
             outputExpressions = aggregate.getOutputExpressions();
@@ -196,6 +199,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                     .collect(Collectors.toMap(NamedExpression::toSlot, alias -> alias.child(0),
                             (k1, k2) -> k1));
             this.outerScope = outerScope;
+            this.isRepeat = aggregate instanceof LogicalRepeat;
         }
 
         Resolver(Aggregate<?> aggregate) {
@@ -240,6 +244,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                     + "' must appear in the GROUP BY clause or be used in an aggregate function.");
                         }
                     }
+                } else if (expression instanceof GroupingScalarFunction && isRepeat) {
+                    generateAliasForNewOutputSlots(expression);
                 } else if (expression instanceof AggregateFunction) {
                     if (checkWhetherNestedAggregateFunctionsExist((AggregateFunction) expression)) {
                         throw new AnalysisException(planType + " aggregate functions can't be nested: "
@@ -342,7 +348,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         Plan child = logicalSort.child();
         for (OrderKey orderKey : logicalSort.getOrderKeys()) {
             Expression expr = orderKey.getExpr();
-            if (ExpressionUtils.hasNonWindowAggregateFunction(expr)) {
+            if (ExpressionUtils.hasNonWindowAggregateFunction(expr)
+                    || expr.containsType(GroupingScalarFunction.class)) {
                 return true;
             }
             for (Slot inputSlot : expr.getInputSlots()) {
