@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
-import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
