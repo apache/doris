@@ -51,8 +51,8 @@ public class IcebergManifestCache {
         Caffeine<ManifestCacheKey, ManifestCacheValue> builder = Caffeine.newBuilder()
                 .maximumWeight(capacityInBytes)
                 .weigher(weigher);
-        if (Config.iceberg_manifest_cache_ttl_ms > 0) {
-            builder = builder.expireAfterAccess(Duration.ofMillis(Config.iceberg_manifest_cache_ttl_ms));
+        if (Config.iceberg_manifest_cache_ttl_sec > 0) {
+            builder = builder.expireAfterAccess(Duration.ofSeconds(Config.iceberg_manifest_cache_ttl_sec));
         }
         cache = builder.build(new CacheLoader<ManifestCacheKey, ManifestCacheValue>() {
             @Override

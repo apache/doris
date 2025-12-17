@@ -2321,11 +2321,11 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"Iceberg Manifest 缓存的容量上限，单位 MB。",
             "Iceberg manifest cache capacity in MB."})
-    public static long iceberg_manifest_cache_capacity_mb = 512;
+    public static long iceberg_manifest_cache_capacity_mb = 1024;
 
-    @ConfField(description = {"Iceberg Manifest 缓存的访问过期时间（毫秒），0 或负数表示不过期。",
-            "Iceberg manifest cache expire after access in milliseconds. 0 or negative disables expiration."})
-    public static long iceberg_manifest_cache_ttl_ms = 10_000L;
+    @ConfField(description = {"Iceberg Manifest 缓存的访问过期时间（秒），0 或负数表示不过期。",
+            "Iceberg manifest cache expire after access in seconds. 0 or negative disables expiration."})
+    public static long iceberg_manifest_cache_ttl_sec = 48 * 60 * 60;
 
     /**
      * Github workflow test type, for setting some session variables
