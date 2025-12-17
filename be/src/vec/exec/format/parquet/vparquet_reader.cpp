@@ -488,8 +488,7 @@ Status ParquetReader::set_fill_columns(
 
         if (check_expr_can_push_down(expr)) {
             _push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
-            RETURN_IF_ERROR(convert_predicates({expr}, _useless_predicates,
-                                               _push_down_predicates.back(), _arena));
+            RETURN_IF_ERROR(convert_predicates({expr}, _push_down_predicates.back(), _arena));
         }
     }
 
@@ -707,8 +706,8 @@ Status ParquetReader::_next_row_group_reader() {
                 // for min-max filter.
                 if (check_expr_can_push_down(binary_expr)) {
                     _push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
-                    RETURN_IF_ERROR(convert_predicates({binary_expr}, _useless_predicates,
-                                                       _push_down_predicates.back(), _arena));
+                    RETURN_IF_ERROR(convert_predicates({binary_expr}, _push_down_predicates.back(),
+                                                       _arena));
                 }
             }
         }
