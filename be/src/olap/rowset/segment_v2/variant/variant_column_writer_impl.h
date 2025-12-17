@@ -137,8 +137,8 @@ private:
                                vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
                                int& column_id);
     // prepare a column for finalize
-    doris::vectorized::MutableColumnPtr _column;
-    doris::vectorized::ColumnUInt8 _null_column;
+    doris::vectorized::ColumnVariant::MutablePtr _column;
+    doris::vectorized::ColumnUInt8::MutablePtr _null_column;
     ColumnWriterOptions _opts;
     const TabletColumn* _tablet_column = nullptr;
     bool _is_finalized = false;
