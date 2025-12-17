@@ -306,6 +306,9 @@ log "Using Java version ${java_version}"
 # basic functionality and compatibility.
 add_java_opt_if_missing "-Dhadoop.shell.setsid.enabled=false"
 add_java_opt_if_missing "-Darrow.enable_null_check_for_get=false"
+add_java_opt_if_missing "-Djavax.security.auth.useSubjectCredsOnly=false"
+add_java_opt_if_missing "-Dsun.security.krb5.debug=true"
+add_java_opt_if_missing "-Dfile.encoding=UTF-8"
 add_java_opt_if_missing "--add-opens=java.base/java.lang=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
@@ -324,7 +327,6 @@ add_java_opt_if_missing "--add-opens=java.management/sun.management=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens java.base/jdk.internal.ref=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
 
-echo "${final_java_opt}"
 log "${final_java_opt}"
 export JAVA_OPTS="${final_java_opt}"
 
