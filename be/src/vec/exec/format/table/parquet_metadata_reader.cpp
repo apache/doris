@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstring>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -33,6 +34,7 @@
 #include "util/string_util.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
@@ -398,6 +400,149 @@ private:
     std::array<int, KV_COLUMN_COUNT> _slot_pos {};
 };
 
+class ParquetBloomProbeModeHandler final : public ParquetMetadataReader::ModeHandler {
+public:
+    ParquetBloomProbeModeHandler(RuntimeState* state, TFileType::type file_type,
+                                 std::map<std::string, std::string> properties, std::string column,
+                                 std::string literal)
+            : ModeHandler(state),
+              _file_type(file_type),
+              _properties(std::move(properties)),
+              _column(std::move(column)),
+              _literal(std::move(literal)) {}
+
+    void init_slot_pos_map(const std::vector<SlotDescriptor*>& slots) override {
+        const auto& name_to_pos = _build_name_to_pos_map(slots);
+        _init_slot_pos_map(name_to_pos, kBloomProbeColumnNames, &_slot_pos);
+    }
+
+    Status append_rows(const std::string& path, FileMetaData* metadata,
+                       std::vector<MutableColumnPtr>& columns) override {
+        const FieldSchema* schema = metadata->schema().get_column(_column);
+        if (schema == nullptr) {
+            return Status::InvalidArgument(
+                    fmt::format("Column '{}' not found for parquet_bloom_probe", _column));
+        }
+        int parquet_col_id = schema->physical_column_index;
+        PrimitiveType primitive_type = _get_primitive(schema->data_type);
+        if (!ParquetPredicate::bloom_filter_supported(primitive_type)) {
+            return Status::InvalidArgument(
+                    fmt::format("Column '{}' type {} does not support parquet bloom filter probe",
+                                _column, primitive_type));
+        }
+
+        std::string encoded_literal;
+        RETURN_IF_ERROR(
+                _encode_literal(schema->physical_type, primitive_type, _literal, &encoded_literal));
+
+        io::FileSystemProperties system_properties;
+        system_properties.system_type = _file_type;
+        system_properties.properties = _properties;
+        io::FileDescription file_desc;
+        file_desc.path = path;
+        io::FileReaderSPtr file_reader = DORIS_TRY(FileFactory::create_file_reader(
+                system_properties, file_desc, io::FileReaderOptions::DEFAULT, nullptr));
+        io::IOContext io_ctx;
+
+        const tparquet::FileMetaData& thrift_meta = metadata->to_thrift();
+        if (thrift_meta.row_groups.empty()) {
+            return Status::OK();
+        }
+
+        for (size_t rg_idx = 0; rg_idx < thrift_meta.row_groups.size(); ++rg_idx) {
+            if (parquet_col_id < 0 ||
+                parquet_col_id >= thrift_meta.row_groups[rg_idx].columns.size()) {
+                return Status::InvalidArgument(fmt::format(
+                        "Invalid column index {} for parquet_bloom_probe", parquet_col_id));
+            }
+            const auto& column_chunk = thrift_meta.row_groups[rg_idx].columns[parquet_col_id];
+            bool excludes = false;
+            if (column_chunk.__isset.meta_data &&
+                column_chunk.meta_data.__isset.bloom_filter_offset) {
+                ParquetPredicate::ColumnStat stat;
+                auto st = ParquetPredicate::read_bloom_filter(column_chunk.meta_data, file_reader,
+                                                              &io_ctx, &stat);
+                if (st.ok() && stat.bloom_filter) {
+                    bool might_contain = stat.bloom_filter->test_bytes(encoded_literal.data(),
+                                                                       encoded_literal.size());
+                    excludes = !might_contain;
+                }
+            }
+            _emit_row(path, static_cast<Int64>(rg_idx), excludes, columns);
+        }
+        return Status::OK();
+    }
+
+private:
+    std::array<int, BLOOM_COLUMN_COUNT> _slot_pos {};
+    TFileType::type _file_type;
+    std::map<std::string, std::string> _properties;
+    std::string _column;
+    std::string _literal;
+
+    PrimitiveType _get_primitive(const DataTypePtr& type) const {
+        if (auto nullable = typeid_cast<const DataTypeNullable*>(type.get())) {
+            return nullable->get_nested_type()->get_primitive_type();
+        }
+        return type->get_primitive_type();
+    }
+
+    Status _encode_literal(tparquet::Type::type physical_type, PrimitiveType primitive_type,
+                           const std::string& literal, std::string* out) const {
+        try {
+            switch (physical_type) {
+            case tparquet::Type::INT32: {
+                int64_t v = std::stoll(literal);
+                int32_t v32 = static_cast<int32_t>(v);
+                out->assign(reinterpret_cast<const char*>(&v32), sizeof(int32_t));
+                return Status::OK();
+            }
+            case tparquet::Type::INT64: {
+                int64_t v = std::stoll(literal);
+                out->assign(reinterpret_cast<const char*>(&v), sizeof(int64_t));
+                return Status::OK();
+            }
+            case tparquet::Type::FLOAT: {
+                float v = std::stof(literal);
+                out->assign(reinterpret_cast<const char*>(&v), sizeof(float));
+                return Status::OK();
+            }
+            case tparquet::Type::DOUBLE: {
+                double v = std::stod(literal);
+                out->assign(reinterpret_cast<const char*>(&v), sizeof(double));
+                return Status::OK();
+            }
+            case tparquet::Type::BYTE_ARRAY: {
+                // For string/blob, use raw bytes from the literal.
+                *out = literal;
+                return Status::OK();
+            }
+            default:
+                break;
+            }
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument(fmt::format(
+                    "Failed to parse literal '{}' for parquet bloom probe: {}", literal, e.what()));
+        }
+        return Status::NotSupported(
+                fmt::format("Physical type {} for column '{}' not supported in parquet_bloom_probe",
+                            physical_type, _column));
+    }
+
+    void _emit_row(const std::string& path, Int64 row_group_id, bool excludes,
+                   std::vector<MutableColumnPtr>& columns) {
+        if (_slot_pos[BLOOM_FILE_NAME] >= 0) {
+            insert_string(columns[_slot_pos[BLOOM_FILE_NAME]], path);
+        }
+        if (_slot_pos[BLOOM_ROW_GROUP_ID] >= 0) {
+            insert_int32(columns[_slot_pos[BLOOM_ROW_GROUP_ID]], static_cast<Int32>(row_group_id));
+        }
+        if (_slot_pos[BLOOM_EXCLUDES] >= 0) {
+            insert_bool(columns[_slot_pos[BLOOM_EXCLUDES]], excludes);
+        }
+    }
+};
+
 ParquetMetadataReader::ParquetMetadataReader(std::vector<SlotDescriptor*> slots,
                                              RuntimeState* state, RuntimeProfile* profile,
                                              TMetaScanRange scan_range)
@@ -415,6 +560,9 @@ Status ParquetMetadataReader::init_reader() {
         _mode_handler = std::make_unique<ParquetFileMetadataModeHandler>(_state);
     } else if (_mode_type == Mode::KEY_VALUE_METADATA) {
         _mode_handler = std::make_unique<ParquetKeyValueModeHandler>(_state);
+    } else if (_mode_type == Mode::BLOOM_PROBE) {
+        _mode_handler = std::make_unique<ParquetBloomProbeModeHandler>(
+                _state, _file_type, _properties, _bloom_column, _bloom_literal);
     } else {
         _mode_handler = std::make_unique<ParquetMetadataModeHandler>(_state);
     }
@@ -453,6 +601,12 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
     if (params.__isset.properties) {
         _properties = params.properties;
     }
+    if (params.__isset.bloom_column) {
+        _bloom_column = params.bloom_column;
+    }
+    if (params.__isset.bloom_literal) {
+        _bloom_literal = params.bloom_literal;
+    }
     std::string lower_mode = _mode;
     std::ranges::transform(lower_mode, lower_mode.begin(),
                            [](unsigned char c) { return std::tolower(c); });
@@ -465,9 +619,17 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
     } else if (lower_mode == MODE_KEY_VALUE_METADATA) {
         _mode_type = Mode::KEY_VALUE_METADATA;
         _mode = MODE_KEY_VALUE_METADATA;
+    } else if (lower_mode == MODE_BLOOM_PROBE) {
+        _mode_type = Mode::BLOOM_PROBE;
+        _mode = MODE_BLOOM_PROBE;
     } else {
         _mode_type = Mode::METADATA;
         _mode = MODE_METADATA;
+    }
+    if (_mode_type == Mode::BLOOM_PROBE && (_bloom_column.empty() || _bloom_literal.empty())) {
+        return Status::InvalidArgument(
+                "Properties 'bloom_column' and 'bloom_literal' must be set for "
+                "parquet_bloom_probe");
     }
     return Status::OK();
 }

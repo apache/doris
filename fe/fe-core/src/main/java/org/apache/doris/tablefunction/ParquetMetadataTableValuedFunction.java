@@ -58,21 +58,28 @@ import java.util.stream.Collectors;
  * - parquet_schema: logical schema similar to DuckDB parquet_schema()
  * - parquet_file_metadata: file-level metadata aligned with DuckDB parquet_file_metadata()
  * - parquet_kv_metadata: file key/value metadata aligned with DuckDB parquet_kv_metadata()
+ * - parquet_bloom_probe: row group bloom filter probe aligned with DuckDB parquet_bloom_probe()
  */
 public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunction {
 
     public static final String NAME = "parquet_meta";
     public static final String NAME_FILE_METADATA = "parquet_file_metadata";
     public static final String NAME_KV_METADATA = "parquet_kv_metadata";
+    public static final String NAME_BLOOM_PROBE = "parquet_bloom_probe";
     private static final String PATH = "path";
     private static final String MODE = "mode";
+    private static final String COLUMN = "column";
+    private static final String COLUMN_NAME = "column_name";
+    private static final String VALUE = "value";
 
     private static final String MODE_METADATA = "parquet_metadata";
     private static final String MODE_SCHEMA = "parquet_schema";
     private static final String MODE_FILE_METADATA = "parquet_file_metadata";
     private static final String MODE_KV_METADATA = "parquet_kv_metadata";
+    private static final String MODE_BLOOM_PROBE = "parquet_bloom_probe";
     private static final ImmutableSet<String> SUPPORTED_MODES =
-            ImmutableSet.of(MODE_METADATA, MODE_SCHEMA, MODE_FILE_METADATA, MODE_KV_METADATA);
+            ImmutableSet.of(MODE_METADATA, MODE_SCHEMA, MODE_FILE_METADATA, MODE_KV_METADATA,
+                    MODE_BLOOM_PROBE);
 
     private static final ImmutableList<Column> PARQUET_SCHEMA_COLUMNS = ImmutableList.of(
             new Column("file_name", PrimitiveType.STRING, true),
@@ -128,11 +135,19 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             new Column("value", ScalarType.createStringType(), true)
     );
 
+    private static final ImmutableList<Column> PARQUET_BLOOM_PROBE_COLUMNS = ImmutableList.of(
+            new Column("file_name", PrimitiveType.STRING, true),
+            new Column("row_group_id", PrimitiveType.INT, true),
+            new Column("bloom_filter_excludes", PrimitiveType.BOOLEAN, true)
+    );
+
     private final List<String> paths;
     private final String mode;
     // File system info for remote Parquet access (e.g. S3).
     private final TFileType fileType;
     private final Map<String, String> properties;
+    private final String bloomColumn;
+    private final String bloomLiteral;
 
     public ParquetMetadataTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> normalizedParams = params.entrySet().stream().collect(Collectors.toMap(
@@ -155,6 +170,25 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         mode = rawMode.toLowerCase();
         if (!SUPPORTED_MODES.contains(mode)) {
             throw new AnalysisException("Unsupported mode '" + rawMode + "' for parquet_meta");
+        }
+        String tmpBloomColumn = null;
+        String tmpBloomLiteral = null;
+        if (MODE_BLOOM_PROBE.equals(mode)) {
+            tmpBloomColumn = normalizedParams.get(COLUMN);
+            if (Strings.isNullOrEmpty(tmpBloomColumn)) {
+                tmpBloomColumn = normalizedParams.get(COLUMN_NAME);
+            }
+            tmpBloomLiteral = normalizedParams.get(VALUE);
+            if (Strings.isNullOrEmpty(tmpBloomColumn) || Strings.isNullOrEmpty(tmpBloomLiteral)) {
+                throw new AnalysisException(
+                        "Missing 'column' or 'value' for mode parquet_bloom_probe");
+            }
+            tmpBloomColumn = tmpBloomColumn.trim();
+            tmpBloomLiteral = tmpBloomLiteral.trim();
+            if (tmpBloomColumn.isEmpty() || tmpBloomLiteral.isEmpty()) {
+                throw new AnalysisException(
+                        "Missing 'column' or 'value' for mode parquet_bloom_probe");
+            }
         }
 
         String firstPath = parsedPaths.get(0);
@@ -203,6 +237,8 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         normalizedPaths = expandGlobPaths(normalizedPaths, storageProperties, storageParams, this.fileType);
 
         this.paths = ImmutableList.copyOf(normalizedPaths);
+        this.bloomColumn = tmpBloomColumn;
+        this.bloomLiteral = tmpBloomLiteral;
     }
 
     /**
@@ -399,6 +435,10 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         parquetParams.setMode(mode);
         parquetParams.setFileType(fileType);
         parquetParams.setProperties(properties);
+        if (MODE_BLOOM_PROBE.equals(mode)) {
+            parquetParams.setBloomColumn(bloomColumn);
+            parquetParams.setBloomLiteral(bloomLiteral);
+        }
 
         TMetaScanRange scanRange = new TMetaScanRange();
         scanRange.setMetadataType(TMetadataType.PARQUET);
@@ -425,6 +465,9 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         }
         if (MODE_KV_METADATA.equals(mode)) {
             return PARQUET_KV_METADATA_COLUMNS;
+        }
+        if (MODE_BLOOM_PROBE.equals(mode)) {
+            return PARQUET_BLOOM_PROBE_COLUMNS;
         }
         return PARQUET_METADATA_COLUMNS;
     }

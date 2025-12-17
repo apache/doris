@@ -32,6 +32,7 @@ inline constexpr const char* MODE_SCHEMA = "parquet_schema";
 inline constexpr const char* MODE_METADATA = "parquet_metadata";
 inline constexpr const char* MODE_FILE_METADATA = "parquet_file_metadata";
 inline constexpr const char* MODE_KEY_VALUE_METADATA = "parquet_kv_metadata";
+inline constexpr const char* MODE_BLOOM_PROBE = "parquet_bloom_probe";
 
 enum SchemaColumnIndex : size_t {
     SCHEMA_FILE_NAME = 0,
@@ -86,6 +87,13 @@ enum FileMetadataColumnIndex : size_t {
 
 enum KeyValueColumnIndex : size_t { KV_FILE_NAME = 0, KV_KEY, KV_VALUE, KV_COLUMN_COUNT };
 
+enum BloomProbeColumnIndex : size_t {
+    BLOOM_FILE_NAME = 0,
+    BLOOM_ROW_GROUP_ID,
+    BLOOM_EXCLUDES,
+    BLOOM_COLUMN_COUNT
+};
+
 inline constexpr std::array<const char*, SCHEMA_COLUMN_COUNT> kSchemaColumnNames = {
         "file_name",        "column_name",      "column_path", "physical_type", "logical_type",
         "repetition_level", "definition_level", "type_length", "precision",     "scale",
@@ -125,6 +133,9 @@ inline constexpr std::array<const char*, FILE_META_COLUMN_COUNT> kFileMetadataCo
 
 inline constexpr std::array<const char*, KV_COLUMN_COUNT> kKeyValueColumnNames = {"file_name",
                                                                                   "key", "value"};
+
+inline constexpr std::array<const char*, BLOOM_COLUMN_COUNT> kBloomProbeColumnNames = {
+        "file_name", "row_group_id", "bloom_filter_excludes"};
 
 std::string join_path(const std::vector<std::string>& items);
 

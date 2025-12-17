@@ -62,7 +62,7 @@ private:
     Status _build_rows(std::vector<MutableColumnPtr>& columns);
     Status _append_file_rows(const std::string& path, std::vector<MutableColumnPtr>& columns);
 
-    enum class Mode { SCHEMA, METADATA, FILE_METADATA, KEY_VALUE_METADATA };
+    enum class Mode { SCHEMA, METADATA, FILE_METADATA, KEY_VALUE_METADATA, BLOOM_PROBE };
 
     RuntimeState* _state = nullptr;
     std::vector<SlotDescriptor*> _slots;
@@ -73,6 +73,8 @@ private:
     std::map<std::string, std::string> _properties;
     std::string _mode;
     Mode _mode_type = Mode::METADATA;
+    std::string _bloom_column;
+    std::string _bloom_literal;
     bool _eof = false;
     std::unique_ptr<ModeHandler> _mode_handler;
 };

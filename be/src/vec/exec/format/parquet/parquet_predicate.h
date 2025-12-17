@@ -177,6 +177,8 @@ public:
         // TINYINT/SMALLINT also need conversion via LittleIntPhysicalConverter.
         switch (type) {
         case TYPE_BOOLEAN:
+        case TYPE_TINYINT:
+        case TYPE_SMALLINT:
         case TYPE_INT:
         case TYPE_BIGINT:
         case TYPE_FLOAT:
@@ -184,6 +186,7 @@ public:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING:
+        case TYPE_VARBINARY:
             return true;
         default:
             return false;

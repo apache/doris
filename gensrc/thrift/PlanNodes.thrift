@@ -636,6 +636,8 @@ struct TParquetMetadataParams {
   2: optional string mode
   3: optional Types.TFileType file_type
   4: optional map<string, string> properties
+  5: optional string bloom_column
+  6: optional string bloom_literal
 }
 
 struct TMetaScanRange {

@@ -91,6 +91,11 @@ public abstract class TableValuedFunctionIf {
                 copy.put("mode", "parquet_kv_metadata");
                 return new ParquetMetadataTableValuedFunction(copy);
             }
+            case ParquetMetadataTableValuedFunction.NAME_BLOOM_PROBE: {
+                Map<String, String> copy = new HashMap<>(params);
+                copy.put("mode", "parquet_bloom_probe");
+                return new ParquetMetadataTableValuedFunction(copy);
+            }
             case GroupCommitTableValuedFunction.NAME:
                 return new GroupCommitTableValuedFunction(params);
             case QueryTableValueFunction.NAME:
