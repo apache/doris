@@ -84,6 +84,10 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     }
 
     private void syncStorageVault(Cloud.InstanceInfoPB instance) {
+        if (instance.getStorageVaultNamesCount() == 0) {
+            return;
+        }
+
         Map<String, String> vaultMap = new HashMap<>();
         int cnt = instance.getResourceIdsCount();
         for (int i = 0; i < cnt; i++) {
