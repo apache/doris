@@ -52,6 +52,11 @@
 
 class SipHash;
 
+namespace doris::pipeline {
+template <int JoinOpType>
+struct ProcessHashTableProbe;
+}
+
 namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
@@ -71,6 +76,9 @@ private:
     using Self = ColumnVector;
     friend class COWHelper<IColumn, Self>;
 
+    template <int JoinOpType>
+    friend struct doris::pipeline::ProcessHashTableProbe;
+
     struct less;
     struct greater;
 
@@ -78,6 +86,7 @@ public:
     using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
     using Container = PaddedPODArray<value_type>;
 
+private:
     ColumnVector() = default;
     explicit ColumnVector(const size_t n) : data(n) {}
     explicit ColumnVector(const size_t n, const value_type x) : data(n, x) {}
@@ -86,6 +95,7 @@ public:
     /// Sugar constructor.
     ColumnVector(std::initializer_list<value_type> il) : data {il} {}
 
+public:
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {

@@ -291,6 +291,8 @@ private:
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
+private:
+    friend class COWHelper<IColumn, ColumnVariant>;
     // always create root: data type nothing
     explicit ColumnVariant(int32_t max_subcolumns_count);
 
@@ -302,6 +304,7 @@ public:
 
     explicit ColumnVariant(int32_t max_subcolumns_count, Subcolumns&& subcolumns_);
 
+public:
     ~ColumnVariant() override = default;
 
     /// Checks that all subcolumns have consistent sizes.

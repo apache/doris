@@ -370,6 +370,7 @@ VariantColumnWriterImpl::VariantColumnWriterImpl(const ColumnWriterOptions& opts
                                                  const TabletColumn* column) {
     _opts = opts;
     _tablet_column = column;
+    _null_column = vectorized::ColumnUInt8::create();
 }
 
 Status VariantColumnWriterImpl::init() {
@@ -379,8 +380,7 @@ Status VariantColumnWriterImpl::init() {
     if (_opts.rowset_ctx->write_type == DataWriteType::TYPE_DIRECT) {
         count = 0;
     }
-    auto col = vectorized::ColumnVariant::create(count);
-    _column = std::move(col);
+    _column = vectorized::ColumnVariant::create(count);
     return Status::OK();
 }
 
@@ -409,8 +409,8 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* 
     if (_tablet_column->is_nullable()) {
         // use outer null column as final null column
         root_column = vectorized::ColumnNullable::create(
-                root_column->get_ptr(), vectorized::ColumnUInt8::create(_null_column));
-        nullmap = _null_column.get_data().data();
+                root_column->get_ptr(), vectorized::ColumnUInt8::create(*_null_column));
+        nullmap = _null_column->get_data().data();
     } else {
         // Otherwise setting to all not null.
         root_column = vectorized::ColumnNullable::create(
@@ -544,7 +544,7 @@ Status VariantColumnWriterImpl::_process_sparse_column(
 }
 
 Status VariantColumnWriterImpl::finalize() {
-    auto* ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
+    auto* ptr = _column.get();
     ptr->set_max_subcolumns_count(_tablet_column->variant_max_subcolumns_count());
     ptr->finalize(vectorized::ColumnVariant::FinalizeMode::WRITE_MODE);
     // convert each subcolumns to storage format and add data to sub columns writers buffer
@@ -604,8 +604,7 @@ Status VariantColumnWriterImpl::finalize() {
 }
 
 bool VariantColumnWriterImpl::is_finalized() const {
-    const auto* ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
-    return ptr->is_finalized() && _is_finalized;
+    return _column->is_finalized() && _is_finalized;
 }
 
 Status VariantColumnWriterImpl::append_data(const uint8_t** ptr, size_t num_rows) {
@@ -613,9 +612,8 @@ Status VariantColumnWriterImpl::append_data(const uint8_t** ptr, size_t num_rows
     const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
     const auto& src = *reinterpret_cast<const vectorized::ColumnVariant*>(column->column_data);
     RETURN_IF_ERROR(src.sanitize());
-    auto* dst_ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
     // TODO: if direct write we could avoid copy
-    dst_ptr->insert_range_from(src, column->row_pos, num_rows);
+    _column->insert_range_from(src, column->row_pos, num_rows);
     return Status::OK();
 }
 
@@ -698,7 +696,7 @@ Status VariantColumnWriterImpl::write_bloom_filter_index() {
 Status VariantColumnWriterImpl::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                                 size_t num_rows) {
     if (null_map != nullptr) {
-        _null_column.insert_many_raw_data((const char*)null_map, num_rows);
+        _null_column->insert_many_raw_data((const char*)null_map, num_rows);
     }
     RETURN_IF_ERROR(append_data(ptr, num_rows));
     return Status::OK();
@@ -721,9 +719,8 @@ Status VariantSubcolumnWriter::init() {
 Status VariantSubcolumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
     const auto& src = *reinterpret_cast<const vectorized::ColumnVariant*>(column->column_data);
-    auto* dst_ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
     // TODO: if direct write we could avoid copy
-    dst_ptr->insert_range_from(src, column->row_pos, num_rows);
+    _column->insert_range_from(src, column->row_pos, num_rows);
     return Status::OK();
 }
 
@@ -732,12 +729,11 @@ uint64_t VariantSubcolumnWriter::estimate_buffer_size() {
 }
 
 bool VariantSubcolumnWriter::is_finalized() const {
-    const auto* ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
-    return ptr->is_finalized() && _is_finalized;
+    return _column->is_finalized() && _is_finalized;
 }
 
 Status VariantSubcolumnWriter::finalize() {
-    auto* ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
+    auto* ptr = _column.get();
     ptr->finalize();
 
     DCHECK(ptr->is_finalized());
