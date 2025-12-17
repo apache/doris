@@ -720,6 +720,9 @@ public class TypeCoercionUtils {
     }
 
     private static Expression processMapConcat(MapConcat mapConcat) {
+        if (mapConcat.arity() == 0) {
+            return new MapLiteral();
+        }
         List<DataType> keyTypes = new ArrayList<>();
         List<DataType> valueTypes = new ArrayList<>();
         List<Expression> children = mapConcat.children();
