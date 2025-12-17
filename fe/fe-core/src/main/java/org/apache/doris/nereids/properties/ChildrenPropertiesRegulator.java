@@ -61,6 +61,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -675,7 +676,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                     PhysicalProperties originChildrenProperty = originChildrenProperties.get(i);
                     DistributionSpec childDistribution = originChildrenProperty.getDistributionSpec();
                     if (childDistribution instanceof DistributionSpecHash
-                            && ((DistributionSpecHash) childDistribution).getShuffleType() == ShuffleType.NATURAL) {
+                            && ((DistributionSpecHash) childDistribution).getShuffleType() == ShuffleType.NATURAL
+                            && equalsAllColumns(
+                                    (DistributionSpecHash) childDistribution,
+                                    (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
                         int bucketNum = getBucketNum(children.get(i).getPlan());
                         Statistics stats = setOperation.child(i).getStats();
                         double rowCount = stats.getRowCount();
@@ -910,5 +914,25 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         } else {
             return candidate.getTable().getDefaultDistributionInfo().getBucketNum();
         }
+    }
+
+    private boolean equalsAllColumns(DistributionSpecHash base, DistributionSpecHash required) {
+        List<ExprId> check = base.getOrderedShuffledColumns();
+        if (check.size() != required.getOrderedShuffledColumns().size()) {
+            return false;
+        }
+        List<ExprId> requiredOrderedShuffledColumns = required.getOrderedShuffledColumns();
+        Map<ExprId, Integer> exprIdToEquivalenceSet = required.getExprIdToEquivalenceSet();
+        for (int i = 0; i < check.size(); i++) {
+            ExprId checkExprId = check.get(i);
+            Integer id = exprIdToEquivalenceSet.get(checkExprId);
+            if (id == null) {
+                id = checkExprId.asInt();
+            }
+            if (requiredOrderedShuffledColumns.get(i).asInt() != id) {
+                return false;
+            }
+        }
+        return true;
     }
 }
