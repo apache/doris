@@ -19,6 +19,7 @@ package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
@@ -67,6 +68,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private StreamingJobProperties jobProperties;
     private long scannedRows = 0L;
     private long scannedBytes = 0L;
+    private long timeoutMs;
 
     public StreamingMultiTblTask(Long jobId,
             long taskId,
@@ -84,6 +86,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         this.targetProperties = targetProperties;
         this.jobProperties = jobProperties;
         this.targetDb = targetDb;
+        this.timeoutMs = Config.streaming_task_timeout_multiplier * jobProperties.getMaxIntervalSecond() * 1000L;
     }
 
     @Override
@@ -254,8 +257,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     public boolean isTimeout() {
-        // todo: need to config
-        return (System.currentTimeMillis() - createTimeMs) > 300 * 1000;
+        return (System.currentTimeMillis() - createTimeMs) > timeoutMs;
     }
 
     @Override

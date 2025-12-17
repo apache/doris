@@ -1254,6 +1254,12 @@ public class Config extends ConfigBase {
     public static int routine_load_task_min_timeout_sec = 60;
 
     /**
+     * streaming task load timeout is equal to maxIntervalS * streaming_task_timeout_multiplier.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_task_timeout_multiplier = 10;
+
+    /**
      * the max timeout of get kafka meta.
      */
     @ConfField(mutable = true, masterOnly = true)

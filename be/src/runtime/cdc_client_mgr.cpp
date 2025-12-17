@@ -45,8 +45,8 @@ namespace {
 // Handle SIGCHLD signal to prevent zombie processes
 void handle_sigchld(int sig_no) {
     int status = 0;
-    pid_t pid = waitpid(0, &status, WNOHANG);
-    LOG(INFO) << "handle cdc process exit, result: " << pid << ", status: " << status;
+    pid_t pid;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {}
 }
 
 // Check CDC client health
@@ -287,7 +287,7 @@ Status CdcClientMgr::send_request_to_cdc_client(const std::string& api,
 
     auto cdc_request = [&remote_url_prefix, response, &params_body](HttpClient* client) {
         RETURN_IF_ERROR(client->init(remote_url_prefix));
-        client->set_timeout_ms(60 * 1000);
+        client->set_timeout_ms(doris::config::request_cdc_client_timeout_ms);
         if (!params_body.empty()) {
             client->set_payload(params_body);
         }
