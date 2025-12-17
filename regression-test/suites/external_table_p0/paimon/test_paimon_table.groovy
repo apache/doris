@@ -17,7 +17,7 @@
 
 suite("test_paimon_table", "p0,external,doris,external_docker,external_docker_doris,new_catalog_property") {
 
-    String hms_ctl_name = "paimon_hms_catalog";
+    String hms_ctl_name = "paimon_hms_catalog_test01";
 
     // This is only for testing creating catalog
     sql """DROP CATALOG IF EXISTS ${hms_ctl_name}"""
@@ -35,7 +35,7 @@ suite("test_paimon_table", "p0,external,doris,external_docker,external_docker_do
             "hadoop.username"="hadoop"
         );
     """
-    sql """switch${hms_ctl_name}"""
+    sql """switch ${hms_ctl_name}"""
     String db_name = "test_db"
     sql """create database if not exists ${db_name}"""
     sql """use ${db_name}"""
