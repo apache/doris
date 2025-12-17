@@ -21,7 +21,6 @@ import org.apache.doris.common.jni.utils.ExpiringMap;
 import org.apache.doris.common.jni.utils.Log4jOutputStream;
 import org.apache.doris.common.jni.utils.UdfClassCache;
 
-import com.google.common.collect.Streams;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
@@ -35,6 +34,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
@@ -44,40 +44,85 @@ import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 
 /**
- * BE will load scanners by JNI call, and then the JniConnector on BE will get scanner class by getLoadedClass.
+ * ScannerLoader loads all JNI scanner classes from:
+ * $DORIS_HOME/lib/java_extensions/*
+ * <p>
+ * Class loading strategy:
+ * - Scanner jars are loaded first
+ * - Hadoop dependency jars are loaded as fallback
+ * - System ClassLoader is used last
+ * <p>
+ * No extra ClassLoader is introduced; a single child-first URLClassLoader
+ * is used per scanner.
  */
 public class ScannerLoader {
+
+
     public static final Logger LOG = Logger.getLogger(ScannerLoader.class);
+
+
     private static final Map<String, Class<?>> loadedClasses = new HashMap<>();
     private static final ExpiringMap<String, UdfClassCache> udfLoadedClasses = new ExpiringMap<>();
     private static final String CLASS_SUFFIX = ".class";
     private static final String LOAD_PACKAGE = "org.apache.doris";
 
+
     /**
-     * Load all classes from $DORIS_HOME/lib/java_extensions/*
+     * Load all scanner jars from $DORIS_HOME/lib/java_extensions/*
      */
     public void loadAllScannerJars() {
         redirectStdStreamsToLog4j();
         String basePath = System.getenv("DORIS_HOME");
-        File library = new File(basePath, "/lib/java_extensions/");
-        // TODO: add thread pool to load each scanner
-        listFiles(library).stream().filter(File::isDirectory).forEach(sd -> {
-            JniScannerClassLoader classLoader = new JniScannerClassLoader(sd.getName(), buildClassPath(sd),
-                        this.getClass().getClassLoader());
-            try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-                loadJarClassFromDir(sd, classLoader);
-            }
-        });
+        File scannerRoot = new File(basePath, "/lib/java_extensions/");
+        File hadoopLib = new File(basePath, "/lib/hadoop_deps/lib/");
+
+
+        listFiles(scannerRoot).stream()
+                .filter(File::isDirectory)
+                .forEach(scannerDir -> {
+                    // Build classpath: scanner jars first, hadoop deps second
+                    List<URL> classPath = buildScannerAndHadoopClassPath(scannerDir, hadoopLib);
+
+
+                    JniScannerClassLoader classLoader = new JniScannerClassLoader(
+                            scannerDir.getName(),
+                            classPath.toArray(new URL[0]),
+                            this.getClass().getClassLoader());
+
+
+                    try (ThreadClassLoaderContext ignored =
+                                 new ThreadClassLoaderContext(classLoader)) {
+                        loadJarClassFromDir(scannerDir, classLoader);
+                    }
+                });
     }
+
+    /**
+     * Build a combined classpath where:
+     * 1. Scanner jars come first (higher priority)
+     * 2. Hadoop dependency jars come second (fallback)
+     */
+    private static List<URL> buildScannerAndHadoopClassPath(File scannerDir, File hadoopLib) {
+        List<URL> urls = new ArrayList<>();
+        // Scanner jars (highest priority)
+        urls.addAll(listFiles(scannerDir).stream()
+                .filter(f -> f.getName().endsWith(".jar"))
+                .map(ScannerLoader::classFileUrl)
+                .collect(Collectors.toList()));
+        // Hadoop dependency jars (fallback)
+        urls.addAll(listFiles(hadoopLib).stream()
+                .filter(f -> f.getName().endsWith(".jar"))
+                .map(ScannerLoader::classFileUrl)
+                .collect(Collectors.toList()));
+        return urls;
+    }
+
 
     private void redirectStdStreamsToLog4j() {
         Logger outLogger = Logger.getLogger("stdout");
-        PrintStream logPrintStream = new PrintStream(new Log4jOutputStream(outLogger, Level.INFO));
-        System.setOut(logPrintStream);
-
+        System.setOut(new PrintStream(new Log4jOutputStream(outLogger, Level.INFO)));
         Logger errLogger = Logger.getLogger("stderr");
-        PrintStream errorPrintStream = new PrintStream(new Log4jOutputStream(errLogger, Level.ERROR));
-        System.setErr(errorPrintStream);
+        System.setErr(new PrintStream(new Log4jOutputStream(errLogger, Level.ERROR)));
     }
 
     public static UdfClassCache getUdfClassLoader(String functionSignature) {
@@ -85,7 +130,7 @@ public class ScannerLoader {
     }
 
     public static synchronized void cacheClassLoader(String functionSignature, UdfClassCache classCache,
-            long expirationTime) {
+                                                     long expirationTime) {
         LOG.info("Cache UDF for: " + functionSignature);
         udfLoadedClasses.put(functionSignature, classCache, expirationTime * 60 * 1000L);
     }
@@ -97,23 +142,69 @@ public class ScannerLoader {
 
     /**
      * Get loaded class for JNI scanners
+     *
      * @param className JNI scanner class name
      * @return scanner class object
      * @throws ClassNotFoundException JNI scanner class not found
      */
     public Class<?> getLoadedClass(String className) throws ClassNotFoundException {
-        String loadedClassName = getPackagePathName(className);
-        if (loadedClasses.containsKey(loadedClassName)) {
-            return loadedClasses.get(loadedClassName);
-        } else {
-            throw new ClassNotFoundException("JNI scanner has not been loaded or no such class: " + className);
+        String fullName = className.replace("/", ".");
+        Class<?> clazz = loadedClasses.get(fullName);
+        if (clazz == null) {
+            throw new ClassNotFoundException("JNI scanner class not found: " + className);
         }
+        return clazz;
     }
 
-    private static List<URL> buildClassPath(File path) {
-        return listFiles(path).stream()
-                .map(ScannerLoader::classFileUrl)
-                .collect(Collectors.toList());
+    /**
+     * Load all eligible classes from scanner jars in the given directory.
+     */
+    public static void loadJarClassFromDir(File dir, ClassLoader classLoader) {
+        listFiles(dir).stream()
+                .filter(f -> f.getName().endsWith(".jar"))
+                .forEach(jarFile -> {
+                    try (JarFile jar = new JarFile(jarFile)) {
+                        Enumeration<JarEntry> entries = jar.entries();
+                        while (entries.hasMoreElements()) {
+                            JarEntry entry = entries.nextElement();
+                            String name = entry.getName();
+                            if (!name.endsWith(CLASS_SUFFIX)) {
+                                continue;
+                            }
+
+
+                            String className = name
+                                    .substring(0, name.length() - CLASS_SUFFIX.length())
+                                    .replace("/", ".");
+
+
+                            if (needToLoad(className)) {
+                                loadedClasses.putIfAbsent(
+                                        className,
+                                        classLoader.loadClass(className));
+                            }
+                        }
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
+    private static boolean needToLoad(String className) {
+        return className.contains(LOAD_PACKAGE) && !className.contains("$");
+    }
+
+    public static List<File> listFiles(File dir) {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir.toPath())) {
+            List<File> files = new ArrayList<>();
+            for (Path path : stream) {
+                files.add(path.toFile());
+            }
+            files.sort(Comparator.comparing(File::getName));
+            return files;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static URL classFileUrl(File file) {
@@ -122,54 +213,5 @@ public class ScannerLoader {
         } catch (MalformedURLException e) {
             throw new UncheckedIOException(e);
         }
-    }
-
-    public static List<File> listFiles(File library) {
-        try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(library.toPath())) {
-            return Streams.stream(directoryStream)
-                    .map(Path::toFile)
-                    .sorted()
-                    .collect(Collectors.toList());
-
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public static void loadJarClassFromDir(File dir, JniScannerClassLoader classLoader) {
-        listFiles(dir).forEach(file -> {
-            Enumeration<JarEntry> entryEnumeration;
-            List<String> loadClassNames = new ArrayList<>();
-            try {
-                try (JarFile jar = new JarFile(file)) {
-                    entryEnumeration = jar.entries();
-                    while (entryEnumeration.hasMoreElements()) {
-                        JarEntry entry = entryEnumeration.nextElement();
-                        String className = entry.getName();
-                        if (!className.endsWith(CLASS_SUFFIX)) {
-                            continue;
-                        }
-                        className = className.substring(0, className.length() - CLASS_SUFFIX.length());
-                        String packageClassName = getPackagePathName(className);
-                        if (needToLoad(packageClassName)) {
-                            loadClassNames.add(packageClassName);
-                        }
-                    }
-                }
-                for (String className : loadClassNames) {
-                    loadedClasses.putIfAbsent(className, classLoader.loadClass(className));
-                }
-            } catch (Exception e) {
-                throw new RuntimeException(e.getMessage(), e);
-            }
-        });
-    }
-
-    private static String getPackagePathName(String className) {
-        return className.replace("/", ".");
-    }
-
-    private static boolean needToLoad(String className) {
-        return className.contains(LOAD_PACKAGE) && !className.contains("$");
     }
 }
