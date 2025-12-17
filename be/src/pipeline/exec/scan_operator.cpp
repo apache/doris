@@ -1331,14 +1331,19 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
             continue;
         }
 
-        auto col_name = _slot_id_to_slot_desc[state->get_query_ctx()
-                                                      ->get_runtime_predicate(id)
-                                                      .get_texpr(node_id())
-                                                      .nodes[0]
-                                                      .slot_ref.slot_id]
-                                ->col_name();
+        int cid = -1;
+        if (state->get_query_ctx()->get_runtime_predicate(id).target_is_slot(node_id())) {
+            auto s = _slot_id_to_slot_desc[state->get_query_ctx()
+                                                   ->get_runtime_predicate(id)
+                                                   .get_texpr(node_id())
+                                                   .nodes[0]
+                                                   .slot_ref.slot_id];
+            DCHECK(s != nullptr);
+            auto col_name = s->col_name();
+            cid = get_column_id(col_name);
+        }
         RETURN_IF_ERROR(state->get_query_ctx()->get_runtime_predicate(id).init_target(
-                node_id(), _slot_id_to_slot_desc, get_column_id(col_name)));
+                node_id(), _slot_id_to_slot_desc, cid));
     }
 
     RETURN_IF_CANCELLED(state);
