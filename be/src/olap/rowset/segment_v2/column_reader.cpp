@@ -77,6 +77,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
 namespace doris::segment_v2 {
@@ -295,6 +296,61 @@ ColumnReader::~ColumnReader() = default;
 int64_t ColumnReader::get_metadata_size() const {
     return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
 }
+
+#ifdef BE_TEST
+/// This function is only used in UT to verify the correctness of data read from zone map
+/// See UT case 'SegCompactionMoWTest.SegCompactionInterleaveWithBig_ooooOOoOooooooooO'
+/// be/test/olap/segcompaction_mow_test.cpp
+void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColumnPtr& dst) const {
+    if (!_segment_zone_map) {
+        return;
+    }
+
+    const auto rows = dst->size();
+    if (rows == 0) {
+        return;
+    }
+
+    FieldType type = _type_info->type();
+
+    if (type != FieldType::OLAP_FIELD_TYPE_INT) {
+        return;
+    }
+
+    auto* non_nullable_column = dst->is_nullable()
+                                        ? assert_cast<vectorized::ColumnNullable*>(dst.get())
+                                                  ->get_nested_column_ptr()
+                                                  .get()
+                                        : dst.get();
+
+    /// `PredicateColumnType<TYPE_INT>` does not support `void get(size_t n, Field& res)`,
+    /// So here only check `CoumnVector<TYPE_INT>`
+    if (vectorized::check_and_get_column<vectorized::ColumnVector<TYPE_INT>>(non_nullable_column) ==
+        nullptr) {
+        return;
+    }
+
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+    THROW_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
+
+    if (min_value->is_null() || max_value->is_null()) {
+        return;
+    }
+
+    int32_t min_v = *reinterpret_cast<int32_t*>(min_value->cell_ptr());
+    int32_t max_v = *reinterpret_cast<int32_t*>(max_value->cell_ptr());
+
+    for (size_t i = 0; i != rows; ++i) {
+        vectorized::Field field;
+        dst->get(i, field);
+        DCHECK(!field.is_null());
+        const auto v = field.get<int32_t>();
+        DCHECK_GE(v, min_v);
+        DCHECK_LE(v, max_v);
+    }
+}
+#endif
 
 Status ColumnReader::init(const ColumnMetaPB* meta) {
     _type_info = get_type_info(meta);
@@ -1814,6 +1870,10 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
     }
     *n -= remaining;
     _opts.stats->bytes_read += (dst->byte_size() - curr_size) + BitmapSize(*n);
+
+#ifdef BE_TEST
+    _reader->check_data_by_zone_map_for_test(dst);
+#endif
     return Status::OK();
 }
 

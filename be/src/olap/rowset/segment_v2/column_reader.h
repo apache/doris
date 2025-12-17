@@ -231,6 +231,10 @@ public:
 
     int64_t get_metadata_size() const override;
 
+#ifdef BE_TEST
+    void check_data_by_zone_map_for_test(const vectorized::MutableColumnPtr& dst) const;
+#endif
+
 private:
     friend class VariantColumnReader;
 

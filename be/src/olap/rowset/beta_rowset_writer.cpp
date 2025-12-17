@@ -536,6 +536,7 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
                 "failed to rename {} to {}. ret:{}, errno:{}", src_seg_path, dst_seg_path, ret,
                 errno);
     }
+    RETURN_IF_ERROR(_remove_segment_footer_cache(_num_segcompacted, dst_seg_path));
 
     // rename inverted index files
     RETURN_IF_ERROR(_rename_compacted_indices(begin, end, 0));
@@ -579,10 +580,40 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint32_t seg_id) {
                 "failed to rename {} to {}. ret:{}, errno:{}", src_seg_path, dst_seg_path, ret,
                 errno);
     }
+
+    RETURN_IF_ERROR(_remove_segment_footer_cache(_num_segcompacted, dst_seg_path));
     // rename remaining inverted index files
     RETURN_IF_ERROR(_rename_compacted_indices(-1, -1, seg_id));
 
     ++_num_segcompacted;
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::_remove_segment_footer_cache(const uint32_t seg_id,
+                                                      const std::string& segment_path) {
+    auto* footer_page_cache = ExecEnv::GetInstance()->get_storage_page_cache();
+    if (!footer_page_cache) {
+        return Status::OK();
+    }
+
+    auto fs = _rowset_meta->fs();
+    bool exists = false;
+    RETURN_IF_ERROR(fs->exists(segment_path, &exists));
+    if (exists) {
+        io::FileReaderSPtr file_reader;
+        io::FileReaderOptions reader_options {
+                .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                        : io::FileCachePolicy::NO_CACHE,
+                .is_doris_table = true,
+                .cache_base_path = "",
+                .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
+                .tablet_id = _rowset_meta->tablet_id(),
+        };
+        RETURN_IF_ERROR(fs->open_file(segment_path, &file_reader, &reader_options));
+        DCHECK(file_reader != nullptr);
+        auto cache_key = segment_v2::Segment::get_segment_footer_cache_key(file_reader);
+        footer_page_cache->erase(cache_key, segment_v2::PageTypePB::INDEX_PAGE);
+    }
     return Status::OK();
 }
 
