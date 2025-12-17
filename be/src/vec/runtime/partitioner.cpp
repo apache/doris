@@ -38,8 +38,7 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
         int result_size = cast_set<int>(_partition_expr_ctxs.size());
         std::vector<int> result(result_size);
 
-        _hash_vals.resize(rows);
-        std::fill(_hash_vals.begin(), _hash_vals.end(), 0);
+        _initialize_hash_vals(rows);
         auto* __restrict hashes = _hash_vals.data();
         RETURN_IF_ERROR(_get_partition_column_result(block, result));
         for (int j = 0; j < result_size; ++j) {

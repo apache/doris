@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -104,6 +106,10 @@ protected:
     }
 
     virtual void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const;
+    virtual void _initialize_hash_vals(size_t rows) const {
+        _hash_vals.resize(rows);
+        std::ranges::fill(_hash_vals, 0);
+    }
 
     VExprContextSPtrs _partition_expr_ctxs;
     mutable std::vector<uint32_t> _hash_vals;
@@ -123,15 +129,42 @@ struct SpillPartitionChannelIds {
     }
 };
 
-class Crc32CHashPartitioner : public Crc32HashPartitioner<ShuffleChannelIds> {
+static inline uint32_t crc32c_shuffle_mix(uint32_t h) {
+    // Step 1: fold high entropy into low bits
+    h ^= h >> 16;
+    // Step 2: odd multiplicative scramble (cheap avalanche)
+    h *= 0xA5B35705U;
+    // Step 3: final fold to break remaining linearity
+    h ^= h >> 13;
+    return h;
+}
+
+// use high 16 bits as channel id to avoid conflict with crc32c hash table
+// shuffle hash function same with crc32c hash table(eg join hash table) will lead bad performance
+// hash table offten use low 16 bits as bucket index, so we shift 16 bits to high bits to avoid conflict
+struct ShiftChannelIds {
+    template <typename HashValueType>
+    HashValueType operator()(HashValueType l, size_t r) {
+        return crc32c_shuffle_mix(l) % r;
+    }
+};
+
+class Crc32CHashPartitioner : public Crc32HashPartitioner<ShiftChannelIds> {
 public:
     Crc32CHashPartitioner(int partition_count)
-            : Crc32HashPartitioner<ShuffleChannelIds>(partition_count) {}
+            : Crc32HashPartitioner<ShiftChannelIds>(partition_count) {}
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
 private:
     void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const override;
+
+    void _initialize_hash_vals(size_t rows) const override {
+        _hash_vals.resize(rows);
+        // use golden ratio to initialize hash values to avoid collision with hash table's hash function
+        constexpr uint32_t CRC32C_SHUFFLE_SEED = 0x9E3779B9U;
+        std::ranges::fill(_hash_vals, CRC32C_SHUFFLE_SEED);
+    }
 };
 
 #include "common/compile_check_end.h"
