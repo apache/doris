@@ -15,83 +15,98 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_table", "p0,external,doris,external_docker,external_docker_doris,new_catalog_property") {
+suite("test_create_paimon_table", "p0,external,doris,external_docker,external_docker_doris") {
+    String catalog_name = "paimon_hms_catalog_test01"
 
-    String hms_ctl_name = "paimon_hms_catalog_test01";
+    String enabled = context.config.otherConfigs.get("enablePaimonTest")
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        for (String hivePrefix : ["hive2"]) {
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+            String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+            String default_fs = "hdfs://${externalEnvIp}:${hdfs_port}"
+            String warehouse = "${default_fs}/warehouse"
 
-    // This is only for testing creating catalog
-    sql """DROP CATALOG IF EXISTS ${hms_ctl_name}"""
-    sql """
-        CREATE CATALOG ${hms_ctl_name} PROPERTIES (
-            "type" = "paimon",
-            "paimon.catalog.type"="hms",
-            "warehouse" = "hdfs://HDFS8000871/user/zhangdong/paimon3",
-            "hive.metastore.uris" = "thrift://172.21.0.44:7004",
-            "dfs.nameservices"="HDFS8000871",
-            "dfs.ha.namenodes.HDFS8000871"="nn1,nn2",
-            "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
-            "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
-            "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
-            "hadoop.username"="hadoop"
-        );
-    """
-    sql """switch ${hms_ctl_name}"""
-    String db_name = "test_db"
-    sql """create database if not exists ${db_name}"""
-    sql """use ${db_name}"""
+            // 1. test create catalog
+            sql """drop catalog if exists ${catalog_name};"""
+            sql """
+            create catalog ${catalog_name} properties (
+                'type'='paimon',
+                'paimon.catalog.type'='hms',
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
+                'warehouse' = '${warehouse}'
+            );
+            """
 
-    sql """drop table if exists ${db_name}.test01"""
-    sql """
-        CREATE TABLE ${db_name}.test01 (
-        id int
-    ) engine=paimon;
-    """
+            // 2. test create database
+            sql """switch ${catalog_name}"""
+            String db_name = "test_db"
+            sql """create database if not exists ${db_name}"""
 
-    sql """drop table if exists ${db_name}.test02"""
-    sql """
-        CREATE TABLE ${db_name}.test02 (
-        id int
-    ) engine=paimon
-    properties("primary-key"=id);
-    """
+            // 3. test create table
+            sql """use ${db_name}"""
+            sql """drop table if exists ${db_name}.test01"""
+            sql """
+                CREATE TABLE ${db_name}.test01 (
+                    id int
+                ) engine=paimon;
+            """
 
-    sql """drop table if exists ${db_name}.test03"""
-    sql """
-        CREATE TABLE ${db_name}.test03 (
-        c0 int,
-        c1 bigint,
-        c2 float,
-        c3 double,
-        c4 string,
-        c5 date,
-        c6 decimal(10,5),
-        c7 datetime
-    ) engine=paimon
-    properties("primary-key"=c0);
-    """
+            sql """drop table if exists ${db_name}.test02"""
+            sql """
+                CREATE TABLE ${db_name}.test02 (
+                    id int
+                ) engine=paimon
+                properties("primary-key"=id);
+            """
 
-    sql """drop table if exists ${db_name}.test04"""
-    sql """
-        CREATE TABLE ${db_name}.test04 (
-        c0 int,
-        c1 bigint,
-        c2 float,
-        c3 double,
-        c4 string,
-        c5 date,
-        c6 decimal(10,5),
-        c7 datetime
-    ) engine=paimon
-    partition by (c1) ()
-    properties("primary-key"=c0);
-    """
+            sql """drop table if exists ${db_name}.test03"""
+            sql """
+                CREATE TABLE ${db_name}.test03 (
+                    c0 int,
+                    c1 bigint,
+                    c2 float,
+                    c3 double,
+                    c4 string,
+                    c5 date,
+                    c6 decimal(10,5),
+                    c7 datetime
+                ) engine=paimon
+                properties("primary-key"=c0);
+            """
 
-    sql """ drop table if exists ${db_name}.test01"""
-    sql """ drop table if exists ${db_name}.test02"""
-    sql """ drop table if exists ${db_name}.test03"""
-    sql """ drop table if exists ${db_name}.test04"""
-    sql """ drop database if exists ${db_name}"""
-    sql """DROP CATALOG IF EXISTS ${hms_ctl_name}"""
+            sql """drop table if exists ${db_name}.test04"""
+            sql """
+                CREATE TABLE ${db_name}.test04 (
+                    c0 int,
+                    c1 bigint,
+                    c2 float,
+                    c3 double,
+                    c4 string,
+                    c5 date,
+                    c6 decimal(10,5),
+                    c7 datetime
+                ) engine=paimon
+                partition by (c1) ()
+                properties("primary-key"=c0);
+            """
+
+            sql """drop database if exists test_iceberg_meta_cache_db"""
+            sql """create database test_iceberg_meta_cache_db"""
+            sql """
+                CREATE TABLE test_iceberg_meta_cache_db.sales (
+                  id INT,
+                  amount DOUBLE
+                );
+            """
+
+            sql """ drop table if exists ${db_name}.test01"""
+            sql """ drop table if exists ${db_name}.test02"""
+            sql """ drop table if exists ${db_name}.test03"""
+            sql """ drop table if exists ${db_name}.test04"""
+            sql """ drop database if exists ${db_name}"""
+            sql """DROP CATALOG IF EXISTS ${catalog_name}"""
+        }
+    }
 }
-
 
