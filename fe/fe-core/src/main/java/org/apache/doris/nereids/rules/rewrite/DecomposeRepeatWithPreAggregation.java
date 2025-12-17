@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -160,7 +159,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         Map<AggregateFunction, Slot> aggFuncSlotMap = new HashMap<>();
         for (NamedExpression expr : outputExpressions) {
             if (expr instanceof Alias) {
-                Expression aggFunc = SessionVarGuardExpr.getSessionVarGuardChild(expr.child(0));
+                Expression aggFunc = expr.child(0);
                 if (!(aggFunc instanceof AggregateFunction)) {
                     continue;
                 }
