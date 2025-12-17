@@ -1765,6 +1765,10 @@ void FileScanner::update_realtime_counters() {
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(
             _file_reader_stats->read_bytes);
 
+    int64_t delta_bytes_read_from_local =
+            _file_cache_statistics->bytes_read_from_local - _last_bytes_read_from_local;
+    int64_t delta_bytes_read_from_remote =
+            _file_cache_statistics->bytes_read_from_remote - _last_bytes_read_from_remote;
     if (_file_cache_statistics->bytes_read_from_local == 0 &&
         _file_cache_statistics->bytes_read_from_remote == 0) {
         _state->get_query_ctx()
@@ -1775,16 +1779,15 @@ void FileScanner::update_realtime_counters() {
                 _file_reader_stats->read_bytes);
     } else {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                _file_cache_statistics->bytes_read_from_local);
+                delta_bytes_read_from_local);
         _state->get_query_ctx()
                 ->resource_ctx()
                 ->io_context()
-                ->update_scan_bytes_from_remote_storage(
-                        _file_cache_statistics->bytes_read_from_remote);
+                ->update_scan_bytes_from_remote_storage(delta_bytes_read_from_remote);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                _file_cache_statistics->bytes_read_from_local);
+                delta_bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                _file_cache_statistics->bytes_read_from_remote);
+                delta_bytes_read_from_remote);
     }
 
     COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
@@ -1794,8 +1797,9 @@ void FileScanner::update_realtime_counters() {
 
     _file_reader_stats->read_bytes = 0;
     _file_reader_stats->read_rows = 0;
-    _file_cache_statistics->bytes_read_from_local = 0;
-    _file_cache_statistics->bytes_read_from_remote = 0;
+
+    _last_bytes_read_from_local = _file_cache_statistics->bytes_read_from_local;
+    _last_bytes_read_from_remote = _file_cache_statistics->bytes_read_from_remote;
 }
 
 void FileScanner::_collect_profile_before_close() {

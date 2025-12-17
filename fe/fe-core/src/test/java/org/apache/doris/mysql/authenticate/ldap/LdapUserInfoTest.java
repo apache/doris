@@ -15,18 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
+package org.apache.doris.mysql.authenticate.ldap;
 
-#include "vec/aggregate_functions/aggregate_function_min_max_by.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+import org.junit.Assert;
+import org.junit.Test;
 
-namespace doris::vectorized {
-#include "common/compile_check_begin.h"
+public class LdapUserInfoTest {
 
-void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both(
-            "min_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                           AggregateFunctionMinByData>);
+    @Test
+    public void testNonExistUserRoles() {
+        LdapUserInfo u1 = new LdapUserInfo("u1");
+        Assert.assertFalse(u1.getRoles() == null);
+    }
 }
-
-} // namespace doris::vectorized

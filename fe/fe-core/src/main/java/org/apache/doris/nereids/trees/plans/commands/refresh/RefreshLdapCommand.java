@@ -32,6 +32,8 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
 
+import java.util.Objects;
+
 /**
  * RefreshLdapCommand
  */
@@ -63,12 +65,14 @@ public class RefreshLdapCommand extends Command implements ForwardWithSync {
      * validate
      */
     public void validate(ConnectContext ctx) throws UserException {
-        if (isAll || !Strings.isNullOrEmpty(user)) {
+        String currentUser = ctx.getQualifiedUser();
+        if (!isAll && Strings.isNullOrEmpty(user)) {
+            user = currentUser;
+        }
+        if (isAll || !Objects.equals(currentUser, user)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
             }
-        } else {
-            user = ctx.getQualifiedUser();
         }
     }
 
