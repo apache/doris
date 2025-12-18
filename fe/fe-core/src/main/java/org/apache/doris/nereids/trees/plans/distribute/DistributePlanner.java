@@ -45,7 +45,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Throwables;
