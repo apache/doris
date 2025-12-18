@@ -163,19 +163,16 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         ));
         String rawPath = normalizedParams.get(ExternalFileTableValuedFunction.URI_KEY);
         if (Strings.isNullOrEmpty(rawPath)) {
-            rawPath = normalizedParams.get("path");
-        }
-        if (Strings.isNullOrEmpty(rawPath)) {
             rawPath = normalizedParams.get(LocalProperties.PROP_FILE_PATH);
         }
         if (Strings.isNullOrEmpty(rawPath)) {
             throw new AnalysisException(
-                    "Property 'uri' or 'path' (or file_path) is required for parquet_meta");
+                    "Property 'uri' or 'file_path' is required for parquet_meta");
         }
         String parsedPath = rawPath.trim();
         if (parsedPath.isEmpty()) {
             throw new AnalysisException(
-                    "Property 'uri' or 'path' must contain at least one location");
+                    "Property 'uri' or 'file_path' must contain at least one location");
         }
         List<String> normalizedPaths = new ArrayList<>(1);
         normalizedPaths.add(parsedPath);

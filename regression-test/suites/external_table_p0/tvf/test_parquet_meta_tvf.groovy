@@ -34,7 +34,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     // Note: Prefer asserting on stable metadata columns; avoid relying on host-specific/local-only paths.
     order_qt_parquet_metadata_s3 """
         select * from parquet_meta(
-            "path" = "${basePath}/meta.parquet",
+            "uri" = "${basePath}/meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
@@ -46,7 +46,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     // default mode: parquet_metadata
     order_qt_parquet_metadata_default_mode """
         select * from parquet_meta(
-            "path" = "${basePath}/meta.parquet",
+            "uri" = "${basePath}/meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
@@ -57,7 +57,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     // parquet_schema
     order_qt_parquet_schema """
         select * from parquet_meta(
-            "path" = "${basePath}/meta.parquet",
+            "uri" = "${basePath}/meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
@@ -69,7 +69,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     // empty parquet
     order_qt_parquet_metadata_empty """
         select * from parquet_meta(
-            "path" = "${basePath}/empty.parquet",
+            "uri" = "${basePath}/empty.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
@@ -81,7 +81,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     // kv metadata
     order_qt_parquet_kv_metadata """
         select * from parquet_meta(
-            "path" = "${basePath}/kvmeta.parquet",
+            "uri" = "${basePath}/kvmeta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
@@ -93,7 +93,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     // bloom probe
     order_qt_parquet_bloom_probe """
         select * from parquet_meta(
-            "path" = "${basePath}/bloommeta.parquet",
+            "uri" = "${basePath}/bloommeta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
@@ -107,7 +107,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     // bloom probe: column without bloom filter
     order_qt_parquet_bloom_probe_no_bf """
         select * from parquet_meta(
-            "path" = "${basePath}/meta.parquet",
+            "uri" = "${basePath}/meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
@@ -124,7 +124,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
             file_offset, num_values, path_in_schema, type, stats_min, stats_max, stats_null_count,
             stats_distinct_count, stats_min_value
         from parquet_meta(
-            "path" = "${basePath}/meta.parquet",
+            "uri" = "${basePath}/meta.parquet",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "endpoint" = "${endpoint}",
@@ -211,7 +211,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     // test exception
     test {
         sql """ select * from parquet_meta(); """
-        exception "Property 'uri' or 'path' (or file_path) is required for parquet_meta"
+        exception "Property 'uri' or 'file_path' is required for parquet_meta"
     }
 
     test {
@@ -224,16 +224,16 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
                 "mode" = "parquet_metadata"
             );
         """
-        exception "Property 'uri' or 'path' (or file_path) is required for parquet_meta"
+        exception "Property 'uri' or 'file_path' is required for parquet_meta"
     }
 
     test {
         sql """
             select * from parquet_meta(
-                "path" = " ",
+                "uri" = " ",
                 "mode" = "parquet_metadata"
             );
         """
-        exception "Property 'uri' or 'path' must contain at least one location"
+        exception "Property 'uri' or 'file_path' must contain at least one location"
     }
 }
