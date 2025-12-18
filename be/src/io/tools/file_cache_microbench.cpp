@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include "io/cache/file_cache_common.h"
 #if defined(BE_TEST) && defined(BUILD_FILE_CACHE_MICROBENCH_TOOL)
 #include <brpc/controller.h>
 #include <brpc/http_status_code.h>
@@ -840,98 +841,6 @@ private:
 namespace microbenchService {
 class JobManager;
 
-class ServiceStateMachine {
-public:
-    static constexpr uint32_t JobUnit = 0b100;
-    static constexpr uint32_t StateMask = 0b11;
-    static constexpr uint32_t Idle = 0b11;
-    static constexpr uint32_t Reloading = 0b01;
-    static constexpr uint32_t Stopped = 0b00;
-
-    // idempotent handle
-    static constexpr uint32_t ReplicateReload = 0b10;
-
-    uint32_t finish_one_job() {
-        uint32_t old_s = _state.load();
-        while (true) {
-            DCHECK((old_s >> 2) > 0);
-            uint32_t new_s = old_s - JobUnit;
-            if (_state.compare_exchange_weak(old_s, new_s)) {
-                return new_s;
-            }
-        }
-    }
-
-    uint32_t run_one_job() {
-        uint32_t old_s = _state.load();
-        while (true) {
-            if ((old_s & StateMask) != Idle) {
-                return old_s;
-            }
-            uint32_t new_s = old_s + JobUnit;
-            if (_state.compare_exchange_weak(old_s, new_s)) {
-                return new_s;
-            }
-        }
-    }
-
-    uint32_t reload_request() {
-        uint32_t old_s = _state.load();
-        while (true) {
-            uint32_t state = old_s & StateMask;
-            if (state == Stopped) {
-                return old_s;
-            }
-            if (state == Reloading) {
-                return ReplicateReload;
-            }
-
-            uint32_t new_s = (old_s & ~StateMask) | Reloading;
-            if (_state.compare_exchange_weak(old_s, new_s)) {
-                return new_s;
-            }
-        }
-    }
-
-    uint32_t finish_reload() {
-        uint32_t expected = Reloading;
-        if (_state.compare_exchange_strong(expected, Idle)) {
-            return Idle;
-        }
-        return expected;
-    }
-
-    uint32_t service_start() {
-        uint32_t expected = Stopped;
-        if (_state.compare_exchange_strong(expected, Idle)) {
-            return Idle;
-        }
-        return expected;
-    }
-
-    uint32_t service_stop() {
-        uint32_t expected = Idle;
-        if (_state.compare_exchange_strong(expected, Stopped)) {
-            return Stopped;
-        }
-        return expected;
-    }
-
-    uint32_t get_state() const { return _state.load(); }
-
-    uint32_t can_submit_job() const { return (_state.load() & StateMask) == Idle; }
-
-    bool can_do_reload() const {
-        uint32_t current_state = _state.load();
-        return ((current_state & StateMask) == Reloading) && ((current_state >> 2) == 0);
-    }
-
-private:
-    std::atomic<uint32_t> _state {Stopped};
-};
-
-using StateSPtr = std::shared_ptr<ServiceStateMachine>;
-
 class BenchEnvManager : public std::enable_shared_from_this<BenchEnvManager> {
 public:
     BenchEnvManager(std::string_view doris_home) : _doris_home(doris_home) {}
@@ -1099,28 +1008,22 @@ public:
         return Status::OK();
     }
 
-    doris::Status reload_or_create_cache_in_config() {
+    doris::Status reload_cache_in_config() {
         std::unordered_set<std::string> cache_path_set;
         std::vector<doris::CachePath> cache_paths;
-        Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
-        if (!rest) {
-            return rest;
-        }
+        RETURN_IF_ERROR(doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths));
 
-        doris::Status cache_status;
-        for (auto& cache_path : cache_paths) {
+        std::vector<CachePath> cache_paths_no_dup;
+        cache_paths_no_dup.reserve(cache_paths.size());
+        for (const auto& cache_path : cache_paths) {
             if (cache_path_set.contains(cache_path.path)) {
                 LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
                 continue;
             }
-
-            cache_status = doris::io::FileCacheFactory::instance()->reload_or_create_file_cache(
-                    cache_path.path, cache_path.init_settings());
-            if (!cache_status.ok()) {
-                return cache_status;
-            }
             cache_path_set.emplace(cache_path.path);
+            cache_paths_no_dup.emplace_back(cache_path);
         }
+        RETURN_IF_ERROR(doris::io::FileCacheFactory::instance()->reload_file_cache(cache_paths));
         return Status::OK();
     }
 
@@ -1128,12 +1031,13 @@ public:
         return std::make_unique<JobManager>(shared_from_this());
     }
 
-    void start_reload_worker(StateSPtr service_state) {
+    void start_reload_worker() {
         std::lock_guard<std::mutex> lock(_reload_mt);
         if (_reload_thread.joinable()) {
             return;
         }
-        _service_state = service_state;
+
+        _reloading.store(false);
         _stop_thread = false;
         _reload_thread = std::thread(&BenchEnvManager::_reload_worker_func, this);
         LOG(INFO) << "Reload worker thread started";
@@ -1154,16 +1058,21 @@ public:
         }
     }
 
-    void notify_reload() { _reload_cv.notify_one(); }
+    void reload_request() {
+        _reloading.store(true);
+        _reload_cv.notify_one();
+    }
+
+    std::string reload_details_stat() {
+        return _reloading.load() ? "Reloading config" : "Reload finished or not started";
+    }
 
 private:
     void _reload_worker_func() {
         while (true) {
             std::unique_lock<std::mutex> l(_reload_mt);
             // Wait until stopped or safe to reload (State == Reloading && JobCount == 0)
-            _reload_cv.wait(l, [this]() {
-                return _stop_thread || (_service_state && _service_state->can_do_reload());
-            });
+            _reload_cv.wait(l, [this]() { return _stop_thread; });
 
             if (_stop_thread) {
                 break;
@@ -1180,21 +1089,16 @@ private:
                     LOG(ERROR) << "Failed to load config!";
                     throw std::runtime_error(status.to_string().c_str());
                 }
-                status = reload_or_create_cache_in_config();
+                status = reload_cache_in_config();
                 if (!status) {
                     LOG(ERROR) << "Failed to reload file cache!";
                     throw std::runtime_error(status.to_string().c_str());
                 }
             } catch (const std::exception& e) {
+                _reloading.store(false);
                 LOG(ERROR) << "Exception during reload: " << e.what();
             }
-
-            uint32_t result = _service_state->finish_reload();
-            if ((result & ServiceStateMachine::StateMask) == ServiceStateMachine::Idle) {
-                LOG(INFO) << "Configuration reload completed. Service is IDLE.";
-            } else {
-                LOG(ERROR) << "Failed to transition state to IDLE after reload.";
-            }
+            _reloading.store(false);
         }
     }
 
@@ -1203,7 +1107,7 @@ private:
     std::condition_variable _reload_cv;
     std::thread _reload_thread;
     bool _stop_thread {false};
-    StateSPtr _service_state;
+    std::atomic<bool> _reloading {false};
 };
 
 class JobManager {
@@ -1225,7 +1129,7 @@ public:
     }
 
     // Submit a new job
-    std::string submit_job(const JobConfig& config, StateSPtr service_state) {
+    std::string submit_job(const JobConfig& config) {
         try {
             std::string job_id = generate_job_id();
 
@@ -1237,20 +1141,8 @@ public:
             LOG(INFO) << "Submitting job " << job_id << " with config: " << config.to_string();
 
             // Execute the job asynchronously
-            _job_executor_pool.enqueue([this, job_id, service_state]() {
-                if ((service_state->run_one_job() & ServiceStateMachine::StateMask) !=
-                    ServiceStateMachine::Idle) {
-                    LOG(WARNING) << "Service may be reloading config or stopped"
-                                 << " job" << job_id << " has been discarded";
-                    return;
-                }
-
-                execute_job_with_status_updates(job_id);
-
-                if (service_state->finish_one_job() == ServiceStateMachine::Reloading) {
-                    _env_mgr->notify_reload();
-                }
-            });
+            _job_executor_pool.enqueue(
+                    [this, job_id]() { execute_job_with_status_updates(job_id); });
 
             return job_id;
         } catch (const std::exception& e) {
@@ -1418,7 +1310,6 @@ private:
         LOG(INFO) << "Job " << job_id << " execution completed";
     }
 
-private:
     doris::S3ClientConf create_s3_client_conf(const JobConfig& config) {
         doris::S3ClientConf s3_conf;
         s3_conf.max_connections = std::max(256, config.num_threads * 4);
@@ -1779,8 +1670,7 @@ private:
 class MicrobenchServiceImpl : public microbench::MicrobenchService {
 public:
     MicrobenchServiceImpl(std::string_view doris_home_path)
-            : _bench_env_mgr(std::make_shared<BenchEnvManager>(doris_home_path)),
-              _service_state(std::make_shared<ServiceStateMachine>()) {}
+            : _bench_env_mgr(std::make_shared<BenchEnvManager>(doris_home_path)) {}
 
     ~MicrobenchServiceImpl() override {
         if (_job_manager) {
@@ -1789,7 +1679,6 @@ public:
         if (_bench_env_mgr) {
             _bench_env_mgr->stop_reload_worker();
         }
-        _service_state->service_stop();
     }
 
     doris::Status init_microbench_service() {
@@ -1803,16 +1692,15 @@ public:
             return status;
         }
         _job_manager = _bench_env_mgr->create_job_manager_from_current_config();
-        _bench_env_mgr->start_reload_worker(_service_state);
-        _service_state->service_start();
+        _bench_env_mgr->start_reload_worker();
 
         return Status::OK();
     }
 
-    void show_service_status(google::protobuf::RpcController* cntl_base,
-                             const microbench::HttpRequest* request,
-                             microbench::HttpResponse* response,
-                             google::protobuf::Closure* done) override {
+    void show_reload_status(google::protobuf::RpcController* cntl_base,
+                            const microbench::HttpRequest* request,
+                            microbench::HttpResponse* response,
+                            google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
@@ -1822,9 +1710,9 @@ public:
         writer.StartObject();
         writer.Key("status");
         writer.String("OK");
+        writer.Key("ReloadStat");
 
-        writer.Key("service_status");
-        writer.String(get_service_status_string(_service_state->get_state()).c_str());
+        writer.String(_bench_env_mgr->reload_details_stat().c_str());
 
         writer.EndObject();
 
@@ -1841,13 +1729,8 @@ public:
         LOG(INFO) << "Hot reload config of microbench service";
 
         try {
-            if ((_service_state->reload_request() & ServiceStateMachine::StateMask) !=
-                ServiceStateMachine::Reloading) {
-                throw std::runtime_error("Service is not able to reloading currently!");
-            }
-
             LOG(INFO) << "Request reload. May be execute after";
-            _bench_env_mgr->notify_reload();
+            _bench_env_mgr->reload_request();
 
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -1897,16 +1780,13 @@ public:
         LOG(INFO) << "Received submit job request";
 
         try {
-            if (!_service_state->can_submit_job()) {
-                throw std::runtime_error("Microbench service can not submit job currently!");
-            }
             // Parse request body JSON
             std::string job_config = cntl->request_attachment().to_string();
             JobConfig config = JobConfig::from_json(job_config);
 
             LOG(INFO) << "Parsed JobConfig: " << config.to_string();
 
-            std::string job_id = _job_manager->submit_job(config, _service_state);
+            std::string job_id = _job_manager->submit_job(config);
             LOG(INFO) << "Job submitted successfully with ID: " << job_id;
 
             // Set response headers
@@ -2198,10 +2078,6 @@ public:
                   << ", segment_path=" << (segment_path ? *segment_path : "");
 
         try {
-            if (!_service_state->can_submit_job()) {
-                throw std::runtime_error("Microbench service can not clear cache currently!");
-            }
-
             bool sync = sync_str ? (doris::to_lower(*sync_str) == "true") : false;
 
             if (segment_path == nullptr) {
@@ -2272,10 +2148,6 @@ public:
         LOG(INFO) << "Received file_cache_reset request";
 
         try {
-            if (!_service_state->can_submit_job()) {
-                throw std::runtime_error("Microbench service can not clear cache currently!");
-            }
-
             const std::string* capacity_str = cntl->http_request().uri().GetQuery("capacity");
             int64_t new_capacity = 0;
             new_capacity = std::stoll(*capacity_str);
@@ -2345,10 +2217,6 @@ public:
         LOG(INFO) << "Received file_cache_release request";
 
         try {
-            if (!_service_state->can_submit_job()) {
-                throw std::runtime_error("Microbench service can not release cache currently!");
-            }
-
             const std::string* base_path_str = cntl->http_request().uri().GetQuery("base_path");
             size_t released = 0;
             if (base_path_str == nullptr) {
@@ -2409,10 +2277,6 @@ public:
         LOG(INFO) << "Received update_config request";
 
         try {
-            if (!_service_state->can_submit_job()) {
-                throw std::runtime_error("Microbench service can not release cache currently!");
-            }
-
             bool need_persist = false;
             const std::string* persist_str = cntl->http_request().uri().GetQuery("persist");
             if (persist_str && *persist_str == "true") {
@@ -2487,10 +2351,6 @@ public:
         LOG(INFO) << "Received show_config request";
 
         try {
-            if (!_service_state->can_submit_job()) {
-                throw std::runtime_error("Microbench service can not show config currently!");
-            }
-
             std::vector<std::vector<std::string>> config_info = doris::config::get_config_info();
 
             rapidjson::StringBuffer buffer;
@@ -2569,19 +2429,6 @@ private:
             return "COMPLETED";
         case JobStatus::FAILED:
             return "FAILED";
-        default:
-            return "UNKNOWN";
-        }
-    }
-
-    std::string get_service_status_string(uint32_t service_status) {
-        switch (service_status & ServiceStateMachine::StateMask) {
-        case ServiceStateMachine::Idle:
-            return "IDLE";
-        case ServiceStateMachine::Reloading:
-            return "RELOADING";
-        case ServiceStateMachine::Stopped:
-            return "STOPPED";
         default:
             return "UNKNOWN";
         }
@@ -2734,7 +2581,6 @@ private:
 
     std::shared_ptr<BenchEnvManager> _bench_env_mgr;
     std::unique_ptr<JobManager> _job_manager;
-    StateSPtr _service_state;
 };
 } // namespace microbenchService
 
@@ -2798,13 +2644,8 @@ int main(int argc, char* argv[]) {
     google::InitGoogleLogging(argv[0]);
 
     std::string doris_home = getenv("DORIS_HOME");
-    if (!doris_home.empty()) {
+    if (doris_home.empty()) {
         LOG(ERROR) << "DORIS_HOME environment variable not set";
-    }
-
-    std::string env_log_dir = getenv("LOG_DIR");
-    if (!env_log_dir.empty()) {
-        LOG(ERROR) << " environment variable LOG_DIR not set";
     }
 
     LOG(INFO) << "env=" << doris_home;

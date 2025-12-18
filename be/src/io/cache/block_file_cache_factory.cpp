@@ -120,32 +120,37 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     return Status::OK();
 }
 
-Status FileCacheFactory::reload_or_create_file_cache(const std::string& cache_base_path,
-                                                     FileCacheSettings file_cache_settings) {
+Status FileCacheFactory::reload_file_cache(const std::vector<CachePath>& cache_base_paths) {
     {
         std::unique_lock lock(_mtx);
-        auto cache_map_iter = _path_to_cache.find(cache_base_path);
-        if (cache_map_iter == _path_to_cache.end()) {
-            lock.unlock();
-            return create_file_cache(cache_base_path, file_cache_settings);
-        }
-        auto cache_iter = std::find_if(_caches.begin(), _caches.end(),
-                                       [cache_map_iter](const auto& cache_uptr) {
-                                           return cache_uptr.get() == cache_map_iter->second;
-                                       });
-
-        if (cache_iter == _caches.end()) {
-            return Status::InternalError("Target relaod cache in path {} may has been released",
-                                         cache_base_path);
+        for (const auto& cache_path : cache_base_paths) {
+            if (_path_to_cache.find(cache_path.path) == _path_to_cache.end()) {
+                return Status::InternalError(
+                        "Current file cache not support file cache num changes");
+            }
         }
 
-        // deconstruct target reload first
-        *cache_iter = std::unique_ptr<BlockFileCache>();
-        // after deconstruct the BlockFileCache, construct the BlockFileCache again
-        *cache_iter = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
-        cache_map_iter->second = cache_iter->get();
+        for (const auto& cache_path : cache_base_paths) {
+            auto cache_map_iter = _path_to_cache.find(cache_path.path);
+            auto cache_iter = std::find_if(_caches.begin(), _caches.end(),
+                                           [cache_map_iter](const auto& cache_uptr) {
+                                               return cache_uptr.get() == cache_map_iter->second;
+                                           });
 
-        RETURN_IF_ERROR(cache_iter->get()->initialize());
+            if (cache_iter == _caches.end()) {
+                return Status::InternalError("Target relaod cache in path {} may has been released",
+                                             cache_path.path);
+            }
+
+            // deconstruct target reload first
+            *cache_iter = std::unique_ptr<BlockFileCache>();
+            // after deconstruct the BlockFileCache, construct the BlockFileCache again
+            *cache_iter =
+                    std::make_unique<BlockFileCache>(cache_path.path, cache_path.init_settings());
+            cache_map_iter->second = cache_iter->get();
+
+            RETURN_IF_ERROR(cache_iter->get()->initialize());
+        }
     }
 
     return Status::OK();
