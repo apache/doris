@@ -34,7 +34,11 @@
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
 #include "vec/core/block.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/common/string_view.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/schema_desc.h"
@@ -94,7 +98,7 @@ public:
                        std::vector<MutableColumnPtr>& columns) override {
         const auto& fields = metadata->schema().get_fields_schema();
         for (const auto& field : fields) {
-            RETURN_IF_ERROR(_append_schema_field(path, field, field.name, columns));
+            RETURN_IF_ERROR(_append_schema_node(path, field, columns));
         }
         return Status::OK();
     }
@@ -102,19 +106,21 @@ public:
 private:
     std::array<int, SCHEMA_COLUMN_COUNT> _slot_pos {};
 
-    Status _append_schema_field(const std::string& path, const FieldSchema& field,
-                                const std::string& current_path,
-                                std::vector<MutableColumnPtr>& columns) {
-        if (!field.children.empty()) {
-            for (const auto& child : field.children) {
-                std::string child_path = current_path.empty()
-                                                 ? child.name
-                                                 : fmt::format("{}.{}", current_path, child.name);
-                RETURN_IF_ERROR(_append_schema_field(path, child, child_path, columns));
-            }
-            return Status::OK();
+    static std::string _repetition_type_to_string(tparquet::FieldRepetitionType::type type) {
+        switch (type) {
+        case tparquet::FieldRepetitionType::REQUIRED:
+            return "REQUIRED";
+        case tparquet::FieldRepetitionType::OPTIONAL:
+            return "OPTIONAL";
+        case tparquet::FieldRepetitionType::REPEATED:
+            return "REPEATED";
+        default:
+            return "UNKNOWN";
         }
+    }
 
+    Status _append_schema_node(const std::string& path, const FieldSchema& field,
+                              std::vector<MutableColumnPtr>& columns) {
         auto insert_if_requested = [&](SchemaColumnIndex idx, auto&& inserter, auto&&... args) {
             int pos = _slot_pos[idx];
             if (pos >= 0) {
@@ -123,27 +129,72 @@ private:
         };
 
         insert_if_requested(SCHEMA_FILE_NAME, insert_string, path);
-        insert_if_requested(SCHEMA_COLUMN_NAME, insert_string, field.name);
-        insert_if_requested(SCHEMA_COLUMN_PATH, insert_string, current_path);
-        insert_if_requested(SCHEMA_PHYSICAL_TYPE, insert_string,
-                            physical_type_to_string(field.physical_type));
-        insert_if_requested(SCHEMA_LOGICAL_TYPE, insert_string,
-                            logical_type_to_string(field.parquet_schema));
-        insert_if_requested(SCHEMA_REPETITION_LEVEL, insert_int32, field.repetition_level);
-        insert_if_requested(SCHEMA_DEFINITION_LEVEL, insert_int32, field.definition_level);
+        insert_if_requested(SCHEMA_NAME, insert_string, field.parquet_schema.name);
 
-        int32_t type_length =
-                field.parquet_schema.__isset.type_length ? field.parquet_schema.type_length : 0;
-        insert_if_requested(SCHEMA_TYPE_LENGTH, insert_int32, type_length);
-        int32_t precision =
-                field.parquet_schema.__isset.precision ? field.parquet_schema.precision : 0;
-        insert_if_requested(SCHEMA_PRECISION, insert_int32, precision);
-        int32_t scale = field.parquet_schema.__isset.scale ? field.parquet_schema.scale : 0;
-        insert_if_requested(SCHEMA_SCALE, insert_int32, scale);
-        bool is_nullable_field =
-                !field.parquet_schema.__isset.repetition_type ||
-                field.parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED;
-        insert_if_requested(SCHEMA_IS_NULLABLE, insert_bool, is_nullable_field);
+        if (field.parquet_schema.__isset.type) {
+            insert_if_requested(SCHEMA_TYPE, insert_string,
+                                physical_type_to_string(field.parquet_schema.type));
+        } else {
+            insert_if_requested(SCHEMA_TYPE, insert_null);
+        }
+
+        if (field.parquet_schema.__isset.type_length) {
+            insert_if_requested(SCHEMA_TYPE_LENGTH, insert_int64,
+                                static_cast<Int64>(field.parquet_schema.type_length));
+        } else {
+            insert_if_requested(SCHEMA_TYPE_LENGTH, insert_null);
+        }
+
+        if (field.parquet_schema.__isset.repetition_type) {
+            insert_if_requested(SCHEMA_REPETITION_TYPE, insert_string,
+                                _repetition_type_to_string(field.parquet_schema.repetition_type));
+        } else {
+            insert_if_requested(SCHEMA_REPETITION_TYPE, insert_null);
+        }
+
+        int64_t num_children = field.parquet_schema.__isset.num_children
+                                       ? static_cast<int64_t>(field.parquet_schema.num_children)
+                                       : 0;
+        insert_if_requested(SCHEMA_NUM_CHILDREN, insert_int64, static_cast<Int64>(num_children));
+
+        if (field.parquet_schema.__isset.converted_type) {
+            insert_if_requested(SCHEMA_CONVERTED_TYPE, insert_string,
+                                converted_type_to_string(field.parquet_schema.converted_type));
+        } else {
+            insert_if_requested(SCHEMA_CONVERTED_TYPE, insert_null);
+        }
+
+        if (field.parquet_schema.__isset.scale) {
+            insert_if_requested(SCHEMA_SCALE, insert_int64,
+                                static_cast<Int64>(field.parquet_schema.scale));
+        } else {
+            insert_if_requested(SCHEMA_SCALE, insert_null);
+        }
+
+        if (field.parquet_schema.__isset.precision) {
+            insert_if_requested(SCHEMA_PRECISION, insert_int64,
+                                static_cast<Int64>(field.parquet_schema.precision));
+        } else {
+            insert_if_requested(SCHEMA_PRECISION, insert_null);
+        }
+
+        if (field.parquet_schema.__isset.field_id) {
+            insert_if_requested(SCHEMA_FIELD_ID, insert_int64,
+                                static_cast<Int64>(field.parquet_schema.field_id));
+        } else {
+            insert_if_requested(SCHEMA_FIELD_ID, insert_null);
+        }
+
+        std::string logical = logical_type_to_string(field.parquet_schema);
+        if (logical.empty()) {
+            insert_if_requested(SCHEMA_LOGICAL_TYPE, insert_null);
+        } else {
+            insert_if_requested(SCHEMA_LOGICAL_TYPE, insert_string, logical);
+        }
+
+        for (const auto& child : field.children) {
+            RETURN_IF_ERROR(_append_schema_node(path, child, columns));
+        }
         return Status::OK();
     }
 };
@@ -170,17 +221,59 @@ public:
             build_path_map(field, "", &path_map);
         }
 
+        const int kv_pos = _slot_pos[META_KEY_VALUE_METADATA];
+        bool has_kv_map = false;
+        Field kv_map_field;
+        if (kv_pos >= 0 && thrift_meta.__isset.key_value_metadata &&
+            !thrift_meta.key_value_metadata.empty()) {
+            Array keys;
+            Array values;
+            keys.reserve(thrift_meta.key_value_metadata.size());
+            values.reserve(thrift_meta.key_value_metadata.size());
+            for (const auto& kv : thrift_meta.key_value_metadata) {
+                keys.emplace_back(
+                        Field::create_field<TYPE_VARBINARY>(doris::StringView(kv.key)));
+                if (kv.__isset.value) {
+                    values.emplace_back(
+                            Field::create_field<TYPE_VARBINARY>(doris::StringView(kv.value)));
+                } else {
+                    values.emplace_back(Field {});
+                }
+            }
+            Map map_value;
+            map_value.reserve(2);
+            map_value.emplace_back(Field::create_field<TYPE_ARRAY>(std::move(keys)));
+            map_value.emplace_back(Field::create_field<TYPE_ARRAY>(std::move(values)));
+            kv_map_field = Field::create_field<TYPE_MAP>(std::move(map_value));
+            has_kv_map = true;
+        }
+
         for (size_t rg_index = 0; rg_index < thrift_meta.row_groups.size(); ++rg_index) {
             const auto& row_group = thrift_meta.row_groups[rg_index];
+            Int64 row_group_num_rows = static_cast<Int64>(row_group.num_rows);
+            Int64 row_group_num_columns = static_cast<Int64>(row_group.columns.size());
+            Int64 row_group_bytes = static_cast<Int64>(row_group.total_byte_size);
+            Int64 row_group_compressed_bytes = 0;
+            if (row_group.__isset.total_compressed_size) {
+                row_group_compressed_bytes = static_cast<Int64>(row_group.total_compressed_size);
+            } else {
+                for (const auto& col_chunk : row_group.columns) {
+                    if (!col_chunk.__isset.meta_data) {
+                        continue;
+                    }
+                    row_group_compressed_bytes += col_chunk.meta_data.total_compressed_size;
+                }
+            }
+
             for (size_t col_idx = 0; col_idx < row_group.columns.size(); ++col_idx) {
                 const auto& column_chunk = row_group.columns[col_idx];
                 if (!column_chunk.__isset.meta_data) {
                     continue;
                 }
                 const auto& column_meta = column_chunk.meta_data;
-                std::string column_path = join_path(column_meta.path_in_schema);
+                std::string path_in_schema = join_path(column_meta.path_in_schema);
                 const FieldSchema* schema_field = nullptr;
-                auto it = path_map.find(column_path);
+                auto it = path_map.find(path_in_schema);
                 if (it != path_map.end()) {
                     schema_field = it->second;
                 }
@@ -195,56 +288,125 @@ public:
 
                 insert_if_requested(META_FILE_NAME, insert_string,
                                     column_chunk.__isset.file_path ? column_chunk.file_path : path);
-                insert_if_requested(META_ROW_GROUP_ID, insert_int32, static_cast<Int32>(rg_index));
-                insert_if_requested(META_COLUMN_ID, insert_int32, static_cast<Int32>(col_idx));
-                std::string column_name =
-                        column_meta.path_in_schema.empty() ? "" : column_meta.path_in_schema.back();
-                insert_if_requested(META_COLUMN_NAME, insert_string, column_name);
-                insert_if_requested(META_COLUMN_PATH, insert_string, column_path);
-                insert_if_requested(META_PHYSICAL_TYPE, insert_string,
-                                    physical_type_to_string(column_meta.type));
+                insert_if_requested(META_ROW_GROUP_ID, insert_int64, static_cast<Int64>(rg_index));
+                insert_if_requested(META_ROW_GROUP_NUM_ROWS, insert_int64, row_group_num_rows);
+                insert_if_requested(META_ROW_GROUP_NUM_COLUMNS, insert_int64, row_group_num_columns);
+                insert_if_requested(META_ROW_GROUP_BYTES, insert_int64, row_group_bytes);
+                insert_if_requested(META_COLUMN_ID, insert_int64, static_cast<Int64>(col_idx));
 
-                if (schema_field != nullptr) {
-                    insert_if_requested(META_LOGICAL_TYPE, insert_string,
-                                        logical_type_to_string(schema_field->parquet_schema));
-                    int32_t type_length = schema_field->parquet_schema.__isset.type_length
-                                                  ? schema_field->parquet_schema.type_length
-                                                  : 0;
-                    insert_if_requested(META_TYPE_LENGTH, insert_int32, type_length);
-                    if (schema_field->parquet_schema.__isset.converted_type) {
-                        insert_if_requested(META_CONVERTED_TYPE, insert_string,
-                                            converted_type_to_string(
-                                                    schema_field->parquet_schema.converted_type));
+                // `ColumnChunk.file_offset` is deprecated and can be 0 even when page offsets are present.
+                // Fall back to the first page (dictionary/data) offset to provide a useful value.
+                Int64 file_offset = static_cast<Int64>(column_chunk.file_offset);
+                if (file_offset == 0) {
+                    if (column_meta.__isset.dictionary_page_offset) {
+                        file_offset = static_cast<Int64>(column_meta.dictionary_page_offset);
                     } else {
-                        insert_if_requested(META_CONVERTED_TYPE, insert_string, "");
+                        file_offset = static_cast<Int64>(column_meta.data_page_offset);
+                    }
+                }
+                insert_if_requested(META_FILE_OFFSET, insert_int64, file_offset);
+                insert_if_requested(META_NUM_VALUES, insert_int64, column_meta.num_values);
+                insert_if_requested(META_PATH_IN_SCHEMA, insert_string, path_in_schema);
+                insert_if_requested(META_TYPE, insert_string, physical_type_to_string(column_meta.type));
+
+                if (column_meta.__isset.statistics) {
+                    static const cctz::time_zone kUtc0 = cctz::utc_time_zone();
+                    const cctz::time_zone& ctz =
+                            _state != nullptr ? _state->timezone_obj() : kUtc0;
+
+                    const auto& stats = column_meta.statistics;
+
+                    if (stats.__isset.min) {
+                        insert_if_requested(
+                                META_STATS_MIN, insert_string,
+                                decode_statistics_value(schema_field, column_meta.type, stats.min, ctz));
+                    } else {
+                        insert_if_requested(META_STATS_MIN, insert_null);
+                    }
+                    if (stats.__isset.max) {
+                        insert_if_requested(
+                                META_STATS_MAX, insert_string,
+                                decode_statistics_value(schema_field, column_meta.type, stats.max, ctz));
+                    } else {
+                        insert_if_requested(META_STATS_MAX, insert_null);
+                    }
+
+                    if (stats.__isset.null_count) {
+                        insert_if_requested(META_STATS_NULL_COUNT, insert_int64,
+                                            stats.null_count);
+                    } else {
+                        insert_if_requested(META_STATS_NULL_COUNT, insert_null);
+                    }
+                    if (stats.__isset.distinct_count) {
+                        insert_if_requested(META_STATS_DISTINCT_COUNT, insert_int64,
+                                            stats.distinct_count);
+                    } else {
+                        insert_if_requested(META_STATS_DISTINCT_COUNT, insert_null);
+                    }
+
+                    // Prefer min_value/max_value, but fall back to deprecated min/max so the column
+                    // is still populated for older files.
+                    std::string encoded_min_value;
+                    std::string encoded_max_value;
+                    bool has_min_value = false;
+                    bool has_max_value = false;
+                    if (stats.__isset.min_value) {
+                        encoded_min_value = stats.min_value;
+                        has_min_value = true;
+                    } else if (stats.__isset.min) {
+                        encoded_min_value = stats.min;
+                        has_min_value = true;
+                    }
+                    if (stats.__isset.max_value) {
+                        encoded_max_value = stats.max_value;
+                        has_max_value = true;
+                    } else if (stats.__isset.max) {
+                        encoded_max_value = stats.max;
+                        has_max_value = true;
+                    }
+                    if (has_min_value) {
+                        insert_if_requested(META_STATS_MIN_VALUE, insert_string,
+                                            decode_statistics_value(schema_field, column_meta.type,
+                                                                    encoded_min_value, ctz));
+                    } else {
+                        insert_if_requested(META_STATS_MIN_VALUE, insert_null);
+                    }
+                    if (has_max_value) {
+                        insert_if_requested(META_STATS_MAX_VALUE, insert_string,
+                                            decode_statistics_value(schema_field, column_meta.type,
+                                                                    encoded_max_value, ctz));
+                    } else {
+                        insert_if_requested(META_STATS_MAX_VALUE, insert_null);
+                    }
+
+                    if (stats.__isset.is_min_value_exact) {
+                        insert_if_requested(META_MIN_IS_EXACT, insert_bool,
+                                            stats.is_min_value_exact);
+                    } else {
+                        insert_if_requested(META_MIN_IS_EXACT, insert_null);
+                    }
+                    if (stats.__isset.is_max_value_exact) {
+                        insert_if_requested(META_MAX_IS_EXACT, insert_bool,
+                                            stats.is_max_value_exact);
+                    } else {
+                        insert_if_requested(META_MAX_IS_EXACT, insert_null);
                     }
                 } else {
-                    insert_if_requested(META_LOGICAL_TYPE, insert_string, "");
-                    insert_if_requested(META_TYPE_LENGTH, insert_int32, 0);
-                    insert_if_requested(META_CONVERTED_TYPE, insert_string, "");
+                    insert_if_requested(META_STATS_MIN, insert_null);
+                    insert_if_requested(META_STATS_MAX, insert_null);
+                    insert_if_requested(META_STATS_NULL_COUNT, insert_null);
+                    insert_if_requested(META_STATS_DISTINCT_COUNT, insert_null);
+                    insert_if_requested(META_STATS_MIN_VALUE, insert_null);
+                    insert_if_requested(META_STATS_MAX_VALUE, insert_null);
+                    insert_if_requested(META_MIN_IS_EXACT, insert_null);
+                    insert_if_requested(META_MAX_IS_EXACT, insert_null);
                 }
 
-                insert_if_requested(META_NUM_VALUES, insert_int64, column_meta.num_values);
-                if (column_meta.__isset.statistics && column_meta.statistics.__isset.null_count) {
-                    insert_if_requested(META_NULL_COUNT, insert_int64,
-                                        column_meta.statistics.null_count);
-                } else {
-                    insert_if_requested(META_NULL_COUNT, insert_null);
-                }
-                if (column_meta.__isset.statistics &&
-                    column_meta.statistics.__isset.distinct_count) {
-                    insert_if_requested(META_DISTINCT_COUNT, insert_int64,
-                                        column_meta.statistics.distinct_count);
-                } else {
-                    insert_if_requested(META_DISTINCT_COUNT, insert_null);
-                }
-
-                insert_if_requested(META_ENCODINGS, insert_string,
-                                    encodings_to_string(column_meta.encodings));
                 insert_if_requested(META_COMPRESSION, insert_string,
                                     compression_to_string(column_meta.codec));
-                insert_if_requested(META_DATA_PAGE_OFFSET, insert_int64,
-                                    column_meta.data_page_offset);
+                insert_if_requested(META_ENCODINGS, insert_string,
+                                    encodings_to_string(column_meta.encodings));
+
                 if (column_meta.__isset.index_page_offset) {
                     insert_if_requested(META_INDEX_PAGE_OFFSET, insert_int64,
                                         column_meta.index_page_offset);
@@ -257,40 +419,36 @@ public:
                 } else {
                     insert_if_requested(META_DICTIONARY_PAGE_OFFSET, insert_null);
                 }
+                insert_if_requested(META_DATA_PAGE_OFFSET, insert_int64, column_meta.data_page_offset);
+
                 insert_if_requested(META_TOTAL_COMPRESSED_SIZE, insert_int64,
                                     column_meta.total_compressed_size);
                 insert_if_requested(META_TOTAL_UNCOMPRESSED_SIZE, insert_int64,
                                     column_meta.total_uncompressed_size);
 
-                if (column_meta.__isset.statistics) {
-                    static const cctz::time_zone kUtc0 = cctz::utc_time_zone();
-                    const cctz::time_zone& ctz = _state != nullptr ? _state->timezone_obj() : kUtc0;
-
-                    std::string min_value;
-                    std::string max_value;
-                    bool has_min = try_get_statistics_encoded_value(column_meta.statistics, true,
-                                                                    &min_value);
-                    bool has_max = try_get_statistics_encoded_value(column_meta.statistics, false,
-                                                                    &max_value);
-
-                    if (has_min) {
-                        std::string decoded = decode_statistics_value(
-                                schema_field, column_meta.type, min_value, ctz);
-                        insert_if_requested(META_STATISTICS_MIN, insert_string, decoded);
+                if (kv_pos >= 0) {
+                    if (has_kv_map) {
+                        columns[kv_pos]->insert(kv_map_field);
                     } else {
-                        insert_if_requested(META_STATISTICS_MIN, insert_null);
+                        insert_null(columns[kv_pos]);
                     }
-                    if (has_max) {
-                        std::string decoded = decode_statistics_value(
-                                schema_field, column_meta.type, max_value, ctz);
-                        insert_if_requested(META_STATISTICS_MAX, insert_string, decoded);
-                    } else {
-                        insert_if_requested(META_STATISTICS_MAX, insert_null);
-                    }
-                } else {
-                    insert_if_requested(META_STATISTICS_MIN, insert_null);
-                    insert_if_requested(META_STATISTICS_MAX, insert_null);
                 }
+
+                if (column_meta.__isset.bloom_filter_offset) {
+                    insert_if_requested(META_BLOOM_FILTER_OFFSET, insert_int64,
+                                        column_meta.bloom_filter_offset);
+                } else {
+                    insert_if_requested(META_BLOOM_FILTER_OFFSET, insert_null);
+                }
+                if (column_meta.__isset.bloom_filter_length) {
+                    insert_if_requested(META_BLOOM_FILTER_LENGTH, insert_int64,
+                                        static_cast<Int64>(column_meta.bloom_filter_length));
+                } else {
+                    insert_if_requested(META_BLOOM_FILTER_LENGTH, insert_null);
+                }
+
+                insert_if_requested(META_ROW_GROUP_COMPRESSED_BYTES, insert_int64,
+                                    row_group_compressed_bytes);
             }
         }
         return Status::OK();

@@ -19,6 +19,7 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
@@ -74,41 +75,53 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
                     MODE_BLOOM_PROBE);
 
     private static final ImmutableList<Column> PARQUET_SCHEMA_COLUMNS = ImmutableList.of(
-            new Column("file_name", PrimitiveType.STRING, true),
-            new Column("column_name", PrimitiveType.STRING, true),
-            new Column("column_path", PrimitiveType.STRING, true),
-            new Column("physical_type", PrimitiveType.STRING, true),
-            new Column("logical_type", PrimitiveType.STRING, true),
-            new Column("repetition_level", PrimitiveType.INT, true),
-            new Column("definition_level", PrimitiveType.INT, true),
-            new Column("type_length", PrimitiveType.INT, true),
-            new Column("precision", PrimitiveType.INT, true),
-            new Column("scale", PrimitiveType.INT, true),
-            new Column("is_nullable", PrimitiveType.BOOLEAN, true)
+            // Align with DuckDB parquet_schema() output.
+            new Column("file_name", ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), true),
+            new Column("name", ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), true),
+            new Column("type", ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), true),
+            new Column("type_length", PrimitiveType.BIGINT, true),
+            new Column("repetition_type", ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), true),
+            new Column("num_children", PrimitiveType.BIGINT, true),
+            new Column("converted_type", ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), true),
+            new Column("scale", PrimitiveType.BIGINT, true),
+            new Column("precision", PrimitiveType.BIGINT, true),
+            new Column("field_id", PrimitiveType.BIGINT, true),
+            new Column("logical_type", ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), true)
     );
 
     private static final ImmutableList<Column> PARQUET_METADATA_COLUMNS = ImmutableList.of(
-            new Column("file_name", PrimitiveType.STRING, true),
-            new Column("row_group_id", PrimitiveType.INT, true),
-            new Column("column_id", PrimitiveType.INT, true),
-            new Column("column_name", PrimitiveType.STRING, true),
-            new Column("column_path", PrimitiveType.STRING, true),
-            new Column("physical_type", PrimitiveType.STRING, true),
-            new Column("logical_type", PrimitiveType.STRING, true),
-            new Column("type_length", PrimitiveType.INT, true),
-            new Column("converted_type", PrimitiveType.STRING, true),
+            // Align with DuckDB parquet_metadata() output.
+            new Column("file_name", ScalarType.createStringType(), true),
+            new Column("row_group_id", PrimitiveType.BIGINT, true),
+            new Column("row_group_num_rows", PrimitiveType.BIGINT, true),
+            new Column("row_group_num_columns", PrimitiveType.BIGINT, true),
+            new Column("row_group_bytes", PrimitiveType.BIGINT, true),
+            new Column("column_id", PrimitiveType.BIGINT, true),
+            new Column("file_offset", PrimitiveType.BIGINT, true),
             new Column("num_values", PrimitiveType.BIGINT, true),
-            new Column("null_count", PrimitiveType.BIGINT, true),
-            new Column("distinct_count", PrimitiveType.BIGINT, true),
-            new Column("encodings", PrimitiveType.STRING, true),
-            new Column("compression", PrimitiveType.STRING, true),
-            new Column("data_page_offset", PrimitiveType.BIGINT, true),
+            new Column("path_in_schema", ScalarType.createStringType(), true),
+            new Column("type", ScalarType.createStringType(), true),
+            new Column("stats_min", ScalarType.createStringType(), true),
+            new Column("stats_max", ScalarType.createStringType(), true),
+            new Column("stats_null_count", PrimitiveType.BIGINT, true),
+            new Column("stats_distinct_count", PrimitiveType.BIGINT, true),
+            new Column("stats_min_value", ScalarType.createStringType(), true),
+            new Column("stats_max_value", ScalarType.createStringType(), true),
+            new Column("compression", ScalarType.createStringType(), true),
+            new Column("encodings", ScalarType.createStringType(), true),
             new Column("index_page_offset", PrimitiveType.BIGINT, true),
             new Column("dictionary_page_offset", PrimitiveType.BIGINT, true),
+            new Column("data_page_offset", PrimitiveType.BIGINT, true),
             new Column("total_compressed_size", PrimitiveType.BIGINT, true),
             new Column("total_uncompressed_size", PrimitiveType.BIGINT, true),
-            new Column("statistics_min", ScalarType.createStringType(), true),
-            new Column("statistics_max", ScalarType.createStringType(), true)
+            new Column("key_value_metadata", new MapType(
+                    ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH),
+                    ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH)), true),
+            new Column("bloom_filter_offset", PrimitiveType.BIGINT, true),
+            new Column("bloom_filter_length", PrimitiveType.BIGINT, true),
+            new Column("min_is_exact", PrimitiveType.BOOLEAN, true),
+            new Column("max_is_exact", PrimitiveType.BOOLEAN, true),
+            new Column("row_group_compressed_bytes", PrimitiveType.BIGINT, true)
     );
 
     private static final ImmutableList<Column> PARQUET_FILE_METADATA_COLUMNS = ImmutableList.of(
