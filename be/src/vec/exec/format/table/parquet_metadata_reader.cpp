@@ -33,12 +33,12 @@
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/string_view.h"
 #include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/common/string_view.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/schema_desc.h"
@@ -120,7 +120,7 @@ private:
     }
 
     Status _append_schema_node(const std::string& path, const FieldSchema& field,
-                              std::vector<MutableColumnPtr>& columns) {
+                               std::vector<MutableColumnPtr>& columns) {
         auto insert_if_requested = [&](SchemaColumnIndex idx, auto&& inserter, auto&&... args) {
             int pos = _slot_pos[idx];
             if (pos >= 0) {
@@ -231,8 +231,7 @@ public:
             keys.reserve(thrift_meta.key_value_metadata.size());
             values.reserve(thrift_meta.key_value_metadata.size());
             for (const auto& kv : thrift_meta.key_value_metadata) {
-                keys.emplace_back(
-                        Field::create_field<TYPE_VARBINARY>(doris::StringView(kv.key)));
+                keys.emplace_back(Field::create_field<TYPE_VARBINARY>(doris::StringView(kv.key)));
                 if (kv.__isset.value) {
                     values.emplace_back(
                             Field::create_field<TYPE_VARBINARY>(doris::StringView(kv.value)));
@@ -290,7 +289,8 @@ public:
                                     column_chunk.__isset.file_path ? column_chunk.file_path : path);
                 insert_if_requested(META_ROW_GROUP_ID, insert_int64, static_cast<Int64>(rg_index));
                 insert_if_requested(META_ROW_GROUP_NUM_ROWS, insert_int64, row_group_num_rows);
-                insert_if_requested(META_ROW_GROUP_NUM_COLUMNS, insert_int64, row_group_num_columns);
+                insert_if_requested(META_ROW_GROUP_NUM_COLUMNS, insert_int64,
+                                    row_group_num_columns);
                 insert_if_requested(META_ROW_GROUP_BYTES, insert_int64, row_group_bytes);
                 insert_if_requested(META_COLUMN_ID, insert_int64, static_cast<Int64>(col_idx));
 
@@ -307,33 +307,32 @@ public:
                 insert_if_requested(META_FILE_OFFSET, insert_int64, file_offset);
                 insert_if_requested(META_NUM_VALUES, insert_int64, column_meta.num_values);
                 insert_if_requested(META_PATH_IN_SCHEMA, insert_string, path_in_schema);
-                insert_if_requested(META_TYPE, insert_string, physical_type_to_string(column_meta.type));
+                insert_if_requested(META_TYPE, insert_string,
+                                    physical_type_to_string(column_meta.type));
 
                 if (column_meta.__isset.statistics) {
                     static const cctz::time_zone kUtc0 = cctz::utc_time_zone();
-                    const cctz::time_zone& ctz =
-                            _state != nullptr ? _state->timezone_obj() : kUtc0;
+                    const cctz::time_zone& ctz = _state != nullptr ? _state->timezone_obj() : kUtc0;
 
                     const auto& stats = column_meta.statistics;
 
                     if (stats.__isset.min) {
-                        insert_if_requested(
-                                META_STATS_MIN, insert_string,
-                                decode_statistics_value(schema_field, column_meta.type, stats.min, ctz));
+                        insert_if_requested(META_STATS_MIN, insert_string,
+                                            decode_statistics_value(schema_field, column_meta.type,
+                                                                    stats.min, ctz));
                     } else {
                         insert_if_requested(META_STATS_MIN, insert_null);
                     }
                     if (stats.__isset.max) {
-                        insert_if_requested(
-                                META_STATS_MAX, insert_string,
-                                decode_statistics_value(schema_field, column_meta.type, stats.max, ctz));
+                        insert_if_requested(META_STATS_MAX, insert_string,
+                                            decode_statistics_value(schema_field, column_meta.type,
+                                                                    stats.max, ctz));
                     } else {
                         insert_if_requested(META_STATS_MAX, insert_null);
                     }
 
                     if (stats.__isset.null_count) {
-                        insert_if_requested(META_STATS_NULL_COUNT, insert_int64,
-                                            stats.null_count);
+                        insert_if_requested(META_STATS_NULL_COUNT, insert_int64, stats.null_count);
                     } else {
                         insert_if_requested(META_STATS_NULL_COUNT, insert_null);
                     }
@@ -419,7 +418,8 @@ public:
                 } else {
                     insert_if_requested(META_DICTIONARY_PAGE_OFFSET, insert_null);
                 }
-                insert_if_requested(META_DATA_PAGE_OFFSET, insert_int64, column_meta.data_page_offset);
+                insert_if_requested(META_DATA_PAGE_OFFSET, insert_int64,
+                                    column_meta.data_page_offset);
 
                 insert_if_requested(META_TOTAL_COMPRESSED_SIZE, insert_int64,
                                     column_meta.total_compressed_size);

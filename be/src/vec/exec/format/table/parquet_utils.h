@@ -103,17 +103,8 @@ enum BloomProbeColumnIndex : size_t {
 };
 
 inline constexpr std::array<const char*, SCHEMA_COLUMN_COUNT> kSchemaColumnNames = {
-        "file_name",
-        "name",
-        "type",
-        "type_length",
-        "repetition_type",
-        "num_children",
-        "converted_type",
-        "scale",
-        "precision",
-        "field_id",
-        "logical_type"};
+        "file_name",      "name",  "type",      "type_length", "repetition_type", "num_children",
+        "converted_type", "scale", "precision", "field_id",    "logical_type"};
 
 inline constexpr std::array<const char*, META_COLUMN_COUNT> kMetadataColumnNames = {
         "file_name",
