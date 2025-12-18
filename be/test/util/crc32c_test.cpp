@@ -19,7 +19,6 @@
 // https://github.com/facebook/rocksdb/blob/master/util/crc32c_test.cc
 
 #include <crc32c/crc32c.h>
-
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <string.h>
@@ -40,20 +39,20 @@ TEST(CRC, StandardResults) {
     char buf[32];
 
     memset(buf, 0, sizeof(buf));
-    EXPECT_EQ(0x8a9136aaU, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x8a9136aaU, Crc32c(buf, sizeof(buf)));
 
     memset(buf, 0xff, sizeof(buf));
-    EXPECT_EQ(0x62a8ab43U, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x62a8ab43U, Crc32c(buf, sizeof(buf)));
 
     for (int i = 0; i < 32; i++) {
         buf[i] = static_cast<char>(i);
     }
-    EXPECT_EQ(0x46dd794eU, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x46dd794eU, Crc32c(buf, sizeof(buf)));
 
     for (int i = 0; i < 32; i++) {
         buf[i] = static_cast<char>(31 - i);
     }
-    EXPECT_EQ(0x113fdb5cU, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x113fdb5cU, Crc32c(buf, sizeof(buf)));
 
     unsigned char data[48] = {
             0x01, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -61,18 +60,18 @@ TEST(CRC, StandardResults) {
             0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x18, 0x28, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
-    EXPECT_EQ(0xd9963a56, Value(reinterpret_cast<char*>(data), sizeof(data)));
+    EXPECT_EQ(0xd9963a56, Crc32c(reinterpret_cast<char*>(data), sizeof(data)));
 }
 
 TEST(CRC, Values) {
-    EXPECT_NE(Value("a", 1), Value("foo", 3));
+    EXPECT_NE(Crc32c("a", 1), Crc32c("foo", 3));
 }
 
 TEST(CRC, Extend) {
-    EXPECT_EQ(Value("hello world", 11), Extend(Value("hello ", 6), "world", 5));
+    EXPECT_EQ(Crc32c("hello world", 11), Extend(Crc32c("hello ", 6), "world", 5));
 
     std::vector<Slice> slices = {Slice("hello "), Slice("world")};
-    EXPECT_EQ(Value("hello world", 11), Value(slices));
+    EXPECT_EQ(Crc32c("hello world", 11), Crc32c(slices));
 }
 
 } // namespace crc32c
