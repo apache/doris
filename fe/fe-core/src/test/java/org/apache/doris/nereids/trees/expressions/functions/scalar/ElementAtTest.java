@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -50,30 +49,11 @@ public class ElementAtTest {
 
         Assertions.assertTrue(signature.returnType instanceof VariantType);
         Assertions.assertEquals(100, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(10000, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(10000,
-                ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
 
         Assertions.assertTrue(signature.getArgType(1) instanceof VarcharType);
-    }
-
-    @Test
-    public void testComputeSignatureNoVariantReturnType() {
-        VariantType variantType = new VariantType(300);
-        ElementAt elementAt = new ElementAt(new MockVariantExpression(variantType), new VarcharLiteral("k"));
-        FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
-                .args(VariantType.INSTANCE, VarcharType.SYSTEM_DEFAULT);
-
-        signature = elementAt.computeSignature(signature);
-
-        Assertions.assertTrue(signature.returnType instanceof IntegerType);
-        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
-        Assertions.assertEquals(300, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(10000,
-                ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
     }
 
     @Test
@@ -87,8 +67,6 @@ public class ElementAtTest {
         Assertions.assertTrue(signature.returnType instanceof VariantType);
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(10000,
-                ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
     }
 
     @Test
@@ -100,11 +78,12 @@ public class ElementAtTest {
         FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
                 .args(VariantType.INSTANCE, VariantType.INSTANCE);
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
-            elementAt.computeSignature(signature);
-        });
-
-        Assertions.assertEquals("variant type is not supported in multiple arguments", exception.getMessage());
+        // New behavior: ElementAt only looks at the 1st argument's VariantType and keeps its max-subcolumns-count.
+        signature = elementAt.computeSignature(signature);
+        Assertions.assertTrue(signature.returnType instanceof VariantType);
+        Assertions.assertEquals(150, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(150, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
     }
 
     /**

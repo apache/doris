@@ -103,43 +103,14 @@ public class ElementAt extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         List<Expression> arguments = getArguments();
-        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
-        boolean findVariantType = false;
-
-        for (int i = 0; i < arguments.size(); i++) {
-            // Get signature type for current argument position
-            DataType sigType;
-            if (i >= signature.argumentsTypes.size()) {
-                sigType = signature.getVarArgType().orElseThrow(
-                        () -> new AnalysisException("function arity not match with signature"));
-            } else {
-                sigType = signature.argumentsTypes.get(i);
-            }
-
-            // Get actual type of the argument expression
-            DataType expressionType = arguments.get(i).getDataType();
-
-            // If both signature type and expression type are variant,
-            // use expression type and update return type
-            if (sigType instanceof VariantType && expressionType instanceof VariantType) {
-                // return type is variant, update return type to expression type
-                if (signature.returnType instanceof VariantType) {
-                    signature = signature.withReturnType(expressionType);
-                    if (findVariantType) {
-                        throw new AnalysisException("variant type is not supported in multiple arguments");
-                    } else {
-                        findVariantType = true;
-                    }
-                }
-                newArgTypes.add(expressionType);
-            } else {
-                // Otherwise keep original signature type
-                newArgTypes.add(sigType);
-            }
+        DataType expressionType = arguments.get(0).getDataType();
+        DataType sigType = signature.argumentsTypes.get(0);
+        if (expressionType instanceof VariantType && sigType instanceof VariantType) {
+            // only keep the variant max subcolumns count
+            VariantType variantType = new VariantType(((VariantType) expressionType).getVariantMaxSubcolumnsCount());
+            signature = signature.withArgumentType(0, variantType);
+            signature = signature.withReturnType(variantType);
         }
-
-        // Update signature with new argument types
-        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         return super.computeSignature(signature);
     }
 }
