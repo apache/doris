@@ -221,11 +221,11 @@ Status JvmStats::init() {
     RETURN_IF_ERROR(
             Jni::Util::find_class(env, "java/lang/management/MemoryMXBean", &_memoryMXBeanClass));
     RETURN_IF_ERROR(_memoryMXBeanClass.get_method(env, "getHeapMemoryUsage",
-                                                 "()Ljava/lang/management/MemoryUsage;",
-                                                 &_getHeapMemoryUsageMethod));
+                                                  "()Ljava/lang/management/MemoryUsage;",
+                                                  &_getHeapMemoryUsageMethod));
     RETURN_IF_ERROR(_memoryMXBeanClass.get_method(env, "getNonHeapMemoryUsage",
-                                                 "()Ljava/lang/management/MemoryUsage;",
-                                                 &_getNonHeapMemoryUsageMethod));
+                                                  "()Ljava/lang/management/MemoryUsage;",
+                                                  &_getNonHeapMemoryUsageMethod));
 
     RETURN_IF_ERROR(_managementFactoryClass.get_static_method(
             env, "getMemoryPoolMXBeans", "()Ljava/util/List;", &_getMemoryPoolMXBeansMethod));
@@ -372,7 +372,7 @@ Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
 
         Jni::LocalObject peakUsageObject;
         RETURN_IF_ERROR(memoryPoolMXBean.call_object_method(env, _getMemoryPoolMXBeanPeakMethod)
-                    .call(&peakUsageObject));
+                                .call(&peakUsageObject));
 
         jlong peakUsed = 0;
         RETURN_IF_ERROR(
@@ -380,7 +380,7 @@ Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
 
         Jni::LocalString name;
         RETURN_IF_ERROR(memoryPoolMXBean.call_object_method(env, _getMemoryPoolMXBeanNameMethod)
-                    .call(&name));
+                                .call(&name));
 
         Jni::LocalStringBufferGuard nameStr;
         RETURN_IF_ERROR(name.get_string_chars(env, &nameStr));
@@ -483,8 +483,8 @@ Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
                                 .call(&gcCollectionCount));
 
         jlong gcCollectionTime = 0;
-        RETURN_IF_ERROR(gcMXBean.call_long_method(env, _getGCCollectionTimeMethod)
-                                .call(&gcCollectionTime));
+        RETURN_IF_ERROR(
+                gcMXBean.call_long_method(env, _getGCCollectionTimeMethod).call(&gcCollectionTime));
 
         Jni::LocalStringBufferGuard gcNameStr;
         RETURN_IF_ERROR(gcName.get_string_chars(env, &gcNameStr));
