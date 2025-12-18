@@ -65,7 +65,7 @@ public abstract class SetOperationNode extends PlanNode {
 
     private boolean isColocate = false;
 
-    private DistributionMode  distributionMode = DistributionMode.SHUFFLE;
+    private DistributionMode distributionMode = DistributionMode.SHUFFLE;
 
     public enum DistributionMode {
         SHUFFLE, BUCKET_SHUFFLE
