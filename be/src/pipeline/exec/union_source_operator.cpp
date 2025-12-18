@@ -152,11 +152,12 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
-    vectorized::MutableBlock mblock =
+    auto mem_reuse_block =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, row_descriptor());
 
     vectorized::ColumnsWithTypeAndName tmp_block_columns;
-    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
+    for (; _const_expr_list_idx < _const_expr_lists.size() &&
+           mem_reuse_block.mutable_block.rows() < state->batch_size();
          ++_const_expr_list_idx) {
         int const_expr_lists_size = cast_set<int>(_const_expr_lists[_const_expr_list_idx].size());
         if (_const_expr_list_idx && const_expr_lists_size != _const_expr_lists[0].size()) {
@@ -171,13 +172,13 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
                     tmp_block_columns[i]));
         }
         vectorized::Block tmp_block(tmp_block_columns);
-        if (tmp_block.columns() != mblock.columns()) {
+        if (tmp_block.columns() != mem_reuse_block.mutable_block.columns()) {
             return Status::InternalError(
                     "[UnionNode]columns count of const expr block not matched ({} vs {})",
-                    tmp_block.columns(), mblock.columns());
+                    tmp_block.columns(), mem_reuse_block.mutable_block.columns());
         }
         if (tmp_block.rows() > 0) {
-            RETURN_IF_ERROR(mblock.merge(tmp_block));
+            RETURN_IF_ERROR(mem_reuse_block.mutable_block.merge(tmp_block));
             tmp_block.clear();
         }
     }
