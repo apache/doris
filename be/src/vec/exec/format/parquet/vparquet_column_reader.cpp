@@ -108,6 +108,7 @@ Status ParquetColumnReader::create(
         const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz, io::IOContext* io_ctx,
         std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size,
         std::unordered_map<int, tparquet::OffsetIndex>& col_offsets, bool in_collection) {
+    size_t total_rows = row_group.num_rows;
     if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
@@ -132,7 +133,6 @@ Status ParquetColumnReader::create(
             std::unique_ptr<ParquetColumnReader> child_reader;
             RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz, io_ctx,
                                    child_reader, max_buf_size, col_offsets, in_collection));
-            child_reader->set_nested_column();
             child_readers[field->children[i].name] = std::move(child_reader);
         }
         auto struct_reader = StructColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
@@ -181,10 +181,6 @@ Status ParquetColumnReader::create(
 
 void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end_index,
                                                 std::list<RowRange>& read_ranges) {
-    if (_nested_column) {
-        read_ranges.emplace_back(start_index, end_index);
-        return;
-    }
     int index = _row_range_index;
     while (index < _row_ranges.size()) {
         const RowRange& read_range = _row_ranges[index];
@@ -427,11 +423,10 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
         return Status::OK();
     };
 
-    while (_current_range_idx < _row_ranges.range_size()) {
-        size_t left_row =
-                std::max(_current_row_index, _row_ranges.get_range_from(_current_range_idx));
+    while (_current_range_idx < _row_ranges.size()) {
+        size_t left_row = std::max(_current_row_index, _row_ranges[_current_range_idx].first_row);
         size_t right_row = std::min(left_row + batch_size - *read_rows,
-                                    (size_t)_row_ranges.get_range_to(_current_range_idx));
+                                    (size_t)_row_ranges[_current_range_idx].last_row);
         _current_row_index = left_row;
         RETURN_IF_ERROR(_chunk_reader->seek_to_nested_row(left_row));
         size_t load_rows = 0;
@@ -448,12 +443,12 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
         }
         *read_rows += load_rows;
         _current_row_index += load_rows;
-        _current_range_idx += (_current_row_index == _row_ranges.get_range_to(_current_range_idx));
+        _current_range_idx += (_current_row_index == _row_ranges[_current_range_idx].last_row);
         if (*read_rows == batch_size) {
             break;
         }
     }
-    *eof = _current_range_idx == _row_ranges.range_size();
+    *eof = _current_range_idx == _row_ranges.size();
     return Status::OK();
 }
 
@@ -484,7 +479,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_try_load_dict_page(bool
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ScalarColumnReader::read_column_data(
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         ColumnPtr& doris_column, DataTypePtr& type,
         const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
         size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter) {

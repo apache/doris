@@ -1056,14 +1056,9 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         if (!_colname_to_slot_id->contains(read_table_col)) {
             continue;
         }
-        auto* field = _file_metadata->schema().get_column(read_file_col);
+        const auto* field = _file_metadata->schema().get_column(read_file_col);
 
-        std::function<void(FieldSchema * field)> f = [&](FieldSchema* field) {
-            if (!_column_ids.empty() &&
-                _column_ids.find(field->get_column_id()) == _column_ids.end()) {
-                return;
-            }
-
+        std::function<void(const FieldSchema* field)> f = [&](const FieldSchema* field) {
             if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
                 f(&field->children[0]);
             } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
@@ -1168,6 +1163,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         if (num_of_pages <= 0) {
             continue;
         }
+        const tparquet::OffsetIndex& offset_index = _col_offsets[parquet_col_id];
 
         std::vector<int> skipped_page_range;
         const std::vector<std::string>& encoded_min_vals = column_index.min_values;

@@ -47,11 +47,12 @@ struct IOContext;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
-                                     tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
-                                     const tparquet::OffsetIndex* offset_index, size_t total_rows,
-                                     io::IOContext* io_ctx)
+ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ColumnChunkReader(
+        io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
+        FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index, size_t total_rows,
+        io::IOContext* io_ctx)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
