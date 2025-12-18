@@ -189,6 +189,8 @@ public class MySqlSourceReader implements SourceReader {
                 // build split
                 Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offsetMeta, baseReq);
                 split = splitFlag.f0;
+                // reset binlog reader
+                closeBinlogReader();
                 currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
                 this.setCurrentSplitRecords(currentSplitRecords);
                 this.setCurrentSplit(split);
@@ -641,16 +643,11 @@ public class MySqlSourceReader implements SourceReader {
     @Override
     public void close(Long jobId) {
         LOG.info("Close source reader for job {}", jobId);
-        if (snapshotReader != null) {
-            snapshotReader.close();
-            snapshotReader = null;
-        }
-        if (binlogReader != null) {
-            binlogReader.close();
-            binlogReader = null;
-        }
+        closeSnapshotReader();
+        closeBinlogReader();
         currentReader = null;
         currentSplitRecords = null;
+        tableSchemas.clear();
         tableSchemas = null;
     }
 

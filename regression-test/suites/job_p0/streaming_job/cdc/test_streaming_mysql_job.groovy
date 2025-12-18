@@ -125,8 +125,8 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         }
 
         // check snapshot data
-        qt_select """ SELECT * FROM ${table1} order by name asc """
-        qt_select """ SELECT * FROM ${table2} order by name asc """
+        qt_select_snapshot_table1 """ SELECT * FROM ${table1} order by name asc """
+        qt_select_snapshot_table2 """ SELECT * FROM ${table2} order by name asc """
 
         // mock mysql incremental into
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
@@ -138,7 +138,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         sleep(30000); // wait for cdc incremental data
 
         // check incremental data
-        qt_select """ SELECT * FROM ${table1} order by name asc """
+        qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
 
         def jobInfo = sql """
         select loadStatistic, status from jobs("type"="insert") where Name='${jobName}'
@@ -146,6 +146,16 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"scannedRows\":7,\"loadBytes\":334,\"fileNumber\":0,\"fileSize\":0}"
         assert jobInfo.get(0).get(1) == "RUNNING"
+
+        // mock mysql incremental into again
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql """INSERT INTO ${mysqlDb}.${table1} (name,age) VALUES ('Apache',40);"""
+        }
+
+        sleep(30000); // wait for cdc incremental data
+
+        // check incremental data
+        qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
 
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'
