@@ -307,6 +307,9 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
         _copy_output_slots(columns, p);
         handled_row_indices.push_back(_cur_child_offset);
         child_row_to_output_rows_indices.push_back(output_row_count);
+        if (_fns[0]->eos()) {
+            process_next_child_row();
+        }
     }
     for (auto index : p._useless_slot_indexs) {
         columns[index]->insert_many_defaults(output_row_count - columns[index]->size());

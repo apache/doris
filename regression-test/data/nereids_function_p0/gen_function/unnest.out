@@ -588,6 +588,30 @@ Shirt	[4]	4	4
 3	Basketball	["Sports", "Outdoor"]	Sports
 4	Badminton Racket	["Sports", "Equipment"]	Sports
 
+-- !sql_inner_join3 --
+1
+5
+
+-- !sql_inner_join4 --
+Laptop
+Shirt
+
+-- !sql_inner_join5 --
+["Clothing", "Office", "Shirt"]
+["Electronics", "Office", "High-End", "Laptop"]
+
+-- !sql_inner_join6 --
+Laptop
+Shirt
+
+-- !sql_inner_join7 --
+1	Laptop
+5	Shirt
+
+-- !sql_inner_join8 --
+1
+1
+
 -- !sql_left_join0 --
 1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Laptop
 2	Mechanical Keyboard	["Electronics", "Accessories"]	\N
@@ -612,6 +636,48 @@ Shirt	[4]	4	4
 3	Basketball	["Sports", "Outdoor"]	Sports
 4	Badminton Racket	["Sports", "Equipment"]	Sports
 5	Shirt	["Clothing", "Office", "Shirt"]	\N
+
+-- !sql_left_join3 --
+1
+2
+3
+4
+5
+
+-- !sql_left_join4 --
+Badminton Racket
+Basketball
+Laptop
+Mechanical Keyboard
+Shirt
+
+-- !sql_left_join5 --
+["Clothing", "Office", "Shirt"]
+["Electronics", "Accessories"]
+["Electronics", "Office", "High-End", "Laptop"]
+["Sports", "Equipment"]
+["Sports", "Outdoor"]
+
+-- !sql_left_join6 --
+\N
+\N
+\N
+Laptop
+Shirt
+
+-- !sql_left_join7 --
+1	Laptop
+2	\N
+3	\N
+4	\N
+5	Shirt
+
+-- !sql_left_join8 --
+1
+1
+1
+1
+1
 
 -- !big_array_unnest_all --
 1	10	[1, 1, 2, 4, 5, 6, 7, 8, 9, 10]

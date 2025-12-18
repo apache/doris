@@ -384,6 +384,49 @@ suite("nereids_unnest_fn") {
         items_dict_unnest_t
         INNER JOIN lateral unnest(tags) AS t(tag) ON tag in ('Electronics', 'Sports');
     '''
+    order_qt_sql_inner_join3 '''
+    SELECT
+        id
+    FROM
+        items_dict_unnest_t
+        INNER JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_inner_join4 '''
+    SELECT
+        name
+    FROM
+        items_dict_unnest_t
+        INNER JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_inner_join5 '''
+    SELECT
+        tags
+    FROM
+        items_dict_unnest_t
+        INNER JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_inner_join6 '''
+    SELECT
+        t.tag
+    FROM
+        items_dict_unnest_t
+        INNER JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_inner_join7 '''
+    SELECT
+        id,
+        t.tag
+    FROM
+        items_dict_unnest_t
+        INNER JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_inner_join8 '''
+    SELECT
+        1
+    FROM
+        items_dict_unnest_t
+        INNER JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
 
     order_qt_sql_left_join0 '''
     SELECT
@@ -414,6 +457,50 @@ suite("nereids_unnest_fn") {
     FROM
         items_dict_unnest_t
         LEFT JOIN lateral unnest(tags) AS t(tag) ON tag in ('Electronics', 'Sports');
+    '''
+
+    order_qt_sql_left_join3 '''
+    SELECT
+        id
+    FROM
+        items_dict_unnest_t
+        LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_left_join4 '''
+    SELECT
+        name
+    FROM
+        items_dict_unnest_t
+        LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_left_join5 '''
+    SELECT
+        tags
+    FROM
+        items_dict_unnest_t
+        LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_left_join6 '''
+    SELECT
+        t.tag
+    FROM
+        items_dict_unnest_t
+        LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_left_join7 '''
+    SELECT
+        id,
+        t.tag
+    FROM
+        items_dict_unnest_t
+        LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+    '''
+    order_qt_sql_left_join8 '''
+    SELECT
+        1
+    FROM
+        items_dict_unnest_t
+        LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
     '''
 
     test {
