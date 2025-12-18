@@ -30,11 +30,15 @@ namespace doris::segment_v2 {
 InvertedIndexIterator::InvertedIndexIterator() = default;
 
 std::string InvertedIndexIterator::ensure_normalized_key(const std::string& analyzer_key) {
-    if (analyzer_key.empty()) {
+    if (analyzer_key.empty() || analyzer_key == INVERTED_INDEX_PARSER_NONE) {
         return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
     }
     auto normalized = normalize_analyzer_key(analyzer_key);
-    return normalized.empty() ? INVERTED_INDEX_DEFAULT_ANALYZER_KEY : normalized;
+    // Also check normalized value - handles case-insensitive "NONE", "None", etc.
+    if (normalized.empty() || normalized == INVERTED_INDEX_PARSER_NONE) {
+        return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
+    }
+    return normalized;
 }
 
 void InvertedIndexIterator::add_reader(InvertedIndexReaderType type,
@@ -46,7 +50,8 @@ void InvertedIndexIterator::add_reader(InvertedIndexReaderType type,
                << ", analyzer_key=" << analyzer_key;
 
     const size_t entry_index = _reader_entries.size();
-    _reader_entries.push_back(ReaderEntry {type, std::move(analyzer_key), reader});
+    _reader_entries.push_back(
+            ReaderEntry {.type = type, .analyzer_key = std::move(analyzer_key), .reader = reader});
 
     // Update index for O(1) lookup
     _key_to_entries[_reader_entries.back().analyzer_key].push_back(entry_index);
@@ -192,6 +197,9 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         return ResultError(Status::RuntimeError(
                 "No available inverted index readers. Check if index is properly initialized."));
     }
+    if (_reader_entries.size() == 1) {
+        return _reader_entries.front().reader;
+    }
 
     // Normalize once at entry point, then use normalized key throughout
     const std::string normalized_key = ensure_normalized_key(analyzer_key);
@@ -212,10 +220,28 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
                     return entry->reader;
                 }
             }
+            // If no FULLTEXT reader found in candidates, and user didn't specify a key,
+            // try to find one from all available readers.
+            if (normalized_key == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
+                for (const auto& entry : _reader_entries) {
+                    if (entry.type == InvertedIndexReaderType::FULLTEXT) {
+                        return entry.reader;
+                    }
+                }
+            }
         } else if (is_equal_query(query_type)) {
             for (const auto* entry : candidates) {
                 if (entry->type == InvertedIndexReaderType::STRING_TYPE) {
                     return entry->reader;
+                }
+            }
+            // If no STRING_TYPE reader found in candidates, and user didn't specify a key,
+            // try to find one from all available readers.
+            if (normalized_key == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
+                for (const auto& entry : _reader_entries) {
+                    if (entry.type == InvertedIndexReaderType::STRING_TYPE) {
+                        return entry.reader;
+                    }
                 }
             }
         }
