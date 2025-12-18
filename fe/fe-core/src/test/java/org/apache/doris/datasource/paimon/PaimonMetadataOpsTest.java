@@ -75,6 +75,7 @@ public class PaimonMetadataOpsTest {
         // create db
         ops = new PaimonMetadataOps(paimonCatalog, paimonCatalog.catalog);
         ops.createDb(dbName, true, Maps.newHashMap());
+        paimonCatalog.makeSureInitialized();
     }
 
     @Test
