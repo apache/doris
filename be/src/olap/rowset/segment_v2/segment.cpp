@@ -749,12 +749,12 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
 }
 
 Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
+    // Ensure column meta accessor and reader cache are initialized once.
+    OlapReaderStatistics dummy_stats;
+    RETURN_IF_ERROR(_create_column_meta_once(&dummy_stats));
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, nullptr));
-    for (const auto& column : footer_pb_shared->columns()) {
-        visitor(column);
-    }
-    return Status::OK();
+    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, &dummy_stats));
+    return _column_meta_accessor->traverse_metas(*footer_pb_shared, visitor);
 }
 
 Status Segment::get_column_reader(const TabletColumn& col,
