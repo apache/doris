@@ -341,6 +341,10 @@ public:
         return const_cast<Derived&>(*derived());
     }
 
+    MutablePtr assume_mutable_without_check() const { return const_cast<COW*>(this)->get_ptr(); }
+
+    Derived& assume_mutable_ref_without_check() const { return const_cast<Derived&>(*derived()); }
+
 protected:
     /// It works as immutable_ptr if it is const and as mutable_ptr if it is non const.
     template <typename T>
@@ -357,13 +361,13 @@ protected:
                 : value(std::forward<std::initializer_list<U>>(arg)) {}
 
         const T* get() const { return value.get(); }
-        T* get() { return &value->assume_mutable_ref(); }
+        T* get() { return &value->assume_mutable_ref_without_check(); }
 
         const T* operator->() const { return get(); }
         T* operator->() { return get(); }
 
         const T& operator*() const { return *value; }
-        T& operator*() { return value->assume_mutable_ref(); }
+        T& operator*() { return value->assume_mutable_ref_without_check(); }
 
         operator const immutable_ptr<T>&() const { return value; }
         operator immutable_ptr<T>&() { return value; }
