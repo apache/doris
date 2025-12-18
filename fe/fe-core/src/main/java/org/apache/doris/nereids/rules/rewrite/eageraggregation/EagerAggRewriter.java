@@ -315,9 +315,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private boolean checkStats(Plan plan, PushDownAggContext context) {
-        if (!context.isPassThroughBigJoin()) {
-            return false;
-        }
         if (ConnectContext.get() == null) {
             return false;
         }
@@ -327,6 +324,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         if (mode > 0) {
             return true;
+        }
+        if (!context.isPassThroughBigJoin()) {
+            return false;
         }
         Statistics stats = plan.getStats();
         if (stats == null) {
