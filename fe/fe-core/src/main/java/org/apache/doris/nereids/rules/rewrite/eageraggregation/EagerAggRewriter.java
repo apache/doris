@@ -214,7 +214,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         // check validation
-        // all projections are used in context
         // all slots in context are projected
         List<Slot> slotsInContext = context.getGroupKeys().stream()
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toList());
@@ -227,12 +226,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 } else {
                     return project;
                 }
-            }
-        }
-        for (NamedExpression ne : project.getProjects()) {
-            if (!slotsInContext.contains(ne.toSlot())) {
-                throw new RuntimeException("push down failed: " + ne + " is not in PushDownAggContext\n"
-                        + project);
             }
         }
 
