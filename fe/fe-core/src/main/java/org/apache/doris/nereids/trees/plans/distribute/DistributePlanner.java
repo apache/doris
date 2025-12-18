@@ -205,7 +205,7 @@ public class DistributePlanner {
 
         List<AssignedJob> receiverInstances = filterInstancesWhichCanReceiveDataFromRemote(
                 receiverPlan, enableShareHashTableForBroadcastJoin, linkNode);
-        if (linkNode.getPartitionType() == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
+        if (receiverPlan.getFragmentJob() instanceof UnassignedScanBucketOlapTableJob) {
             receiverInstances = getDestinationsByBuckets(receiverPlan, receiverInstances);
         }
 
