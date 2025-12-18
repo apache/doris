@@ -237,6 +237,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
         rangeDesc.setMinMaxValues(icebergSplit.getMinMaxValues());
+        rangeDesc.setCouldUseIcebergMinMaxOptimization(
+                !icebergSplit.getMinMaxValues().isEmpty());
     }
 
     @Override
@@ -381,7 +383,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                 storagePropertiesMap,
                 new ArrayList<>(),
                 originalPath);
-        if ((getPushDownAggNoGroupingOp() == TPushAggOp.MINMAX) && fileScanTask.file().nullValueCounts() != null
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.MINMAX && fileScanTask.deletes().isEmpty()
+                && fileScanTask.file().nullValueCounts() != null
                 && fileScanTask.file().valueCounts() != null) {
             Map<Integer, TExprMinMaxValue> tExprMinMaxValueMap = IcebergUtils.toThriftMinMaxValueBySlots(
                     icebergTable.schema(), fileScanTask.file().lowerBounds(), fileScanTask.file().upperBounds(),

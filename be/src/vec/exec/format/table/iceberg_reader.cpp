@@ -105,7 +105,6 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
 Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
     if (_could_use_iceberg_min_max_optimization) {
         RETURN_IF_ERROR(_insert_min_max_value_column(block));
-        LOG(INFO) << "asd min max optimization applied." << block->dump_structure();
         *read_rows = 3;
         *eof = true;
         return Status::OK();
@@ -199,7 +198,8 @@ Status IcebergTableReader::_insert_value_to_column(MutableColumnPtr& column,
         case TPrimitiveType::BOOLEAN:
         case TPrimitiveType::TINYINT:
         case TPrimitiveType::SMALLINT:
-        case TPrimitiveType::INT: {
+        case TPrimitiveType::INT:
+        case TPrimitiveType::BIGINT: {
             column->insert_data(reinterpret_cast<const char*>(&value.min_int_value),
                                 sizeof(int64_t));
             column->insert_data(reinterpret_cast<const char*>(&value.max_int_value),

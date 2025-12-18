@@ -1563,9 +1563,7 @@ public class IcebergUtils {
             org.apache.iceberg.types.Type.TypeID.LONG,
             org.apache.iceberg.types.Type.TypeID.FLOAT,
             org.apache.iceberg.types.Type.TypeID.DOUBLE,
-            org.apache.iceberg.types.Type.TypeID.DATE,
-            org.apache.iceberg.types.Type.TypeID.TIME
-    );
+            org.apache.iceberg.types.Type.TypeID.DATE);
 
     public static class MinMaxValue {
         Object minValue;

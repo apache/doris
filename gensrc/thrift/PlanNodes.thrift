@@ -514,6 +514,7 @@ struct TFileRangeDesc {
     15: optional list<bool> columns_from_path_is_null;
     // used for iceberg min/max optimization, key is slot id
     16: optional map<i32, Exprs.TExprMinMaxValue> min_max_values;
+    17: optional bool could_use_iceberg_min_max_optimization = false;
 }
 
 struct TSplitSource {

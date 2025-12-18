@@ -2176,7 +2176,7 @@ public class SessionVariable implements Serializable, Writable {
     public long fileSplitSize = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_ICEBERG_MIN_MAX_OPTIMIZATION, needForward = true)
-    public boolean enableIcebergMinMaxOptimization = true;
+    public boolean enableIcebergMinMaxOptimization = false;
 
     // Target file size for Iceberg write operations
     // Default 0 means use config::iceberg_sink_max_file_size

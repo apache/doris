@@ -1637,8 +1637,7 @@ Status FileScanner::_init_expr_ctxes() {
     }
 
     _num_of_columns_from_file = _params->num_of_columns_from_file;
-    _could_use_iceberg_min_max_optimization =
-            (_get_push_down_agg_type() == TPushAggOp::type::MINMAX);
+    _could_use_iceberg_min_max_optimization = _current_range.could_use_iceberg_min_max_optimization;
 
     for (const auto& slot_info : _params->required_slots) {
         auto slot_id = slot_info.slot_id;
@@ -1760,8 +1759,7 @@ void FileScanner::try_stop() {
 }
 
 void FileScanner::update_realtime_counters() {
-    pipeline::FileScanLocalState* local_state =
-            static_cast<pipeline::FileScanLocalState*>(_local_state);
+    auto* local_state = static_cast<pipeline::FileScanLocalState*>(_local_state);
 
     COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
@@ -1818,8 +1816,7 @@ void FileScanner::_collect_profile_before_close() {
         _cur_reader->collect_profile_before_close();
     }
 
-    pipeline::FileScanLocalState* local_state =
-            static_cast<pipeline::FileScanLocalState*>(_local_state);
+    auto* local_state = static_cast<pipeline::FileScanLocalState*>(_local_state);
     COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
 
