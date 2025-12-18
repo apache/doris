@@ -47,7 +47,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
     @ConnectorProperty(
             names = {CatalogProperties.IO_MANIFEST_CACHE_ENABLED},
             required = false,
-            description = "Controls whether to use caching during manifest reads or not. Default: false."
+            description = "Controls whether to use caching during manifest reads or not. Default: true."
     )
     protected String ioManifestCacheEnabled;
 
@@ -57,7 +57,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             required = false,
             description = "Controls the maximum duration for which an entry stays in the manifest cache. "
                     + "Must be a non-negative value. Zero means entries expire only due to memory pressure. "
-                    + "Default: 60000 (60s)."
+                    + "Default: 7200000 (2h)."
     )
     protected String ioManifestCacheExpirationIntervalMs;
 
@@ -131,16 +131,23 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
     /**
      * Add manifest cache related properties to catalog properties.
      * These properties control caching behavior during manifest reads.
+     * By default, manifest cache is enabled for better performance.
      *
      * @param catalogProps the catalog properties map to add manifest cache properties to
      */
     protected void addManifestCacheProperties(Map<String, String> catalogProps) {
+        // Default to enable manifest cache for better performance
         if (StringUtils.isNotBlank(ioManifestCacheEnabled)) {
             catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, ioManifestCacheEnabled);
+        } else {
+            catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "true");
         }
         if (StringUtils.isNotBlank(ioManifestCacheExpirationIntervalMs)) {
             catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_EXPIRATION_INTERVAL_MS,
                     ioManifestCacheExpirationIntervalMs);
+        } else {
+            // Default to 2 hours (7200000ms) for better cache utilization
+            catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_EXPIRATION_INTERVAL_MS, "7200000");
         }
         if (StringUtils.isNotBlank(ioManifestCacheMaxTotalBytes)) {
             catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_MAX_TOTAL_BYTES, ioManifestCacheMaxTotalBytes);
