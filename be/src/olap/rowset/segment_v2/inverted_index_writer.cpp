@@ -206,7 +206,7 @@ InvertedIndexColumnWriter<field_type>::create_analyzer(
 template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
     _inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
-            get_custom_analyzer_string_from_properties(_index_meta->properties()),
+            get_analyzer_name_from_properties(_index_meta->properties()),
             get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(_index_meta->properties())),
             get_parser_mode_string_from_properties(_index_meta->properties()),

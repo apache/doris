@@ -152,8 +152,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             if (!st.ok()) {
                 return st;
             }
-            inverted_index_ctx.custom_analyzer =
-                    get_custom_analyzer_string_from_properties(properties);
+            inverted_index_ctx.analyzer_name = get_analyzer_name_from_properties(properties);
             inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties));
             if (inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
@@ -163,7 +162,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             }
 
             // Special handling for PARSER_NONE: return original string as single token
-            if (inverted_index_ctx.custom_analyzer.empty() &&
+            if (inverted_index_ctx.analyzer_name.empty() &&
                 inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_NONE) {
                 _do_tokenize_none(*col_left, dest_column_ptr);
                 block.replace_by_position(result, std::move(dest_column_ptr));
