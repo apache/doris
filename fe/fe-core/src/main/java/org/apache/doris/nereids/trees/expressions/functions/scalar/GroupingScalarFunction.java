@@ -45,7 +45,7 @@ public abstract class GroupingScalarFunction extends ScalarFunction implements A
     /**
      * compute a long value that backend need to fill to the VirtualSlotRef
      */
-    public abstract List<Long> computeVirtualSlotValue(GroupingSetShapes shapes);
+    public abstract List<Long> computeValue(GroupingSetShapes shapes);
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

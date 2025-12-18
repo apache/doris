@@ -414,7 +414,7 @@ public enum RuleType {
     SHOR_CIRCUIT_POINT_QUERY(RuleTypeClass.REWRITE),
     // skew rewrtie
     SALT_JOIN(RuleTypeClass.REWRITE),
-
+    DECOMPOSE_REPEAT(RuleTypeClass.REWRITE),
     DISTINCT_AGGREGATE_SPLIT(RuleTypeClass.REWRITE),
     PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT(RuleTypeClass.REWRITE),
 
