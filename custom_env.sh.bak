@@ -1,0 +1,3 @@
+# Doris build environment
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export PATH="$JAVA_HOME/bin:/usr/share/maven/bin:/home/zhisheng/node-v12.13.0-linux-x64/bin:/home/zhisheng/ldb_toolchain/bin:$PATH"

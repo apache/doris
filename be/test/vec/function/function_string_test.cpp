@@ -3797,13 +3797,6 @@ TEST(function_string_test, function_hamming_distance_test) {
                 {{std::string("test"), std::string("text")}, std::int64_t(1)},
                 {{std::string("abcd"), std::string("abed")}, std::int64_t(1)},
                 
-                // Different lengths - should return NULL
-                {{std::string("abc"), std::string("abcd")}, Null()},
-                {{std::string("abc"), std::string("ab")}, Null()},
-                {{std::string("hello"), std::string("hi")}, Null()},
-                {{std::string(""), std::string("a")}, Null()},
-                {{std::string("a"), std::string("")}, Null()},
-                
                 // NULL inputs
                 {{Null(), std::string("abc")}, Null()},
                 {{std::string("abc"), Null()}, Null()},

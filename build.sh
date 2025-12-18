@@ -363,7 +363,32 @@ update_submodule() {
         echo "Update ${submodule_name} submodule failed, start to download and extract ${commit_specific_url}"
 
         mkdir -p "${DORIS_HOME}/${submodule_path}"
-        curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
+        
+        # Try multiple mirror sources for GitHub downloads
+        download_success=0
+        mirrors=(
+            "${commit_specific_url}"
+            "https://ghproxy.com/${commit_specific_url}"
+            "https://ghproxy.net/${commit_specific_url}"
+            "https://ghproxy.it/${commit_specific_url}"
+            "https://mirror.ghproxy.com/${commit_specific_url}"
+        )
+        
+        for url in "${mirrors[@]}"; do
+            echo "Trying to download from: ${url}"
+            if curl -L --connect-timeout 30 --max-time 300 "${url}" 2>/dev/null | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1 2>/dev/null; then
+                download_success=1
+                echo "Successfully downloaded ${submodule_name} from mirror"
+                break
+            else
+                echo "Failed to download from ${url}, trying next mirror..."
+            fi
+        done
+        
+        if [[ "${download_success}" -eq 0 ]]; then
+            echo "Error: Failed to download ${submodule_name} from all mirrors"
+            exit 1
+        fi
     fi
 }
 

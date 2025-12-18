@@ -430,12 +430,36 @@ endif()
 
 if (NOT EXISTS "${THIRDPARTY_SRC}/${FDB_LIB}")
     file(MAKE_DIRECTORY ${THIRDPARTY_SRC})
-    execute_process(COMMAND curl --retry 10 --retry-delay 2 --retry-max-time 30 ${FDB_LIB_URL}
-                            -o ${THIRDPARTY_SRC}/${FDB_LIB} -k
-                    RESULTS_VARIABLE DOWNLOAD_RET)
-    if (NOT ${DOWNLOAD_RET} STREQUAL "0")
+    # Try multiple mirrors to avoid single-endpoint timeout
+    set(FDB_LIB_URLS "${FDB_LIB_URL}")
+    if (OS_RELEASE STREQUAL "Ubuntu")
+        list(APPEND FDB_LIB_URLS "https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/thirdparty/fdb/ubuntu/${FDB_LIB}")
+    else()
+        list(APPEND FDB_LIB_URLS "https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/thirdparty/fdb/centos/${FDB_LIB}")
+    endif()
+    list(APPEND FDB_LIB_URLS "https://ghproxy.net/${FDB_LIB_URL}")
+    list(APPEND FDB_LIB_URLS "https://ghproxy.com/${FDB_LIB_URL}")
+    list(APPEND FDB_LIB_URLS "https://mirror.ghproxy.com/${FDB_LIB_URL}")
+
+    set(DOWNLOAD_SUCC FALSE)
+    foreach(_url IN LISTS FDB_LIB_URLS)
+        message(STATUS "Trying to download FDB lib from: ${_url}")
+        execute_process(
+            COMMAND curl -L --connect-timeout 10 --max-time 180 --retry 3 --retry-delay 2 --retry-max-time 180 "${_url}" -o ${THIRDPARTY_SRC}/${FDB_LIB} -k
+            RESULT_VARIABLE DOWNLOAD_RET
+        )
+        if (DOWNLOAD_RET EQUAL 0)
+            set(DOWNLOAD_SUCC TRUE)
+            message(STATUS "Successfully downloaded FDB lib from: ${_url}")
+            break()
+        else()
+            message(WARNING "Failed to download from ${_url}, code ${DOWNLOAD_RET}")
+        endif()
+    endforeach()
+
+    if (NOT DOWNLOAD_SUCC)
         execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_SRC}/${FDB_LIB}")
-        message(FATAL_ERROR "Failed to download dependency of fdb ${FDB_LIB_URL}, remove it")
+        message(FATAL_ERROR "Failed to download dependency of fdb after trying all mirrors")
     endif ()
 endif ()
 

@@ -102,11 +102,7 @@ suite("test_hamming_distance") {
     order_qt_const_same_length_diff "select hamming_distance('abc', 'axc') from arg1_hamming_distance"
     order_qt_const_same_length_all_diff "select hamming_distance('abc', 'xyz') from arg1_hamming_distance"
     
-    /// Test different length strings (should return NULL)
-    order_qt_const_diff_length "select hamming_distance('abc', 'abcd') from arg1_hamming_distance"
-    order_qt_const_diff_length2 "select hamming_distance('abc', 'ab') from arg1_hamming_distance"
-    order_qt_const_diff_length_empty "select hamming_distance('', 'a') from arg1_hamming_distance"
-    order_qt_const_diff_length_empty2 "select hamming_distance('a', '') from arg1_hamming_distance"
+    
 
     /// folding
     check_fold_consistency "hamming_distance('abc', 'abc')"

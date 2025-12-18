@@ -444,9 +444,10 @@ endif()
 # Add flags that are common across build types
 set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
 
-set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
+set(CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS}")
 
 # Set include dirs
+
 include_directories(
     ${CONTRIB_PATH}/apache-orc/c++/include
     ${CMAKE_CURRENT_BINARY_DIR}/apache-orc/c++/include

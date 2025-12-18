@@ -1433,8 +1433,8 @@ using FunctionStringAppendTrailingCharIfAbsent =
         FunctionBinaryStringOperateToNullType<StringAppendTrailingCharIfAbsent>;
 
 using FunctionHammingDistance =
-        FunctionBinaryStringOperateToNullType<HammingDistanceImpl>;
-
+        FunctionBinaryToType<DataTypeString, DataTypeString,
+                             HammingDistanceImpl, NameHammingDistance>;
 using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
 

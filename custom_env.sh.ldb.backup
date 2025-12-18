@@ -1,0 +1,10 @@
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+# 使用 ldb_toolchain 作为 Doris 的 clang/gcc 提供者，但让它自己管理 sysroot 搜索路径
+export DORIS_CLANG_HOME=/home/zhisheng/ldb_toolchain_v0.26
+export DORIS_GCC_HOME=/home/zhisheng/ldb_toolchain_v0.26
+
+export PATH="$DORIS_CLANG_HOME/bin:$JAVA_HOME/bin:/usr/share/maven/bin:/home/zhisheng/node-v12.13.0-linux-x64/bin:$PATH"
+
+# 不再强行覆盖 C_INCLUDE_PATH / CPLUS_INCLUDE_PATH / LD_LIBRARY_PATH，
+# 避免打乱 clang/gcc 内部对 sysroot 和 include_next 的处理顺序。

@@ -593,6 +593,12 @@ build_gperftools() {
 
 # zlib
 build_zlib() {
+    # 如果已经安装过静态 zlib，则认为构建完成，避免重复跑自测/安装逻辑
+    if [[ -f "${TP_INSTALL_DIR}/lib/libz.a" ]]; then
+        echo "zlib static library already exists in ${TP_INSTALL_DIR}/lib, skip rebuilding zlib."
+        return 0
+    fi
+
     check_if_source_exist "${ZLIB_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ZLIB_SOURCE}"
 
