@@ -521,6 +521,7 @@ Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* mi
             }
         } else {
             RETURN_IF_ERROR(min_value_container->from_string(zone_map.min()));
+            min_value_container->set_not_null();
         }
 
         if (zone_map.has_nan()) {
@@ -545,6 +546,7 @@ Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* mi
             }
         } else {
             RETURN_IF_ERROR(max_value_container->from_string(zone_map.max()));
+            max_value_container->set_not_null();
         }
     }
     // for compatible original Cond eval logic
