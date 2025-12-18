@@ -2282,7 +2282,6 @@ Status Tablet::_follow_cooldowned_data() {
         return Status::InternalError<false>("Cooldown meta rs_metas is empty");
     }
 
-    DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
     if (_tablet_meta->cooldown_meta_id() == cooldown_meta_pb.cooldown_meta_id()) {
         // cooldowned rowsets are same, no need to follow
         return Status::OK();
