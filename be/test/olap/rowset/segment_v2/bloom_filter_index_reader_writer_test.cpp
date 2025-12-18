@@ -40,6 +40,7 @@
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/types.h"
 #include "olap/uint24.h"
+#include "testutil/datetime_ut_util.h"
 #include "util/slice.h"
 
 namespace doris {

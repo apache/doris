@@ -26,6 +26,7 @@
 #include <string>
 
 #include "testutil/column_helper.h"
+#include "testutil/datetime_ut_util.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 #include "vec/common/sort/sorter.h"
