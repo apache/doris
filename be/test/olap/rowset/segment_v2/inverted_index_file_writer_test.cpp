@@ -230,6 +230,7 @@ TEST_F(IndexFileWriterTest, DeleteIndexTest) {
 }
 
 TEST_F(IndexFileWriterTest, WriteV1Test) {
+    config::enable_write_index_searcher_cache = false;
     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
                            InvertedIndexStorageFormatPB::V1);
 
@@ -251,6 +252,11 @@ TEST_F(IndexFileWriterTest, WriteV1Test) {
         std::cout << "close error:" << close_status.msg() << std::endl;
     }
     ASSERT_TRUE(close_status.ok());
+
+    auto file_names = writer.get_index_file_names();
+    ASSERT_EQ(file_names.size(), 1);
+    EXPECT_EQ(file_names[0], InvertedIndexDescriptor::get_index_file_name_v1(
+                                     _rowset_id, _seg_id, index_id, index_suffix));
 
     const InvertedIndexFileInfo* file_info = writer.get_index_file_info();
     ASSERT_NE(file_info, nullptr);
