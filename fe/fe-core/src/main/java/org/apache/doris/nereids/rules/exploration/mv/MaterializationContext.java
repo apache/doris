@@ -108,6 +108,10 @@ public abstract class MaterializationContext {
     // for one materialization query may be multi when nested materialized view.
     protected final Multimap<ObjectId, Pair<String, String>> failReason = HashMultimap.create();
     protected List<String> identifier;
+    // The common table id set which is used in materialization
+    private BitSet commonTableIdSet;
+    // The relation id set which is used in query and matched by this materialization
+    private BitSet queryRelationIdSet;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by materialization
@@ -382,16 +386,36 @@ public abstract class MaterializationContext {
     }
 
     /**
-     * get materialization context common table id by current statementContext
+     * get materialization context common table id by current currentQueryStatementContext
      */
-    public BitSet getCommonTableIdSet(StatementContext statementContext) {
-        BitSet commonTableId = new BitSet();
+    public BitSet getCommonTableIdSet(StatementContext currentQueryStatementContext) {
+        if (commonTableIdSet != null) {
+            return commonTableIdSet;
+        }
+        commonTableIdSet = new BitSet();
         for (StructInfoNode node : structInfo.getRelationIdStructInfoNodeMap().values()) {
             for (CatalogRelation catalogRelation : node.getCatalogRelation()) {
-                commonTableId.set(statementContext.getTableId(catalogRelation.getTable()).asInt());
+                commonTableIdSet.set(currentQueryStatementContext.getTableId(catalogRelation.getTable()).asInt());
             }
         }
-        return commonTableId;
+        return commonTableIdSet;
+    }
+
+    /**
+     * Get query relation id set which is used in query and matched by this materialization
+     */
+    public BitSet getQueryRelationIdSetMvMatched(StatementContext currentQueryStatementContext) {
+        if (queryRelationIdSet != null) {
+            return this.queryRelationIdSet;
+        }
+        queryRelationIdSet = new BitSet();
+        BitSet commonTableIdSet = getCommonTableIdSet(currentQueryStatementContext);
+        Multimap<Integer, Integer> commonTableIdToRelationIdMap
+                = currentQueryStatementContext.getCommonTableIdToRelationIdMap();
+        for (int i = commonTableIdSet.nextSetBit(0); i >= 0; i = commonTableIdSet.nextSetBit(i + 1)) {
+            commonTableIdToRelationIdMap.get(i).forEach(this.queryRelationIdSet::set);
+        }
+        return this.queryRelationIdSet;
     }
 
     @Override
