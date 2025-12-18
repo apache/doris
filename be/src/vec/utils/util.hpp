@@ -31,6 +31,26 @@
 
 namespace doris::vectorized {
 
+// We will create a MutableBlock, whose columns may or may not point to the same memory as the block.
+// To ensure this, we need to guarantee that after the MutableBlock is processed, the data can be correctly written back to the block.
+// In the past, we forgot to write back in some places, but since we can mostly ensure that the use_count of the column in the block is 1
+// (MutableBlock's column and block point to the same memory):
+/*
+    MutableColumns Block::mutate_columns() {
+    size_t num_columns = data.size();
+    MutableColumns columns(num_columns);
+    for (size_t i = 0; i < num_columns; ++i) {
+        DCHECK(data[i].type);
+        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
+                                    : data[i].type->create_column();
+    }
+    return columns;
+}
+*/
+// However, as the code complexity increases, this implicit assumption is no longer reliable.
+// Therefore, we introduce this struct to force the caller to call the set_columns method to write the data back to the block after processing the MutableBlock.
+// Alternatively, you can manually call the set_columns() method to write the data back to the block.
+
 struct MemReuseBlockWrapper {
     MutableBlock mutable_block;
     Block* block = nullptr;
