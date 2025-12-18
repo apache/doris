@@ -172,6 +172,16 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
+    @ConfField(mutable = true, description = {
+            "MySQL 兼容性变量白名单。这些变量在 SET 语句中会被静默忽略，而不是抛出错误。"
+                    + "主要用于兼容 MySQL 客户端工具（如 phpMyAdmin, mysqldump）。"
+                    + "Doris 不需要理解这些变量的具体含义，只需要接受它们而不报错。",
+            "MySQL compatibility variable whitelist. These variables will be silently ignored in SET statements "
+                    + "instead of throwing an error. This is mainly used for compatibility with MySQL client tools "
+                    + "(such as phpMyAdmin, mysqldump). Doris does not need to understand the specific meaning of "
+                    + "these variables, it just needs to accept them without error."})
+    public static String[] mysql_compat_var_whitelist = {};
+
     @ConfField(mutable = true, masterOnly = true, description = {"强制 SQLServer Jdbc Catalog 加密为 false",
             "Force SQLServer Jdbc Catalog encrypt to false"})
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
