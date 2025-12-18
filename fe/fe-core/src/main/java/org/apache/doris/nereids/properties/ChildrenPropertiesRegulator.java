@@ -710,17 +710,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                         = (DistributionSpecHash) originChildrenProperties.get(distributeToChildIndex)
                             .getDistributionSpec();
 
-                List<Integer> notShuffleSideColumnIndexes = new ArrayList<>();
-                for (ExprId orderedShuffledColumn : notNeedShuffleOutput.getOrderedShuffledColumns()) {
-                    List<ExprId> requireIds = notShuffleSideRequire.getOrderedShuffledColumns();
-                    for (int i = 0; i < requireIds.size(); i++) {
-                        if (requireIds.get(i).asInt() == orderedShuffledColumn.asInt()) {
-                            notShuffleSideColumnIndexes.add(i);
-                            break;
-                        }
-                    }
-                }
-
                 for (int i = 0; i < originChildrenProperties.size(); i++) {
                     DistributionSpecHash current
                             = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
