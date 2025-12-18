@@ -83,7 +83,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
     // before opening, should setup probe_operator's partitioner.
     const auto& tnode = probe_operator->_tnode;
     auto child = std::make_shared<MockChildOperator>();
-    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {0});
     child->_row_descriptor = row_desc;
 
     probe_operator->_inner_sink_operator->_child = nullptr;
@@ -165,7 +165,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, spill_probe_blocks) {
     auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
                                                         probe_operator.get(), shared_state);
 
-    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {0});
     const auto& tnode = probe_operator->_tnode;
     local_state->_partitioner = create_spill_partitioner(
             _helper.runtime_state.get(), PartitionedHashJoinTestHelper::TEST_PARTITION_COUNT,
@@ -794,7 +794,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PushPartitionData) {
     auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
                                                         probe_operator.get(), shared_state);
     // Setup row descriptor and partitioner
-    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {0});
     const auto& tnode = probe_operator->_tnode;
     local_state->_partitioner = create_spill_partitioner(
             _helper.runtime_state.get(), PartitionedHashJoinTestHelper::TEST_PARTITION_COUNT,
@@ -828,7 +828,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PushWithEOS) {
                                                         probe_operator.get(), shared_state);
 
     // Setup row descriptor and partitioner
-    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {0});
     const auto& tnode = probe_operator->_tnode;
     local_state->_partitioner = create_spill_partitioner(
             _helper.runtime_state.get(), PartitionedHashJoinTestHelper::TEST_PARTITION_COUNT,
@@ -870,7 +870,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PushLargeBlock) {
                                                         probe_operator.get(), shared_state);
 
     // Setup row descriptor and partitioner
-    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {0});
     const auto& tnode = probe_operator->_tnode;
     local_state->_partitioner = create_spill_partitioner(
             _helper.runtime_state.get(), PartitionedHashJoinTestHelper::TEST_PARTITION_COUNT,

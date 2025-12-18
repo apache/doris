@@ -15,18 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
+#pragma once
 
-#include "vec/aggregate_functions/aggregate_function_min_max_by.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include <cstdint>
+#include <string>
+#include <string_view>
 
-namespace doris::vectorized {
-#include "common/compile_check_begin.h"
+#include "common/status.h"
+#include "gen_cpp/cloud.pb.h"
 
-void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both(
-            "min_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                           AggregateFunctionMinByData>);
-}
+namespace doris::io {
 
-} // namespace doris::vectorized
+constexpr uint32_t kPackedFileTrailerVersion = 1;
+constexpr size_t kPackedFileTrailerSuffixSize = sizeof(uint32_t) * 2;
+
+Status parse_packed_file_trailer(std::string_view data, cloud::PackedFileDebugInfoPB* debug_pb,
+                                 uint32_t* version);
+
+Status read_packed_file_trailer(const std::string& file_path,
+                                cloud::PackedFileDebugInfoPB* debug_pb, uint32_t* version);
+
+} // namespace doris::io

@@ -499,7 +499,6 @@ import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.JoinSkewInfo;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -556,7 +555,6 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -2070,10 +2068,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 connectContext.setStatementContext(statementContext);
                 statementContext.setConnectContext(connectContext);
             }
-            Pair<LogicalPlan, StatementContext> planAndContext = Pair.of(
-                    ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext);
-            statementContext.setParsedStatement(new LogicalPlanAdapter(planAndContext.first, statementContext));
-            logicalPlans.add(planAndContext);
+            logicalPlans.add(Pair.of(
+                    ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
             List<Placeholder> params = new ArrayList<>(tokenPosToParameters.values());
             statementContext.setPlaceholders(params);
             tokenPosToParameters.clear();
@@ -2986,20 +2982,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit());
+                String funcOpName = String.format("%sS_ADD", interval.timeUnit());
+                return new UnboundFunction(funcOpName, ImmutableList.of(right, interval.value()));
             }
 
             if (right instanceof Interval) {
-                Operator op;
+                String op;
                 if (type == DorisParser.PLUS) {
-                    op = Operator.ADD;
+                    op = "ADD";
                 } else if (type == DorisParser.SUBTRACT) {
-                    op = Operator.SUBTRACT;
+                    op = "SUB";
                 } else {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit());
+                String funcOpName = String.format("%sS_%s", interval.timeUnit(), op);
+                return new UnboundFunction(funcOpName, ImmutableList.of(left, interval.value()));
             }
 
             return ParserUtils.withOrigin(ctx, () -> {

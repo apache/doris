@@ -253,7 +253,7 @@ protected:
         _virtual_slot_ref_expr.nodes.push_back(virtual_slot_ref_node);
         _ann_index_iterator = std::make_unique<vector_search_utils::MockAnnIndexIterator>();
 
-        _row_desc = RowDescriptor(*_desc_tbl, {0}, {false});
+        _row_desc = RowDescriptor(*_desc_tbl, {0});
 
         // Create CLucene RAM directory instead of mock
         _ram_dir = std::make_shared<lucene::store::RAMDirectory>();

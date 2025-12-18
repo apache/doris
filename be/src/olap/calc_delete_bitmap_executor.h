@@ -22,6 +22,7 @@
 #include <atomic>
 #include <iosfwd>
 #include <memory>
+#include <shared_mutex>
 #include <utility>
 #include <vector>
 
@@ -54,13 +55,32 @@ public:
                   const segment_v2::SegmentSharedPtr& cur_segment,
                   const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                  DeleteBitmapPtr tablet_delete_bitmap,
-                  std::function<void(segment_v2::SegmentSharedPtr, Status)> callback);
+                  DeleteBitmapPtr tablet_delete_bitmap);
 
     // calculate delete bitmap between `segments`
     Status submit(BaseTabletSPtr tablet, TabletSchemaSPtr schema, RowsetId rowset_id,
                   const std::vector<segment_v2::SegmentSharedPtr>& segments,
                   DeleteBitmapPtr delete_bitmap);
+
+    // submit a generic function to the thread pool
+    template <typename Func>
+    Status submit_func(Func&& func) {
+        {
+            std::shared_lock rlock(_lock);
+            RETURN_IF_ERROR(_status);
+            _resource_ctx = thread_context()->resource_ctx();
+        }
+        return _thread_token->submit_func([this, func = std::forward<Func>(func)]() {
+            SCOPED_ATTACH_TASK(_resource_ctx);
+            auto st = func();
+            if (!st.ok()) {
+                std::lock_guard wlock(_lock);
+                if (_status.ok()) {
+                    _status = st;
+                }
+            }
+        });
+    }
 
     // wait all tasks in token to be completed.
     Status wait();

@@ -28,11 +28,13 @@
 #include <cstdint>
 #include <memory>
 #include <stack>
+#include <string_view>
 #include <utility>
 
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "pipeline/pipeline_task.h"
@@ -347,6 +349,12 @@ TExprNode create_texpr_node_from(const vectorized::Field& field, const Primitive
         const auto& storage =
                 field.get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType>();
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(&storage, &node));
+        break;
+    }
+    case TYPE_VARBINARY: {
+        const auto& svf = field.get<vectorized::StringViewField>();
+        const std::string& storage = svf.get_string();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARBINARY>(&storage, &node));
         break;
     }
     default:
@@ -762,19 +770,9 @@ Status VExpr::get_const_col(VExprContext* context,
         return Status::OK();
     }
 
-    int result = -1;
-    Block block;
-    // If block is empty, some functions will produce no result. So we insert a column with
-    // single value here.
-    block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
-
-    _getting_const_col = true;
-    RETURN_IF_ERROR(execute(context, &block, &result));
-    _getting_const_col = false;
-
-    DCHECK(result != -1);
-    const auto& column = block.get_by_position(result).column;
-    _constant_col = std::make_shared<ColumnPtrWrapper>(column);
+    ColumnPtr result;
+    RETURN_IF_ERROR(execute_column(context, nullptr, 1, result));
+    _constant_col = std::make_shared<ColumnPtrWrapper>(result);
     if (column_wrapper != nullptr) {
         *column_wrapper = _constant_col;
     }
@@ -962,9 +960,14 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return Status::OK(); // Nothing to evaluate or no literals to compare against
     }
 
+    const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
+    if (auto index_ctx = context->get_index_context(); index_ctx != nullptr) {
+        analyzer_ctx = index_ctx->get_analyzer_ctx_for_expr(this);
+    }
+
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
     auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
-                                                 segment_num_rows, result_bitmap);
+                                                 segment_num_rows, analyzer_ctx, result_bitmap);
     if (!res.ok()) {
         return res;
     }

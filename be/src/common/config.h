@@ -1119,8 +1119,6 @@ DECLARE_Int32(segcompaction_task_max_rows);
 // Max total file size allowed in a single segcompaction task.
 DECLARE_Int64(segcompaction_task_max_bytes);
 
-DECLARE_Int32(segcompaction_wait_for_dbm_task_timeout_s);
-
 // Global segcompaction thread pool size.
 DECLARE_mInt32(segcompaction_num_threads);
 
@@ -1687,12 +1685,6 @@ DECLARE_mBool(print_stack_when_cache_miss);
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
-
-DECLARE_mString(binary_plain_encoding_default_impl);
-
-DECLARE_mBool(integer_type_default_use_plain_encoding);
-
-DECLARE_mBool(enable_fuzzy_storage_encoding);
 
 #ifdef BE_TEST
 // test s3

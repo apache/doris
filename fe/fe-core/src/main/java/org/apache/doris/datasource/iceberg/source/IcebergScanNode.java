@@ -38,6 +38,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
@@ -327,7 +328,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             return icebergTableScan;
         }
 
-        TableScan scan = icebergTable.newScan();
+        TableScan scan = icebergTable.newScan().metricsReporter(new IcebergMetricsReporter());
 
         // set snapshot
         IcebergTableQueryInfo info = getSpecifiedSnapshot();
@@ -676,4 +677,3 @@ public class IcebergScanNode extends FileQueryScanNode {
         return Optional.empty();
     }
 }
-

@@ -1130,8 +1130,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
                         !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
                                 ? RowDescriptor(state->desc_tbl(),
                                                 {thrift_sink.multi_cast_stream_sink.sinks[i]
-                                                         .output_tuple_id},
-                                                {false})
+                                                         .output_tuple_id})
                                 : row_desc;
                 exchange_row_desc = pool->add(new RowDescriptor(tmp_row_desc));
             }
@@ -1983,14 +1982,14 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
 
     for (const auto& tasks : _tasks) {
         for (const auto& task : tasks) {
-            if (task.second->runtime_profile() == nullptr) {
+            if (task.second->load_channel_profile() == nullptr) {
                 continue;
             }
 
             auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
 
-            task.second->runtime_profile()->to_thrift(tmp_load_channel_profile.get(),
-                                                      _runtime_state->profile_level());
+            task.second->load_channel_profile()->to_thrift(tmp_load_channel_profile.get(),
+                                                           _runtime_state->profile_level());
             _runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
         }
     }

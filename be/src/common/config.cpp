@@ -1074,8 +1074,6 @@ DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
 // Global segcompaction thread pool size.
 DEFINE_mInt32(segcompaction_num_threads, "5");
 
-DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
-
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
@@ -1629,15 +1627,6 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
     return config == "v1" || config == "v2";
 });
 
-DEFINE_mString(binary_plain_encoding_default_impl, "v1");
-DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& config) -> bool {
-    return config == "v1" || config == "v2";
-});
-
-DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
-
-DEFINE_mBool(enable_fuzzy_storage_encoding, "false");
-
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -2091,10 +2080,6 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
-    if (config::enable_fuzzy_storage_encoding) {
-        fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
-                ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
-    }
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
