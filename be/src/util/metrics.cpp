@@ -23,6 +23,7 @@
 #include <rapidjson/writer.h>
 
 #include <initializer_list>
+#include <unordered_set>
 
 #include "common/config.h"
 
@@ -345,13 +346,12 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
 
     // Output
     std::stringstream ss;
-    std::string last_group_name;
+    std::unordered_set<std::string> exported_types;
     for (const auto& entity_metrics_by_type : entity_metrics_by_types) {
-        if (last_group_name.empty() ||
-            last_group_name != entity_metrics_by_type.first->group_name) {
+        std::string metric_name = entity_metrics_by_type.first->combine_name(_name);
+        if (exported_types.insert(metric_name).second) {
             ss << entity_metrics_by_type.first->to_prometheus(_name); // metric TYPE line
         }
-        last_group_name = entity_metrics_by_type.first->group_name;
         std::string display_name = entity_metrics_by_type.first->combine_name(_name);
         for (const auto& entity_metric : entity_metrics_by_type.second) {
             ss << entity_metric.second->to_prometheus(display_name, // metric key-value line
