@@ -592,7 +592,7 @@ void PipelineFragmentContext::refresh_next_report_time() {
 }
 
 void PipelineFragmentContext::trigger_report_if_necessary() {
-    if (!_is_report_success || _need_notify_close) {
+    if (!_is_report_success) {
         return;
     }
     auto disable = _disable_period_report.load(std::memory_order_acquire);
