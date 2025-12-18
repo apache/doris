@@ -931,6 +931,9 @@ public class RoutineLoadManager implements Writable {
             if (!routineLoadJob.getState().isFinalState()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
             }
+            if (Config.isCloudMode()) {
+                routineLoadJob.setCloudCluster();
+            }
         }
     }
 
