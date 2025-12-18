@@ -119,7 +119,14 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     if (_part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();
-        _partitioner = std::make_unique<vectorized::Crc32CHashPartitioner>(channels.size());
+        if (_state->query_options().__isset.enable_new_shuffle_hash_method &&
+            _state->query_options().enable_new_shuffle_hash_method) {
+            _partitioner = std::make_unique<vectorized::Crc32CHashPartitioner>(channels.size());
+        } else {
+            _partitioner = std::make_unique<
+                    vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                    channels.size());
+        }
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         custom_profile()->add_info_string(

@@ -18,7 +18,7 @@
 // the following code are modified from RocksDB:
 // https://github.com/facebook/rocksdb/blob/master/util/crc32c_test.cc
 
-#include "util/crc32c.h"
+#include <crc32c/crc32c.h>
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>

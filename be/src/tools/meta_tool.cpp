@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <gflags/gflags.h>
@@ -37,7 +38,6 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 
 using doris::DataDir;
 using doris::StorageEngine;
@@ -263,7 +263,7 @@ Status get_segment_footer(doris::io::FileReader* file_reader, SegmentFooterPB* f
 
     // validate footer PB's checksum
     uint32_t expect_checksum = doris::decode_fixed32_le(fixed_buf + 4);
-    uint32_t actual_checksum = doris::crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t actual_checksum = doris::crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
                 "Bad segment file {}: footer checksum not match, actual={} vs expect={}", file_name,

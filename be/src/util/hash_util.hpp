@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/Types_types.h>
 #include <xxh3.h>
 #include <xxhash.h>
@@ -30,7 +31,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/cpu_info.h"
-#include "util/crc32c.h"
 #include "util/hash/city.h"
 #include "util/murmur_hash3.h"
 #include "util/sse_util.hpp"
@@ -53,7 +53,7 @@ public:
     // ATTN: crc32c's result is different with zlib_crc32 coz of different polynomial
     // crc32c have better performance than zlib_crc32/crc_hash
     static uint32_t crc32c_hash(const void* data, uint32_t bytes, uint32_t hash) {
-        return crc32c::Extend(hash, static_cast<const char*>(data), bytes);
+        return crc32c::Extend(hash, static_cast<const uint8_t*>(data), bytes);
     }
 
     // Compute the Crc32 hash for data using SSE4 instructions.  The input hash parameter is

@@ -17,6 +17,7 @@
 
 #include "olap/rowset/beta_rowset.h"
 
+#include <crc32c/crc32c.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fmt/format.h>
@@ -46,7 +47,6 @@
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
-#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
@@ -731,7 +731,7 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
     // 3. calculate the crc_value based on all_file_md5
     DCHECK(file_paths.size() == all_file_md5.size());
     for (auto& i : all_file_md5) {
-        *crc_value = crc32c::Extend(*crc_value, i.data(), i.size());
+        *crc_value = crc32c::Extend(*crc_value, (const uint8_t*)i.data(), i.size());
     }
 
     return Status::OK();

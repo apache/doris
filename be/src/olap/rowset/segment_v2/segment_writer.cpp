@@ -24,6 +24,8 @@
 #include <algorithm>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include <crc32c/crc32c.h>
+
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -62,7 +64,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "util/simd/bits.h"
@@ -1155,7 +1156,7 @@ Status SegmentWriter::_write_footer() {
     // footer's size
     put_fixed32_le(&fixed_buf, cast_set<uint32_t>(footer_buf.size()));
     // footer's checksum
-    uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
     // Append magic number. we don't write magic number in the header because
     // that will need an extra seek when reading
