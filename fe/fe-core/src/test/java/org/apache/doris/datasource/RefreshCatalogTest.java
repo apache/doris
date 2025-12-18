@@ -137,8 +137,8 @@ public class RefreshCatalogTest extends TestWithFeService {
         Assertions.assertTrue(table.isObjectCreated());
 
         Thread.sleep(100); // wait a bit to ensure time difference
-        RefreshCatalogCommand refreshCatalogCommand = new RefreshCatalogCommand("test2", null);
-        Assertions.assertTrue(refreshCatalogCommand.isInvalidCache());
+        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt("test2", null);
+        Assertions.assertTrue(refreshCatalogStmt.isInvalidCache());
         try {
             DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
         } catch (Exception e) {
