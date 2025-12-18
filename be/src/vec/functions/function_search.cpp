@@ -32,6 +32,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/Exprs_types.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
@@ -108,9 +109,9 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     Result<InvertedIndexReaderPtr> reader_result;
     const auto& column_type = data_it->second.second;
     if (column_type) {
-        reader_result = inverted_iterator->select_best_reader(column_type, query_type);
+        reader_result = inverted_iterator->select_best_reader(column_type, query_type, "");
     } else {
-        reader_result = inverted_iterator->select_best_reader();
+        reader_result = inverted_iterator->select_best_reader("");
     }
 
     if (!reader_result.has_value()) {
@@ -167,6 +168,8 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     resolved.lucene_reader = reader_holder;
     resolved.index_properties = inverted_reader->get_index_properties();
     resolved.binding_key = binding_key;
+    resolved.analyzer_key =
+            normalize_analyzer_key(build_analyzer_key_from_properties(resolved.index_properties));
 
     _binding_readers[binding_key] = reader_holder;
     _field_readers[resolved.stored_field_wstr] = reader_holder;

@@ -16,6 +16,8 @@
 // under the License.
 
 #pragma once
+#include <unordered_map>
+#include <vector>
 
 #include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
@@ -31,7 +33,6 @@ struct InvertedIndexParam {
     uint32_t num_rows;
     std::shared_ptr<roaring::Roaring> roaring;
     bool skip_try = false;
-
     // Pointer to analyzer context (can be nullptr if not needed)
     // Used by FullTextIndexReader for tokenization
     const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
@@ -53,9 +54,11 @@ public:
 
     IndexReaderPtr get_reader(IndexReaderType reader_type) const override;
 
-    Result<InvertedIndexReaderPtr> select_best_reader(const vectorized::DataTypePtr& column_type,
-                                                      InvertedIndexQueryType query_type);
-    Result<InvertedIndexReaderPtr> select_best_reader();
+    [[nodiscard]] Result<InvertedIndexReaderPtr> select_best_reader(
+            const vectorized::DataTypePtr& column_type, InvertedIndexQueryType query_type,
+            const std::string& analyzer_key);
+    [[nodiscard]] Result<InvertedIndexReaderPtr> select_best_reader(
+            const std::string& analyzer_key);
 
 private:
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
@@ -64,7 +67,34 @@ private:
                                         const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, size_t* count);
 
-    std::unordered_map<IndexReaderType, InvertedIndexReaderPtr> _readers;
+    struct ReaderEntry {
+        InvertedIndexReaderType type;
+        std::string analyzer_key;
+        InvertedIndexReaderPtr reader;
+    };
+
+    // Result of find_reader_candidates
+    struct CandidateResult {
+        std::vector<const ReaderEntry*> candidates;
+        bool used_fallback = false;
+    };
+
+    // Find candidate readers with fallback strategy:
+    // 1. Exact match on analyzer_key
+    // 2. Fallback to default analyzer key
+    // 3. Fallback to all readers
+    // NOTE: analyzer_key is assumed to be already normalized (lowercase).
+    [[nodiscard]] CandidateResult find_reader_candidates(const std::string& normalized_key) const;
+
+    // Normalize and validate analyzer_key, returning normalized form.
+    // Empty input returns INVERTED_INDEX_DEFAULT_ANALYZER_KEY.
+    static std::string ensure_normalized_key(const std::string& analyzer_key);
+
+    std::vector<ReaderEntry> _reader_entries;
+
+    // Index for O(1) lookup by analyzer_key. Maps normalized key to indices in _reader_entries.
+    // Built incrementally in add_reader().
+    std::unordered_map<std::string, std::vector<size_t>> _key_to_entries;
 };
 
 } // namespace doris::segment_v2
