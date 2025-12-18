@@ -459,6 +459,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnicodeNormalize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
@@ -964,6 +965,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(UnixTimestamp.class, "unix_timestamp"),
             scalar(Upper.class, "ucase", "upper"),
             scalar(Quote.class, "quote"),
+            scalar(UnicodeNormalize.class, "unicode_normalize"),
             scalar(UrlDecode.class, "url_decode"),
             scalar(UrlEncode.class, "url_encode"),
             scalar(User.class, "user"),
