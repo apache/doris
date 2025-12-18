@@ -263,7 +263,7 @@ Status get_segment_footer(doris::io::FileReader* file_reader, SegmentFooterPB* f
 
     // validate footer PB's checksum
     uint32_t expect_checksum = doris::decode_fixed32_le(fixed_buf + 4);
-    uint32_t actual_checksum = doris::crc32c::Crc32c(footer_buf.data(), footer_buf.size());
+    uint32_t actual_checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
                 "Bad segment file {}: footer checksum not match, actual={} vs expect={}", file_name,

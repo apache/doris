@@ -64,14 +64,14 @@ TEST(CRC, StandardResults) {
 }
 
 TEST(CRC, Values) {
-    EXPECT_NE(Crc32c("a", 1), Crc32c("foo", 3));
+    EXPECT_NE(Crc32c("a"), Crc32c("foo"));
 }
 
 TEST(CRC, Extend) {
-    EXPECT_EQ(Crc32c("hello world", 11), Extend(Crc32c("hello ", 6), "world", 5));
+    EXPECT_EQ(Crc32c("hello world"), Extend(Crc32c("hello "), "world"));
 
     std::vector<Slice> slices = {Slice("hello "), Slice("world")};
-    EXPECT_EQ(Crc32c("hello world", 11), Crc32c(slices));
+    EXPECT_EQ(Crc32c("hello world"), Crc32c(slices));
 }
 
 } // namespace crc32c
