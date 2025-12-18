@@ -23,10 +23,15 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <ios>
 #include <memory>
+#include <mutex>
+#include <random>
 #include <string>
+#include <thread>
 
 #include "common/config.h"
 #include "cpp/sync_point.h"
@@ -63,13 +68,14 @@ public:
         bucket = GET_ENV_IF_DEFINED(S3_BUCKET);
         region = GET_ENV_IF_DEFINED(S3_REGION);
         prefix = GET_ENV_IF_DEFINED(S3_PREFIX);
+        role = GET_ENV_IF_DEFINED(S3_ROLE_ARN);
+        external_id = GET_ENV_IF_DEFINED(S3_EXTERNAL_ID);
     }
 
     bool is_enabled() const { return enabled; }
 
     bool is_valid() const {
-        return enabled && !access_key.empty() && !secret_key.empty() && !endpoint.empty() &&
-               !region.empty() && !bucket.empty();
+        return enabled && !endpoint.empty() && !region.empty() && !bucket.empty();
     }
 
     std::string get_access_key() const { return access_key; }
@@ -79,6 +85,8 @@ public:
     std::string get_bucket() const { return bucket; }
     std::string get_prefix() const { return prefix; }
     std::string get_region() const { return region; }
+    std::string get_role() const { return role; }
+    std::string get_external_id() const { return external_id; }
 
     void print_config() const {
         std::cout << "S3 Test Configuration:" << std::endl;
@@ -93,6 +101,8 @@ public:
             std::cout << "  Bucket: " << bucket << std::endl;
             std::cout << " Region: " << region << std::endl;
             std::cout << "  Prefix: " << prefix << std::endl;
+            std::cout << "  Role: " << role << std::endl;
+            std::cout << "  External ID: " << external_id << std::endl;
         }
     }
 
@@ -105,6 +115,9 @@ private:
     std::string bucket;
     std::string region;
     std::string prefix;
+
+    std::string role;
+    std::string external_id;
 };
 
 class S3FileSystemTest : public ::testing::Test {
@@ -161,6 +174,8 @@ protected:
         s3_conf.client_conf.bucket = config_->get_bucket();
         s3_conf.client_conf.region = config_->get_region();
         s3_conf.client_conf.provider = convert_provider(config_->get_provider());
+        s3_conf.client_conf.role_arn = config_->get_role();
+        s3_conf.client_conf.external_id = config_->get_external_id();
 
         s3_fs_ = DORIS_TRY(io::S3FileSystem::create(s3_conf, MOCK_S3_FS_ID));
         return Status::OK();
@@ -1890,6 +1905,156 @@ TEST_F(S3FileSystemTest, CreateMultipartUploadFailureTest) {
 
     // Try to cleanup (file should not exist since upload failed)
     std::ignore = s3_fs_->delete_file(test_file);
+}
+
+// Test: Multi-threaded concurrent write stress test for 10 minutes
+// Multiple threads using the same S3 client to write data with random delays
+TEST_F(S3FileSystemTest, MultiThreadedConcurrentWriteStressTest) {
+    ASSERT_NE(s3_fs_, nullptr);
+
+    std::string test_dir = global_test_prefix_ + "multi_thread_stress_test/";
+    std::cout << "Test directory path: " << test_dir << std::endl;
+
+    // Test parameters
+    const int num_threads = 10;             // Number of concurrent threads
+    const int test_duration_seconds = 1500; // 10 minutes
+    const int min_delay_ms = 100;
+    const int max_delay_ms = 300;
+
+    // Shared state
+    std::atomic<bool> should_stop(false);
+    std::atomic<int> total_writes(0);
+    std::atomic<int> total_errors(0);
+    std::vector<std::thread> threads;
+    std::mutex cout_mutex; // For synchronized console output
+
+    auto start_time = std::chrono::steady_clock::now();
+
+    // Worker thread function
+    auto worker = [&](int thread_id) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> delay_dist(min_delay_ms, max_delay_ms);
+
+        int write_count = 0;
+        int error_count = 0;
+
+        while (!should_stop.load()) {
+            // Create unique file name for this write
+            std::string test_file = test_dir + "thread_" + std::to_string(thread_id) + "_write_" +
+                                    std::to_string(write_count) + ".txt";
+
+            // Write data to S3
+            io::FileWriterPtr writer;
+            Status status = s3_fs_->create_file(test_file, &writer);
+
+            if (status.ok()) {
+                std::string test_data =
+                        "Thread " + std::to_string(thread_id) + " - Write #" +
+                        std::to_string(write_count) + " - Timestamp: " +
+                        std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+
+                status = writer->append(test_data);
+                if (status.ok()) {
+                    status = writer->close();
+                }
+            }
+
+            if (status.ok()) {
+                write_count++;
+                total_writes.fetch_add(1);
+
+                {
+                    std::lock_guard<std::mutex> lock(cout_mutex);
+                    std::cout << "Thread " << thread_id << ": Write #" << write_count
+                              << " succeeded" << std::endl;
+                }
+            } else {
+                error_count++;
+                total_errors.fetch_add(1);
+
+                {
+                    std::lock_guard<std::mutex> lock(cout_mutex);
+                    std::cerr << "Thread " << thread_id << ": Write #" << write_count
+                              << " failed: " << status.to_string() << std::endl;
+                }
+            }
+
+            // Random delay between 100-300ms
+            int delay_ms = delay_dist(gen);
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(cout_mutex);
+            std::cout << "Thread " << thread_id << " finished. Total writes: " << write_count
+                      << ", Errors: " << error_count << std::endl;
+        }
+    };
+
+    // Start worker threads
+    std::cout << "Starting " << num_threads << " worker threads for " << test_duration_seconds
+              << " seconds stress test..." << std::endl;
+
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back(worker, i);
+    }
+
+    // Monitor progress and stop after duration
+    auto last_report_time = start_time;
+    while (true) {
+        auto current_time = std::chrono::steady_clock::now();
+        auto elapsed =
+                std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time).count();
+
+        // Report progress every 60 seconds
+        auto time_since_last_report =
+                std::chrono::duration_cast<std::chrono::seconds>(current_time - last_report_time)
+                        .count();
+
+        if (time_since_last_report >= 60) {
+            std::cout << "\n=== Progress Report ===" << std::endl;
+            std::cout << "Elapsed time: " << elapsed << " seconds" << std::endl;
+            std::cout << "Total writes: " << total_writes.load() << std::endl;
+            std::cout << "Total errors: " << total_errors.load() << std::endl;
+            std::cout << "=====================\n" << std::endl;
+            last_report_time = current_time;
+        }
+
+        // Check if test duration has been reached
+        if (elapsed >= test_duration_seconds) {
+            std::cout << "\nTest duration reached. Stopping threads..." << std::endl;
+            should_stop.store(true);
+            break;
+        }
+
+        // Sleep for a bit before checking again
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
+    // Wait for all threads to finish
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    // Final statistics
+    std::cout << "\n=== Final Statistics ===" << std::endl;
+    std::cout << "Test duration: " << test_duration_seconds << " seconds" << std::endl;
+    std::cout << "Number of threads: " << num_threads << std::endl;
+    std::cout << "Total successful writes: " << total_writes.load() << std::endl;
+    std::cout << "Total errors: " << total_errors.load() << std::endl;
+    std::cout << "Average writes per thread: " << (total_writes.load() / num_threads) << std::endl;
+    std::cout << "========================\n" << std::endl;
+
+    // Verify that we had some successful writes
+    EXPECT_GT(total_writes.load(), 0) << "Should have at least some successful writes";
+
+    std::cout << "Multi-threaded stress test completed successfully!" << std::endl;
+
+    // Cleanup - delete the test directory
+    std::cout << "Cleaning up test files..." << std::endl;
+    Status status = s3_fs_->delete_directory(test_dir);
+    EXPECT_TRUE(status.ok()) << "Failed to cleanup test directory: " << status.to_string();
 }
 
 } // namespace doris

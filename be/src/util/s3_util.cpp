@@ -311,8 +311,7 @@ S3ClientFactory::_get_aws_credentials_provider_v1(const S3ClientConf& s3_conf) {
                 clientConfiguration);
 
         return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
-                s3_conf.role_arn, Aws::String(), s3_conf.external_id,
-                Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
+                s3_conf.role_arn, Aws::String(), s3_conf.external_id, 1, stsClient);
     }
 
     // Support anonymous access for public datasets when no credentials are provided
