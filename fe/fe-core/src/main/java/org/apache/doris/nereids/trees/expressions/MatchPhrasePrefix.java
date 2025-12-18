@@ -29,17 +29,25 @@ import java.util.List;
  */
 public class MatchPhrasePrefix extends Match {
     public MatchPhrasePrefix(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "MATCH_PHRASE_PREFIX");
+        this(left, right, null);
+    }
+
+    public MatchPhrasePrefix(Expression left, Expression right, String analyzer) {
+        super(ImmutableList.of(left, right), "MATCH_PHRASE_PREFIX", analyzer);
     }
 
     private MatchPhrasePrefix(List<Expression> children) {
-        super(children, "MATCH_PHRASE_PREFIX");
+        this(children, null);
+    }
+
+    private MatchPhrasePrefix(List<Expression> children, String analyzer) {
+        super(children, "MATCH_PHRASE_PREFIX", analyzer);
     }
 
     @Override
     public MatchPhrasePrefix withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MatchPhrasePrefix(children);
+        return new MatchPhrasePrefix(children, analyzer().orElse(null));
     }
 
     @Override

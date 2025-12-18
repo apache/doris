@@ -92,7 +92,13 @@ Status FunctionMatchBase::evaluate_inverted_index(
     param.num_rows = num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();
     param.analyzer_ctx = analyzer_ctx;
-    RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
+    if (is_string_type(param_type)) {
+        RETURN_IF_ERROR(iter->read_from_index(&param));
+    } else {
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
+                "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",
+                param_type);
+    }
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
     if (iter->has_null()) {
         segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
@@ -121,7 +127,6 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
                << ", match_query_str=" << match_query_str;
     auto* analyzer_ctx = get_match_analyzer_ctx(context);
-
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(source_col.get());

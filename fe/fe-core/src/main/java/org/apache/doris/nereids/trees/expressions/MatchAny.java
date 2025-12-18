@@ -29,17 +29,25 @@ import java.util.List;
  */
 public class MatchAny extends Match {
     public MatchAny(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "MATCH_ANY");
+        this(left, right, null);
+    }
+
+    public MatchAny(Expression left, Expression right, String analyzer) {
+        super(ImmutableList.of(left, right), "MATCH_ANY", analyzer);
     }
 
     private MatchAny(List<Expression> children) {
-        super(children, "MATCH_ANY");
+        this(children, null);
+    }
+
+    private MatchAny(List<Expression> children, String analyzer) {
+        super(children, "MATCH_ANY", analyzer);
     }
 
     @Override
     public MatchAny withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MatchAny(children);
+        return new MatchAny(children, analyzer().orElse(null));
     }
 
     @Override

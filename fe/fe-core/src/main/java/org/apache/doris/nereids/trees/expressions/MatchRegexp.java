@@ -29,17 +29,25 @@ import java.util.List;
  */
 public class MatchRegexp extends Match {
     public MatchRegexp(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "MATCH_REGEXP");
+        this(left, right, null);
+    }
+
+    public MatchRegexp(Expression left, Expression right, String analyzer) {
+        super(ImmutableList.of(left, right), "MATCH_REGEXP", analyzer);
     }
 
     private MatchRegexp(List<Expression> children) {
-        super(children, "MATCH_REGEXP");
+        this(children, null);
+    }
+
+    private MatchRegexp(List<Expression> children, String analyzer) {
+        super(children, "MATCH_REGEXP", analyzer);
     }
 
     @Override
     public MatchRegexp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MatchRegexp(children);
+        return new MatchRegexp(children, analyzer().orElse(null));
     }
 
     @Override

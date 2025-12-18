@@ -29,17 +29,25 @@ import java.util.List;
  */
 public class MatchPhraseEdge extends Match {
     public MatchPhraseEdge(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "MATCH_PHRASE_EDGE");
+        this(left, right, null);
+    }
+
+    public MatchPhraseEdge(Expression left, Expression right, String analyzer) {
+        super(ImmutableList.of(left, right), "MATCH_PHRASE_EDGE", analyzer);
     }
 
     private MatchPhraseEdge(List<Expression> children) {
-        super(children, "MATCH_PHRASE_EDGE");
+        this(children, null);
+    }
+
+    private MatchPhraseEdge(List<Expression> children, String analyzer) {
+        super(children, "MATCH_PHRASE_EDGE", analyzer);
     }
 
     @Override
     public MatchPhraseEdge withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MatchPhraseEdge(children);
+        return new MatchPhraseEdge(children, analyzer().orElse(null));
     }
 
     @Override

@@ -58,6 +58,7 @@ public:
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     const std::string& expr_name() const override;
     const std::string& function_name() const;
+    [[nodiscard]] const std::string& get_analyzer_key() const override;
 
     std::string debug_string() const override;
 

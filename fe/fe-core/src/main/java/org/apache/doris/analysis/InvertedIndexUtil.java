@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
+import com.google.common.base.Strings;
+
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -104,6 +106,19 @@ public class InvertedIndexUtil {
     public static boolean getInvertedIndexSupportPhrase(Map<String, String> properties) {
         String supportPhrase = properties == null ? null : properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY);
         return supportPhrase != null ? Boolean.parseBoolean(supportPhrase) : true;
+    }
+
+    public static String getPreferredAnalyzer(Map<String, String> properties) {
+        if (properties == null || properties.isEmpty()) {
+            return "";
+        }
+        // Check analyzer first, then normalizer
+        String analyzer = properties.get(INVERTED_INDEX_ANALYZER_NAME_KEY);
+        if (analyzer != null && !analyzer.isEmpty()) {
+            return analyzer;
+        }
+        String normalizer = properties.get(INVERTED_INDEX_NORMALIZER_NAME_KEY);
+        return normalizer != null ? normalizer : "";
     }
 
     public static Map<String, String> getInvertedIndexCharFilter(Map<String, String> properties) {
@@ -398,27 +413,58 @@ public class InvertedIndexUtil {
     }
 
     public static boolean canHaveMultipleInvertedIndexes(DataType colType, List<IndexDefinition> indexDefs) {
-        if (indexDefs.size() == 0 || indexDefs.size() == 1) {
+        if (indexDefs.size() <= 1) {
             return true;
         }
         if (!colType.isStringLikeType() && !colType.isVariantType()) {
             return false;
         }
-        if (indexDefs.size() > 2) {
-            return false;
-        }
-        boolean findParsedInvertedIndex = false;
-        boolean findNonParsedInvertedIndex = false;
+
+        Set<String> analyzerKeys = new HashSet<>();
         for (IndexDefinition indexDef : indexDefs) {
-            if (indexDef.isAnalyzedInvertedIndex()) {
-                findParsedInvertedIndex = true;
-            } else {
-                findNonParsedInvertedIndex = true;
+            String key = buildAnalyzerIdentity(indexDef.getProperties());
+            if (analyzerKeys.contains(key)) {
+                return false;
             }
+            analyzerKeys.add(key);
         }
-        if (findParsedInvertedIndex && findNonParsedInvertedIndex) {
-            return true;
+        return true;
+    }
+
+    public static String buildAnalyzerIdentity(Map<String, String> properties) {
+        if (properties == null || properties.isEmpty()) {
+            return "__default__";
         }
-        return false;
+
+        String preferredAnalyzer = getPreferredAnalyzer(properties);
+        if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
+            return preferredAnalyzer;
+        }
+
+        String parser = getInvertedIndexParser(properties);
+        if (Strings.isNullOrEmpty(parser) || INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
+            return "__default__";
+        }
+        return parser;
+    }
+
+    public static boolean isAnalyzerMatched(Map<String, String> properties, String analyzer) {
+        String normalizedAnalyzer = Strings.isNullOrEmpty(analyzer) ? "" : analyzer.trim();
+
+        if (Strings.isNullOrEmpty(normalizedAnalyzer)) {
+            return "__default__".equals(buildAnalyzerIdentity(properties));
+        }
+
+        String preferredAnalyzer = getPreferredAnalyzer(properties);
+        if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
+            return normalizedAnalyzer.equalsIgnoreCase(preferredAnalyzer);
+        }
+
+        String parser = getInvertedIndexParser(properties);
+        if (Strings.isNullOrEmpty(parser)) {
+            return normalizedAnalyzer.equalsIgnoreCase("default")
+                    || normalizedAnalyzer.equalsIgnoreCase(INVERTED_INDEX_PARSER_NONE);
+        }
+        return normalizedAnalyzer.equalsIgnoreCase(parser);
     }
 }

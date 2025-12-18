@@ -29,17 +29,25 @@ import java.util.List;
  */
 public class MatchAll extends Match {
     public MatchAll(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "MATCH_ALL");
+        this(left, right, null);
+    }
+
+    public MatchAll(Expression left, Expression right, String analyzer) {
+        super(ImmutableList.of(left, right), "MATCH_ALL", analyzer);
     }
 
     private MatchAll(List<Expression> children) {
-        super(children, "MATCH_ALL");
+        this(children, null);
+    }
+
+    private MatchAll(List<Expression> children, String analyzer) {
+        super(children, "MATCH_ALL", analyzer);
     }
 
     @Override
     public MatchAll withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MatchAll(children);
+        return new MatchAll(children, analyzer().orElse(null));
     }
 
     @Override

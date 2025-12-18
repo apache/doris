@@ -29,10 +29,10 @@
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 
-#include <cstddef>
 #include <memory>
-#include <ostream>
+#include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "common/status.h"
@@ -44,6 +44,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/functions/match.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -93,7 +94,7 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     std::vector<std::string_view> child_expr_name;
-    for (auto child : _children) {
+    for (const auto& child : _children) {
         argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());
     }
@@ -102,7 +103,7 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                                                argument_template, _data_type, {});
     if (_function == nullptr) {
         std::string type_str;
-        for (auto arg : argument_template) {
+        for (const auto& arg : argument_template) {
             type_str = type_str + " " + arg.type->get_name();
         }
         return Status::NotSupported(
@@ -148,6 +149,10 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
+const std::string& VMatchPredicate::get_analyzer_key() const {
+    return _analyzer_ctx->analyzer_name;
+}
+
 Status VMatchPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
                                        ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr);
@@ -167,7 +172,7 @@ Status VMatchPredicate::execute_column(VExprContext* context, const Block* block
 
         auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
         std::string column_name = column_slot_ref->expr_name();
-        auto it = std::find(column_names.begin(), column_names.end(), column_name);
+        auto it = std::ranges::find(column_names, column_name);
         if (it == column_names.end()) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
                     "column {} should in slow path while VMatchPredicate::execute.", column_name);
