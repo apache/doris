@@ -219,4 +219,8 @@ suite("distinct_split") {
     qt_array_agg_nogby "select array_agg(distinct b), array_agg(distinct a) from test_distinct_multi where a=1 and b=2"
     qt_array_agg_gby "select array_agg(distinct b), array_agg(distinct a) from test_distinct_multi where a=1 and b=2 group by c"
     qt_array_agg_and_other "select array_agg(distinct b), count(distinct a) from test_distinct_multi where b=2"
+    qt_not_split_cte_when_same_col "select sum(distinct a), count(distinct a),avg(distinct a) from test_distinct_multi"
+    qt_not_split_cte_when_same_col_shape "explain shape plan select sum(distinct a), count(distinct a),avg(distinct a) from test_distinct_multi"
+    order_qt_not_split_cte_when_same_col_gby "select sum(distinct a), count(distinct a),avg(distinct a) from test_distinct_multi group by b"
+    qt_not_split_cte_when_same_col_gby__shape "explain shape plan select sum(distinct a), count(distinct a),avg(distinct a) from test_distinct_multi group by b"
 }

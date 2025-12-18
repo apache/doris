@@ -216,7 +216,9 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
         if (agg.getSourceRepeat().isPresent()) {
             return false;
         }
-        Set<Expression> distinctFunc = new HashSet<>();
+        if (agg.distinctFuncNum() < 2 || agg.getDistinctArguments().size() < 2) {
+            return false;
+        }
         boolean distinctMultiColumns = false;
         boolean hasNotSupportMultiDistinctFunc = false;
         for (NamedExpression namedExpression : agg.getOutputExpressions()) {
@@ -225,18 +227,13 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
             }
             AggregateFunction aggFunc = (AggregateFunction) namedExpression.child(0);
             if (aggFunc.isDistinct()) {
-                if (!(aggFunc instanceof SupportMultiDistinct)) {
-                    hasNotSupportMultiDistinctFunc = true;
-                }
+                hasNotSupportMultiDistinctFunc = hasNotSupportMultiDistinctFunc
+                        || !(aggFunc instanceof SupportMultiDistinct);
                 aliases.add((Alias) namedExpression);
-                distinctFunc.add(aggFunc);
                 distinctMultiColumns = distinctMultiColumns || isDistinctMultiColumns(aggFunc);
             } else {
                 otherAggFuncs.add((Alias) namedExpression);
             }
-        }
-        if (distinctFunc.size() <= 1) {
-            return false;
         }
         if (hasNotSupportMultiDistinctFunc) {
             return true;

@@ -511,3 +511,23 @@ PhysicalResultSink
 -- !array_agg_and_other --
 [2]	2
 
+-- !not_split_cte_when_same_col --
+3	2	1.5
+
+-- !not_split_cte_when_same_col_shape --
+PhysicalResultSink
+--hashAgg[DISTINCT_LOCAL]
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[test_distinct_multi]
+
+-- !not_split_cte_when_same_col_gby --
+3	2	1.5
+
+-- !not_split_cte_when_same_col_gby__shape --
+PhysicalResultSink
+--hashAgg[DISTINCT_LOCAL]
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[test_distinct_multi]
+

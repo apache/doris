@@ -106,4 +106,18 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
         return getOutputExpressions().stream().allMatch(e -> e instanceof Slot)
                 && getGroupByExpressions().stream().allMatch(e -> e instanceof Slot);
     }
+
+    /**
+     * distinctFuncNum
+     * @return number of distinct aggregate functions
+     */
+    default int distinctFuncNum() {
+        int num = 0;
+        for (AggregateFunction aggFunc : getAggregateFunctions()) {
+            if (aggFunc.isDistinct()) {
+                ++num;
+            }
+        }
+        return num;
+    }
 }
