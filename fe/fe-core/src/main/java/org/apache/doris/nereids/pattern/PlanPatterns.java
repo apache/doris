@@ -246,6 +246,7 @@ public interface PlanPatterns extends Patterns {
                 new TypePattern(LogicalIntersect.class, multi().pattern),
                 defaultPromise());
     }
+
     /* abstract physical plan patterns */
 
     /**
