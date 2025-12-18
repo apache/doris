@@ -320,7 +320,7 @@ Status PipelineFragmentContext::prepare(ThreadPool* thread_pool) {
 
         auto* fragment_context = this;
 
-        if (!_need_notify_close && _params.query_options.__isset.is_report_success) {
+        if (_params.query_options.__isset.is_report_success) {
             fragment_context->set_is_report_success(_params.query_options.is_report_success);
         }
 
@@ -592,7 +592,7 @@ void PipelineFragmentContext::refresh_next_report_time() {
 }
 
 void PipelineFragmentContext::trigger_report_if_necessary() {
-    if (!_is_report_success) {
+    if (!_is_report_success || _need_notify_close) {
         return;
     }
     auto disable = _disable_period_report.load(std::memory_order_acquire);
