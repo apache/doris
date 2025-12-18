@@ -2153,6 +2153,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         if (inputPlanNode instanceof TableFunctionNode) {
             TableFunctionNode tableFunctionNode = (TableFunctionNode) inputPlanNode;
+            // slots used by expandConjuncts must be added to TableFunctionNode's output slot ids
+            List<Expr> expandConjuncts = tableFunctionNode.getExpandConjuncts();
+            for (Expr expr : expandConjuncts) {
+                Expr.extractSlots(expr, requiredSlotIdSet);
+            }
             tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
         }
 

@@ -64,6 +64,10 @@ public class TableFunctionNode extends PlanNode {
         this.outputSlotIds = outputSlotIds;
     }
 
+    public List<Expr> getExpandConjuncts() {
+        return expandConjuncts;
+    }
+
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
