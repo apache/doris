@@ -70,7 +70,7 @@ PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int ope
                                                        const DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, tnode.node_id, dest_id),
           _pool(pool),
-          _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+          _row_descriptor(descs, tnode.row_tuples),
           _limit(tnode.limit),
           _partition_exprs_num(static_cast<int>(tnode.partition_sort_node.partition_exprs.size())),
           _topn_phase(tnode.partition_sort_node.ptopn_phase),

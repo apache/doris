@@ -78,7 +78,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
@@ -454,10 +453,6 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitSubqueryExpr(SubqueryExpr subqueryExpr, C context) {
         return visit(subqueryExpr, context);
-    }
-
-    public R visitTimestampArithmetic(TimestampArithmetic arithmetic, C context) {
-        return visit(arithmetic, context);
     }
 
     public R visitScalarSubquery(ScalarSubquery scalar, C context) {
