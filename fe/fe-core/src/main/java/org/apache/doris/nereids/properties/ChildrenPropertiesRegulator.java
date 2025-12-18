@@ -703,23 +703,39 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             }
 
             if (distributeToChildIndex >= 0) {
-                requiredProperty = requiredProperties.get(distributeToChildIndex);
-                requiredDistributionSpec = requiredProperty.getDistributionSpec();
-                basic = (DistributionSpecHash) requiredDistributionSpec;
-
-                DistributionSpecHash notShuffleSideRequireDistribution
+                DistributionSpecHash notShuffleSideRequire
                         = (DistributionSpecHash) requiredProperties.get(distributeToChildIndex).getDistributionSpec();
+
+                DistributionSpecHash notNeedShuffleOutput
+                        = (DistributionSpecHash) originChildrenProperties.get(distributeToChildIndex)
+                            .getDistributionSpec();
+
+                List<Integer> notShuffleSideColumnIndexes = new ArrayList<>();
+                for (ExprId orderedShuffledColumn : notNeedShuffleOutput.getOrderedShuffledColumns()) {
+                    List<ExprId> requireIds = notShuffleSideRequire.getOrderedShuffledColumns();
+                    for (int i = 0; i < requireIds.size(); i++) {
+                        if (requireIds.get(i).asInt() == orderedShuffledColumn.asInt()) {
+                            notShuffleSideColumnIndexes.add(i);
+                            break;
+                        }
+                    }
+                }
+
                 for (int i = 0; i < originChildrenProperties.size(); i++) {
                     DistributionSpecHash current
                             = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
                     if (i == distributeToChildIndex) {
                         continue;
                     }
+
+                    DistributionSpecHash currentRequire
+                            = (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec();
+
                     PhysicalProperties target = calAnotherSideRequired(
                             ShuffleType.STORAGE_BUCKETED,
-                            basic, current,
-                            notShuffleSideRequireDistribution,
-                            (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec());
+                            notNeedShuffleOutput, current,
+                            notShuffleSideRequire,
+                            currentRequire);
                     updateChildEnforceAndCost(i, target);
                 }
                 setOperation.setMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX, distributeToChildIndex);
