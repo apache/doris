@@ -459,6 +459,9 @@ message TabletSchemaPB {
     // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
     optional bool is_external_segment_column_meta_used = 32 [default = false];
 
+    optional bool integer_type_default_use_plain_encoding = 33;
+    optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 34;
+
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
@@ -498,6 +501,9 @@ message TabletSchemaCloudPB {
     // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
     optional bool is_external_segment_column_meta_used = 33 [default = false];
 
+    optional bool integer_type_default_use_plain_encoding = 34;
+    optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 35;
+
     optional bool is_dynamic_schema = 100 [default=false];
 
     // FIXME(gavin): deprecate and remove in the future
@@ -524,6 +530,11 @@ enum StorageMediumPB {
     SSD = 1;
     S3 = 2;
     REMOTE_CACHE = 99;
+}
+
+enum BinaryPlainEncodingTypePB {
+    BINARY_PLAIN_ENCODING_V1 = 1;
+    BINARY_PLAIN_ENCODING_V2 = 2;
 }
 
 message S3StorageParamPB {
