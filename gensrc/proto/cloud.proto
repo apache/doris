@@ -2173,9 +2173,9 @@ message PackedFileInfoPB {
     optional string resource_id = 9;
 }
 
-// Wrapper for packed file debug information. It keeps PackedFileInfoPB extensible for tools
+// Wrapper for packed file footer information. It keeps PackedFileInfoPB extensible for tools
 // reading packed file trailers.
-message PackedFileDebugInfoPB {
+message PackedFileFooterPB {
     optional PackedFileInfoPB packed_file_info = 1;
 }
 
