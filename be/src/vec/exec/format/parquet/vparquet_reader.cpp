@@ -1062,8 +1062,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
                 f(&field->children[0]);
             } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
-                f(&field->children[0]);
-                f(&field->children[1]);
+                f(&field->children[0].children[0]);
+                f(&field->children[0].children[1]);
             } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
                 for (int i = 0; i < field->children.size(); ++i) {
                     f(&field->children[i]);
