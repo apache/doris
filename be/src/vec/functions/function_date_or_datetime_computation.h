@@ -618,13 +618,13 @@ public:
             // vector-const
             if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
                 rconst = true;
-                const auto col1_inside_const =
+                const auto& col1_inside_const =
                         assert_cast<const ColumnVector<Transform::ArgPType>&>(
                                 nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
                                     col1_inside_const.get_data()[0], nullmap0, nullmap1);
             } else { // vector-vector
-                const auto concrete_col1 =
+                const auto& concrete_col1 =
                         assert_cast<const ColumnVector<Transform::ArgPType>&>(*nest_col1);
                 Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
                                   res_col->get_data(), nullmap0, nullmap1);
@@ -649,10 +649,10 @@ public:
                            check_and_get_column_const<ColumnVector<Transform::ArgPType>>(
                                    src_nested_col.get())) {
             // const-vector
-            const auto col0_inside_const = assert_cast<const ColumnVector<Transform::ArgPType>&>(
+            const auto& col0_inside_const = assert_cast<const ColumnVector<Transform::ArgPType>&>(
                     sources_const->get_data_column());
             const ColumnPtr nested_col1 = remove_nullable(col1);
-            const auto concrete_col1 =
+            const auto& concrete_col1 =
                     assert_cast<const ColumnVector<Transform::ArgPType>&>(*nested_col1);
             Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(),
                                 concrete_col1.get_data(), nullmap0, nullmap1);
@@ -747,14 +747,14 @@ public:
                                         nest_col1_const->get_data_at(0).to_string(), nullmap0,
                                         nullmap1);
                 } else {
-                    const auto col1_inside_const = assert_cast<const IntervalColumnType&>(
+                    const auto& col1_inside_const = assert_cast<const IntervalColumnType&>(
                             nest_col1_const->get_data_column());
                     Op::vector_constant(sources->get_data(), res_col->get_data(),
                                         col1_inside_const.get_data()[0], nullmap0, nullmap1);
                 }
             } else { // vector-vector
                 if constexpr (Transform::IntervalPType != TYPE_STRING) {
-                    const auto concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
+                    const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
                     Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
                                       res_col->get_data(), nullmap0, nullmap1);
                 } else {
@@ -790,11 +790,11 @@ public:
                                    src_nested_col.get())) {
             if constexpr (Transform::IntervalPType != TYPE_STRING) {
                 // const-vector
-                const auto col0_inside_const =
+                const auto& col0_inside_const =
                         assert_cast<const ColumnVector<Transform::ArgPType>&>(
                                 sources_const->get_data_column());
                 const ColumnPtr nested_col1 = remove_nullable(col1);
-                const auto concrete_col1 = assert_cast<const IntervalColumnType&>(*nested_col1);
+                const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nested_col1);
                 Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(),
                                     concrete_col1.get_data(), nullmap0, nullmap1);
 
