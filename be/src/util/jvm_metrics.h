@@ -45,9 +45,8 @@ private:
 
     Jni::GlobalClass _memoryPoolMXBeanClass;
     Jni::MethodId _getMemoryPoolMXBeanUsageMethod;
-
-    Jni::MethodId _getMemoryPollMXBeanPeakMethod;
-    Jni::MethodId _getMemoryPollMXBeanNameMethod;
+    Jni::MethodId _getMemoryPoolMXBeanPeakMethod;
+    Jni::MethodId _getMemoryPoolMXBeanNameMethod;
 
     enum memoryPoolNameEnum { YOUNG, SURVIVOR, OLD };
     const std::map<std::string, memoryPoolNameEnum> _memoryPoolName = {
