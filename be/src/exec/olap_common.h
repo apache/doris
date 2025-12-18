@@ -207,27 +207,6 @@ public:
         _contain_null = _is_nullable_col && contain_null;
     }
 
-    void attach_profile_counter(
-            int runtime_filter_id,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter) {
-        DCHECK(predicate_filtered_rows_counter != nullptr);
-        DCHECK(predicate_input_rows_counter != nullptr);
-
-        _runtime_filter_id = runtime_filter_id;
-
-        if (predicate_filtered_rows_counter != nullptr) {
-            _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
-        }
-        if (predicate_input_rows_counter != nullptr) {
-            _predicate_input_rows_counter = predicate_input_rows_counter;
-        }
-        if (predicate_always_true_rows_counter != nullptr) {
-            _predicate_always_true_rows_counter = predicate_always_true_rows_counter;
-        }
-    }
-
     int precision() const { return _precision; }
 
     int scale() const { return _scale; }
@@ -294,15 +273,6 @@ private:
             primitive_type == PrimitiveType::TYPE_DATETIMEV2 ||
             primitive_type == PrimitiveType::TYPE_TIMESTAMPTZ ||
             primitive_type == PrimitiveType::TYPE_DECIMAL256;
-
-    int _runtime_filter_id = -1;
-
-    std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
-            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
-    std::shared_ptr<RuntimeProfile::Counter> _predicate_input_rows_counter =
-            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
-    std::shared_ptr<RuntimeProfile::Counter> _predicate_always_true_rows_counter =
-            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 };
 template <>
 const typename ColumnValueRange<TYPE_FLOAT>::CppType ColumnValueRange<TYPE_FLOAT>::TYPE_MIN;
@@ -315,12 +285,6 @@ const typename ColumnValueRange<TYPE_DOUBLE>::CppType ColumnValueRange<TYPE_DOUB
 
 class OlapScanKeys {
 public:
-    OlapScanKeys()
-            : _has_range_value(false),
-              _begin_include(true),
-              _end_include(true),
-              _is_convertible(true) {}
-
     // TODO(gabriel): use ColumnPredicate to extend scan key
     template <PrimitiveType primitive_type>
     Status extend_scan_key(ColumnValueRange<primitive_type>& range, int32_t max_scan_key_num,
@@ -358,10 +322,10 @@ public:
 private:
     std::vector<OlapTuple> _begin_scan_keys;
     std::vector<OlapTuple> _end_scan_keys;
-    bool _has_range_value;
-    bool _begin_include;
-    bool _end_include;
-    bool _is_convertible;
+    bool _has_range_value = false;
+    bool _begin_include = false;
+    bool _end_include = false;
+    bool _is_convertible = false;
 };
 
 using ColumnValueRangeType = std::variant<

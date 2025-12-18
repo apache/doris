@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "io/fs/tracing_file_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "schema_desc.h"
 #include "util/runtime_profile.h"
@@ -255,7 +256,10 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(io::FileReaderSPtr 
                                                     : chunk_meta.data_page_offset;
     size_t chunk_len = chunk_meta.total_compressed_size;
     size_t prefetch_buffer_size = std::min(chunk_len, max_buf_size);
-    if (typeid_cast<io::MergeRangeFileReader*>(file.get())) {
+    if ((typeid_cast<doris::io::TracingFileReader*>(file.get()) &&
+         typeid_cast<io::MergeRangeFileReader*>(
+                 ((doris::io::TracingFileReader*)(file.get()))->inner_reader().get())) ||
+        typeid_cast<io::MergeRangeFileReader*>(file.get())) {
         // turn off prefetch data when using MergeRangeFileReader
         prefetch_buffer_size = 0;
     }

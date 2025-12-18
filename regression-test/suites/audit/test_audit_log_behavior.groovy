@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_audit_log_behavior") {
+suite("test_audit_log_behavior","nonConcurrent") {
     try {
         sql "set global enable_audit_plugin = true"
         sql "set global audit_plugin_max_sql_length = 58"

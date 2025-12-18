@@ -74,7 +74,7 @@ class ParquetReader : public GenericReader, public ExprPushDownHelper {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
 public:
-    struct Statistics {
+    struct ReaderStatistics {
         int32_t filtered_row_groups = 0;
         int32_t filtered_row_groups_by_min_max = 0;
         int32_t filtered_row_groups_by_bloom_filter = 0;
@@ -84,13 +84,12 @@ public:
         int64_t lazy_read_filtered_rows = 0;
         int64_t read_rows = 0;
         int64_t filtered_bytes = 0;
-        int64_t read_bytes = 0;
         int64_t column_read_time = 0;
         int64_t parse_meta_time = 0;
         int64_t parse_footer_time = 0;
         int64_t file_footer_read_calls = 0;
         int64_t file_footer_hit_cache = 0;
-        int64_t open_file_time = 0;
+        int64_t file_reader_create_time = 0;
         int64_t open_file_num = 0;
         int64_t row_group_filter_time = 0;
         int64_t page_index_filter_time = 0;
@@ -146,7 +145,7 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
-    Statistics& statistics() { return _statistics; }
+    ReaderStatistics& reader_statistics() { return _reader_statistics; }
 
     const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
 
@@ -174,16 +173,16 @@ private:
         RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
         RuntimeProfile::Counter* filtered_row_groups_by_bloom_filter = nullptr;
         RuntimeProfile::Counter* to_read_row_groups = nullptr;
+        RuntimeProfile::Counter* total_row_groups = nullptr;
         RuntimeProfile::Counter* filtered_group_rows = nullptr;
         RuntimeProfile::Counter* filtered_page_rows = nullptr;
         RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
         RuntimeProfile::Counter* filtered_bytes = nullptr;
         RuntimeProfile::Counter* raw_rows_read = nullptr;
-        RuntimeProfile::Counter* to_read_bytes = nullptr;
         RuntimeProfile::Counter* column_read_time = nullptr;
         RuntimeProfile::Counter* parse_meta_time = nullptr;
         RuntimeProfile::Counter* parse_footer_time = nullptr;
-        RuntimeProfile::Counter* open_file_time = nullptr;
+        RuntimeProfile::Counter* file_reader_create_time = nullptr;
         RuntimeProfile::Counter* open_file_num = nullptr;
         RuntimeProfile::Counter* row_group_filter_time = nullptr;
         RuntimeProfile::Counter* page_index_read_calls = nullptr;
@@ -195,6 +194,7 @@ private:
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
         RuntimeProfile::Counter* decode_header_time = nullptr;
+        RuntimeProfile::Counter* read_page_header_time = nullptr;
         RuntimeProfile::Counter* decode_value_time = nullptr;
         RuntimeProfile::Counter* decode_dict_time = nullptr;
         RuntimeProfile::Counter* decode_level_time = nullptr;
@@ -315,8 +315,8 @@ private:
     // _table_column_names = _missing_cols + _read_table_columns
     const std::vector<std::string>* _table_column_names = nullptr;
 
-    Statistics _statistics;
-    ParquetColumnReader::Statistics _column_statistics;
+    ReaderStatistics _reader_statistics;
+    ParquetColumnReader::ColumnStatistics _column_statistics;
     ParquetProfile _parquet_profile;
     bool _closed = false;
     io::IOContext* _io_ctx = nullptr;

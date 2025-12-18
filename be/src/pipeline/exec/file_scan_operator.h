@@ -83,8 +83,6 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    bool is_file_scan_operator() const override { return true; }
-
     // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
     int parallelism(RuntimeState* state) const override {
         return _batch_split_mode ? 1 : ScanOperatorX<FileScanLocalState>::parallelism(state);
