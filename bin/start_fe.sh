@@ -204,7 +204,7 @@ extract_java_opt_key() {
     local param="$1"
 
     case "${param}" in
-        --add-opens * | --add-exports=* | --add-reads=* | --add-modules=*)
+        "--add-opens "* | "--add-exports="* | "--add-reads="* | "--add-modules="*)
             # --add-opens java.base/sun.util.calendar=ALL-UNNAMED
             # Extract module/package path as key: --add-opens java.base/sun.util.calendar
             echo "${param%=*}"
