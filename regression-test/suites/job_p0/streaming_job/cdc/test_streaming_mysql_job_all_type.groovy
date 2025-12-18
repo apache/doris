@@ -142,15 +142,15 @@ suite("test_streaming_mysql_job_all_type", "p0,external,mysql,external_docker,ex
 
        sleep(30000); // wait for cdc incremental data
 
-        // check incremental data
-        qt_select_all_types_null2 """select * from ${currentDb}.${table1} order by 1;"""
+       // check incremental data
+       qt_select_all_types_null2 """select * from ${currentDb}.${table1} order by 1;"""
 
 
-//        sql """
-//            DROP JOB IF EXISTS where jobname =  '${jobName}'
-//        """
-//
-//        def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
-//        assert jobCountRsp.get(0).get(0) == 0
+       sql """
+           DROP JOB IF EXISTS where jobname =  '${jobName}'
+       """
+
+       def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
+       assert jobCountRsp.get(0).get(0) == 0
     }
 }
