@@ -402,7 +402,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             keysNeedToBeSorted.addAll(windowFrameGroup.getPartitionKeys().stream().map(partitionKey -> {
                 // todo: haven't support isNullFirst, and its default value is false(see AnalyticPlanner,
                 //  but in LogicalPlanBuilder, its default value is true)
-                return new OrderKey(partitionKey, true, false);
+                return new OrderKey(partitionKey, true, true);
             }).collect(Collectors.toList()));
         }
         if (!windowFrameGroup.getOrderKeys().isEmpty()) {
