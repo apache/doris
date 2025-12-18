@@ -128,18 +128,18 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     statementContext.getMaterializedViewRewriteDuration());
             return rewrittenPlans;
         }
-        for (MaterializationContext context : cascadesContext.getMaterializationContexts()) {
+        for (MaterializationContext materializationContext : cascadesContext.getMaterializationContexts()) {
             statementContext.getMaterializedViewStopwatch().reset().start();
-            if (checkIfRewritten(queryPlan, context)) {
+            if (checkIfRewritten(queryPlan, materializationContext)) {
                 continue;
             }
             // check mv plan is valid or not
-            if (!isMaterializationValid(queryPlan, cascadesContext, context)) {
+            if (!isMaterializationValid(queryPlan, cascadesContext, materializationContext)) {
                 continue;
             }
             // get query struct infos according to the view strut info, if valid query struct infos is empty, bail out
             List<StructInfo> queryStructInfos = getValidQueryStructInfos(queryPlan, cascadesContext,
-                    context.getCommonTableIdSet(statementContext));
+                    materializationContext);
             if (queryStructInfos.isEmpty()) {
                 continue;
             }
@@ -163,11 +163,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 try {
                     if (rewrittenPlans.size() < sessionVariable.getMaterializedViewRewriteSuccessCandidateNum()) {
-                        rewrittenPlans.addAll(doRewrite(queryStructInfo, cascadesContext, context));
+                        rewrittenPlans.addAll(doRewrite(queryStructInfo, cascadesContext, materializationContext));
                     }
                 } catch (Exception exception) {
                     LOG.warn("Materialized view rule exec fail", exception);
-                    context.recordFailReason(queryStructInfo,
+                    materializationContext.recordFailReason(queryStructInfo,
                             "Materialized view rule exec fail", exception::toString);
                 } finally {
                     elapsed = statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS);
@@ -185,12 +185,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * Get valid query struct infos, if invalid record the invalid reason
      */
     protected List<StructInfo> getValidQueryStructInfos(Plan queryPlan, CascadesContext cascadesContext,
-            BitSet materializedViewTableSet) {
+            MaterializationContext materializationContext) {
         List<StructInfo> validStructInfos = new ArrayList<>();
         // For every materialized view we should trigger refreshing struct info map
-        List<StructInfo> uncheckedStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
-                cascadesContext, materializedViewTableSet);
-        uncheckedStructInfos.forEach(queryStructInfo -> {
+        List<StructInfo> uncheckedQueryStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
+                cascadesContext,
+                materializationContext.getQueryRelationIdSetMvMatched(cascadesContext.getStatementContext()));
+        uncheckedQueryStructInfos.forEach(queryStructInfo -> {
             boolean valid = checkQueryPattern(queryStructInfo, cascadesContext) && queryStructInfo.isValid();
             if (!valid) {
                 cascadesContext.getMaterializationContexts().forEach(ctx ->
