@@ -56,9 +56,11 @@ public class PaimonJniScanner extends JniScanner {
     private List<String> paimonAllFieldNames;
     private List<DataType> paimonDataTypeList;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
+    private final ClassLoader classLoader;
     private PreExecutionAuthenticator preExecutionAuthenticator;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
+        this.classLoader = this.getClass().getClassLoader();
         if (LOG.isDebugEnabled()) {
             LOG.debug("params:{}", params);
         }
@@ -88,11 +90,7 @@ public class PaimonJniScanner extends JniScanner {
             //    org.apache.paimon.hive.HiveCatalog.createHiveConf:
             //        `Thread.currentThread().getContextClassLoader().getResource(HIVE_SITE_FILE)`
             // so we need to provide a classloader, otherwise it will cause NPE.
-            ClassLoader tccl = Thread.currentThread().getContextClassLoader();
-            if (tccl == null) {
-                tccl = this.getClass().getClassLoader();
-                Thread.currentThread().setContextClassLoader(tccl);
-            }
+            Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
                 initTable();
                 initReader();
