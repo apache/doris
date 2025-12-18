@@ -111,7 +111,9 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     @Override
-    public void initialize() {}
+    public void initialize(Map<String, String> config) {
+        this.serializer.init(config);
+    }
 
     @Override
     public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
@@ -650,6 +652,12 @@ public class MySqlSourceReader implements SourceReader {
         currentReader = null;
         currentSplitRecords = null;
         tableSchemas = null;
+    }
+
+    @Override
+    public List<String> deserialize(Map<String, String> config, SourceRecord element)
+            throws IOException {
+        return serializer.deserialize(config, element);
     }
 
     /**

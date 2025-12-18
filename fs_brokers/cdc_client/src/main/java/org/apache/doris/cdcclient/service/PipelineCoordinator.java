@@ -20,8 +20,6 @@ package org.apache.doris.cdcclient.service;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.exception.StreamLoadException;
 import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
-import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
-import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
@@ -54,13 +52,11 @@ public class PipelineCoordinator {
     private static final String SPLIT_ID = "splitId";
     // jobId
     private final Map<Long, DorisBatchStreamLoad> batchStreamLoadMap = new ConcurrentHashMap<>();
-    private final SourceRecordDeserializer<SourceRecord, List<String>> serializer;
     private final ThreadPoolExecutor executor;
     private static final int MAX_CONCURRENT_TASKS = 10;
     private static final int QUEUE_CAPACITY = 128;
 
     public PipelineCoordinator() {
-        this.serializer = new DebeziumJsonDeserializer();
         this.executor =
                 new ThreadPoolExecutor(
                         MAX_CONCURRENT_TASKS,
@@ -133,7 +129,8 @@ public class PipelineCoordinator {
             while (iterator != null && iterator.hasNext()) {
                 SourceRecord element = iterator.next();
                 List<String> serializedRecords =
-                        serializer.deserialize(writeRecordRequest.getConfig(), element);
+                        sourceReader.deserialize(writeRecordRequest.getConfig(), element);
+
                 if (!CollectionUtils.isEmpty(serializedRecords)) {
                     String database = writeRecordRequest.getTargetDb();
                     String table = extractTable(element);

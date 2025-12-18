@@ -22,6 +22,7 @@ import java.io.Serializable;
 import java.util.Map;
 
 public interface SourceRecordDeserializer<T, C> extends Serializable {
+    void init(Map<String, String> props);
 
     C deserialize(Map<String, String> context, T record) throws IOException;
 }

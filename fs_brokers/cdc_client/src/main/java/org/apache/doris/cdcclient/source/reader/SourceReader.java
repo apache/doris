@@ -26,14 +26,16 @@ import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 
 import org.apache.flink.api.connector.source.SourceSplit;
+import org.apache.kafka.connect.source.SourceRecord;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
 /** Source Reader Interface */
 public interface SourceReader {
     /** Initialization, called when the program starts */
-    void initialize();
+    void initialize(Map<String, String> config);
 
     /** Divide the data to be read. For example: split mysql to chunks */
     List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
@@ -67,4 +69,6 @@ public interface SourceReader {
 
     /** Called when closing */
     void close(Long jobId);
+
+    List<String> deserialize(Map<String, String> config, SourceRecord element) throws IOException;
 }

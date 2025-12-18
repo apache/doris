@@ -30,6 +30,7 @@ import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
 
 import java.sql.SQLException;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Properties;
@@ -39,6 +40,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
 import com.mysql.cj.conf.ConnectionUrl;
 import io.debezium.connector.mysql.MySqlConnection;
 
@@ -50,9 +52,22 @@ public class ConfigUtil {
     }
 
     public static MySqlSourceConfig generateMySqlConfig(JobBaseConfig config) {
-        Map<String, String> cdcConfig = config.getConfig();
-        MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
+        return generateMySqlConfig(config.getConfig(), getServerId(config.getJobId()));
+    }
 
+    public static MySqlSourceConfig generateMySqlConfig(Map<String, String> config) {
+        return generateMySqlConfig(config, "0");
+    }
+
+    public static ZoneId getServerTimeZone(String jdbcUrl) {
+        Preconditions.checkNotNull(jdbcUrl, "jdbcUrl is null");
+        ConnectionUrl cu = ConnectionUrl.getConnectionUrlInstance(jdbcUrl, null);
+        return getTimeZoneFromProps(cu.getOriginalProperties());
+    }
+
+    private static MySqlSourceConfig generateMySqlConfig(
+            Map<String, String> cdcConfig, String serverId) {
+        MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
         ConnectionUrl cu =
                 ConnectionUrl.getConnectionUrlInstance(
                         cdcConfig.get(DataSourceConfigKeys.JDBC_URL), null);
@@ -62,7 +77,8 @@ public class ConfigUtil {
         configFactory.password(cdcConfig.get(DataSourceConfigKeys.PASSWORD));
         String databaseName = cdcConfig.get(DataSourceConfigKeys.DATABASE);
         configFactory.databaseList(databaseName);
-        configFactory.serverId(getServerId(config.getJobId()));
+        configFactory.serverId(serverId);
+        configFactory.serverTimeZone(getTimeZoneFromProps(cu.getOriginalProperties()).toString());
 
         configFactory.includeSchemaChanges(false);
 
@@ -133,6 +149,16 @@ public class ConfigUtil {
         }
 
         return configFactory.createConfig(0);
+    }
+
+    private static ZoneId getTimeZoneFromProps(Map<String, String> originalProperties) {
+        if (originalProperties != null && originalProperties.containsKey("serverTimezone")) {
+            String timeZone = originalProperties.get("serverTimezone");
+            if (StringUtils.isNotEmpty(timeZone)) {
+                return ZoneId.of(timeZone);
+            }
+        }
+        return ZoneId.systemDefault();
     }
 
     private static BinlogOffset initializeEffectiveOffset(

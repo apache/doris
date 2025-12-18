@@ -17,6 +17,9 @@
 
 package org.apache.doris.cdcclient.source.deserialize;
 
+import org.apache.doris.cdcclient.utils.ConfigUtil;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.debezium.utils.TemporalConversions;
@@ -28,11 +31,15 @@ import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.ByteBuffer;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,24 +48,36 @@ import static org.apache.doris.cdcclient.common.Constants.DORIS_DELETE_SIGN;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.debezium.data.Bits;
 import io.debezium.data.Envelope;
 import io.debezium.data.SpecialValueDecimal;
 import io.debezium.data.VariableScaleDecimal;
-import io.debezium.time.Date;
+import io.debezium.time.MicroTime;
 import io.debezium.time.MicroTimestamp;
+import io.debezium.time.NanoTime;
 import io.debezium.time.NanoTimestamp;
+import io.debezium.time.Time;
 import io.debezium.time.Timestamp;
 import io.debezium.time.ZonedTimestamp;
+import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/** SourceRecord ==> [{},{}] */
 public class DebeziumJsonDeserializer
         implements SourceRecordDeserializer<SourceRecord, List<String>> {
     private static final long serialVersionUID = 1L;
     private static final Logger LOG = LoggerFactory.getLogger(DebeziumJsonDeserializer.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
+    @Setter private ZoneId serverTimeZone = ZoneId.systemDefault();
 
     public DebeziumJsonDeserializer() {}
+
+    @Override
+    public void init(Map<String, String> props) {
+        this.serverTimeZone =
+                ConfigUtil.getServerTimeZone(props.get(DataSourceConfigKeys.JDBC_URL));
+    }
 
     @Override
     public List<String> deserialize(Map<String, String> context, SourceRecord record)
@@ -67,10 +86,8 @@ public class DebeziumJsonDeserializer
             LOG.trace("Process data change record: {}", record);
             return deserializeDataChangeRecord(record);
         } else if (RecordUtils.isSchemaChangeEvent(record)) {
-            LOG.debug("Ignored schema change record: {}", record);
             return Collections.emptyList();
         } else {
-            LOG.info("Ignored other record: {}", record);
             return Collections.emptyList();
         }
     }
@@ -159,15 +176,20 @@ public class DebeziumJsonDeserializer
                 case ARRAY:
                 case MAP:
                 case STRUCT:
-                case BYTES:
                     return dbzObj.toString();
+                case BYTES:
+                    return convertToBinary(dbzObj, fieldSchema);
                 default:
-                    LOG.warn("Unsupported type: {}, transform value to string", type);
+                    LOG.debug("Unsupported type: {}, transform value to string", type);
                     return dbzObj.toString();
             }
         } else {
             switch (name) {
-                case Date.SCHEMA_NAME:
+                case Time.SCHEMA_NAME:
+                case MicroTime.SCHEMA_NAME:
+                case NanoTime.SCHEMA_NAME:
+                    return convertToTime(dbzObj, fieldSchema);
+                case io.debezium.time.Date.SCHEMA_NAME:
                     return TemporalConversions.toLocalDate(dbzObj).toString();
                 case Timestamp.SCHEMA_NAME:
                 case MicroTimestamp.SCHEMA_NAME:
@@ -177,8 +199,10 @@ public class DebeziumJsonDeserializer
                     return convertZoneTimestamp(dbzObj);
                 case Decimal.LOGICAL_NAME:
                     return convertDecimal(dbzObj, fieldSchema);
+                case Bits.LOGICAL_NAME:
+                    return dbzObj;
                 default:
-                    LOG.warn(
+                    LOG.debug(
                             "Unsupported type: {} with name {}, transform value to string",
                             type,
                             name);
@@ -192,8 +216,7 @@ public class DebeziumJsonDeserializer
             String str = (String) dbzObj;
             // TIMESTAMP_LTZ type is encoded in string type
             Instant instant = Instant.parse(str);
-            return TimestampData.fromLocalDateTime(
-                            LocalDateTime.ofInstant(instant, ZoneId.systemDefault()))
+            return TimestampData.fromLocalDateTime(LocalDateTime.ofInstant(instant, serverTimeZone))
                     .toTimestamp()
                     .toString();
         }
@@ -218,9 +241,22 @@ public class DebeziumJsonDeserializer
                             .toString();
             }
         }
-        LocalDateTime localDateTime =
-                TemporalConversions.toLocalDateTime(dbzObj, ZoneId.systemDefault());
+        LocalDateTime localDateTime = TemporalConversions.toLocalDateTime(dbzObj, serverTimeZone);
         return java.sql.Timestamp.valueOf(localDateTime);
+    }
+
+    protected Object convertToBinary(Object dbzObj, Schema schema) {
+        if (dbzObj instanceof byte[]) {
+            return dbzObj;
+        } else if (dbzObj instanceof ByteBuffer) {
+            ByteBuffer byteBuffer = (ByteBuffer) dbzObj;
+            byte[] bytes = new byte[byteBuffer.remaining()];
+            byteBuffer.get(bytes);
+            return bytes;
+        } else {
+            LOG.warn("Unable to convert to binary, default {}", dbzObj);
+            return dbzObj.toString();
+        }
     }
 
     private Object convertDecimal(Object dbzObj, Schema schema) {
@@ -244,5 +280,31 @@ public class DebeziumJsonDeserializer
             }
         }
         return bigDecimal;
+    }
+
+    protected Object convertToTime(Object dbzObj, Schema schema) {
+        try {
+            if (dbzObj instanceof Long) {
+                switch (schema.name()) {
+                    case MicroTime.SCHEMA_NAME:
+                        // micro to nano
+                        return LocalTime.ofNanoOfDay((Long) dbzObj * 1000L).toString();
+                    case NanoTime.SCHEMA_NAME:
+                        return LocalTime.ofNanoOfDay((Long) dbzObj).toString();
+                }
+            } else if (dbzObj instanceof Integer) {
+                // millis to nano
+                return LocalTime.ofNanoOfDay((Integer) dbzObj * 1_000_000L).toString();
+            } else if (dbzObj instanceof java.util.Date) {
+                long millisOfDay = ((Date) dbzObj).getTime() % (24 * 60 * 60 * 1000);
+                // mills to nano
+                return LocalTime.ofNanoOfDay(millisOfDay * 1_000_000L).toString();
+            }
+            // get number of milliseconds of the day
+            return TemporalConversions.toLocalTime(dbzObj).toString();
+        } catch (DateTimeException ex) {
+            LOG.warn("Unable to convert to time, default {}", dbzObj);
+            return dbzObj.toString();
+        }
     }
 }
