@@ -80,8 +80,9 @@ public class PaimonMetadataOpsTest {
 
     @Test
     public void testSimpleTable() throws UserException, TableNotExistException {
-        Identifier identifier = new Identifier(dbName, getTableName());
-        String sql = "create table " + dbName + "." + getTableName() + " (id int) engine = paimon";
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        String sql = "create table " + dbName + "." + tableName + " (id int) engine = paimon";
         createTable(sql);
         Catalog catalog = ops.getCatalog();
         Table table = catalog.getTable(identifier);
@@ -100,8 +101,9 @@ public class PaimonMetadataOpsTest {
 
     @Test
     public void testProperties() throws UserException, TableNotExistException {
-        Identifier identifier = new Identifier(dbName, getTableName());
-        String sql = "create table " + dbName + "." + getTableName() + " (id int) engine = paimon properties(\"primary-key\"=id)";
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        String sql = "create table " + dbName + "." + tableName + " (id int) engine = paimon properties(\"primary-key\"=id)";
         createTable(sql);
         Catalog catalog = ops.getCatalog();
         Table table = catalog.getTable(identifier);
@@ -123,8 +125,9 @@ public class PaimonMetadataOpsTest {
 
     @Test
     public void testType() throws UserException, TableNotExistException {
-        Identifier identifier = new Identifier(dbName, getTableName());
-        String sql = "create table " + dbName + "." + getTableName() + " ("
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        String sql = "create table " + dbName + "." + tableName + " ("
                 + "c0 int, "
                 + "c1 bigint, "
                 + "c2 float, "
@@ -165,8 +168,9 @@ public class PaimonMetadataOpsTest {
 
     @Test
     public void testPartition() throws UserException, TableNotExistException {
-        Identifier identifier = new Identifier(dbName, getTableName());
-        String sql = "create table " + dbName + "." + getTableName() + " ("
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        String sql = "create table " + dbName + "." + tableName + " ("
                 + "c0 int, "
                 + "c1 bigint, "
                 + "c2 float, "
@@ -177,7 +181,7 @@ public class PaimonMetadataOpsTest {
                 + "c7 datetime"
                 + ") engine = paimon "
                 + "partition by ("
-                + "c1 )"
+                + "c1 ) ()"
                 + "properties(\"primary-key\"=c0)";
         createTable(sql);
         Catalog catalog = ops.getCatalog();
