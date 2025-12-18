@@ -340,6 +340,10 @@ public:
     // returns 0 for success otherwise error
     int recycle_cluster_snapshots();
 
+    // scan and recycle ref rowsets for deleted instance
+    // returns 0 for success otherwise error
+    int recycle_ref_rowsets(bool* has_unrecycled_rowsets);
+
     bool check_recycle_tasks();
 
     int scan_and_statistics_indexes();

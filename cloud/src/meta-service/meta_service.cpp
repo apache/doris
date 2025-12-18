@@ -681,6 +681,10 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
         }
         txn->put(rs_key, rs_val);
         if (is_versioned_write) {
+            std::string meta_rowset_key = versioned::meta_rowset_key(
+                    {instance_id, tablet_id, first_rowset->rowset_id_v2()});
+            blob_put(txn.get(), meta_rowset_key, rs_val, 0);
+
             std::string rowset_ref_count_key = versioned::data_rowset_ref_count_key(
                     {instance_id, tablet_id, first_rowset->rowset_id_v2()});
             txn->atomic_add(rowset_ref_count_key, 1);
@@ -693,9 +697,11 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
                 return;
             }
             LOG(INFO) << "put first versioned rowset meta, tablet_id=" << tablet_id
+                      << " rowset_id=" << first_rowset->rowset_id_v2()
                       << " end_version=" << first_rowset->end_version()
                       << " key=" << hex(versioned_rs_key)
-                      << " rowset_ref_count_key=" << hex(rowset_ref_count_key);
+                      << " rowset_ref_count_key=" << hex(rowset_ref_count_key)
+                      << " meta_rowset_key=" << hex(meta_rowset_key);
         }
 
         tablet_meta.clear_rs_metas(); // Strip off rowset meta
@@ -2697,20 +2703,38 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         rowset_meta.set_allocated_tablet_schema(nullptr);
     }
 
-    if (is_version_write_enabled(instance_id)) {
-        std::string rowset_ref_count_key =
-                versioned::data_rowset_ref_count_key({instance_id, tablet_id, rowset_id});
-        LOG(INFO) << "add rowset ref count key, instance_id=" << instance_id
-                  << "key=" << hex(rowset_ref_count_key);
-        txn->atomic_add(rowset_ref_count_key, 1);
-    }
-
     auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
     txn->remove(recycle_rs_key);
 
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     auto tmp_rs_val = rowset_meta.SerializeAsString();
     txn->put(tmp_rs_key, tmp_rs_val);
+
+    if (is_version_write_enabled(instance_id)) {
+        std::string rowset_ref_count_key =
+                versioned::data_rowset_ref_count_key({instance_id, tablet_id, rowset_id});
+        LOG(INFO) << "add rowset ref count key, instance_id=" << instance_id
+                  << "key=" << hex(rowset_ref_count_key);
+        txn->atomic_add(rowset_ref_count_key, 1);
+
+        // Recycler uses end_version to check if the meta_rowset_compact_key or
+        // meta_rowset_load_key exists.
+        // The end_version is not set if rowset is committed by load, later commit_txn will write
+        // this key again to save end_version.
+        std::string meta_rowset_key =
+                versioned::meta_rowset_key({instance_id, tablet_id, rowset_id});
+        if (config::enable_recycle_rowset_strip_key_bounds) {
+            doris::RowsetMetaCloudPB rowset_meta_copy = rowset_meta;
+            // Strip key bounds to shrink operation log for ts compaction recycle entries
+            rowset_meta_copy.clear_segments_key_bounds();
+            rowset_meta_copy.clear_segments_key_bounds_truncated();
+            blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
+        } else {
+            blob_put(txn.get(), meta_rowset_key, tmp_rs_val, 0);
+        }
+        LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
+    }
+
     std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
     LOG(INFO) << "put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
               << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size() << " txn_id "
