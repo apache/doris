@@ -1796,7 +1796,13 @@ void PipelineFragmentContext::_close_fragment_instance() {
         _close_cv.notify_all();
     }};
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
-    static_cast<void>(send_report(true));
+    if (!_need_notify_close) {
+        auto st = send_report(true);
+        if (!st) {
+            LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
+                                        print_id(_query_id), _fragment_id, st.to_string());
+        }
+    }
     // Print profile content in info log is a tempoeray solution for stream load and external_connector.
     // Since stream load does not have someting like coordinator on FE, so
     // backend can not report profile to FE, ant its profile can not be shown
@@ -2063,6 +2069,11 @@ Status PipelineFragmentContext::wait_close(bool close) {
     }
 
     if (close) {
+        auto st = send_report(true);
+        if (!st) {
+            LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
+                                        print_id(_query_id), _fragment_id, st.to_string());
+        }
         _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
     }
     return Status::OK();
