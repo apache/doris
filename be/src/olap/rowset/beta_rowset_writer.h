@@ -193,19 +193,12 @@ public:
         return this->_idx_files.get_file_writers();
     }
 
-    CalcDeleteBitmapToken* calc_delete_bitmap_token() { return _calc_delete_bitmap_token.get(); }
-
-    CalcDeleteBitmapTask* calc_delete_bitmap_task(int32_t segment_id) {
-        DCHECK(_context.mow_context != nullptr);
-        return _context.mow_context->get_calc_dbm_task(segment_id);
-    }
-
 private:
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
     Status _generate_delete_bitmap(int32_t segment_id);
-    Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
+    virtual Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit(size_t segnum);
@@ -259,6 +252,7 @@ protected:
 
     fmt::memory_buffer vlog_buffer;
 
+    std::shared_ptr<MowContext> _mow_context;
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
 
     int64_t _delete_bitmap_ns = 0;

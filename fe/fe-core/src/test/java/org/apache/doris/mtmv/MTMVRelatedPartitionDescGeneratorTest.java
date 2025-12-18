@@ -167,7 +167,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         List<Expr> params = new ArrayList<>();
         params.add(new StringLiteral("c1"));
         params.add(new StringLiteral("month"));
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr("date_trunc", params);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("date_trunc", params, true);
         mtmvPartitionInfo.setExpr(functionCallExpr);
         Column c1Column = new Column("c1", PrimitiveType.INT);
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap

@@ -37,17 +37,15 @@ TEST(ReaderTest, ArrayFieldTokenStreamWorkflow) {
     char_filter_map["char_filter_pattern"] = ",";
     char_filter_map["char_filter_replacement"] = " ";
 
-    // 正确创建 InvertedIndexCtx
-    auto inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
-    inverted_index_ctx->custom_analyzer = "";
-    inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_STANDARD;
-    inverted_index_ctx->parser_mode = "standard";
-    inverted_index_ctx->support_phrase = "yes";
-    inverted_index_ctx->char_filter_map = char_filter_map;
-    inverted_index_ctx->lower_case = "true";
-    inverted_index_ctx->stop_words = "";
+    InvertedIndexAnalyzerConfig config;
+    config.analyzer_name = "";
+    config.parser_type = InvertedIndexParserType::PARSER_STANDARD;
+    config.parser_mode = "standard";
+    config.char_filter_map = char_filter_map;
+    config.lower_case = "true";
+    config.stop_words = "";
 
-    auto analyzer = InvertedIndexAnalyzer::create_analyzer(inverted_index_ctx.get());
+    auto analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
     ASSERT_NE(analyzer, nullptr);
 
     std::string test_data = "hello,world,test";
@@ -71,7 +69,7 @@ TEST(ReaderTest, ArrayFieldTokenStreamWorkflow) {
             new_field.reset(field);
             {
                 ReaderPtr char_string_reader =
-                        InvertedIndexAnalyzer::create_reader(inverted_index_ctx->char_filter_map);
+                        InvertedIndexAnalyzer::create_reader(config.char_filter_map);
                 char_string_reader->init(slice.get_data(), cast_set<int32_t>(slice.get_size()),
                                          false);
 

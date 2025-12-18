@@ -47,6 +47,30 @@ public class DateTimeArithmetic {
     }
 
     /**
+     * datetime arithmetic function day_hour-add.
+     */
+    @ExecFunction(name = "day_hour_add")
+    public static Expression dayHourAdd(DateTimeV2Literal date, VarcharLiteral dayHour) {
+        return date.plusDayHour(dayHour);
+    }
+
+    /**
+     * datetime arithmetic function minute_second-add.
+     */
+    @ExecFunction(name = "minute_second_add")
+    public static Expression minuteSecondAdd(DateTimeV2Literal date, VarcharLiteral minuteSecond) {
+        return date.plusMinuteSecond(minuteSecond);
+    }
+
+    /**
+     * datetime arithmetic function second_microsecond-add.
+     */
+    @ExecFunction(name = "second_microsecond_add")
+    public static Expression secondMicrosecondAdd(DateTimeV2Literal date, VarcharLiteral secondMicrosecond) {
+        return date.plusSecondMicrosecond(secondMicrosecond);
+    }
+
+    /**
      * datetime arithmetic function date-sub.
      */
     @ExecFunction(name = "date_sub")

@@ -36,7 +36,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyNodeHostNameOp;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -83,7 +83,7 @@ public class AlterSystemCommand extends AlterCommand {
                 || alterSystemOp instanceof AddBrokerOp
                 || alterSystemOp instanceof DropBrokerOp
                 || alterSystemOp instanceof ModifyBackendOp
-                || alterSystemOp instanceof ModifyFrontendOrBackendHostNameOp
+                || alterSystemOp instanceof ModifyNodeHostNameOp
                 || alterSystemOp instanceof AlterLoadErrorUrlOp)
         );
 

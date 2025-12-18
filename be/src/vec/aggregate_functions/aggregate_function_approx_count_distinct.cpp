@@ -25,14 +25,15 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr) {
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
     return creator_with_type_list<
             TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
             TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
-            TYPE_DECIMAL256, TYPE_VARCHAR, TYPE_DATEV2, TYPE_DATETIMEV2, TYPE_IPV4,
-            TYPE_IPV6>::create<AggregateFunctionApproxCountDistinct>(argument_types,
-                                                                     result_is_nullable, attr);
+            TYPE_DECIMAL256, TYPE_VARCHAR, TYPE_DATEV2, TYPE_DATETIMEV2, TYPE_IPV4, TYPE_IPV6,
+            TYPE_TIMESTAMPTZ>::create<AggregateFunctionApproxCountDistinct>(argument_types,
+                                                                            result_is_nullable,
+                                                                            attr);
 }
 
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory) {

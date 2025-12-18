@@ -19,7 +19,13 @@ package org.apache.doris.datasource.connectivity;
 
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
 
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.regex.Pattern;
+
 public abstract class AbstractIcebergConnectivityTester implements MetaConnectivityTester {
+
+    protected static final Pattern LOCATION_PATTERN = Pattern.compile("^(s3|s3a|s3n)://.+");
     protected final AbstractIcebergProperties properties;
 
     protected AbstractIcebergConnectivityTester(AbstractIcebergProperties properties) {
@@ -32,5 +38,12 @@ public abstract class AbstractIcebergConnectivityTester implements MetaConnectiv
     @Override
     public String getTestLocation() {
         return properties.getWarehouse();
+    }
+
+    protected String validateLocation(String location) {
+        if (StringUtils.isNotBlank(location) && LOCATION_PATTERN.matcher(location).matches()) {
+            return location;
+        }
+        return null;
     }
 }

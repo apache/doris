@@ -46,7 +46,8 @@ suite("create_tbl_with_ann_index_test") {
                 INDEX ann_idx2 (vec) USING ANN PROPERTIES(
                     "index_type" = "ivf",
                     "metric_type" = "l2_distance",
-                    "dim" = "128"
+                    "dim" = "128",
+                    "nlist" = "128"
                 )
             ) ENGINE=OLAP
             DUPLICATE KEY(id) COMMENT "OLAP"
@@ -55,7 +56,6 @@ suite("create_tbl_with_ann_index_test") {
                 "replication_num" = "1"
             );
         """
-        exception "only support ann index with type hnsw"
     }
 
     // metric_type 错误

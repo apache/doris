@@ -524,6 +524,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                           PMultiGetResponseV2* response) {
     if (request.request_block_descs_size()) {
         auto tquery_id = ((UniqueId)request.query_id()).to_thrift();
+        // todo: use mutableBlock instead of block
         std::vector<vectorized::Block> result_blocks(request.request_block_descs_size());
 
         OlapReaderStatistics stats;
@@ -830,8 +831,8 @@ Status RowIdStorageReader::read_batch_external_row(
     workload_group_ids.emplace_back(workload_group_id);
     auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(workload_group_ids);
     doris::pipeline::TaskScheduler* exec_sched = nullptr;
-    vectorized::SimplifiedScanScheduler* scan_sched = nullptr;
-    vectorized::SimplifiedScanScheduler* remote_scan_sched = nullptr;
+    vectorized::ScannerScheduler* scan_sched = nullptr;
+    vectorized::ScannerScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 
@@ -955,6 +956,8 @@ Status RowIdStorageReader::read_batch_external_row(
 
     // Insert the read data into result_block.
     for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
+        // The non-const Block(result_block) is passed in read_by_rowids, but columns[i] in get_columns
+        // is at bottom an immutable_ptr of Cow<IColumn>, so use const_cast
         auto dst_col =
                 const_cast<vectorized::IColumn*>(result_block.get_columns()[column_id].get());
 

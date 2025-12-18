@@ -286,7 +286,7 @@ suite("mv_tpch_test") {
     """
     // contains limit, doesn't support now
     order_qt_query3_before "${query3}"
-    async_mv_rewrite_fail(db, mv3, query3, "mv3")
+    async_mv_rewrite_success(db, mv3, query3, "mv3")
     order_qt_query3_after "${query3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3"""
 
@@ -788,7 +788,7 @@ suite("mv_tpch_test") {
     """
     // contains limit, doesn't support now
     order_qt_query10_before "${query10}"
-    async_mv_rewrite_fail(db, mv10, query10, "mv10")
+    async_mv_rewrite_success(db, mv10, query10, "mv10")
     order_qt_query10_after "${query10}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv10"""
 
@@ -1231,11 +1231,12 @@ suite("mv_tpch_test") {
                   l_partkey = p_partkey
               )
     """
-    // contains subquery, doesn't support now
-    async_mv_rewrite_success(db, mv17, query17, "mv17")
+    // agg under join should rewrite successfully,
+    // but because AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION rule
+    // would rewrite to agg-window-join, so now doesn't support
+    async_mv_rewrite_fail(db, mv17, query17, "mv17")
     order_qt_query17_after "${query17}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17"""
-
 
     def mv18 = """
             SELECT
@@ -1309,7 +1310,7 @@ suite("mv_tpch_test") {
     """
     // contains limit, doesn't support now
     order_qt_query18_before "${query18}"
-    async_mv_rewrite_fail(db, mv18, query18, "mv18")
+    async_mv_rewrite_success(db, mv18, query18, "mv18")
     order_qt_query18_after "${query18}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv18"""
 
@@ -1623,7 +1624,7 @@ suite("mv_tpch_test") {
     """
     // contains limit, doesn't support now
     order_qt_query21_before "${query21}"
-    async_mv_rewrite_fail(db, mv21, query21, "mv21")
+    async_mv_rewrite_success(db, mv21, query21, "mv21")
     order_qt_query21_after "${query21}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv21"""
 

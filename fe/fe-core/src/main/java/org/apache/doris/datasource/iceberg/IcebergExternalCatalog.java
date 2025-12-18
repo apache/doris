@@ -17,18 +17,23 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.iceberg.catalog.Catalog;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
@@ -54,8 +59,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initCatalog() {
         try {
             msProperties = (AbstractIcebergProperties) catalogProperty.getMetastoreProperties();
-            this.catalog = msProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
-                    .getStoragePropertiesMap().values()));
+            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty
+                    .getOrderedStoragePropertiesList());
 
             this.icebergCatalogType = msProperties.getIcebergCatalogType();
         } catch (ClassCastException e) {
@@ -143,5 +148,51 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public boolean viewExists(String dbName, String viewName) {
         return metadataOps.viewExists(dbName, viewName);
+    }
+
+    /**
+     * Add partition field to Iceberg table for partition evolution
+     */
+    public void addPartitionField(IcebergExternalTable table, AddPartitionFieldOp op) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UserException("Add partition field operation is not supported for catalog: " + getName());
+        }
+        ((IcebergMetadataOps) metadataOps).addPartitionField(table, op);
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
+                                table.getDbName(), table.getName()));
+    }
+
+    /**
+     * Drop partition field from Iceberg table for partition evolution
+     */
+    public void dropPartitionField(IcebergExternalTable table, DropPartitionFieldOp op) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UserException("Drop partition field operation is not supported for catalog: " + getName());
+        }
+        ((IcebergMetadataOps) metadataOps).dropPartitionField(table, op);
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
+                                table.getDbName(), table.getName()));
+    }
+
+    /**
+     * Replace partition field in Iceberg table for partition evolution
+     */
+    public void replacePartitionField(IcebergExternalTable table,
+            ReplacePartitionFieldOp op) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UserException("Replace partition field operation is not supported for catalog: " + getName());
+        }
+        ((IcebergMetadataOps) metadataOps).replacePartitionField(table, op);
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
+                                table.getDbName(), table.getName()));
     }
 }

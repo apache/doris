@@ -19,11 +19,14 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.qe.runtime.BackendFragmentId;
 import org.apache.doris.qe.runtime.MultiFragmentsPipelineTask;
 import org.apache.doris.qe.runtime.PipelineExecutionTask;
 import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
 import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -82,6 +85,9 @@ public abstract class AbstractJobProcessor implements JobProcessor {
 
     @Override
     public final void updateFragmentExecStatus(TReportExecStatusParams params) {
+        if (params.status.status_code == TStatusCode.FINISHED) {
+            params.status = new TStatus(TStatusCode.OK);
+        }
         SingleFragmentPipelineTask fragmentTask = backendFragmentTasks.get().get(
                 new BackendFragmentId(params.getBackendId(), params.getFragmentId()));
         if (fragmentTask == null) {
@@ -117,8 +123,9 @@ public abstract class AbstractJobProcessor implements JobProcessor {
             PipelineExecutionTask executionTask) {
         ImmutableMap.Builder<BackendFragmentId, SingleFragmentPipelineTask> backendFragmentTasks
                 = ImmutableMap.builder();
-        for (Entry<Long, MultiFragmentsPipelineTask> backendTask : executionTask.getChildrenTasks().entrySet()) {
-            Long backendId = backendTask.getKey();
+        for (Entry<BackendWorker, MultiFragmentsPipelineTask> backendTask :
+                executionTask.getChildrenTasks().entrySet()) {
+            Long backendId = backendTask.getKey().id();
             for (Entry<Integer, SingleFragmentPipelineTask> fragmentIdToTask : backendTask.getValue()
                     .getChildrenTasks().entrySet()) {
                 Integer fragmentId = fragmentIdToTask.getKey();

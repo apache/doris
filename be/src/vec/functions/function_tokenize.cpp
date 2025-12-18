@@ -93,7 +93,8 @@ void FunctionTokenize::_do_tokenize_none(const ColumnString& src_column_string,
 }
 
 void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
-                                    InvertedIndexCtx& inverted_index_ctx,
+                                    const InvertedIndexAnalyzerCtx& analyzer_ctx,
+                                    bool support_phrase,
                                     const MutableColumnPtr& dest_column_ptr) const {
     ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
     for (size_t i = 0; i < src_offsets_size; i++) {
@@ -103,10 +104,10 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
             continue;
         }
 
-        auto reader = InvertedIndexAnalyzer::create_reader(inverted_index_ctx.char_filter_map);
+        auto reader = InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
         reader->init(tokenize_str.data, (int)tokenize_str.size, true);
         auto analyzer_tokens =
-                InvertedIndexAnalyzer::get_analyse_result(reader, inverted_index_ctx.analyzer);
+                InvertedIndexAnalyzer::get_analyse_result(reader, analyzer_ctx.analyzer);
 
         rapidjson::Document doc;
         doc.SetArray();
@@ -117,7 +118,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
                     "token",
                     rapidjson::Value(analyzer_token.get_single_term().c_str(), allocator).Move(),
                     allocator);
-            if (inverted_index_ctx.support_phrase == INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+            if (support_phrase) {
                 obj.AddMember("position", analyzer_token.position, allocator);
             }
             doc.PushBack(obj, allocator);
@@ -146,43 +147,41 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
 
     if (const auto* col_left = check_and_get_column<ColumnString>(src_column.get())) {
         if (const auto* col_right = check_and_get_column<ColumnString>(right_column.get())) {
-            InvertedIndexCtx inverted_index_ctx;
             std::map<std::string, std::string> properties;
             auto st = parse(col_right->get_data_at(0).to_string(), properties);
             if (!st.ok()) {
                 return st;
             }
-            inverted_index_ctx.custom_analyzer =
-                    get_custom_analyzer_string_from_properties(properties);
-            inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
+            InvertedIndexAnalyzerConfig config;
+            config.analyzer_name = get_analyzer_name_from_properties(properties);
+            config.parser_type = get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties));
-            if (inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
+            if (config.parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
                 return Status::Error<doris::ErrorCode::INDEX_INVALID_PARAMETERS>(
                         "unsupported parser type. currently, only 'english', 'chinese', "
                         "'unicode', 'icu', 'basic' and 'ik' analyzers are supported.");
             }
 
             // Special handling for PARSER_NONE: return original string as single token
-            if (inverted_index_ctx.custom_analyzer.empty() &&
-                inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_NONE) {
+            if (config.analyzer_name.empty() &&
+                config.parser_type == InvertedIndexParserType::PARSER_NONE) {
                 _do_tokenize_none(*col_left, dest_column_ptr);
                 block.replace_by_position(result, std::move(dest_column_ptr));
                 return Status::OK();
             }
 
-            inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
-            inverted_index_ctx.support_phrase =
-                    get_parser_phrase_support_string_from_properties(properties);
-            inverted_index_ctx.char_filter_map =
-                    get_parser_char_filter_map_from_properties(properties);
-            inverted_index_ctx.lower_case = get_parser_lowercase_from_properties(properties);
-            inverted_index_ctx.stop_words = get_parser_stopwords_from_properties(properties);
+            config.parser_mode = get_parser_mode_string_from_properties(properties);
+            config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
+            config.lower_case = get_parser_lowercase_from_properties(properties);
+            config.stop_words = get_parser_stopwords_from_properties(properties);
+            bool support_phrase = get_parser_phrase_support_string_from_properties(properties) ==
+                                  INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
 
-            std::shared_ptr<lucene::analysis::Analyzer> analyzer;
+            std::shared_ptr<lucene::analysis::Analyzer> analyzer_holder;
             try {
-                analyzer =
+                analyzer_holder =
                         doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
-                                &inverted_index_ctx);
+                                &config);
             } catch (CLuceneError& e) {
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                         "inverted index create analyzer failed: {}", e.what());
@@ -191,8 +190,12 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
                         "inverted index create analyzer failed: {}", e.what());
             }
 
-            inverted_index_ctx.analyzer = analyzer.get();
-            _do_tokenize(*col_left, inverted_index_ctx, dest_column_ptr);
+            InvertedIndexAnalyzerCtx analyzer_ctx;
+            analyzer_ctx.analyzer_name = config.analyzer_name;
+            analyzer_ctx.parser_type = config.parser_type;
+            analyzer_ctx.char_filter_map = config.char_filter_map;
+            analyzer_ctx.analyzer = analyzer_holder.get();
+            _do_tokenize(*col_left, analyzer_ctx, support_phrase, dest_column_ptr);
 
             block.replace_by_position(result, std::move(dest_column_ptr));
             return Status::OK();

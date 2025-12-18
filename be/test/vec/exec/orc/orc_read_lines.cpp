@@ -64,6 +64,10 @@ static void read_orc_line(int64_t line, std::string block_dump) {
 
     std::vector<std::string> column_names = {"col1", "col2", "col3", "col4", "col5",
                                              "col6", "col7", "col8", "col9"};
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"col1", 0}, {"col2", 1}, {"col3", 2}, {"col4", 3}, {"col5", 4},
+            {"col6", 5}, {"col7", 6}, {"col8", 7}, {"col9", 8},
+    };
     ObjectPool object_pool;
     DescriptorTblBuilder builder(&object_pool);
     builder.declare_tuple() << std::make_tuple<vectorized::DataTypePtr, std::string>(
@@ -104,7 +108,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                                        "col9");
     DescriptorTbl* desc_tbl = builder.build();
     auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-    RowDescriptor row_desc(tuple_desc, false);
+    RowDescriptor row_desc(tuple_desc);
     TFileScanRangeParams params;
     params.file_type = TFileType::FILE_LOCAL;
     TFileRangeDesc range;
@@ -133,8 +137,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                            tuple_desc->slots().size());
     reader->set_row_id_column_iterator(iterator_pair);
 
-    auto status = reader->init_reader(&column_names, nullptr, {}, false, tuple_desc, &row_desc,
-                                      nullptr, nullptr);
+    auto status = reader->init_reader(&column_names, &col_name_to_block_idx, {}, false, tuple_desc,
+                                      &row_desc, nullptr, nullptr);
 
     EXPECT_TRUE(status.ok());
 
@@ -157,8 +161,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     bool eof = false;
     size_t read_row = 0;
     static_cast<void>(reader->get_next_block(block.get(), &read_row, &eof));
-    auto row_id_string_column =
-            static_cast<const ColumnString&>(*block->get_by_name("row_id").column.get());
+    auto row_id_string_column = static_cast<const ColumnString&>(
+            *block->get_by_position(block->get_position_by_name("row_id")).column.get());
     for (auto i = 0; i < row_id_string_column.size(); i++) {
         GlobalRowLoacationV2 info =
                 *((GlobalRowLoacationV2*)row_id_string_column.get_data_at(i).data);
@@ -167,7 +171,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         EXPECT_EQ(info.backend_id, BackendOptions::get_backend_id());
         EXPECT_EQ(info.version, IdManager::ID_VERSION);
     }
-    block->erase("row_id");
+    block->erase(block->get_position_by_name("row_id"));
 
     std::cout << block->dump_data();
     EXPECT_EQ(block->dump_data(), block_dump);

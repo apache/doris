@@ -82,4 +82,25 @@ int InstanceRecycler::has_cluster_snapshots(bool* any) {
     return 0;
 }
 
+bool InstanceRecycler::should_recycle_versioned_keys() const {
+    if (!instance_info_.has_multi_version_status()) {
+        return false;
+    }
+
+    if (instance_info_.multi_version_status() == MULTI_VERSION_DISABLED) {
+        return false;
+    }
+
+    // When multi version is write only and snapshot switch is disabled,
+    // we do not need to recycle versioned keys. Because there has some
+    // keys which are not migrated to versioned keys yet.
+    if (instance_info_.multi_version_status() == MULTI_VERSION_WRITE_ONLY &&
+        (!instance_info_.has_snapshot_switch_status() ||
+         instance_info_.snapshot_switch_status() == SNAPSHOT_SWITCH_DISABLED)) {
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace doris::cloud

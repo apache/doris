@@ -248,8 +248,8 @@ Status DataTypeStructSerDe::deserialize_column_from_json_vector(
 }
 
 void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                  Arena& arena, int32_t col_id,
-                                                  int64_t row_num) const {
+                                                  Arena& arena, int32_t col_id, int64_t row_num,
+                                                  const FormatOptions& options) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
@@ -381,7 +381,7 @@ Status DataTypeStructSerDe::deserialize_column_from_jsonb(IColumn& column,
 
     for (size_t i = 0; i < elem_names.size(); ++i) {
         const auto& field_name = elem_names[i];
-        JsonbValue* value = jsonb_object->find(field_name.data(), (int)field_name.size());
+        const JsonbValue* value = jsonb_object->find(field_name.data(), (int)field_name.size());
         RETURN_IF_ERROR(elem_serdes_ptrs[i]->deserialize_column_from_jsonb(
                 struct_column.get_column(i), value, castParms));
     }
@@ -429,95 +429,26 @@ Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow:
     return Status::OK();
 }
 
-template <bool is_binary_format>
-Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
-                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                   int64_t row_idx, bool col_const,
-                                                   const FormatOptions& options) const {
-    const auto& col = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(column);
-    const auto col_index = index_check_const(row_idx, col_const);
-    result.open_dynamic_mode();
-    if (0 != result.push_string("{", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-    bool begin = true;
-    for (size_t j = 0; j < elem_serdes_ptrs.size(); ++j) {
-        if (!begin) {
-            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
-                                        options.mysql_collection_delim.size())) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        }
-
-        // eg: `"col_name": `
-        // eg: `col_name=`
-        std::string col_name;
-        if (options.wrapper_len > 0) {
-            col_name =
-                    options.nested_string_wrapper + elem_names[j] + options.nested_string_wrapper;
-        } else {
-            col_name = elem_names[j];
-        }
-        col_name += options.map_key_delim;
-        if (0 != result.push_string(col_name.c_str(), col_name.length())) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-
-        if (col.get_column_ptr(j)->is_null_at(col_index)) {
-            if (0 != result.push_string(options.null_format, options.null_len)) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        } else {
-            if (remove_nullable(col.get_column_ptr(j))->is_column_string() &&
-                options.wrapper_len > 0) {
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-                RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
-                        col.get_column(j), result, col_index, false, options));
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
-                        col.get_column(j), result, col_index, false, options));
-            }
-        }
-        begin = false;
-    }
-    if (UNLIKELY(0 != result.push_string("}", 1))) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-    result.close_dynamic_mode();
-    return Status::OK();
-}
-
 Status DataTypeStructSerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                         MysqlRowBinaryBuffer& row_buffer,
+                                                         MysqlRowBinaryBuffer& result,
                                                          int64_t row_idx, bool col_const,
                                                          const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeStructSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                       MysqlRowTextBuffer& row_buffer,
-                                                       int64_t row_idx, bool col_const,
-                                                       const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
+    return Status::NotSupported("Struct type does not support write to mysql binary format");
 }
 
 Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                vectorized::Arena& arena) const {
+                                                vectorized::Arena& arena,
+                                                const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     for (auto row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
             RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
                     timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                    row_id + 1, arena));
+                    row_id + 1, arena, options));
         }
     }
 
@@ -656,8 +587,8 @@ Status DataTypeStructSerDe::from_string_strict_mode(StringRef& str, IColumn& col
     return _from_string<true>(str, column, options);
 }
 
-void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num,
-                                    BufferWritable& bw) const {
+void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                    const DataTypeSerDe::FormatOptions& options) const {
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     bw.write("{", 1);
     for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
@@ -666,9 +597,45 @@ void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num,
         }
         std::string col_name = "\"" + elem_names[idx] + "\":";
         bw.write(col_name.c_str(), col_name.length());
-        elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_num, bw);
+        elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_num, bw, options);
     }
     bw.write("}", 1);
+}
+
+bool DataTypeStructSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                      int64_t row_idx,
+                                                      const FormatOptions& options) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    bw.write("{", 1);
+    for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
+        if (idx != 0) {
+            bw.write(", ", 2);
+        }
+        std::string col_name = elem_names[idx] + "=";
+        bw.write(col_name.c_str(), col_name.length());
+        elem_serdes_ptrs[idx]->write_column_to_presto_text(struct_column.get_column(idx), bw,
+                                                           row_idx, options);
+    }
+    bw.write("}", 1);
+    return true;
+}
+
+bool DataTypeStructSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                    int64_t row_idx,
+                                                    const FormatOptions& options) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    bw.write("{", 1);
+    for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
+        if (idx != 0) {
+            bw.write(",", 1);
+        }
+        std::string col_name = "\"" + elem_names[idx] + "\":";
+        bw.write(col_name.c_str(), col_name.length());
+        elem_serdes_ptrs[idx]->write_column_to_hive_text(struct_column.get_column(idx), bw, row_idx,
+                                                         options);
+    }
+    bw.write("}", 1);
+    return true;
 }
 
 } // namespace vectorized

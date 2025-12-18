@@ -32,39 +32,58 @@ namespace doris {
 // SharedPredicate only used on topn runtime predicate.
 // Runtime predicate globally share one predicate, to ensure that updates can be real-time.
 // At the beginning nested predicate may be nullptr, in which case predicate always returns true.
-class SharedPredicate : public ColumnPredicate {
+class SharedPredicate final : public ColumnPredicate {
     ENABLE_FACTORY_CREATOR(SharedPredicate);
 
 public:
-    SharedPredicate(uint32_t column_id) : ColumnPredicate(column_id) {}
+    SharedPredicate(uint32_t column_id)
+            : ColumnPredicate(column_id, PrimitiveType::INVALID_TYPE),
+              _mtx(std::make_shared<std::shared_mutex>()) {}
+    SharedPredicate(const ColumnPredicate& other) = delete;
+    SharedPredicate(const SharedPredicate& other, uint32_t column_id)
+            : ColumnPredicate(other, column_id),
+              _mtx(std::make_shared<std::shared_mutex>()),
+              _nested(assert_cast<const SharedPredicate&>(other)._nested
+                              ? other._nested->clone(column_id)
+                              : nullptr) {}
+    ~SharedPredicate() override = default;
+    std::string debug_string() const override {
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "SharedPredicate({}, nested={})",
+                       ColumnPredicate::debug_string(), _nested ? _nested->debug_string() : "null");
+        return fmt::to_string(debug_string_buffer);
+    }
+    std::shared_ptr<ColumnPredicate> clone(uint32_t column_id) const override {
+        // All scanner thread should share the same SharedPredicate object.
+        return std::const_pointer_cast<ColumnPredicate>(shared_from_this());
+    }
 
     PredicateType type() const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             // topn filter is le or ge
             return PredicateType::LE;
         }
         return _nested->type();
     }
-
-    void set_nested(ColumnPredicate* nested) {
-        std::unique_lock<std::shared_mutex> lock(_mtx);
-        _nested.reset(nested);
+    PrimitiveType primitive_type() const override {
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
+        if (!_nested) {
+            return PrimitiveType::INVALID_TYPE;
+        }
+        return _nested->primitive_type();
     }
 
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* roaring) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
-        if (!_nested) {
-            return Status::OK();
-        }
-        return _nested->evaluate(iterator, num_rows, roaring);
+    void set_nested(const std::shared_ptr<ColumnPredicate>& nested) {
+        std::unique_lock<std::shared_mutex> lock(*_mtx);
+        _nested = nested;
     }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return Status::OK();
         }
@@ -73,7 +92,7 @@ public:
 
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return;
         }
@@ -86,7 +105,7 @@ public:
     }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return ColumnPredicate::evaluate_and(statistic);
         }
@@ -94,7 +113,7 @@ public:
     }
 
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return ColumnPredicate::evaluate_del(statistic);
         }
@@ -102,7 +121,7 @@ public:
     }
 
     bool evaluate_and(const BloomFilter* bf) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return ColumnPredicate::evaluate_and(bf);
         }
@@ -110,7 +129,7 @@ public:
     }
 
     bool can_do_bloom_filter(bool ngram) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return ColumnPredicate::can_do_bloom_filter(ngram);
         }
@@ -119,7 +138,7 @@ public:
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
                       bool* flags) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             for (uint16_t i = 0; i < size; ++i) {
                 flags[i] = true;
@@ -131,7 +150,7 @@ public:
 
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return;
         }
@@ -139,7 +158,7 @@ public:
     }
 
     std::string get_search_str() const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             DCHECK(false) << "should not reach here";
         }
@@ -149,22 +168,14 @@ public:
 private:
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return size;
         }
         return _nested->evaluate(column, sel, size);
     }
 
-    std::string _debug_string() const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
-        if (!_nested) {
-            return "shared_predicate(unknow)";
-        }
-        return "shared_predicate(" + _nested->debug_string() + ")";
-    }
-
-    mutable std::shared_mutex _mtx;
+    mutable std::shared_ptr<std::shared_mutex> _mtx;
     std::shared_ptr<ColumnPredicate> _nested;
 };
 

@@ -73,6 +73,66 @@ suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_dock
         }
     }
 
+    def test_warmup_permission = { String catalog_name ->
+        // Test that warm up select only requires SELECT privilege, not LOAD privilege
+        def user1 = 'test_hive_warmup_user1'
+        def pwd = '123456'
+        def tokens = context.config.jdbcUrl.split('/')
+        def url = tokens[0] + "//" + tokens[2] + "/?defaultCatalog=${catalog_name}"
+
+        // Clean up
+        sql """DROP USER IF EXISTS ${user1}"""
+
+        try {
+            // Create user with only SELECT privilege on external catalog
+            sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
+            sql """GRANT SELECT_PRIV ON ${catalog_name}.tpch1_parquet.lineitem TO ${user1}"""
+
+            // Test: user with only SELECT privilege should be able to run WARM UP SELECT
+            connect(user1, "${pwd}", url) {
+                sql "set enable_file_cache=true"
+                sql "set disable_file_cache=false"
+
+                // This should succeed - only SELECT privilege is needed
+                sql "WARM UP SELECT * FROM ${catalog_name}.tpch1_parquet.lineitem"
+                
+                sql "WARM UP SELECT l_orderkey, l_discount FROM ${catalog_name}.tpch1_parquet.lineitem WHERE l_quantity > 10"
+                
+                // Verify regular SELECT also works
+                def result = sql "SELECT COUNT(*) FROM ${catalog_name}.tpch1_parquet.lineitem"
+                assert result.size() > 0
+            }
+
+            // Test: user without SELECT privilege should fail
+            sql """REVOKE SELECT_PRIV ON ${catalog_name}.tpch1_parquet.lineitem FROM ${user1}"""
+            
+            connect(user1, "${pwd}", url) {
+                sql "set enable_file_cache=true"
+                sql "set disable_file_cache=false"
+                test {
+                    sql "WARM UP SELECT * FROM ${catalog_name}.tpch1_parquet.lineitem"
+                    exception "denied"
+                }
+            }
+
+            // Test: user with LOAD privilege but no SELECT privilege should also fail
+            sql """GRANT LOAD_PRIV ON ${catalog_name}.tpch1_parquet.lineitem TO ${user1}"""
+            
+            connect(user1, "${pwd}", url) {
+                sql "set enable_file_cache=true"
+                sql "set disable_file_cache=false"
+                test {
+                    sql "WARM UP SELECT * FROM ${catalog_name}.tpch1_parquet.lineitem"
+                    exception "denied"
+                }
+            }
+
+        } finally {
+            // Clean up
+            sql """DROP USER IF EXISTS ${user1}"""
+        }
+    }
+
     for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "test_${hivePrefix}_warmup_select"
@@ -88,6 +148,7 @@ suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_dock
 
         test_basic_warmup()
         test_warmup_negative_cases()
+        test_warmup_permission(catalog_name)
 
         sql """drop catalog if exists ${catalog_name}"""
     }

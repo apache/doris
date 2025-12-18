@@ -38,6 +38,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
@@ -64,6 +65,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
@@ -159,10 +161,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
         preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
-        IcebergExternalCatalog catalog = (IcebergExternalCatalog) source.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                source.getCatalog().getCatalogProperty().getMetastoreProperties(),
+                source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
                 icebergTable
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
@@ -327,7 +328,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             return icebergTableScan;
         }
 
-        TableScan scan = icebergTable.newScan();
+        TableScan scan = icebergTable.newScan().metricsReporter(new IcebergMetricsReporter());
 
         // set snapshot
         IcebergTableQueryInfo info = getSpecifiedSnapshot();
@@ -383,10 +384,19 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (isPartitionedTable) {
             PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
             if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                // If the partition data is not in the map, we need to calculate the partition
-                Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(partitionData, k -> {
-                    return IcebergUtils.getPartitionInfoMap(partitionData, sessionVariable.getTimeZone());
-                });
+                // Get specId and corresponding PartitionSpec to handle partition evolution
+                int specId = fileScanTask.file().specId();
+                PartitionSpec partitionSpec = icebergTable.specs().get(specId);
+
+                Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
+                        specId, icebergTable.name());
+                Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
+                        partitionData, k -> {
+                            return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec,
+                                    sessionVariable.getTimeZone());
+                        });
+                // Only set partition values if all partitions are identity transform
+                // For non-identity partitions, getPartitionInfoMap returns null to skip dynamic partition pruning
                 if (partitionInfoMap != null) {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
@@ -575,15 +585,24 @@ public class IcebergScanNode extends FileQueryScanNode {
             return 0;
         }
 
-        // `TOTAL_POSITION_DELETES` is need to 0,
-        // because prevent 'dangling delete' problem after `rewrite_data_files`
-        // ref: https://iceberg.apache.org/docs/nightly/spark-procedures/#rewrite_position_delete_files
         Map<String, String> summary = snapshot.summary();
-        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")
-                || !summary.get(IcebergUtils.TOTAL_POSITION_DELETES).equals("0")) {
+        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
+            // has equality delete files, can not push down count
             return -1;
         }
-        return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
+
+        long deleteCount = Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
+        if (deleteCount == 0) {
+            // no delete files, can push down count directly
+            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
+        }
+        if (sessionVariable.ignoreIcebergDanglingDelete) {
+            // has position delete files, if we ignore dangling delete, can push down count
+            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS)) - deleteCount;
+        } else {
+            // otherwise, can not push down count
+            return -1;
+        }
     }
 
     @Override
@@ -658,4 +677,3 @@ public class IcebergScanNode extends FileQueryScanNode {
         return Optional.empty();
     }
 }
-

@@ -80,7 +80,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
 
     std::unique_ptr<FileMetaData> meta_data;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &meta_data, &meta_size, nullptr));
+    static_cast<void>(parse_thrift_footer(reader, &meta_data, &meta_size, nullptr, true));
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     LOG(WARNING) << "=====================================";
@@ -113,7 +113,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
     std::unique_ptr<FileMetaData> metadata;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr));
+    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schemaDescriptor;
     static_cast<void>(schemaDescriptor.parse_from_thrift(t_metadata.schema));
@@ -140,20 +140,18 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
     ASSERT_EQ(schemaDescriptor.get_column_index("hobby"), 2);
     auto hobby = schemaDescriptor.get_column("hobby");
-    // should be parsed as ARRAY<MAP<STRUCT<STRING,STRING>>>
-    ASSERT_TRUE(hobby->children.size() == 1 && hobby->children[0].children.size() == 1 &&
-                hobby->children[0].children[0].children.size() == 2);
+    // should be parsed as ARRAY<MAP<KEY,VALUE>>
+    ASSERT_TRUE(hobby->children.size() == 1 && hobby->children[0].children.size() == 2);
     ASSERT_TRUE(hobby->data_type->get_primitive_type() == TYPE_ARRAY &&
-                hobby->children[0].data_type->get_primitive_type() == TYPE_MAP &&
-                hobby->children[0].children[0].data_type->get_primitive_type() == TYPE_STRUCT);
+                hobby->children[0].data_type->get_primitive_type() == TYPE_MAP);
     // hobby(opt) --- bag(rep) --- array_element(opt) --- map(rep)
     //                                                      \------- key(req)
     //                                                      \------- value(opt)
     // R=0,D=1        R=1,D=2          R=1,D=3             R=2,D=4
     //                                                       \------ R=2,D=4
     //                                                       \------ R=2,D=5
-    auto h_key = hobby->children[0].children[0].children[0];
-    auto h_value = hobby->children[0].children[0].children[1];
+    auto h_key = hobby->children[0].children[0];
+    auto h_value = hobby->children[0].children[1];
     ASSERT_TRUE(h_key.repetition_level == 2 && h_key.definition_level == 4);
     ASSERT_TRUE(h_value.repetition_level == 2 && h_value.definition_level == 5);
 
@@ -179,7 +177,7 @@ static int fill_nullable_column(ColumnPtr& doris_column, level_t* definitions, s
 
 static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::ColumnChunk* column_chunk,
                                 FieldSchema* field_schema, ColumnPtr& doris_column,
-                                DataTypePtr& data_type, level_t* definitions) {
+                                DataTypePtr& data_type, level_t* definitions, size_t total_rows) {
     tparquet::ColumnMetaData chunk_meta = column_chunk->meta_data;
     size_t start_offset = has_dict_page(chunk_meta) ? chunk_meta.dictionary_page_offset
                                                     : chunk_meta.data_page_offset;
@@ -199,12 +197,12 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
 
     io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
 
-    ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema, nullptr, &ctz,
-                                   nullptr);
+    ColumnChunkReader<false, false> chunk_reader(&stream_reader, column_chunk, field_schema,
+                                                 nullptr, total_rows, nullptr);
     // initialize chunk reader
     static_cast<void>(chunk_reader.init());
     // seek to next page header
-    static_cast<void>(chunk_reader.next_page());
+    static_cast<void>(chunk_reader.parse_page_header());
     // load page data into underlying container
     static_cast<void>(chunk_reader.load_page_data());
     int rows = chunk_reader.remaining_num_values();
@@ -212,7 +210,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     if (field_schema->definition_level == 0) { // required field
         std::fill(definitions, definitions + rows, 1);
     } else {
-        chunk_reader.get_def_levels(definitions, rows);
+        chunk_reader._def_level_decoder.get_levels(definitions, rows);
     }
     MutableColumnPtr data_column;
     if (src_column->is_nullable()) {
@@ -242,10 +240,11 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
             if (definitions[i] != level_type) {
                 if (level_type == 0) {
                     // null values
-                    chunk_reader.insert_null_values(data_column, num_values);
+                    data_column->insert_many_defaults(num_values);
                 } else {
                     std::vector<u_short> null_map = {(u_short)num_values};
-                    RETURN_IF_ERROR(run_length_map.init(null_map, rows, nullptr, &filter_map, 0));
+                    RETURN_IF_ERROR(
+                            run_length_map.init(null_map, num_values, nullptr, &filter_map, 0));
                     RETURN_IF_ERROR(chunk_reader.decode_values(data_column, resolved_type,
                                                                run_length_map, false));
                 }
@@ -257,10 +256,10 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         }
         if (level_type == 0) {
             // null values
-            chunk_reader.insert_null_values(data_column, num_values);
+            data_column->insert_many_defaults(num_values);
         } else {
             std::vector<u_short> null_map = {(u_short)num_values};
-            RETURN_IF_ERROR(run_length_map.init(null_map, rows, nullptr, &filter_map, 0));
+            RETURN_IF_ERROR(run_length_map.init(null_map, num_values, nullptr, &filter_map, 0));
             RETURN_IF_ERROR(
                     chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
         }
@@ -349,8 +348,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"float_col", TYPE_FLOAT, sizeof(float_t), true},
             {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
             {"string_col", TYPE_STRING, sizeof(StringRef), true},
-            // binary is not supported, use string instead
-            {"binary_col", TYPE_STRING, sizeof(StringRef), true},
+            {"binary_col", TYPE_VARBINARY, sizeof(StringView), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
             {"timestamp_col", TYPE_DATETIMEV2, sizeof(int128_t), true, 0, 6},
             {"decimal_col", TYPE_DECIMAL128I, sizeof(Decimal128V3), true},
@@ -403,7 +401,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 
     std::unique_ptr<FileMetaData> metadata;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr));
+    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
     static_cast<void>(schema_descriptor.parse_from_thrift(t_metadata.schema));
@@ -416,7 +414,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
         static_cast<void>(
                 get_column_values(reader, &t_metadata.row_groups[0].columns[c],
                                   const_cast<FieldSchema*>(schema_descriptor.get_column(c)),
-                                  data_column, data_type, defs.data()));
+                                  data_column, data_type, defs.data(), rows));
     }
     // `date_v2_col` date, // 14 - 13, DATEV2
     {
@@ -426,7 +424,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
         static_cast<void>(
                 get_column_values(reader, &t_metadata.row_groups[0].columns[13],
                                   const_cast<FieldSchema*>(schema_descriptor.get_column(13)),
-                                  data_column, data_type, defs.data()));
+                                  data_column, data_type, defs.data(), rows));
     }
     // `timestamp_v2_col` timestamp, // 15 - 9, DATETIMEV2
     {
@@ -436,7 +434,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
         static_cast<void>(
                 get_column_values(reader, &t_metadata.row_groups[0].columns[9],
                                   const_cast<FieldSchema*>(schema_descriptor.get_column(9)),
-                                  data_column, data_type, defs.data()));
+                                  data_column, data_type, defs.data(), rows));
     }
 
     io::FileReaderSPtr result;

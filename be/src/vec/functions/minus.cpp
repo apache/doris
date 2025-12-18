@@ -29,6 +29,7 @@ struct MinusDecimalImpl {
     static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
                   (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
 
+    constexpr static bool need_replace_null_data_to_default = true;
     static constexpr auto name = "subtract";
     static constexpr PrimitiveType PTypeA = TypeA;
     static constexpr PrimitiveType PTypeB = TypeA;

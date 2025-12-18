@@ -60,9 +60,13 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _col_unique_id(tdesc.col_unique_id),
           _slot_idx(tdesc.slotIdx),
           _field_idx(-1),
-          _is_materialized(tdesc.isMaterialized && tdesc.need_materialize),
           _is_key(tdesc.is_key),
           _column_paths(tdesc.column_paths),
+          _all_access_paths(tdesc.__isset.all_access_paths ? tdesc.all_access_paths
+                                                           : TColumnAccessPaths {}),
+          _predicate_access_paths(tdesc.__isset.predicate_access_paths
+                                          ? tdesc.predicate_access_paths
+                                          : TColumnAccessPaths {}),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
           _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {
     if (tdesc.__isset.virtual_column_expr) {
@@ -95,10 +99,33 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _col_unique_id(pdesc.col_unique_id()),
           _slot_idx(pdesc.slot_idx()),
           _field_idx(-1),
-          _is_materialized(pdesc.is_materialized()),
           _is_key(pdesc.is_key()),
           _column_paths(pdesc.column_paths().begin(), pdesc.column_paths().end()),
-          _is_auto_increment(pdesc.is_auto_increment()) {}
+          _is_auto_increment(pdesc.is_auto_increment()) {
+    auto convert_to_thrift_column_access_path = [](const PColumnAccessPath& pb_path) {
+        TColumnAccessPath thrift_path;
+        thrift_path.type = (TAccessPathType::type)pb_path.type();
+        if (pb_path.has_data_access_path()) {
+            thrift_path.__isset.data_access_path = true;
+            for (int i = 0; i < pb_path.data_access_path().path_size(); ++i) {
+                thrift_path.data_access_path.path.push_back(pb_path.data_access_path().path(i));
+            }
+        }
+        if (pb_path.has_meta_access_path()) {
+            thrift_path.__isset.meta_access_path = true;
+            for (int i = 0; i < pb_path.meta_access_path().path_size(); ++i) {
+                thrift_path.meta_access_path.path.push_back(pb_path.meta_access_path().path(i));
+            }
+        }
+        return thrift_path;
+    };
+    for (const auto& pb_path : pdesc.all_access_paths()) {
+        _all_access_paths.push_back(convert_to_thrift_column_access_path(pb_path));
+    }
+    for (const auto& pb_path : pdesc.predicate_access_paths()) {
+        _predicate_access_paths.push_back(convert_to_thrift_column_access_path(pb_path));
+    }
+}
 
 #ifdef BE_TEST
 SlotDescriptor::SlotDescriptor()
@@ -109,7 +136,6 @@ SlotDescriptor::SlotDescriptor()
           _col_unique_id(0),
           _slot_idx(0),
           _field_idx(-1),
-          _is_materialized(true),
           _is_key(false),
           _is_auto_increment(false) {}
 #endif
@@ -124,13 +150,39 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_null_indicator_bit(_type->is_nullable() ? 0 : -1);
     pslot->set_col_name(_col_name);
     pslot->set_slot_idx(_slot_idx);
-    pslot->set_is_materialized(_is_materialized);
     pslot->set_col_unique_id(_col_unique_id);
     pslot->set_is_key(_is_key);
     pslot->set_is_auto_increment(_is_auto_increment);
     pslot->set_col_type(_type->get_primitive_type());
     for (const std::string& path : _column_paths) {
         pslot->add_column_paths(path);
+    }
+    auto convert_to_protobuf_column_access_path = [](const TColumnAccessPath& thrift_path,
+                                                     doris::PColumnAccessPath* pb_path) {
+        pb_path->Clear();
+        pb_path->set_type((PAccessPathType)thrift_path.type); // 使用 reinterpret_cast 进行类型转换
+        if (thrift_path.__isset.data_access_path) {
+            auto* pb_data = pb_path->mutable_data_access_path();
+            pb_data->Clear();
+            for (const auto& s : thrift_path.data_access_path.path) {
+                pb_data->add_path(s);
+            }
+        }
+        if (thrift_path.__isset.meta_access_path) {
+            auto* pb_meta = pb_path->mutable_meta_access_path();
+            pb_meta->Clear();
+            for (const auto& s : thrift_path.meta_access_path.path) {
+                pb_meta->add_path(s);
+            }
+        }
+    };
+    for (const auto& path : _all_access_paths) {
+        auto* pb_path = pslot->add_all_access_paths();
+        convert_to_protobuf_column_access_path(path, pb_path);
+    }
+    for (const auto& path : _predicate_access_paths) {
+        auto* pb_path = pslot->add_predicate_access_paths();
+        convert_to_protobuf_column_access_path(path, pb_path);
     }
 }
 
@@ -366,15 +418,12 @@ TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc, bool own_slots)
 
 void TupleDescriptor::add_slot(SlotDescriptor* slot) {
     _slots.push_back(slot);
+    ++_num_materialized_slots;
 
-    if (slot->is_materialized()) {
-        ++_num_materialized_slots;
-
-        if (is_complex_type(slot->type()->get_primitive_type()) ||
-            is_var_len_object(slot->type()->get_primitive_type()) ||
-            is_string_type(slot->type()->get_primitive_type())) {
-            _has_varlen_slots = true;
-        }
+    if (is_complex_type(slot->type()->get_primitive_type()) ||
+        is_var_len_object(slot->type()->get_primitive_type()) ||
+        is_string_type(slot->type()->get_primitive_type())) {
+        _has_varlen_slots = true;
     }
 }
 
@@ -408,12 +457,8 @@ std::string TupleDescriptor::debug_string() const {
     return out.str();
 }
 
-RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples,
-                             const std::vector<bool>& nullable_tuples)
-        : _tuple_idx_nullable_map(nullable_tuples) {
-    DCHECK(nullable_tuples.size() == row_tuples.size())
-            << "nullable_tuples size " << nullable_tuples.size() << " != row_tuples size "
-            << row_tuples.size();
+RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl,
+                             const std::vector<TTupleId>& row_tuples) {
     DCHECK_GT(row_tuples.size(), 0);
     _num_materialized_slots = 0;
     _num_slots = 0;
@@ -430,8 +475,7 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
     init_has_varlen_slots();
 }
 
-RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
-        : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
+RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc) : _tuple_desc_map(1, tuple_desc) {
     init_tuple_idx_map();
     init_has_varlen_slots();
     _num_slots = static_cast<int32_t>(tuple_desc->slots().size());
@@ -442,12 +486,6 @@ RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescrip
                            lhs_row_desc._tuple_desc_map.end());
     _tuple_desc_map.insert(_tuple_desc_map.end(), rhs_row_desc._tuple_desc_map.begin(),
                            rhs_row_desc._tuple_desc_map.end());
-    _tuple_idx_nullable_map.insert(_tuple_idx_nullable_map.end(),
-                                   lhs_row_desc._tuple_idx_nullable_map.begin(),
-                                   lhs_row_desc._tuple_idx_nullable_map.end());
-    _tuple_idx_nullable_map.insert(_tuple_idx_nullable_map.end(),
-                                   rhs_row_desc._tuple_idx_nullable_map.begin(),
-                                   rhs_row_desc._tuple_idx_nullable_map.end());
     init_tuple_idx_map();
     init_has_varlen_slots();
 
@@ -553,25 +591,13 @@ std::string RowDescriptor::debug_string() const {
     }
     ss << "] ";
 
-    ss << "tuple_is_nullable: [";
-    for (int i = 0; i < _tuple_idx_nullable_map.size(); ++i) {
-        ss << _tuple_idx_nullable_map[i];
-        if (i != _tuple_idx_nullable_map.size() - 1) {
-            ss << ", ";
-        }
-    }
-    ss << "] ";
-
     return ss.str();
 }
 
-int RowDescriptor::get_column_id(int slot_id, bool force_materialize_slot) const {
+int RowDescriptor::get_column_id(int slot_id) const {
     int column_id_counter = 0;
     for (auto* const tuple_desc : _tuple_desc_map) {
         for (auto* const slot : tuple_desc->slots()) {
-            if (!force_materialize_slot && !slot->is_materialized()) {
-                continue;
-            }
             if (slot->id() == slot_id) {
                 return column_id_counter;
             }

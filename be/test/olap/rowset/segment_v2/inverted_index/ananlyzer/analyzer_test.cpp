@@ -158,27 +158,27 @@ TEST_F(AnalyzerTest, TestBuiltinAnalyzers) {
 TEST_F(AnalyzerTest, TestCreateAnalyzer) {
     // Test Case 1: Empty custom_analyzer, use builtin parser_type
     {
-        InvertedIndexCtx ctx;
-        ctx.custom_analyzer = "";
-        ctx.parser_type = InvertedIndexParserType::PARSER_STANDARD;
-        ctx.parser_mode = "";
-        ctx.lower_case = INVERTED_INDEX_PARSER_TRUE;
-        ctx.stop_words = "none";
+        InvertedIndexAnalyzerConfig config;
+        config.analyzer_name = "";
+        config.parser_type = InvertedIndexParserType::PARSER_STANDARD;
+        config.parser_mode = "";
+        config.lower_case = INVERTED_INDEX_PARSER_TRUE;
+        config.stop_words = "none";
 
-        auto analyzer = InvertedIndexAnalyzer::create_analyzer(&ctx);
+        auto analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
         EXPECT_NE(analyzer, nullptr);
     }
 
     // Test Case 2: custom_analyzer is a builtin name (using one that doesn't need dict)
     {
-        InvertedIndexCtx ctx;
-        ctx.custom_analyzer = INVERTED_INDEX_PARSER_ENGLISH;
-        ctx.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
-        ctx.parser_mode = "";
-        ctx.lower_case = INVERTED_INDEX_PARSER_FALSE;
-        ctx.stop_words = "";
+        InvertedIndexAnalyzerConfig config;
+        config.analyzer_name = INVERTED_INDEX_PARSER_ENGLISH;
+        config.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
+        config.parser_mode = "";
+        config.lower_case = INVERTED_INDEX_PARSER_FALSE;
+        config.stop_words = "";
 
-        auto analyzer = InvertedIndexAnalyzer::create_analyzer(&ctx);
+        auto analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
         EXPECT_NE(analyzer, nullptr);
     }
 
@@ -194,22 +194,22 @@ TEST_F(AnalyzerTest, TestCreateAnalyzer) {
     };
 
     for (const auto& [name, requires_dict] : builtin_names) {
-        InvertedIndexCtx ctx;
-        ctx.custom_analyzer = name;
-        ctx.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
-        ctx.parser_mode = "";
-        ctx.lower_case = "";
-        ctx.stop_words = "";
+        InvertedIndexAnalyzerConfig config;
+        config.analyzer_name = name;
+        config.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
+        config.parser_mode = "";
+        config.lower_case = "";
+        config.stop_words = "";
 
         if (requires_dict) {
             try {
-                auto analyzer = InvertedIndexAnalyzer::create_analyzer(&ctx);
+                auto analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
                 EXPECT_NE(analyzer, nullptr) << "Created analyzer for builtin name: " << name;
             } catch (const std::exception& e) {
                 LOG(INFO) << "Skipped " << name << " due to missing dict: " << e.what();
             }
         } else {
-            auto analyzer = InvertedIndexAnalyzer::create_analyzer(&ctx);
+            auto analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
             EXPECT_NE(analyzer, nullptr) << "Failed for builtin name: " << name;
         }
     }
@@ -226,16 +226,16 @@ TEST_F(AnalyzerTest, TestCreateAnalyzer) {
     };
 
     for (const auto& [parser_type, requires_dict] : parser_types) {
-        InvertedIndexCtx ctx;
-        ctx.custom_analyzer = "";
-        ctx.parser_type = parser_type;
-        ctx.parser_mode = "";
-        ctx.lower_case = "";
-        ctx.stop_words = "";
+        InvertedIndexAnalyzerConfig config;
+        config.analyzer_name = "";
+        config.parser_type = parser_type;
+        config.parser_mode = "";
+        config.lower_case = "";
+        config.stop_words = "";
 
         if (requires_dict) {
             try {
-                auto analyzer = InvertedIndexAnalyzer::create_analyzer(&ctx);
+                auto analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
                 EXPECT_NE(analyzer, nullptr)
                         << "Created analyzer for parser_type: " << static_cast<int>(parser_type);
             } catch (const std::exception& e) {
@@ -243,7 +243,7 @@ TEST_F(AnalyzerTest, TestCreateAnalyzer) {
                           << " due to missing dict: " << e.what();
             }
         } else {
-            auto analyzer = InvertedIndexAnalyzer::create_analyzer(&ctx);
+            auto analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
             EXPECT_NE(analyzer, nullptr)
                     << "Failed for parser_type: " << static_cast<int>(parser_type);
         }
@@ -255,18 +255,18 @@ TEST_F(AnalyzerTest, TestCreateAnalyzer) {
 TEST_F(AnalyzerTest, TestCreateAnalyzerWithCustomPolicy) {
     // Test when index_policy_mgr is null - should throw exception
     {
-        InvertedIndexCtx ctx;
-        ctx.custom_analyzer = "non_existent_custom";
-        ctx.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
-        ctx.parser_mode = "";
-        ctx.lower_case = "";
-        ctx.stop_words = "";
+        InvertedIndexAnalyzerConfig config;
+        config.analyzer_name = "non_existent_custom";
+        config.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
+        config.parser_mode = "";
+        config.lower_case = "";
+        config.stop_words = "";
 
         if (!doris::ExecEnv::GetInstance()->index_policy_mgr()) {
             EXPECT_THROW(
                     {
                         try {
-                            InvertedIndexAnalyzer::create_analyzer(&ctx);
+                            InvertedIndexAnalyzer::create_analyzer(&config);
                         } catch (const Exception& e) {
                             EXPECT_EQ(e.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
                             EXPECT_TRUE(std::string(e.what()).find(
@@ -286,27 +286,27 @@ TEST_F(AnalyzerTest, TestCreateAnalyzerWithCustomPolicy) {
 
         // Test successful custom analyzer retrieval
         {
-            InvertedIndexCtx ctx;
-            ctx.custom_analyzer = "test_custom_analyzer";
-            ctx.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
-            ctx.parser_mode = "";
-            ctx.lower_case = "";
-            ctx.stop_words = "";
+            InvertedIndexAnalyzerConfig config;
+            config.analyzer_name = "test_custom_analyzer";
+            config.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
+            config.parser_mode = "";
+            config.lower_case = "";
+            config.stop_words = "";
 
-            auto analyzer = InvertedIndexAnalyzer::create_analyzer(&ctx);
+            auto analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
             EXPECT_NE(analyzer, nullptr);
         }
 
         // Test non-existent custom analyzer throws exception
         {
-            InvertedIndexCtx ctx;
-            ctx.custom_analyzer = "non_existent_analyzer";
-            ctx.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
-            ctx.parser_mode = "";
-            ctx.lower_case = "";
-            ctx.stop_words = "";
+            InvertedIndexAnalyzerConfig config;
+            config.analyzer_name = "non_existent_analyzer";
+            config.parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
+            config.parser_mode = "";
+            config.lower_case = "";
+            config.stop_words = "";
 
-            EXPECT_THROW(InvertedIndexAnalyzer::create_analyzer(&ctx), Exception);
+            EXPECT_THROW(InvertedIndexAnalyzer::create_analyzer(&config), Exception);
         }
     }
 }
@@ -315,14 +315,14 @@ TEST_F(AnalyzerTest, TestCreateAnalyzerWithCustomPolicy) {
 
 TEST_F(AnalyzerTest, TestAnalyzerFunctionality) {
     // Create an analyzer and test it can tokenize text properly
-    InvertedIndexCtx ctx;
-    ctx.custom_analyzer = "";
-    ctx.parser_type = InvertedIndexParserType::PARSER_STANDARD;
-    ctx.parser_mode = "";
-    ctx.lower_case = INVERTED_INDEX_PARSER_TRUE;
-    ctx.stop_words = "none";
+    InvertedIndexAnalyzerConfig config;
+    config.analyzer_name = "";
+    config.parser_type = InvertedIndexParserType::PARSER_STANDARD;
+    config.parser_mode = "";
+    config.lower_case = INVERTED_INDEX_PARSER_TRUE;
+    config.stop_words = "none";
 
-    auto analyzer = InvertedIndexAnalyzer::create_analyzer(&ctx);
+    auto analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
     ASSERT_NE(analyzer, nullptr);
 
     // Test tokenization

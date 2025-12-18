@@ -69,7 +69,6 @@ public:
     FileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
-                const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                 const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status open(RuntimeState* state) override;
@@ -125,7 +124,6 @@ protected:
 
     std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof = false;
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // col names from _file_slot_descs
@@ -234,6 +232,8 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+    int64_t _last_bytes_read_from_local = 0;
+    int64_t _last_bytes_read_from_remote = 0;
 
 private:
     Status _init_expr_ctxes();
@@ -252,7 +252,7 @@ private:
     void _init_runtime_filter_partition_prune_ctxs();
     void _init_runtime_filter_partition_prune_block();
     Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);
-    Status _process_conjuncts_for_dict_filter();
+    Status _process_conjuncts();
     Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
     Status _generate_truncate_columns(bool need_to_get_parsed_schema);
@@ -284,8 +284,6 @@ private:
         return _local_state == nullptr ? TPushAggOp::type::NONE
                                        : _local_state->get_push_down_agg_type();
     }
-
-    int64_t _get_push_down_count() { return _local_state->get_push_down_count(); }
 
     // enable the file meta cache only when
     // 1. max_external_file_meta_cache_num is > 0

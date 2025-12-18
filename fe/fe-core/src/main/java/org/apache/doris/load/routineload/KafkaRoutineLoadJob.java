@@ -22,6 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -61,8 +62,8 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -511,6 +512,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         } else {
             OlapTable olapTable = db.getOlapTableOrDdlException(info.getTableName());
             checkMeta(olapTable, info.getRoutineLoadDesc());
+            // check load_to_single_tablet compatibility with distribution type
+            if (info.isLoadToSingleTablet()
+                    && !(olapTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
+                throw new DdlException(
+                        "if load_to_single_tablet set to true, the olap table must be with random distribution");
+            }
             long tableId = olapTable.getId();
             // init kafka routine load job
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, info.getName(),

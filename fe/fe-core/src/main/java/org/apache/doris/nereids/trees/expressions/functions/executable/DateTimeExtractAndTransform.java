@@ -123,6 +123,21 @@ public class DateTimeExtractAndTransform {
         return new SmallIntLiteral(((short) date.getYear()));
     }
 
+
+    /**
+     * Executable datetime extract century
+     */
+    @ExecFunction(name = "century")
+    public static Expression century(DateV2Literal date) {
+        return new SmallIntLiteral((short) ((date.getYear() - 1) / 100 + 1));
+    }
+
+    @ExecFunction(name = "century")
+    public static Expression century(DateTimeV2Literal date) {
+        return new SmallIntLiteral((short) ((date.getYear() - 1) / 100 + 1));
+    }
+
+
     /**
      * Executable datetime extract quarter
      */
@@ -187,11 +202,27 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * Executable time extract second
+     */
+    @ExecFunction(name = "second")
+    public static Expression second(TimeV2Literal time) {
+        return new TinyIntLiteral(((byte) time.getSecond()));
+    }
+
+    /**
      * Executable datetime extract microsecond
      */
     @ExecFunction(name = "microsecond")
     public static Expression microsecond(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) date.getMicroSecond()));
+    }
+
+    /**
+     * Executable time extract microsecond
+     */
+    @ExecFunction(name = "microsecond")
+    public static Expression microsecond(TimeV2Literal time) {
+        return new IntegerLiteral(((int) time.getMicroSecond()));
     }
 
     /**
@@ -407,6 +438,11 @@ public class DateTimeExtractAndTransform {
         return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f"));
     }
 
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalV3Literal second) {
+        return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f"));
+    }
+
     /**
      * date transformation function: from_unixtime
      */
@@ -436,14 +472,25 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_unixtime")
     public static Expression fromUnixTime(DecimalLiteral second, StringLikeLiteral format) {
-        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
+        return fromUnixTime(second.getValue(), format);
+    }
 
-        if (second.getValue().signum() < 0) {
-            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
+    /**
+     * date transformation function: from_unixtime
+     */
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalV3Literal second, StringLikeLiteral format) {
+        return fromUnixTime(second.getValue(), format);
+    }
+
+    private static Expression fromUnixTime(BigDecimal second, StringLikeLiteral format) {
+        if (second.signum() < 0) {
+            throw new AnalysisException("Operation from_unixtime of " + second + " out of range");
         }
-
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
+        BigDecimal microSeconds = second.movePointRight(second.scale()).setScale(0, RoundingMode.DOWN);
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
-                .plusSeconds(second.getValue().longValue())
+                .plus(microSeconds.longValue(), ChronoUnit.MICROS)
                 .atZone(ZoneId.of("UTC+0"))
                 .toOffsetDateTime()
                 .atZoneSameInstant(DateUtils.getTimeZone());
@@ -452,7 +499,7 @@ public class DateTimeExtractAndTransform {
                 dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
                 dateTime.getNano() / 1000);
         if (datetime.checkRange()) {
-            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
+            throw new AnalysisException("Operation from_unixtime of " + second + " out of range");
         }
         return dateFormat(datetime, format);
     }
@@ -525,14 +572,52 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateV2Literal date) {
-        return new IntegerLiteral(((int) Duration.between(
-                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
+        return new IntegerLiteral((int) calcDayNumber(date.getYear(), date.getMonth(), date.getDay()));
     }
 
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) Duration.between(
-                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
+        return new IntegerLiteral((int) calcDayNumber(date.getYear(), date.getMonth(), date.getDay()));
+    }
+
+    /**
+     * date transformation function: to_seconds
+     */
+    @ExecFunction(name = "to_seconds")
+    public static Expression toSeconds(DateV2Literal date) {
+        return new BigIntLiteral(calcDayNumber(date.getYear(), date.getMonth(), date.getDay()) * 86400L);
+    }
+
+    @ExecFunction(name = "to_seconds")
+    public static Expression toSeconds(DateTimeV2Literal date) {
+        return new BigIntLiteral(calcDayNumber(date.getYear(), date.getMonth(), date.getDay()) * 86400L
+                                    + date.getHour() * 3600L + date.getMinute() * 60L + date.getSecond());
+    }
+
+    // Java Duration cannot represent days before 0000-01-01, so using it would turn
+    // TO_DAYS('0000-01-01') into the diff between that date and itself (0).
+    // We use BE's arithmetic instead so 0000-01-01 returns 1 as expected.
+    // Previous FE logic often matched BE only because Java treats year 0 as leap
+    // making TO_DAYS('0000-02-29') fold to 59.
+    // While BE/MySQL consider year 0 common, so:
+    // TO_DAYS('0000-02-28') == 59 and TO_DAYS('0000-02-29') == NULL. After
+    // 0000-03-01 the two implementations naturally align again.
+    private static long calcDayNumber(long year, long month, long day) {
+        if (year == 0 && month == 0) {
+            return 0;
+        }
+        if (year == 0 && month == 1 && day == 1) {
+            return 1;
+        }
+
+        long y = year;
+        long delsum = 365L * y + 31L * (month - 1) + day;
+        if (month <= 2) {
+            y -= 1;
+        } else {
+            delsum -= (month * 4 + 23) / 10;
+        }
+        return delsum + y / 4 - y / 100 + y / 400;
     }
 
     /**

@@ -803,7 +803,12 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     }
     txn->put(key1, val1);
     LOG(INFO) << "put tablet_idx tablet_id=" << tablet_id << " key=" << hex(key1);
-    if (request->has_db_id() && is_versioned_write) {
+    if (is_versioned_write) {
+        if (!request->has_db_id()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "db_id is required for versioned write, please upgrade your FE version";
+            return;
+        }
         int64_t db_id = request->db_id();
         std::string tablet_idx_key = versioned::tablet_index_key({instance_id, tablet_id});
         std::string tablet_inverted_idx_key = versioned::tablet_inverted_index_key(
@@ -889,6 +894,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+
     RPC_RATE_LIMIT(create_tablets)
     for (; request->has_storage_vault_name();) {
         InstanceInfoPB instance;
@@ -1186,16 +1192,10 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
     if (is_versioned_write && update_tablet_log.tablet_ids_size() > 0) {
         OperationLogPB log;
         log.mutable_update_tablet()->Swap(&update_tablet_log);
-        std::string update_log_key = versioned::log_key(instance_id);
-        std::string operation_log_value;
-        if (!log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = "failed to serialize update tablet log";
-            return;
-        }
-        versioned_put(txn.get(), update_log_key, operation_log_value);
-        LOG(INFO) << "put versioned update tablet log, key=" << hex(update_log_key)
-                  << " instance_id=" << instance_id << " log_size=" << operation_log_value.size();
+        std::string log_key = versioned::log_key(instance_id);
+        versioned::blob_put(txn.get(), log_key, log);
+        LOG(INFO) << "put update tablet operation log, key=" << hex(log_key)
+                  << " instance_id=" << instance_id;
     }
 
     err = txn->commit();
@@ -5483,6 +5483,47 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
     return st;
 }
 
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::fix_tablet_db_id(
+        const std::string& instance_id, int64_t tablet_id, int64_t db_id) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return {cast_as<ErrCategory::CREATE>(err), "failed to init txn"};
+    }
+
+    TabletIndexPB tablet_index_pb;
+    std::string key = meta_tablet_idx_key({instance_id, tablet_id});
+    std::string value;
+    err = txn->get(key, &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        std::string msg = fmt::format("tablet index pb not found, key={}", hex(key));
+        return {MetaServiceCode::TABLET_NOT_FOUND, msg};
+    } else if (err != TxnErrorCode::TXN_OK) {
+        std::string msg =
+                fmt::format("failed to get tablet index pb, key={}, err={}", hex(key), err);
+        return {cast_as<ErrCategory::READ>(err), msg};
+    } else if (!tablet_index_pb.ParseFromString(value)) {
+        std::string msg = fmt::format("failed to parse TabletIndexPB, key={}", hex(key));
+        return {MetaServiceCode::PROTOBUF_PARSE_ERR, msg};
+    } else if (tablet_index_pb.db_id() == db_id) {
+        LOG(INFO) << "no need to fix tablet db id, same db id, tablet_id=" << tablet_id
+                  << ", db_id=" << db_id;
+        return {MetaServiceCode::OK, ""};
+    }
+
+    tablet_index_pb.set_db_id(db_id);
+    txn->put(key, tablet_index_pb.SerializeAsString());
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg = fmt::format(
+                "failed to commit txn to fix tablet db id, tablet_id={}, db_id={}, err={}",
+                tablet_id, db_id, err);
+        return {cast_as<ErrCategory::COMMIT>(err), msg};
+    }
+
+    return {MetaServiceCode::OK, ""};
+}
+
 std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset_meta) {
     size_t ret {0};
     for (const auto& key_bounds : rowset_meta.segments_key_bounds()) {
@@ -5541,6 +5582,80 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
     }
 
     response->mutable_schema_dict()->Swap(&schema_dict);
+}
+
+void MetaServiceImpl::update_packed_file_info(::google::protobuf::RpcController* controller,
+                                              const UpdatePackedFileInfoRequest* request,
+                                              UpdatePackedFileInfoResponse* response,
+                                              ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(update_packed_file_info);
+
+    // Validate request parameters
+    if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud_unique_id is required";
+        return;
+    }
+
+    if (!request->has_packed_file_path() || request->packed_file_path().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "packed_file_path is required";
+        return;
+    }
+
+    if (!request->has_packed_file_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "packed_file_info is required";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    RPC_RATE_LIMIT(update_packed_file_info)
+
+    // Create transaction
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+
+    // Generate packed file key
+    PackedFileKeyInfo key_info {instance_id, request->packed_file_path()};
+    std::string packed_file_key_str = packed_file_key(key_info);
+
+    // Serialize packed file info
+    std::string packed_file_info_val;
+    if (!request->packed_file_info().SerializeToString(&packed_file_info_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize packed_file_info";
+        return;
+    }
+
+    // Put packed file info
+    txn->put(packed_file_key_str, packed_file_info_val);
+
+    // Commit transaction
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_COMMIT_ERR;
+        msg = fmt::format("failed to commit txn, err={}", err);
+        return;
+    }
+
+    LOG(INFO) << "successfully updated packed file info"
+              << ", instance_id=" << instance_id
+              << ", packed_file_path=" << request->packed_file_path()
+              << ", total_slice_num=" << request->packed_file_info().total_slice_num()
+              << ", ref_cnt=" << request->packed_file_info().ref_cnt()
+              << ", key=" << hex(packed_file_key_str);
 }
 
 std::string hide_access_key(const std::string& ak) {

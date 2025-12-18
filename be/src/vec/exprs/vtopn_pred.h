@@ -45,6 +45,7 @@ public:
               _source_node_id(source_node_id),
               _expr_name(fmt::format("VTopNPred(source_node_id={})", _source_node_id)),
               _target_ctx(std::move(target_ctx)) {}
+    bool is_topn_filter() const override { return true; }
 
     static Status create_vtopn_pred(const TExpr& target_expr, int source_node_id,
                                     vectorized::VExprSPtr& expr) {
@@ -63,6 +64,8 @@ public:
         return Status::OK();
     }
 
+    int source_node_id() const { return _source_node_id; }
+
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         _predicate = &state->get_query_ctx()->get_runtime_predicate(_source_node_id);
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -73,45 +76,53 @@ public:
         argument_template.emplace_back(nullptr, _children[0]->data_type(), "topn value");
 
         _function = SimpleFunctionFactory::instance().get_function(
-                _predicate->is_asc() ? "le" : "ge", argument_template, _data_type,
-                {.enable_decimal256 = state->enable_decimal256()}, state->be_exec_version());
+                _predicate->is_asc() ? "le" : "ge", argument_template, _data_type, {},
+                state->be_exec_version());
         if (!_function) {
             return Status::InternalError("get function failed");
         }
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
+                          ColumnPtr& result_column) const override {
         if (!_predicate->has_value()) {
-            block->insert({create_always_true_column(block->rows(), _data_type->is_nullable()),
-                           _data_type, _expr_name});
-            *result_column_id = block->columns() - 1;
+            result_column = create_always_true_column(count, _data_type->is_nullable());
             return Status::OK();
         }
 
+        Block temp_block;
+
+        // slot
+        ColumnPtr slot_column;
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, slot_column));
+        auto slot_type = _children[0]->execute_type(block);
+        temp_block.insert({slot_column, slot_type, _children[0]->expr_name()});
+        int slot_id = 0;
+
+        // topn value
         Field field = _predicate->get_value();
         auto column_ptr = _children[0]->data_type()->create_column_const(1, field);
-        size_t row_size = std::max(block->rows(), column_ptr->size());
-        int topn_value_id = VExpr::insert_param(
-                block, {column_ptr, _children[0]->data_type(), _expr_name}, row_size);
+        int topn_value_id = VExpr::insert_param(&temp_block,
+                                                {column_ptr, _children[0]->data_type(), _expr_name},
+                                                std::max(count, column_ptr->size()));
 
-        int slot_id = -1;
-        RETURN_IF_ERROR(_children[0]->execute(context, block, &slot_id));
         // if error(slot_id == -1), will return.
         ColumnNumbers arguments = {static_cast<uint32_t>(slot_id),
                                    static_cast<uint32_t>(topn_value_id)};
 
-        uint32_t num_columns_without_result = block->columns();
-        block->insert({nullptr, _data_type, _expr_name});
-        RETURN_IF_ERROR(_function->execute(nullptr, *block, arguments, num_columns_without_result,
-                                           block->rows()));
-        *result_column_id = num_columns_without_result;
+        uint32_t num_columns_without_result = temp_block.columns();
+        // prepare a column to save result
+        temp_block.insert({nullptr, _data_type, _expr_name});
 
+        RETURN_IF_ERROR(_function->execute(nullptr, temp_block, arguments,
+                                           num_columns_without_result, temp_block.rows()));
+        result_column = std::move(temp_block.get_by_position(num_columns_without_result).column);
         if (is_nullable() && _predicate->nulls_first()) {
             // null values ​​are always not filtered
-            change_null_to_true(
-                    block->get_by_position(num_columns_without_result).column->assume_mutable());
+            change_null_to_true(result_column->assume_mutable());
         }
+        DCHECK_EQ(result_column->size(), count);
         return Status::OK();
     }
 

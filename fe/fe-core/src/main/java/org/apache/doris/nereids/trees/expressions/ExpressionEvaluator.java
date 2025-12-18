@@ -63,9 +63,6 @@ public enum ExpressionEvaluator {
         if (expression instanceof BinaryArithmetic) {
             BinaryArithmetic arithmetic = (BinaryArithmetic) expression;
             fnName = arithmetic.getLegacyOperator().getName();
-        } else if (expression instanceof TimestampArithmetic) {
-            TimestampArithmetic arithmetic = (TimestampArithmetic) expression;
-            fnName = arithmetic.getFuncName();
         } else if (expression instanceof BoundFunction) {
             BoundFunction function = ((BoundFunction) expression);
             fnName = function.getName();

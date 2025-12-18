@@ -81,6 +81,9 @@
 #endif
 
 #include <fmt/format.h>
+#include <unicode/normalizer2.h>
+#include <unicode/stringpiece.h>
+#include <unicode/unistr.h>
 
 #include <cstdint>
 #include <string>
@@ -4598,7 +4601,7 @@ private:
 
     uint32_t sub_str_hash(const char* data, int32_t length) const {
         constexpr static uint32_t seed = 0;
-        return HashUtil::crc_hash(data, length, seed);
+        return HashUtil::crc32c_hash(data, length, seed);
     }
 
     template <bool column_const>
@@ -5255,6 +5258,149 @@ public:
 
         block.replace_by_position(result, std::move(res_col));
         return Status::OK();
+    }
+};
+
+class FunctionUnicodeNormalize : public IFunction {
+public:
+    static constexpr auto name = "unicode_normalize";
+
+    static FunctionPtr create() { return std::make_shared<FunctionUnicodeNormalize>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments.size() != 2 || !is_string_type(arguments[0]->get_primitive_type()) ||
+            !is_string_type(arguments[1]->get_primitive_type())) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} and {} of arguments of function {}",
+                                   arguments[0]->get_name(), arguments[1]->get_name(), get_name());
+        }
+        return arguments[0];
+    }
+
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+
+        if (!context->is_col_constant(1)) {
+            return Status::InvalidArgument(
+                    "The second argument 'mode' of function {} must be constant", get_name());
+        }
+
+        auto* const_col = context->get_constant_col(1);
+        auto mode_ref = const_col->column_ptr->get_data_at(0);
+        std::string lower_mode = doris::to_lower(std::string(doris::trim(mode_ref.to_string())));
+
+        UErrorCode status = U_ZERO_ERROR;
+        const icu::Normalizer2* normalizer = nullptr;
+
+        if (lower_mode == "nfc") {
+            normalizer = icu::Normalizer2::getInstance(nullptr, "nfc", UNORM2_COMPOSE, status);
+        } else if (lower_mode == "nfd") {
+            normalizer = icu::Normalizer2::getNFDInstance(status);
+        } else if (lower_mode == "nfkc") {
+            normalizer = icu::Normalizer2::getInstance(nullptr, "nfkc", UNORM2_COMPOSE, status);
+        } else if (lower_mode == "nfkd") {
+            normalizer = icu::Normalizer2::getNFKDInstance(status);
+        } else if (lower_mode == "nfkc_cf") {
+            normalizer = icu::Normalizer2::getInstance(nullptr, "nfkc_cf", UNORM2_COMPOSE, status);
+        } else {
+            return Status::InvalidArgument(
+                    "Invalid normalization mode '{}' for function {}. "
+                    "Supported modes: NFC, NFD, NFKC, NFKD, NFKC_CF",
+                    lower_mode, get_name());
+        }
+
+        if (U_FAILURE(status) || normalizer == nullptr) {
+            return Status::InvalidArgument(
+                    "Failed to get normalizer instance for mode '{}' in function {}: {}",
+                    lower_mode, get_name(), u_errorName(status));
+        }
+
+        auto state = std::make_shared<UnicodeNormalizeState>();
+        state->normalizer = normalizer;
+        context->set_function_state(scope, state);
+        return Status::OK();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto* state = reinterpret_cast<UnicodeNormalizeState*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        if (state == nullptr || state->normalizer == nullptr) {
+            return Status::RuntimeError("unicode_normalize function state is not initialized");
+        }
+
+        ColumnPtr col =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto* col_str = check_and_get_column<ColumnString>(col.get());
+        if (col_str == nullptr) {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
+        }
+
+        const auto& data = col_str->get_chars();
+        const auto& offsets = col_str->get_offsets();
+
+        auto res = ColumnString::create();
+        auto& res_data = res->get_chars();
+        auto& res_offsets = res->get_offsets();
+
+        size_t rows = offsets.size();
+        res_offsets.resize(rows);
+
+        std::string tmp;
+        for (size_t i = 0; i < rows; ++i) {
+            const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t len = offsets[i] - offsets[i - 1];
+
+            normalize_one(state->normalizer, begin, len, tmp);
+            StringOP::push_value_string(tmp, i, res_data, res_offsets);
+        }
+
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+private:
+    struct UnicodeNormalizeState {
+        const icu::Normalizer2* normalizer = nullptr;
+    };
+
+    static void normalize_one(const icu::Normalizer2* normalizer, const char* input, size_t length,
+                              std::string& output) {
+        if (length == 0) {
+            output.clear();
+            return;
+        }
+
+        icu::StringPiece sp(input, static_cast<int32_t>(length));
+        icu::UnicodeString src16 = icu::UnicodeString::fromUTF8(sp);
+
+        UErrorCode status = U_ZERO_ERROR;
+        UNormalizationCheckResult quick = normalizer->quickCheck(src16, status);
+        if (U_SUCCESS(status) && quick == UNORM_YES) {
+            output.assign(input, length);
+            return;
+        }
+
+        icu::UnicodeString result16;
+        status = U_ZERO_ERROR;
+        normalizer->normalize(src16, result16, status);
+        if (U_FAILURE(status)) {
+            output.assign(input, length);
+            return;
+        }
+
+        output.clear();
+        result16.toUTF8String(output);
     }
 };
 

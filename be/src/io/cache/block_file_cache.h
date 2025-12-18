@@ -21,11 +21,16 @@
 #include <concurrentqueue.h>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <boost/lockfree/spsc_queue.hpp>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/file_block.h"
@@ -72,6 +77,46 @@ private:
     LockScopedTimer cache_lock_timer;
 
 class FSFileCacheStorage;
+
+// NeedUpdateLRUBlocks keeps FileBlockSPtr entries that require LRU updates in a
+// deduplicated, sharded container. Entries are keyed by the raw FileBlock
+// pointer so that multiple shared_ptr copies of the same block are treated as a
+// single pending update. The structure is thread-safe and optimized for high
+// contention insert/drain workloads in the background update thread.
+// Note that Blocks are updated in batch, internal order is not important.
+class NeedUpdateLRUBlocks {
+public:
+    NeedUpdateLRUBlocks() = default;
+
+    // Insert a block into the pending set. Returns true only when the block
+    // was not already queued. Null inputs are ignored.
+    bool insert(FileBlockSPtr block);
+
+    // Drain up to `limit` unique blocks into `output`. The method returns how
+    // many blocks were actually drained and shrinks the internal size
+    // accordingly.
+    size_t drain(size_t limit, std::vector<FileBlockSPtr>* output);
+
+    // Remove every pending block from the structure and reset the size.
+    void clear();
+
+    // Thread-safe approximate size of queued unique blocks.
+    size_t size() const { return _size.load(std::memory_order_relaxed); }
+
+private:
+    static constexpr size_t kShardCount = 64;
+    static constexpr size_t kShardMask = kShardCount - 1;
+
+    struct Shard {
+        std::mutex mutex;
+        std::unordered_map<FileBlock*, FileBlockSPtr> entries;
+    };
+
+    size_t shard_index(FileBlock* ptr) const;
+
+    std::array<Shard, kShardCount> _shards;
+    std::atomic<size_t> _size {0};
+};
 
 // The BlockFileCache is responsible for the management of the blocks
 // The current strategies are lru and ttl.
@@ -171,6 +216,9 @@ public:
     size_t try_release();
 
     [[nodiscard]] const std::string& get_base_path() const { return _cache_base_path; }
+
+    // Get storage for inspection
+    FileCacheStorage* get_storage() const { return _storage.get(); }
 
     /**
          * Given an `offset` and `size` representing [offset, offset + size) bytes interval,
@@ -437,7 +485,8 @@ private:
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
                      bool evict_in_advance) const;
 
-    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync);
+    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync,
+                            std::string& reason);
 
     void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
                                                 std::lock_guard<std::mutex>&);
@@ -581,7 +630,7 @@ private:
     std::unique_ptr<FileCacheStorage> _storage;
     std::shared_ptr<bvar::LatencyRecorder> _lru_dump_latency_us;
     std::mutex _dump_lru_queues_mtx;
-    moodycamel::ConcurrentQueue<FileBlockSPtr> _need_update_lru_blocks;
+    NeedUpdateLRUBlocks _need_update_lru_blocks;
 };
 
 } // namespace doris::io

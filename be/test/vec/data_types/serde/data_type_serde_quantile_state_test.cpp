@@ -25,35 +25,6 @@
 
 namespace doris::vectorized {
 
-TEST(QuantileStateSerdeTest, writeColumnToMysql) {
-    auto quantile_state_serde = std::make_shared<vectorized::DataTypeQuantileStateSerDe>(1);
-    auto column_quantile_state = ColumnQuantileState::create();
-    column_quantile_state->insert_value(QuantileState());
-    ASSERT_EQ(column_quantile_state->size(), 1);
-    MysqlRowBuffer<false> mysql_rb;
-    DataTypeSerDe::FormatOptions options;
-    options.nested_string_wrapper = "\"";
-    options.wrapper_len = 1;
-    options.map_key_delim = ':';
-    options.null_format = "null";
-    options.null_len = 4;
-    quantile_state_serde->set_return_object_as_string(true);
-    auto st = quantile_state_serde->write_column_to_mysql(*column_quantile_state, mysql_rb, 0,
-                                                          false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 6);
-
-    QuantileState quantile_state;
-    quantile_state.add_value(123);
-    column_quantile_state->insert_value(quantile_state);
-    quantile_state_serde->set_return_object_as_string(true);
-    st = quantile_state_serde->write_column_to_mysql(*column_quantile_state, mysql_rb, 1, false,
-                                                     options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 20);
-    std::cout << "test write_column_to_mysql success" << std::endl;
-}
-
 TEST(QuantileStateSerdeTest, writeOneCellToJsonb) {
     auto quantile_state_serde = std::make_shared<vectorized::DataTypeQuantileStateSerDe>(1);
     auto column_quantile_state = ColumnQuantileState::create();
@@ -63,18 +34,22 @@ TEST(QuantileStateSerdeTest, writeOneCellToJsonb) {
     ASSERT_EQ(column_quantile_state->size(), 1);
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     jsonb_writer.writeStartObject();
-    quantile_state_serde->write_one_cell_to_jsonb(*column_quantile_state, jsonb_writer, pool, 0, 0);
+    quantile_state_serde->write_one_cell_to_jsonb(*column_quantile_state, jsonb_writer, pool, 0, 0,
+                                                  options);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    JsonbDocument* pdoc = nullptr;
+    const JsonbDocument* pdoc = nullptr;
     auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
     ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-    JsonbDocument& doc = *pdoc;
+    const JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         quantile_state_serde->read_one_cell_from_jsonb(*column_quantile_state, it->value());
     }

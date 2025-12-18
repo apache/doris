@@ -33,7 +33,7 @@
 using namespace doris;
 using namespace doris::segment_v2;
 
-class MockIndexReader : public IndexReader {
+class MockIndexReader : public segment_v2::IndexReader {
 public:
     MockIndexReader(IndexType type, uint64_t id) : _type(type), _id(id) {}
 
@@ -64,7 +64,8 @@ public:
 
     MOCK_FUNCTION Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                                const void* query_value, InvertedIndexQueryType query_type,
-                               std::shared_ptr<roaring::Roaring>& bit_map) override {
+                               std::shared_ptr<roaring::Roaring>& bit_map,
+                               const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override {
         return Status::OK();
     }
 

@@ -57,20 +57,31 @@ namespace doris::vectorized {
 using namespace doris::segment_v2;
 
 VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
-    _inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
-    _inverted_index_ctx->custom_analyzer = node.match_predicate.custom_analyzer;
-    _inverted_index_ctx->parser_type =
+    // Step 1: Create configuration (stack-allocated temporary, follows SRP)
+    InvertedIndexAnalyzerConfig config;
+    config.analyzer_name = node.match_predicate.analyzer_name;
+    config.parser_type =
             get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
-    _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
-    _inverted_index_ctx->char_filter_map = node.match_predicate.char_filter_map;
+    config.parser_mode = node.match_predicate.parser_mode;
+    config.char_filter_map = node.match_predicate.char_filter_map;
     if (node.match_predicate.parser_lowercase) {
-        _inverted_index_ctx->lower_case = INVERTED_INDEX_PARSER_TRUE;
+        config.lower_case = INVERTED_INDEX_PARSER_TRUE;
     } else {
-        _inverted_index_ctx->lower_case = INVERTED_INDEX_PARSER_FALSE;
+        config.lower_case = INVERTED_INDEX_PARSER_FALSE;
     }
-    _inverted_index_ctx->stop_words = node.match_predicate.parser_stopwords;
-    _analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(_inverted_index_ctx.get());
-    _inverted_index_ctx->analyzer = _analyzer.get();
+    DBUG_EXECUTE_IF("inverted_index_parser.get_parser_lowercase_from_properties",
+                    { config.lower_case = ""; })
+    config.stop_words = node.match_predicate.parser_stopwords;
+
+    // Step 2: Use config to create analyzer (factory method)
+    _analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
+
+    // Step 3: Create runtime context (only extract runtime-needed info)
+    _analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+    _analyzer_ctx->analyzer_name = config.analyzer_name;
+    _analyzer_ctx->parser_type = config.parser_type;
+    _analyzer_ctx->char_filter_map = std::move(config.char_filter_map);
+    _analyzer_ctx->analyzer = _analyzer.get();
 }
 
 VMatchPredicate::~VMatchPredicate() = default;
@@ -87,9 +98,8 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         child_expr_name.emplace_back(child->expr_name());
     }
 
-    _function = SimpleFunctionFactory::instance().get_function(
-            _fn.name.function_name, argument_template, _data_type,
-            {.enable_decimal256 = state->enable_decimal256()});
+    _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
+                                                               argument_template, _data_type, {});
     if (_function == nullptr) {
         std::string type_str;
         for (auto arg : argument_template) {
@@ -116,7 +126,7 @@ Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::THREAD_LOCAL || scope == FunctionContext::FRAGMENT_LOCAL) {
-        context->fn_context(_fn_context_index)->set_function_state(scope, _inverted_index_ctx);
+        context->fn_context(_fn_context_index)->set_function_state(scope, _analyzer_ctx);
     }
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
@@ -132,12 +142,16 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 
 Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_EQ(get_num_children(), 2);
+    if (context != nullptr && context->get_index_context() != nullptr && _analyzer_ctx != nullptr) {
+        context->get_index_context()->set_analyzer_ctx_for_expr(this, _analyzer_ctx);
+    }
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) const {
-    DCHECK(_open_finished || _getting_const_col);
-    if (fast_execute(context, block, result_column_id)) {
+Status VMatchPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
+                                       ColumnPtr& result_column) const {
+    DCHECK(_open_finished || block == nullptr);
+    if (fast_execute(context, result_column)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VMatchPredicate.execute", {
@@ -159,19 +173,23 @@ Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result
                     "column {} should in slow path while VMatchPredicate::execute.", column_name);
         }
     })
-    doris::vectorized::ColumnNumbers arguments(_children.size());
+    ColumnNumbers arguments(_children.size());
+    Block temp_block;
     for (int i = 0; i < _children.size(); ++i) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-        arguments[i] = column_id;
+        ColumnPtr arg_column;
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, arg_column));
+        auto arg_type = _children[i]->execute_type(block);
+        temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});
+        arguments[i] = i;
     }
-    // call function
-    uint32_t num_columns_without_result = block->columns();
+    uint32_t num_columns_without_result = temp_block.columns();
     // prepare a column to save result
-    block->insert({nullptr, _data_type, _expr_name});
-    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
-                                       num_columns_without_result, block->rows()));
-    *result_column_id = num_columns_without_result;
+    temp_block.insert({nullptr, _data_type, _expr_name});
+
+    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block,
+                                       arguments, num_columns_without_result, temp_block.rows()));
+    result_column = temp_block.get_by_position(num_columns_without_result).column;
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 

@@ -100,7 +100,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -2603,7 +2603,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     try {
                         LOG.info("drop the origin olap table {}. table={}" + " isAtomicRestore: {}",
                                 originOlapTbl.getName(), originOlapTbl.getId(), isAtomicRestore);
-                        Env.getCurrentEnv().onEraseOlapTable(originOlapTbl, isReplay);
+                        Env.getCurrentEnv().onEraseOlapTable(db.getId(), originOlapTbl, isReplay);
                     } finally {
                         originOlapTbl.writeUnlock();
                     }

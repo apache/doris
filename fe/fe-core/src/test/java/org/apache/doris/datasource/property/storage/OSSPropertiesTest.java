@@ -70,7 +70,8 @@ public class OSSPropertiesTest {
         origProps.put("oss.connection.timeout", "1000");
         origProps.put("oss.use_path_style", "true");
         origProps.put("test_non_storage_param", "6000");
-        OSSProperties ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(0);
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(1);
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createAll(origProps).get(0).getClass());
         Map<String, String> s3Props;
 
         Map<String, String> ossConfig = ossProperties.getMatchedProperties();
@@ -93,7 +94,7 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         origProps.remove("oss.use_path_style");
-        ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(0);
+        ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(1);
         s3Props = ossProperties.generateBackendS3Configuration();
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
     }

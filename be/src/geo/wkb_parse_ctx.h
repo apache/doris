@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include "ByteOrderDataInStream.h"
-#include "array"
+#include <array>
+#include <memory>
 
-namespace doris {
-class GeoShape;
-}
+#include "ByteOrderDataInStream.h"
+#include "geo/geo_common.h"
+#include "geo/geo_types.h"
 
 struct WkbParseContext {
     unsigned int inputDimension = 2;
@@ -33,6 +33,6 @@ struct WkbParseContext {
 
     int srid;
 
-    doris::GeoShape* shape = nullptr;
+    std::unique_ptr<doris::GeoShape> shape = nullptr;
     doris::GeoParseStatus parse_status = doris::GEO_PARSE_OK;
 };

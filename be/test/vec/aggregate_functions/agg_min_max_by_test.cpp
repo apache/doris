@@ -45,8 +45,7 @@ const int agg_test_batch_size = 4096;
 
 namespace doris::vectorized {
 // declare function
-void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& factory);
 
 class AggMinMaxByTest : public ::testing::TestWithParam<std::string> {};
 
@@ -78,15 +77,14 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_min_by(factory);
-    register_aggregate_function_max_by(factory);
+    register_aggregate_function_max_min_by(factory);
 
     // Test on 2 kind of key types (int32, string).
     for (int i = 0; i < 2; i++) {
         DataTypes data_types = {std::make_shared<DataTypeInt32>(),
                                 i == 0 ? (DataTypePtr)std::make_shared<DataTypeInt32>()
                                        : (DataTypePtr)std::make_shared<DataTypeString>()};
-        auto agg_function = factory.get(min_max_by_type, data_types, false, -1);
+        auto agg_function = factory.get(min_max_by_type, data_types, nullptr, false, -1);
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);

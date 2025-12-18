@@ -109,6 +109,9 @@ Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSink
 
     _probe_timer = ADD_TIMER(Base::custom_profile(), "ProbeTime");
     _extract_probe_data_timer = ADD_TIMER(Base::custom_profile(), "ExtractProbeDataTime");
+    _hash_table_size = ADD_COUNTER(_common_profile, "HashTableSize", TUnit::UNIT);
+    _valid_element_in_hash_table =
+            ADD_COUNTER(_common_profile, "ValidElementInHashTable", TUnit::UNIT);
     Parent& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     _dependency->block();
@@ -190,6 +193,11 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
     } else {
         local_state._dependency->set_ready_to_read();
     }
+
+    // record hash table
+    COUNTER_SET(local_state._hash_table_size,
+                (int64_t)local_state._shared_state->get_hash_table_size());
+    COUNTER_SET(local_state._valid_element_in_hash_table, valid_element_in_hash_tbl);
 }
 
 template <bool is_intersect>

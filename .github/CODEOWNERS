@@ -19,7 +19,7 @@
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners#codeowners-syntax
 
 be/src/io/ @gavinchou @dataroaring
-be/src/agent/be_exec_version_manager.cpp @BiteTheDDDDt
+be/src/agent/be_exec_version_manager.cpp @BiteTheDDDDt @zclllyybb
 fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java @dataroaring @CalvinKirs @morningman
 **/pom.xml @CalvinKirs @morningman
 fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java @dataroaring @morningman @yiguolei @xiaokang
@@ -37,3 +37,5 @@ gensrc/proto/olap_file.proto @gavinchou @dataroaring @yiguolei
 gensrc/proto/cloud.proto @gavinchou @dataroaring @w41ter
 fe/fe-core/src/main/java/org/apache/doris/fs @CalvinKirs
 fe/fe-core/src/main/java/org/apache/doris/fsv2 @CalvinKirs
+be/src/vec/functions @zclllyybb
+be/**/CMakeLists.txt @zclllyybb @BiteTheDDDDt

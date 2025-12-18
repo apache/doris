@@ -98,6 +98,8 @@ public enum SchemaTableType {
             TSchemaTableType.SCH_ROUTINE_LOAD_JOBS),
     SCH_LOAD_JOBS("LOAD_JOBS", "LOAD_JOBS",
             TSchemaTableType.SCH_LOAD_JOBS),
+    SCH_FILE_CACHE_INFO("FILE_CACHE_INFO", "FILE_CACHE_INFO",
+            TSchemaTableType.SCH_FILE_CACHE_INFO),
     SCH_VIEW_DEPENDENCY("VIEW_DEPENDENCY", "VIEW_DEPENDENCY",
                     TSchemaTableType.SCH_VIEW_DEPENDENCY),
     SQL_BLOCK_RULE_STATUS("SQL_BLOCK_RULE_STATUS", "SQL_BLOCK_RULE_STATUS",
@@ -110,7 +112,9 @@ public enum SchemaTableType {
     SCH_BLACKHOLE("BLACKHOLE", "BLACKHOLE",
             TSchemaTableType.SCH_BLACKHOLE),
     SCH_COLUMN_DATA_SIZES("COLUMN_DATA_SIZES", "COLUMN_DATA_SIZES",
-            TSchemaTableType.SCH_COLUMN_DATA_SIZES);
+            TSchemaTableType.SCH_COLUMN_DATA_SIZES),
+    SCH_DATABASE_PROPERTIES("DATABASE_PROPERTIES", "DATABASE_PROPERTIES",
+            TSchemaTableType.SCH_DATABASE_PROPERTIES);
 
     private static final String dbName = "INFORMATION_SCHEMA";
 

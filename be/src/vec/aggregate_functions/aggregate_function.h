@@ -46,7 +46,6 @@ class IColumn;
 class IDataType;
 
 struct AggregateFunctionAttr {
-    bool enable_decimal256 {false};
     bool is_window_function {false};
     bool is_foreach {false};
     std::vector<std::string> column_names;

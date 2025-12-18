@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/internal_service.pb.h>
+#include <pdqsort.h>
 
 #include "common/object_pool.h"
 #include "exprs/filter_base.h"
@@ -257,6 +258,7 @@ public:
             doris::vectorized::ColumnUInt8::Container& results) = 0;
 
     virtual void to_pb(PInFilter* filter) = 0;
+    virtual uint64_t get_digest(uint64_t seed) = 0;
 
     class IteratorBase {
     public:
@@ -412,6 +414,21 @@ public:
 
     void to_pb(PInFilter* filter) override { set_pb(filter, get_convertor<ElementType>()); }
 
+    uint64_t get_digest(uint64_t seed) override {
+        std::vector<ElementType> elems(_set.begin(), _set.end());
+        pdqsort(elems.begin(), elems.end());
+        if constexpr (std::is_same<ElementType, bool>::value) {
+            for (bool v : elems) {
+                seed = HashUtil::crc_hash64(&v, sizeof(v), seed);
+            }
+        } else {
+            seed = HashUtil::crc_hash64(elems.data(),
+                                        (uint32_t)(elems.size() * sizeof(ElementType)), seed);
+        }
+
+        return HashUtil::crc_hash64(&_contain_null, sizeof(_contain_null), seed);
+    }
+
 private:
     ContainerType _set;
     ObjectPool _pool;
@@ -498,7 +515,7 @@ public:
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
-        std::string str_value(const_cast<const char*>(value->data), value->size);
+        std::string str_value(value->data, value->size);
         return _set.find(str_value);
     }
 
@@ -565,7 +582,7 @@ public:
         ~Iterator() override = default;
         bool has_next() const override { return !(_begin == _end); }
         const void* get_value() override {
-            _value.data = const_cast<char*>(_begin->data());
+            _value.data = _begin->data();
             _value.size = _begin->length();
             return &_value;
         }
@@ -588,6 +605,16 @@ public:
     }
 
     void to_pb(PInFilter* filter) override { set_pb(filter, get_convertor<std::string>()); }
+
+    uint64_t get_digest(uint64_t seed) override {
+        std::vector<StringRef> elems(_set.begin(), _set.end());
+        pdqsort(elems.begin(), elems.end());
+
+        for (const auto& v : elems) {
+            seed = HashUtil::crc_hash64(v.data, (uint32_t)v.size, seed);
+        }
+        return HashUtil::crc_hash64(&_contain_null, sizeof(_contain_null), seed);
+    }
 
 private:
     ContainerType _set;
@@ -715,7 +742,6 @@ public:
         const auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
         const auto& offset = col.get_offsets();
         const uint8_t* __restrict data = col.get_chars().data();
-        auto* __restrict cursor = const_cast<uint8_t*>(data);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
@@ -729,15 +755,15 @@ public:
         for (size_t i = 0; i < rows; ++i) {
             uint32_t len = offset[i] - offset[i - 1];
             if constexpr (!is_nullable && !is_negative) {
-                result_data[i] = _set.find(StringRef(cursor, len));
+                result_data[i] = _set.find(StringRef(data, len));
             } else if constexpr (!is_nullable && is_negative) {
-                result_data[i] = !_set.find(StringRef(cursor, len));
+                result_data[i] = !_set.find(StringRef(data, len));
             } else if constexpr (is_nullable && !is_negative) {
-                result_data[i] = (!null_map_data[i]) & _set.find(StringRef(cursor, len));
+                result_data[i] = (!null_map_data[i]) & _set.find(StringRef(data, len));
             } else { // (is_nullable && is_negative)
-                result_data[i] = !((!null_map_data[i]) & _set.find(StringRef(cursor, len)));
+                result_data[i] = !((!null_map_data[i]) & _set.find(StringRef(data, len)));
             }
-            cursor += len;
+            data += len;
         }
     }
 
@@ -748,7 +774,7 @@ public:
         ~Iterator() override = default;
         bool has_next() const override { return !(_begin == _end); }
         const void* get_value() override {
-            _value.data = const_cast<char*>(_begin->data);
+            _value.data = _begin->data;
             _value.size = _begin->size;
             return &_value;
         }
@@ -766,6 +792,17 @@ public:
 
     void to_pb(PInFilter* filter) override {
         throw Exception(ErrorCode::INTERNAL_ERROR, "StringValueSet do not support to_pb");
+    }
+
+    uint64_t get_digest(uint64_t seed) override {
+        std::vector<StringRef> elems(_set.begin(), _set.end());
+        pdqsort(elems.begin(), elems.end());
+
+        for (const auto& v : elems) {
+            seed = HashUtil::crc_hash64(v.data, (uint32_t)v.size, seed);
+        }
+
+        return HashUtil::crc_hash64(&_contain_null, sizeof(_contain_null), seed);
     }
 
 private:

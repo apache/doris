@@ -45,10 +45,13 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
 
+namespace doris {
+struct InvertedIndexAnalyzerCtx;
+} // namespace doris
+
 namespace doris::vectorized {
 
 struct FunctionAttr {
-    bool enable_decimal256 {false};
     bool new_version_unix_timestamp {false};
 };
 
@@ -192,6 +195,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return Status::OK();
     }
@@ -459,9 +463,10 @@ public:
             const ColumnsWithTypeAndName& args,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
-                                                 bitmap_result);
+                                                 analyzer_ctx, bitmap_result);
     }
 
     bool is_use_default_implementation_for_constants() const override {
@@ -478,10 +483,81 @@ private:
     DataTypePtr return_type;
 };
 
+struct simple_function_creator_without_type0 {
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static std::shared_ptr<IFunction> create(const DataTypePtr& result_type, TArgs&&... args) {
+        std::unique_ptr<IFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                result_type, std::forward<TArgs>(args)...));
+        return std::shared_ptr<IFunction>(result.release());
+    }
+};
+template <template <PrimitiveType> class FunctionTemplate>
+struct SimpleFunctionCurryDirectWithResultType0 {
+    template <PrimitiveType ResultType>
+    using T = FunctionTemplate<ResultType>;
+};
+template <PrimitiveType... AllowedTypes>
+struct simple_function_creator_with_result_type0 {
+    template <typename Class, typename... TArgs>
+    static std::shared_ptr<IFunction> create_base_with_result_type(const DataTypePtr& result_type,
+                                                                   TArgs&&... args) {
+        auto create = [&]<PrimitiveType ResultType>() {
+            return simple_function_creator_without_type0::create<
+                    typename Class::template T<ResultType>>(result_type,
+                                                            std::forward<TArgs>(args)...);
+        };
+        std::shared_ptr<IFunction> result = nullptr;
+        auto type = result_type->get_primitive_type();
+
+        (
+                [&] {
+                    if (type == AllowedTypes) {
+                        static_assert(AllowedTypes == TYPE_DECIMAL128I ||
+                                      AllowedTypes == TYPE_DECIMAL256);
+                        result = create.template operator()<AllowedTypes>();
+                    }
+                }(),
+                ...);
+
+        return result;
+    }
+
+    // Create agg function with result type from FE.
+    // Currently only used for decimalv3 sum and avg.
+    template <template <PrimitiveType> class FunctionTemplate>
+    static std::shared_ptr<IFunction> creator_with_result_type(const DataTypePtr& result_type) {
+        return create_base_with_result_type<
+                SimpleFunctionCurryDirectWithResultType0<FunctionTemplate>>(result_type);
+    }
+};
+
 class DefaultFunctionBuilder : public FunctionBuilderImpl {
 public:
     explicit DefaultFunctionBuilder(std::shared_ptr<IFunction> function_)
             : function(std::move(function_)) {}
+
+    // template <template <PrimitiveType> class FunctionTemplate>
+    explicit DefaultFunctionBuilder(DataTypePtr return_type)
+            : _return_type(std::move(return_type)) {}
+
+    template <template <PrimitiveType> class FunctionTemplate>
+    static FunctionBuilderPtr create_array_agg_function_decimalv3(DataTypePtr return_type) {
+        auto builder = std::make_shared<DefaultFunctionBuilder>(return_type);
+        DataTypePtr real_return_type;
+        // for array_cum_sum, the return type is array,
+        // so here should check nested type
+        if (PrimitiveType::TYPE_ARRAY == return_type->get_primitive_type()) {
+            const DataTypeArray* data_type_array =
+                    static_cast<const DataTypeArray*>(remove_nullable(return_type).get());
+            real_return_type = data_type_array->get_nested_type();
+        } else {
+            real_return_type = return_type;
+        }
+        builder->function =
+                simple_function_creator_with_result_type0<TYPE_DECIMAL128I, TYPE_DECIMAL256>::
+                        creator_with_result_type<FunctionTemplate>(real_return_type);
+        return builder;
+    }
 
     void check_number_of_arguments(size_t number_of_arguments) const override {
         function->check_number_of_arguments(number_of_arguments);
@@ -528,6 +604,7 @@ protected:
 
 private:
     std::shared_ptr<IFunction> function;
+    DataTypePtr _return_type;
 };
 
 using FunctionPtr = std::shared_ptr<IFunction>;

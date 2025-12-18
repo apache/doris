@@ -61,6 +61,8 @@ private:
 
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_size = nullptr;
+    RuntimeProfile::Counter* _valid_element_in_hash_table = nullptr;
 
     std::shared_ptr<RuntimeFilterProducerHelperSet> _runtime_filter_producer_helper;
     std::shared_ptr<CountedFinishDependency> _finish_dependency;

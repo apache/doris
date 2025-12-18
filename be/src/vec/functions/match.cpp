@@ -27,10 +27,29 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+namespace {
+
+const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context) {
+    if (context == nullptr) {
+        return nullptr;
+    }
+    auto* analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
+            context->get_function_state(FunctionContext::THREAD_LOCAL));
+    if (analyzer_ctx == nullptr) {
+        analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    }
+    return analyzer_ctx;
+}
+
+} // namespace
+
 Status FunctionMatchBase::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
     DCHECK(arguments.size() == 1);
     DCHECK(data_type_with_names.size() == 1);
@@ -72,13 +91,8 @@ Status FunctionMatchBase::evaluate_inverted_index(
     param.query_type = get_query_type_from_fn_name();
     param.num_rows = num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();
-    if (is_string_type(param_type)) {
-        RETURN_IF_ERROR(iter->read_from_index(&param));
-    } else {
-        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
-                "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",
-                param_type);
-    }
+    param.analyzer_ctx = analyzer_ctx;
+    RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
     if (iter->has_null()) {
         segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
@@ -96,16 +110,17 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                                        size_t input_rows_count) const {
     ColumnPtr& column_ptr = block.get_by_position(arguments[1]).column;
     DataTypePtr& type_ptr = block.get_by_position(arguments[1]).type;
-    auto match_query_str = type_ptr->to_string(*column_ptr, 0);
+
+    auto format_options = DataTypeSerDe::get_default_format_options();
+    auto time_zone = cctz::utc_time_zone();
+    format_options.timezone =
+            (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
+
+    auto match_query_str = type_ptr->to_string(*column_ptr, 0, format_options);
     std::string column_name = block.get_by_position(arguments[0]).name;
     VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
                << ", match_query_str=" << match_query_str;
-    auto* inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
-    if (inverted_index_ctx == nullptr) {
-        inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    }
+    auto* analyzer_ctx = get_match_analyzer_ctx(context);
 
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -144,8 +159,8 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     // set default value to 0, and match functions only need to set 1/true
     vec_res.resize_fill(input_rows_count);
     RETURN_IF_ERROR(execute_match(context, column_name, match_query_str, input_rows_count, values,
-                                  inverted_index_ctx,
-                                  (array_col ? &(array_col->get_offsets()) : nullptr), vec_res));
+                                  analyzer_ctx, (array_col ? &(array_col->get_offsets()) : nullptr),
+                                  vec_res));
     block.replace_by_position(result, std::move(res));
 
     return Status::OK();
@@ -171,64 +186,61 @@ inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_ty
 }
 
 std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
-        InvertedIndexCtx* inverted_index_ctx, const std::string& match_query_str,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx, const std::string& match_query_str,
         const std::string& column_name) const {
-    VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
-               << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
     std::vector<TermInfo> query_tokens;
-    if (inverted_index_ctx == nullptr) {
+    if (analyzer_ctx == nullptr) {
         return query_tokens;
     }
-    // parse is none and custom analyzer is empty mean no analyzer is set
-    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
-        inverted_index_ctx->custom_analyzer.empty()) {
+    VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
+               << inverted_index_parser_type_to_string(analyzer_ctx->parser_type);
+    if (!analyzer_ctx->should_tokenize()) {
         query_tokens.emplace_back(match_query_str);
         return query_tokens;
     }
     auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-            inverted_index_ctx->char_filter_map);
+            analyzer_ctx->char_filter_map);
     reader->init(match_query_str.data(), (int)match_query_str.size(), true);
     query_tokens = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-            reader, inverted_index_ctx->analyzer);
+            reader, analyzer_ctx->analyzer);
     return query_tokens;
 }
 
 inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
-        const std::string& column_name, InvertedIndexCtx* inverted_index_ctx,
+        const std::string& column_name, const InvertedIndexAnalyzerCtx* analyzer_ctx,
         const ColumnString* string_col, int32_t current_block_row_idx,
         const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) const {
     std::vector<TermInfo> data_tokens;
+    if (analyzer_ctx == nullptr) {
+        return data_tokens;
+    }
     if (array_offsets) {
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
              current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
-            // parse is none and custom analyzer is empty mean no analyzer is set
-            if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
-                inverted_index_ctx->custom_analyzer.empty()) {
+            if (!analyzer_ctx->should_tokenize()) {
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-                    inverted_index_ctx->char_filter_map);
+                    analyzer_ctx->char_filter_map);
             reader->init(str_ref.data, (int)str_ref.size, true);
 
             data_tokens =
                     doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            reader, inverted_index_ctx->analyzer);
+                            reader, analyzer_ctx->analyzer);
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
-        // parse is none and custom analyzer is empty mean no analyzer is set
-        if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
-            inverted_index_ctx->custom_analyzer.empty()) {
+        if (!analyzer_ctx->should_tokenize()) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-                    inverted_index_ctx->char_filter_map);
+                    analyzer_ctx->char_filter_map);
             reader->init(str_ref.data, (int)str_ref.size, true);
             data_tokens =
                     doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            reader, inverted_index_ctx->analyzer);
+                            reader, analyzer_ctx->analyzer);
         }
     }
     return data_tokens;
@@ -251,24 +263,25 @@ Status FunctionMatchBase::check(FunctionContext* context, const std::string& fun
 Status FunctionMatchAny::execute_match(FunctionContext* context, const std::string& column_name,
                                        const std::string& match_query_str, size_t input_rows_count,
                                        const ColumnString* string_col,
-                                       InvertedIndexCtx* inverted_index_ctx,
+                                       const InvertedIndexAnalyzerCtx* analyzer_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    auto query_tokens = analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
                 match_query_str,
-                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
+                analyzer_ctx ? inverted_index_parser_type_to_string(analyzer_ctx->parser_type)
+                             : "unknown");
         return Status::OK();
     }
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+        auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
         // TODO: more efficient impl
@@ -290,24 +303,25 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
 Status FunctionMatchAll::execute_match(FunctionContext* context, const std::string& column_name,
                                        const std::string& match_query_str, size_t input_rows_count,
                                        const ColumnString* string_col,
-                                       InvertedIndexCtx* inverted_index_ctx,
+                                       const InvertedIndexAnalyzerCtx* analyzer_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    auto query_tokens = analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
                 match_query_str,
-                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
+                analyzer_ctx ? inverted_index_parser_type_to_string(analyzer_ctx->parser_type)
+                             : "unknown");
         return Status::OK();
     }
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+        auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
         // TODO: more efficient impl
@@ -335,24 +349,25 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
 Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::string& column_name,
                                           const std::string& match_query_str,
                                           size_t input_rows_count, const ColumnString* string_col,
-                                          InvertedIndexCtx* inverted_index_ctx,
+                                          const InvertedIndexAnalyzerCtx* analyzer_ctx,
                                           const ColumnArray::Offsets64* array_offsets,
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    auto query_tokens = analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
                 match_query_str,
-                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
+                analyzer_ctx ? inverted_index_parser_type_to_string(analyzer_ctx->parser_type)
+                             : "unknown");
         return Status::OK();
     }
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+        auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
         // TODO: more efficient impl
@@ -396,23 +411,24 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
 Status FunctionMatchPhrasePrefix::execute_match(
         FunctionContext* context, const std::string& column_name,
         const std::string& match_query_str, size_t input_rows_count, const ColumnString* string_col,
-        InvertedIndexCtx* inverted_index_ctx, const ColumnArray::Offsets64* array_offsets,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx, const ColumnArray::Offsets64* array_offsets,
         ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    auto query_tokens = analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
                 match_query_str,
-                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
+                analyzer_ctx ? inverted_index_parser_type_to_string(analyzer_ctx->parser_type)
+                             : "unknown");
         return Status::OK();
     }
 
     int32_t current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+        auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
         int64_t dis_count = data_tokens.size() - query_tokens.size();
@@ -453,13 +469,14 @@ Status FunctionMatchPhrasePrefix::execute_match(
 Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::string& column_name,
                                           const std::string& match_query_str,
                                           size_t input_rows_count, const ColumnString* string_col,
-                                          InvertedIndexCtx* inverted_index_ctx,
+                                          const InvertedIndexAnalyzerCtx* analyzer_ctx,
                                           const ColumnArray::Offsets64* array_offsets,
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
     VLOG_DEBUG << "begin to run FunctionMatchRegexp::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
+               << (analyzer_ctx ? inverted_index_parser_type_to_string(analyzer_ctx->parser_type)
+                                : "unknown");
 
     const std::string& pattern = match_query_str;
 
@@ -492,7 +509,7 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
     try {
         auto current_src_array_offset = 0;
         for (int i = 0; i < input_rows_count; i++) {
-            auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+            auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
                                                   array_offsets, current_src_array_offset);
 
             for (auto& input : data_tokens) {
@@ -522,23 +539,24 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
 Status FunctionMatchPhraseEdge::execute_match(
         FunctionContext* context, const std::string& column_name,
         const std::string& match_query_str, size_t input_rows_count, const ColumnString* string_col,
-        InvertedIndexCtx* inverted_index_ctx, const ColumnArray::Offsets64* array_offsets,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx, const ColumnArray::Offsets64* array_offsets,
         ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    auto query_tokens = analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
                 match_query_str,
-                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
+                analyzer_ctx ? inverted_index_parser_type_to_string(analyzer_ctx->parser_type)
+                             : "unknown");
         return Status::OK();
     }
 
     int32_t current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+        auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
         int64_t dis_count = data_tokens.size() - query_tokens.size();

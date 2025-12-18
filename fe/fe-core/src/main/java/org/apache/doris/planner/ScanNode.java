@@ -35,6 +35,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
@@ -62,7 +63,7 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeSet;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -258,10 +259,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         List<Range<ColumnBound>> result = Lists.newArrayList();
         if (expr instanceof BinaryPredicate) {
             BinaryPredicate binPred = (BinaryPredicate) expr;
-            ArrayList<Expr> partitionExprs = (partitionsInfo != null && partitionsInfo.enableAutomaticPartition())
-                    ? partitionsInfo.getPartitionExprs()
-                    : null;
-            Expr slotBinding = binPred.getSlotBinding(desc.getId(), partitionExprs);
+            Expr slotBinding = binPred.getSlotBinding(desc.getId());
             if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                 return ColumnRanges.createFailure();
             }
@@ -351,10 +349,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                     continue;
                 }
 
-                ArrayList<Expr> partitionExprs = (partitionsInfo != null && partitionsInfo.enableAutomaticPartition())
-                        ? partitionsInfo.getPartitionExprs()
-                        : null;
-                Expr slotBinding = binPredicate.getSlotBinding(desc.getId(), partitionExprs);
+                Expr slotBinding = binPredicate.getSlotBinding(desc.getId());
 
                 if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                     continue;
@@ -711,5 +706,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public void setDesc(TupleDescriptor desc) {
         this.desc = desc;
+    }
+
+    public long getCatalogId() {
+        return Env.getCurrentInternalCatalog().getId();
     }
 }
