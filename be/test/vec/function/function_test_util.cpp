@@ -366,7 +366,7 @@ bool insert_map_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyTy
         insert_cell(value_column, value_type, value, datetime_is_string_format);
     }
     Array key_array, value_array;
-    for (int i = 0; i < origin_input_array.size() / 2; i++) {
+    for (size_t i = 0; i < origin_input_array.size() / 2; i++) {
         key_array.push_back((*key_column)[i]);
         value_array.push_back((*value_column)[i]);
     }
