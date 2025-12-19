@@ -116,6 +116,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
+    private int minMaxOptimizationSplitsCount = 0;
 
     // for test
     @VisibleForTesting
@@ -239,6 +240,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         rangeDesc.setMinMaxValues(icebergSplit.getMinMaxValues());
         rangeDesc.setCouldUseIcebergMinMaxOptimization(
                 !icebergSplit.getMinMaxValues().isEmpty());
+        minMaxOptimizationSplitsCount = minMaxOptimizationSplitsCount
+                + (icebergSplit.getMinMaxValues().isEmpty() ? 0 : 1);
     }
 
     @Override
@@ -628,10 +631,14 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        if (pushdownIcebergPredicates.isEmpty()) {
-            return super.getNodeExplainString(prefix, detailLevel);
-        }
         StringBuilder sb = new StringBuilder();
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.MINMAX) {
+            sb.append(prefix).append(String.format("MINMAX: opt/total_splits(%d/%d)",
+                    minMaxOptimizationSplitsCount, selectedSplitNum)).append("\n");
+        }
+        if (pushdownIcebergPredicates.isEmpty()) {
+            return super.getNodeExplainString(prefix, detailLevel) + sb.toString();
+        }
         for (String predicate : pushdownIcebergPredicates) {
             sb.append(prefix).append(prefix).append(predicate).append("\n");
         }
