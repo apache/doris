@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.datasource.property.storage.LocalProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -161,10 +162,9 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
                 Map.Entry::getValue,
                 (value1, value2) -> value2
         ));
-        String rawPath = normalizedParams.get(ExternalFileTableValuedFunction.URI_KEY);
-        if (Strings.isNullOrEmpty(rawPath)) {
-            rawPath = normalizedParams.get(LocalProperties.PROP_FILE_PATH);
-        }
+        String rawUri = normalizedParams.get(ExternalFileTableValuedFunction.URI_KEY);
+        boolean uriProvided = !Strings.isNullOrEmpty(rawUri);
+        String rawPath = uriProvided ? rawUri : normalizedParams.get(LocalProperties.PROP_FILE_PATH);
         if (Strings.isNullOrEmpty(rawPath)) {
             throw new AnalysisException(
                     "Property 'uri' or 'file_path' is required for parquet_meta");
@@ -197,21 +197,27 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             }
         }
 
-        String firstPath = parsedPath;
         String scheme = null;
         try {
-            scheme = new URI(firstPath).getScheme();
+            scheme = new URI(parsedPath).getScheme();
         } catch (URISyntaxException e) {
             scheme = null;
         }
+        if (uriProvided) {
+            if (Strings.isNullOrEmpty(scheme)) {
+                throw new AnalysisException("Property 'uri' must contain a scheme for parquet_meta");
+            }
+        } else if (!Strings.isNullOrEmpty(scheme)) {
+            throw new AnalysisException("Property 'file_path' must not contain a scheme for parquet_meta");
+        }
         Map<String, String> storageParams = new HashMap<>(normalizedParams);
         // StorageProperties detects provider by "uri".
-        if (!Strings.isNullOrEmpty(scheme)) {
-            storageParams.put("uri", firstPath);
+        if (uriProvided) {
+            storageParams.put(ExternalFileTableValuedFunction.URI_KEY, parsedPath);
         } else {
             // Local file path, hint local fs support.
             storageParams.put(StorageProperties.FS_LOCAL_SUPPORT, "true");
-            storageParams.put(LocalProperties.PROP_FILE_PATH, firstPath);
+            storageParams.put(LocalProperties.PROP_FILE_PATH, parsedPath);
         }
         StorageProperties storageProperties;
         try {
@@ -222,22 +228,18 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         }
         this.fileType = mapToFileType(storageProperties.getType());
         Map<String, String> backendProps = storageProperties.getBackendConfigProperties();
-        List<String> normalizedPaths;
+        String normalizedPath;
         try {
-            String normalizedPath = storageProperties.validateAndNormalizeUri(parsedPath);
-            normalizedPaths = ImmutableList.of(normalizedPath);
+            normalizedPath = storageProperties.validateAndNormalizeUri(parsedPath);
         } catch (UserException e) {
             throw new AnalysisException(
                     "Failed to normalize parquet_meta paths: " + e.getMessage(), e);
         }
-        if (this.fileType == TFileType.FILE_HTTP && !backendProps.containsKey("uri")) {
-            backendProps = new HashMap<>(backendProps);
-            backendProps.put("uri", normalizedPaths.get(0));
-        }
         this.properties = backendProps;
 
         // Expand any glob patterns (e.g. *.parquet) to concrete file paths.
-        normalizedPaths = expandGlobPaths(normalizedPaths, storageProperties, storageParams, this.fileType);
+        List<String> normalizedPaths =
+                expandGlobPath(normalizedPath, storageProperties, storageParams, this.fileType);
 
         this.paths = ImmutableList.copyOf(normalizedPaths);
         this.bloomColumn = tmpBloomColumn;
@@ -245,25 +247,22 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
     }
 
     /**
-     * Expand wildcard paths to matching files.
+     * Expand a wildcard path to matching files.
      */
-    private static List<String> expandGlobPaths(List<String> inputPaths,
-                                                StorageProperties storageProperties,
-                                                Map<String, String> storageParams,
-                                                TFileType fileType) throws AnalysisException {
-        if (inputPaths == null || inputPaths.isEmpty()) {
+    private static List<String> expandGlobPath(String inputPath,
+                                               StorageProperties storageProperties,
+                                               Map<String, String> storageParams,
+                                               TFileType fileType) throws AnalysisException {
+        if (Strings.isNullOrEmpty(inputPath)) {
             return Collections.emptyList();
         }
-        List<String> expanded = new ArrayList<>();
-        for (String path : inputPaths) {
-            if (!containsWildcards(path)) {
-                expanded.add(path);
-                continue;
-            }
-            expanded.addAll(expandSingleGlob(path, storageProperties, storageParams, fileType));
+        if (!containsWildcards(inputPath)) {
+            return ImmutableList.of(inputPath);
         }
+        List<String> expanded =
+                expandSingleGlob(inputPath, storageProperties, storageParams, fileType);
         if (expanded.isEmpty()) {
-            throw new AnalysisException("No files matched parquet_meta path patterns: " + inputPaths);
+            throw new AnalysisException("No files matched parquet_meta path patterns: " + inputPath);
         }
         return expanded;
     }
@@ -283,6 +282,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             Map<String, String> localProps = new HashMap<>(storageParams);
             // Allow Local TVF to pick any alive backend when backend_id is not provided.
             localProps.putIfAbsent(LocalTableValuedFunction.PROP_SHARED_STORAGE, "true");
+            localProps.putIfAbsent(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
             // Local TVF expects the uri/path in properties; storageParams already contains it.
             LocalTableValuedFunction localTvf = new LocalTableValuedFunction(localProps);
             return localTvf.getFileStatuses().stream()

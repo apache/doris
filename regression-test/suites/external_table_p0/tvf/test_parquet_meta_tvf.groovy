@@ -102,6 +102,18 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
         );
     """
 
+    // file metadata (S3 glob)
+    order_qt_parquet_file_metadata_s3_glob """
+        select file_name from parquet_meta(
+            "uri" = "${basePath}/*meta.parquet",
+            "s3.access_key" = "${ak}",
+            "s3.secret_key" = "${sk}",
+            "endpoint" = "${endpoint}",
+            "region" = "${region}",
+            "mode" = "parquet_file_metadata"
+        );
+    """
+
     // bloom probe
     order_qt_parquet_bloom_probe """
         select * from parquet_meta(
@@ -228,6 +240,14 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     order_qt_parquet_file_metadata_local """
         select * from parquet_meta(
             "file_path" = "${outFilePath}/meta.parquet",
+            "mode" = "parquet_file_metadata"
+        );
+    """
+
+    // file metadata (local glob)
+    order_qt_parquet_file_metadata_local_glob """
+        select file_name from parquet_meta(
+            "file_path" = "${outFilePath}/*meta.parquet",
             "mode" = "parquet_file_metadata"
         );
     """
