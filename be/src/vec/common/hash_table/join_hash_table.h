@@ -336,14 +336,25 @@ private:
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
+        constexpr bool is_null_aware_join = JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                                            JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN;
+
         auto do_the_probe = [&]() {
             while (build_idx && matched_cnt < batch_size) {
                 if constexpr (need_judge_null) {
                     if (build_idx == bucket_size) {
-                        build_idxs[matched_cnt] = build_idx;
-                        probe_idxs[matched_cnt] = probe_idx;
+                        // Only null aware join need to process null value in probe side.
+                        if constexpr (is_null_aware_join) {
+                            // Here set the `build_idx` to `bucket_size` is OK, because in the following
+                            // code we will not access build_keys[build_idx](Which means the build side rows are no need to output).
+                            // If this is a null aware join, the other join conjuncts should be empty,
+                            // because null aware join with other join conjuncts will be processed in
+                            // another function(`find_null_aware_with_other_conjuncts`).
+                            build_idxs[matched_cnt] = build_idx;
+                            probe_idxs[matched_cnt] = probe_idx;
+                            matched_cnt++;
+                        }
                         build_idx = 0;
-                        matched_cnt++;
                         break;
                     }
                 }
