@@ -97,7 +97,7 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     return Status::OK();
 }
 
-std::string FileScanLocalState::name_suffix() const override {
+std::string FileScanLocalState::name_suffix() const {
     return fmt::format("(nereids_id={}. table_name={})" + operator_name_suffix,
                        std::to_string(_parent->nereids_id()),
                        _parent->cast<FileScanOperatorX>()._table_name,
