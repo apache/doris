@@ -127,7 +127,7 @@ void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerC
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                                      std::shared_ptr<ScanTask> scan_task) {
     auto task_lock = ctx->task_exec_ctx();
-    if (task_lock == nullptr || ctx->done()) {
+    if (task_lock == nullptr) {
         return;
     }
     SCOPED_ATTACH_TASK(ctx->state());
