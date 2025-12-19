@@ -290,6 +290,10 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3ExternalId)) {
             backendProperties.put("AWS_EXTERNAL_ID", s3ExternalId);
         }
+        // Pass credentials provider type to BE
+        if (awsCredentialsProviderMode != null) {
+            backendProperties.put("AWS_CREDENTIALS_PROVIDER_TYPE", awsCredentialsProviderMode.getMode());
+        }
         return backendProperties;
     }
 
@@ -360,6 +364,9 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         super.initializeHadoopStorageConfig();
+        if (StringUtils.isNotBlank(accessKey)) {
+            return;
+        }
         //Set assumed_roles
         //@See https://hadoop.apache.org/docs/r3.4.1/hadoop-aws/tools/hadoop-aws/assumed_roles.html
         if (StringUtils.isNotBlank(s3IAMRole)) {
@@ -384,9 +391,9 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         }
         if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
             hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
-                    AwsCredentialsProviderFactory.createV2(
+                    AwsCredentialsProviderFactory.getV2ClassName(
                             awsCredentialsProviderMode,
-                            true).getClass().getName());
+                            true));
         }
     }
 
