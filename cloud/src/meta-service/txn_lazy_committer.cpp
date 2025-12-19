@@ -22,6 +22,7 @@
 
 #include <chrono>
 
+#include "common/bvars.h"
 #include "common/defer.h"
 #include "common/logging.h"
 #include "common/stats.h"
@@ -522,12 +523,14 @@ TxnLazyCommitTask::TxnLazyCommitTask(const std::string& instance_id, int64_t txn
 }
 
 void TxnLazyCommitTask::commit() {
+    StopWatch sw;
     DORIS_CLOUD_DEFER {
         {
             std::unique_lock<std::mutex> lock(mutex_);
             this->finished_ = true;
         }
         this->cond_.notify_all();
+        g_bvar_txn_lazy_committer_committing_duration << sw.elapsed_us();
     };
 
     int64_t db_id;
@@ -812,13 +815,11 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::wait() {
         LOG(INFO) << "txn_id=" << txn_id_ << " wait_for 5s timeout round=" << ++round;
     }
 
-    txn_lazy_committer_->remove(txn_id_);
-
     sw.pause();
+    g_bvar_txn_lazy_committer_waiting_duration << sw.elapsed_us();
     if (sw.elapsed_us() > 1000000) {
         LOG(INFO) << "txn_lazy_commit task wait more than 1000ms, cost=" << sw.elapsed_us() / 1000
-                  << " ms"
-                  << " txn_id=" << txn_id_;
+                  << " ms txn_id=" << txn_id_;
     }
     return std::make_pair(this->code_, this->msg_);
 }
@@ -854,9 +855,14 @@ std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& i
 
         task = std::make_shared<TxnLazyCommitTask>(instance_id, txn_id, txn_kv_, this);
         running_tasks_.emplace(txn_id, task);
+        g_bvar_txn_lazy_committer_submitted << 1;
     }
 
-    worker_pool_->submit([task]() { task->commit(); });
+    worker_pool_->submit([task]() {
+        task->commit();
+        task->txn_lazy_committer_->remove(task->txn_id_);
+        g_bvar_txn_lazy_committer_finished << 1;
+    });
     DCHECK(task != nullptr);
     return task;
 }

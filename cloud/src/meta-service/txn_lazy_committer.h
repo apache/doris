@@ -19,8 +19,6 @@
 
 #include <gen_cpp/cloud.pb.h>
 
-#include <atomic>
-
 #include "common/simple_thread_pool.h"
 #include "meta-store/txn_kv.h"
 #include "resource-manager/resource_manager.h"
