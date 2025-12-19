@@ -119,7 +119,7 @@ public class PaimonMetadataOpsTest {
             Assert.assertEquals(1, columnNames.size());
         }
         Assert.assertEquals(0, table.partitionKeys().size());
-        Assert.assertEquals("id", table.options().get("primary-key"));
+        Assert.assertTrue(table.primaryKeys().contains("id"));
         Assert.assertEquals(1, table.primaryKeys().size());
     }
 
@@ -162,7 +162,7 @@ public class PaimonMetadataOpsTest {
         }
 
         Assert.assertEquals(0, table.partitionKeys().size());
-        Assert.assertEquals("c0", table.options().get("primary-key"));
+        Assert.assertTrue(table.primaryKeys().contains("c0"));
         Assert.assertEquals(1, table.primaryKeys().size());
     }
 
@@ -187,7 +187,7 @@ public class PaimonMetadataOpsTest {
         Catalog catalog = ops.getCatalog();
         Table table = catalog.getTable(identifier);
         Assert.assertEquals(1, table.partitionKeys().size());
-        Assert.assertEquals("c0", table.options().get("primary-key"));
+        Assert.assertTrue(table.primaryKeys().contains("c0"));
         Assert.assertEquals(1, table.primaryKeys().size());
     }
 
