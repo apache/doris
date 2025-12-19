@@ -1054,9 +1054,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
     public int autoProfileThresholdMs = -1;
 
-    @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external", fuzzy = true)
-    public boolean runtimeFilterPruneForExternal = true;
-
     @VariableMgr.VarAttr(name = "runtime_filter_jump_threshold")
     public int runtimeFilterJumpThreshold = 2;
 
@@ -3367,7 +3364,6 @@ public class SessionVariable implements Serializable, Writable {
 
         // common
         this.enableCountPushDownForExternalTable = random.nextBoolean();
-        this.runtimeFilterPruneForExternal = random.nextBoolean();
     }
 
     public String printFuzzyVariables() {
