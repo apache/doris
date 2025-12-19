@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Strings;
 
@@ -65,7 +66,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     protected boolean emptyFieldAsNull;
     protected int sendBatchParallelism;
     protected boolean loadToSingleTablet;
-    protected boolean isPartialUpdate;
+    protected TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
     protected boolean memtableOnSinkNode;
     protected int timeoutSec;
 
@@ -95,7 +96,9 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         this.escape = escape;
         this.sendBatchParallelism = sendBatchParallelism;
         this.loadToSingleTablet = loadToSingleTablet;
-        this.isPartialUpdate = isPartialUpdate;
+        if (isPartialUpdate) {
+            this.uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+        }
         this.memtableOnSinkNode = memtableOnSinkNode;
         this.timeoutSec = calTimeoutSec();
     }
@@ -311,7 +314,17 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
 
     @Override
     public boolean isFixedPartialUpdate() {
-        return isPartialUpdate;
+        return uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+    }
+
+    @Override
+    public TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
+        return uniquekeyUpdateMode;
+    }
+
+    @Override
+    public boolean isFlexiblePartialUpdate() {
+        return uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
     }
 
     @Override
