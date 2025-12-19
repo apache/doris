@@ -334,8 +334,8 @@ public class SystemInfoServiceTest {
         be1.setTagMap(initialTags);
 
         ModifyBackendOp op1 = new ModifyBackendOp(
-            Lists.newArrayList("192.168.1.1:9050"),
-            Maps.newHashMap()
+                Lists.newArrayList("192.168.1.1:9050"),
+                Maps.newHashMap()
         );
 
         Map<String, String> originalMap = new HashMap<>(be1.getTagMap());
@@ -355,8 +355,8 @@ public class SystemInfoServiceTest {
         differentTagMap.put("tag.location", "zone2");
 
         ModifyBackendOp op2 = new ModifyBackendOp(
-            Lists.newArrayList("192.168.1.2:9050"),
-            differentTagMap
+                Lists.newArrayList("192.168.1.2:9050"),
+                differentTagMap
         );
         systemInfoService.modifyBackends(op2);
         Assert.assertEquals("zone2", be2.getTagMap().get("tag.location"));
