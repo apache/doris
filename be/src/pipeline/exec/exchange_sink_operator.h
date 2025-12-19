@@ -218,9 +218,9 @@ public:
         }
     }
 
-    Status close(RuntimeState* state) override {
+    Status close(RuntimeState* state, Status exec_status) override {
         _sink_buffer.reset();
-        return DataSinkOperatorX<ExchangeSinkLocalState>::close(state);
+        return DataSinkOperatorX<ExchangeSinkLocalState>::close(state, exec_status);
     }
 
     // For a normal shuffle scenario, if the concurrency is n,
