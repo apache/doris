@@ -179,7 +179,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/datapage_v1-snappy-compressed-checksum.parquet"
             order_qt_parquet_file_metadata_hdfs """
-                select * from parquet_meta(
+                select count(*) from parquet_meta(
                     "uri" = "${uri}",
                     "hadoop.username" = "${hdfsUserName}",
                     "mode" = "parquet_file_metadata"
@@ -188,7 +188,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/column_chunk_key_value_metadata.parquet"
             order_qt_parquet_kv_metadata_hdfs """
-                select * from parquet_meta(
+                select count(*) from parquet_meta(
                     "uri" = "${uri}",
                     "hadoop.username" = "${hdfsUserName}",
                     "mode" = "parquet_kv_metadata"
@@ -246,7 +246,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
 
     // file metadata (local glob)
     order_qt_parquet_file_metadata_local_glob """
-        select file_name from parquet_meta(
+        select count(*) from parquet_meta(
             "file_path" = "${outFilePath}/*meta.parquet",
             "mode" = "parquet_file_metadata"
         );
