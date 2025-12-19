@@ -24,12 +24,12 @@ SyntaxError:
 
 -- !bucket_shuffle_intersect_shape --
 PhysicalResultSink
---PhysicalIntersect[bucketShuffle] RFV2: RF0[id->id] RF1[id->id]
+--PhysicalIntersect[bucketShuffle]
 ----PhysicalProject
 ------PhysicalOlapScan[bucket_shuffle_set_operation1]
 ----PhysicalDistribute[DistributionSpecHash]
 ------PhysicalProject
---------PhysicalOlapScan[bucket_shuffle_set_operation2] RFV2: RF0 RF1
+--------PhysicalOlapScan[bucket_shuffle_set_operation2]
 
 -- !bucket_shuffle_intersect_result --
 1
@@ -38,10 +38,10 @@ PhysicalResultSink
 
 -- !bucket_shuffle_intersect_with_all_column_shape --
 PhysicalResultSink
---PhysicalIntersect[bucketShuffle] RFV2: RF0[id->id] RF1[id->id]
+--PhysicalIntersect[bucketShuffle]
 ----PhysicalOlapScan[bucket_shuffle_set_operation1]
 ----PhysicalDistribute[DistributionSpecHash]
-------PhysicalOlapScan[bucket_shuffle_set_operation2] RFV2: RF0 RF1
+------PhysicalOlapScan[bucket_shuffle_set_operation2]
 
 -- !bucket_shuffle_intersect_with_all_column_result --
 1	1
@@ -50,13 +50,13 @@ PhysicalResultSink
 
 -- !no_bucket_shuffle_intersect_shape --
 PhysicalResultSink
---PhysicalIntersect RFV2: RF0[value->value] RF1[value->value]
+--PhysicalIntersect
 ----PhysicalDistribute[DistributionSpecHash]
 ------PhysicalProject
 --------PhysicalOlapScan[bucket_shuffle_set_operation1]
 ----PhysicalDistribute[DistributionSpecHash]
 ------PhysicalProject
---------PhysicalOlapScan[bucket_shuffle_set_operation2] RFV2: RF0 RF1
+--------PhysicalOlapScan[bucket_shuffle_set_operation2]
 
 -- !no_bucket_shuffle_intersect_result --
 1
@@ -65,12 +65,12 @@ PhysicalResultSink
 
 -- !bucket_shuffle_to_left_shape --
 PhysicalResultSink
---PhysicalIntersect[bucketShuffle] RFV2: RF0[id->id] RF1[id->id]
+--PhysicalIntersect[bucketShuffle]
 ----PhysicalProject
 ------PhysicalOlapScan[bucket_shuffle_set_operation3]
 ----PhysicalDistribute[DistributionSpecHash]
 ------PhysicalProject
---------PhysicalOlapScan[bucket_shuffle_set_operation1] RFV2: RF0 RF1
+--------PhysicalOlapScan[bucket_shuffle_set_operation1]
 
 -- !bucket_shuffle_to_left_result --
 1
@@ -79,12 +79,12 @@ PhysicalResultSink
 
 -- !bucket_shuffle_to_right_shape --
 PhysicalResultSink
---PhysicalIntersect[bucketShuffle] RFV2: RF0[id->id] RF1[id->id]
+--PhysicalIntersect[bucketShuffle]
 ----PhysicalDistribute[DistributionSpecHash]
 ------PhysicalProject
 --------PhysicalOlapScan[bucket_shuffle_set_operation1]
 ----PhysicalProject
-------PhysicalOlapScan[bucket_shuffle_set_operation3] RFV2: RF0 RF1
+------PhysicalOlapScan[bucket_shuffle_set_operation3]
 
 -- !bucket_shuffle_to_right_result --
 1
@@ -106,13 +106,13 @@ PhysicalResultSink
 
 -- !bucket_shuffle_except_2_shape --
 PhysicalResultSink
---PhysicalExcept[bucketShuffle] RFV2: RF0[id->id] RF1[id->id]
+--PhysicalExcept[bucketShuffle]
 ----PhysicalProject
 ------PhysicalOlapScan[bucket_shuffle_set_operation1]
 ----PhysicalDistribute[DistributionSpecHash]
 ------PhysicalProject
 --------filter((bucket_shuffle_set_operation2.id = 1))
-----------PhysicalOlapScan[bucket_shuffle_set_operation2] RFV2: RF0 RF1
+----------PhysicalOlapScan[bucket_shuffle_set_operation2]
 
 -- !bucket_shuffle_except_2_result --
 2

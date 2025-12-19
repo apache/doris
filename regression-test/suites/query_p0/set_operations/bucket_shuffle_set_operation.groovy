@@ -28,6 +28,8 @@ suite("bucket_shuffle_set_operation") {
         drop table if exists bucket_shuffle_set_operation3;
         create table bucket_shuffle_set_operation3(id int, value int) distributed by hash(id) buckets 11 properties('replication_num'='1');
         insert into bucket_shuffle_set_operation3 values(1, 1), (2, 2), (3, 3);
+        
+        set runtime_filter_mode=off;
         """
 
     def checkShapeAndResult = { String tag, String sqlStr ->
