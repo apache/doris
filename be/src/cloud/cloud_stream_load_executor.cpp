@@ -104,7 +104,7 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
 
 Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.block", DBUG_BLOCK);
-    DBUG_EXECUTE_IF("CloudTabletMgr::get_tablet.crash", {
+    DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.crash", {
         LOG(INFO) << "debug point " << DP_NAME << " trigger crash";
         volatile int* p = nullptr;
         *p = 1;
