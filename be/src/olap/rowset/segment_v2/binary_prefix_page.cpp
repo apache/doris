@@ -79,6 +79,7 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
             _last_entry.append(entry, entry_len);
         });
 
+        _raw_data_size += entry_len;
         ++_count;
     }
     *add_count = i;
