@@ -239,38 +239,47 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::update_crc32cs_with_value(uint32_t* __restrict hashes, uint32_t rows,
-                                                uint32_t offset,
-                                                const uint8_t* __restrict null_data) const {
-    auto s = rows;
-    DCHECK(s == size());
-
+uint32_t ColumnVector<T>::_crc32c_hash(uint32_t hash, size_t idx) const {
     if constexpr (is_date_or_datetime(T)) {
         char buf[64];
-        auto date_convert_do_crc = [&](size_t i) {
-            const auto& date_val = (const VecDateTimeValue&)data[i];
-            auto len = date_val.to_buffer(buf);
-            hashes[i] = crc32c_extend(hashes[i], (const uint8_t*)buf, len);
-        };
+        const auto& date_val = (const VecDateTimeValue&)data[idx];
+        auto len = date_val.to_buffer(buf);
+        return crc32c_extend(hash, (const uint8_t*)buf, len);
+    } else {
+        return HashUtil::crc32c_fixed(data[idx], hash);
+    }
+}
 
-        for (size_t i = 0; i < s; i++) {
-            date_convert_do_crc(i);
+template <PrimitiveType T>
+void ColumnVector<T>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                          const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hashes[i] = _crc32c_hash(hashes[i], i);
+            }
         }
     } else {
-        for (size_t i = 0; i < s; i++) {
-            if constexpr (sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) == 1) {
-                hashes[i] = _mm_crc32_u8(hashes[i], *reinterpret_cast<const uint8_t*>(&data[i]));
-            } else if constexpr (sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) == 2) {
-                hashes[i] = _mm_crc32_u16(hashes[i], *reinterpret_cast<const uint16_t*>(&data[i]));
-            } else if constexpr (sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) == 4) {
-                hashes[i] = _mm_crc32_u32(hashes[i], *reinterpret_cast<const uint32_t*>(&data[i]));
-            } else if constexpr (sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) == 8) {
-                hashes[i] = (uint32_t)_mm_crc32_u64(hashes[i],
-                                                    *reinterpret_cast<const uint64_t*>(&data[i]));
-            } else {
-                hashes[i] = crc32c_extend(hashes[i], (const uint8_t*)&data[i],
-                                          sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType));
+        for (size_t i = 0; i < s; ++i) {
+            hashes[i] = _crc32c_hash(hashes[i], i);
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                           const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hash = _crc32c_hash(hash, i);
             }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hash = _crc32c_hash(hash, i);
         }
     }
 }

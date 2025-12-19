@@ -210,15 +210,36 @@ void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primi
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::update_crc32cs_with_value(uint32_t* __restrict hashes, uint32_t rows,
-                                                 uint32_t offset,
-                                                 const uint8_t* __restrict null_data) const {
-    auto s = rows;
-    DCHECK(s == size());
+void ColumnDecimal<T>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                           const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hashes[i] = HashUtil::crc32c_fixed(data[i], hashes[i]);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hashes[i] = HashUtil::crc32c_fixed(data[i], hashes[i]);
+        }
+    }
+}
 
-    for (size_t i = 0; i < s; i++) {
-        hashes[i] = crc32c_extend(hashes[i], (const uint8_t*)&data[i],
-                                  sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType));
+template <PrimitiveType T>
+void ColumnDecimal<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                            const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hash = HashUtil::crc32c_fixed(data[i], hash);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hash = HashUtil::crc32c_fixed(data[i], hash);
+        }
     }
 }
 

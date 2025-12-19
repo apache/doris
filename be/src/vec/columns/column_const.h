@@ -206,20 +206,6 @@ public:
         }
     }
 
-    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
-                                  const uint8_t* __restrict null_data) const override {
-        data->update_xxHash_with_value(0, 1, hash, null_data);
-    }
-
-    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
-                               const uint8_t* __restrict null_data) const override {
-        get_data_column_ptr()->update_crc_with_value(start, end, hash, nullptr);
-    }
-
-    void update_hash_with_value(size_t, SipHash& hash) const override {
-        data->update_hash_with_value(0, hash);
-    }
-
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
 

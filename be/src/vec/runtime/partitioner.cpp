@@ -76,7 +76,7 @@ Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
 
 void Crc32CHashPartitioner::_do_hash(const ColumnPtr& column, uint32_t* __restrict result,
                                      int idx) const {
-    column->update_crc32cs_with_value(result, cast_set<uint32_t>(column->size()), 0);
+    column->update_crc32c_batch(result, nullptr);
 }
 
 Status Crc32CHashPartitioner::clone(RuntimeState* state,
