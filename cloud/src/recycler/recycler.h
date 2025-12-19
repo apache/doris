@@ -360,6 +360,10 @@ public:
     // returns 0 for success otherwise error
     int recycle_cluster_snapshots();
 
+    // scan and recycle ref rowsets for deleted instance
+    // returns 0 for success otherwise error
+    int recycle_ref_rowsets(bool* has_unrecycled_rowsets);
+
     bool check_recycle_tasks();
 
     int scan_and_statistics_indexes();
@@ -434,7 +438,6 @@ private:
 
     // return 0 for success otherwise error
     int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
-    friend class RecyclerTest_delete_rowset_data_packed_file_respects_recycled_tablet_Test;
 
     int delete_packed_file_and_kv(const std::string& packed_file_path,
                                   const std::string& packed_key,
