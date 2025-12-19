@@ -1222,7 +1222,8 @@ whereClause
     ;
 
 fromClause
-    : FROM relations
+    : FROM DUAL          #fromDual
+    | FROM relations     #fromRelations
     ;
 
 // For PL-SQL
