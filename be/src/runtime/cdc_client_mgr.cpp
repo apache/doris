@@ -214,8 +214,12 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     act.sa_handler = handle_sigchld;
     sigaction(SIGCHLD, &act, NULL);
     LOG(INFO) << "Start to fork cdc client process with " << path;
-
-    pid_t pid = ::fork();
+#ifdef BE_TEST
+    _child_pid.store(99999);
+    st = Status::OK();
+    return st;
+#else
+    pid_t pid = fork();
     if (pid < 0) {
         // Fork failed
         st = Status::InternalError("Fork cdc client failed.");
@@ -257,6 +261,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
                       << ", status=" << status.to_string() << ", response=" << health_response;
         }
     }
+#endif //BE_TEST
     return st;
 }
 
