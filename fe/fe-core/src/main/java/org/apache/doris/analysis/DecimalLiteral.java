@@ -48,14 +48,12 @@ public class DecimalLiteral extends NumericLiteralExpr {
     public DecimalLiteral(BigDecimal value) {
         init(value, Config.enable_decimal_conversion);
         this.nullable = false;
-        analysisDone();
     }
 
     public DecimalLiteral(BigDecimal value, Type type) {
         this.value = value;
         this.type = type;
         this.nullable = false;
-        analysisDone();
     }
 
     public DecimalLiteral(String value) throws AnalysisException {
@@ -67,7 +65,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
         }
         init(v);
         this.nullable = false;
-        analysisDone();
     }
 
     protected DecimalLiteral(DecimalLiteral other) {

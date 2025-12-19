@@ -58,7 +58,7 @@ public:
     std::unique_ptr<lucene::index::IndexWriter> create_index_writer();
     Status create_field(lucene::document::Field** field);
     Result<std::shared_ptr<lucene::analysis::Analyzer>> create_analyzer(
-            std::shared_ptr<InvertedIndexCtx>& inverted_index_ctx);
+            const InvertedIndexAnalyzerConfig& analyzer_config);
     Status init_fulltext_index();
     Status add_document();
     Status add_null_document();
@@ -97,7 +97,7 @@ private:
     std::unique_ptr<lucene::search::Similarity> _similarity = nullptr;
     ReaderPtr _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
-    InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
+    InvertedIndexAnalyzerConfig _analyzer_config;
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
     std::wstring _field_name;

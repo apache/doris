@@ -330,7 +330,7 @@ Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
                     vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
         } else {
             auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-            auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc, false));
+            auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc));
             RETURN_IF_ERROR(
                     vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, *output_row_desc));
         }

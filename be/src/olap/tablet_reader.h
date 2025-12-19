@@ -162,7 +162,6 @@ public:
         std::vector<ColumnId>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
-        vectorized::VExpr* remaining_vconjunct_root = nullptr;
         std::vector<vectorized::VExprSPtr> remaining_conjunct_roots;
         vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
 
@@ -254,8 +253,6 @@ protected:
     Status _init_params(const ReaderParams& read_params);
 
     Status _capture_rs_readers(const ReaderParams& read_params);
-
-    bool _optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
     Status _init_keys_param(const ReaderParams& read_params);
 

@@ -61,8 +61,6 @@ TEST_F(ScanOperatorTest, adaptive_pipeline_task_serial_read_on_limit) {
     TPlanNode tnode;
     tnode.row_tuples.push_back(TTupleId(0));
     tnode.row_tuples.push_back(TTupleId(1));
-    std::vector<bool> null_map {false, false};
-    tnode.nullable_tuples = null_map;
 
     // Scan with conjuncts
     TExpr conjunct;

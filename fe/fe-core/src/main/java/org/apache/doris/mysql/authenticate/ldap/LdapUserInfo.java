@@ -20,6 +20,7 @@ package org.apache.doris.mysql.authenticate.ldap;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.privilege.Role;
 
+import java.util.Collections;
 import java.util.Objects;
 import java.util.Set;
 
@@ -50,7 +51,7 @@ public class LdapUserInfo {
         this.isExists = false;
         this.isSetPasswd = false;
         this.passwd = null;
-        this.roles = null;
+        this.roles = Collections.emptySet();
         this.lastTimeStamp = System.currentTimeMillis();
     }
 

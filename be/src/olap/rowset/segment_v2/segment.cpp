@@ -1019,8 +1019,13 @@ StoragePageCache::CacheKey Segment::get_segment_footer_cache_key() const {
     // The footer is always at the end of the segment file.
     // The size of footer is 12.
     // So we use the size of file minus 12 as the cache key, which is unique for each segment file.
-    return StoragePageCache::CacheKey(_file_reader->path().native(), _file_reader->size(),
-                                      _file_reader->size() - 12);
+    return get_segment_footer_cache_key(_file_reader);
+}
+
+StoragePageCache::CacheKey Segment::get_segment_footer_cache_key(
+        const io::FileReaderSPtr& file_reader) {
+    return {file_reader->path().native(), file_reader->size(),
+            static_cast<int64_t>(file_reader->size() - 12)};
 }
 
 #include "common/compile_check_end.h"

@@ -81,11 +81,9 @@ public class ExchangeNode extends PlanNode {
         if (outputTupleDesc != null) {
             clearTupleIds();
             tupleIds.add(outputTupleDesc.getId());
-            nullableTupleIds.add(outputTupleDesc.getId());
         } else {
             clearTupleIds();
             tupleIds.addAll(getChild(0).getOutputTupleIds());
-            nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
         }
     }
 

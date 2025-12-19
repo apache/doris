@@ -39,6 +39,7 @@ public abstract class FileFormatProperties {
     public static final String FORMAT_AVRO = "avro";
     public static final String FORMAT_WAL = "wal";
     public static final String FORMAT_ARROW = "arrow";
+    public static final String FORMAT_NATIVE = "native";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
 
     protected String formatName;
@@ -101,6 +102,8 @@ public abstract class FileFormatProperties {
                 return new WalFileFormatProperties();
             case FORMAT_ARROW:
                 return new ArrowFileFormatProperties();
+            case FORMAT_NATIVE:
+                return new NativeFileFormatProperties();
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }

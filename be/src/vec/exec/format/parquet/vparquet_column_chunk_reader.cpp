@@ -188,8 +188,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
             // check decompressed buffer size
             _reserve_decompress_buf(uncompressed_size);
             _page_data = Slice(_decompress_buf.get(), uncompressed_size);
-            SCOPED_RAW_TIMER(&_statistics.decompress_time);
-            _statistics.decompress_cnt++;
+            SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
+            _chunk_statistics.decompress_cnt++;
             RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
         } else {
             // Don't need decompress
@@ -204,7 +204,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
 
     // Initialize repetition level and definition level. Skip when level = 0, which means required field.
     if (_max_rep_level > 0) {
-        SCOPED_RAW_TIMER(&_statistics.decode_level_time);
+        SCOPED_RAW_TIMER(&_chunk_statistics.decode_level_time);
         if (header->__isset.data_page_header_v2) {
             RETURN_IF_ERROR(_rep_level_decoder.init_v2(_v2_rep_levels, _max_rep_level,
                                                        _remaining_rep_nums));
@@ -215,7 +215,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
         }
     }
     if (_max_def_level > 0) {
-        SCOPED_RAW_TIMER(&_statistics.decode_level_time);
+        SCOPED_RAW_TIMER(&_chunk_statistics.decode_level_time);
         if (header->__isset.data_page_header_v2) {
             RETURN_IF_ERROR(_def_level_decoder.init_v2(_v2_def_levels, _max_def_level,
                                                        _remaining_def_nums));
@@ -255,7 +255,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
     const tparquet::PageHeader* header = nullptr;
     RETURN_IF_ERROR(_page_reader->get_page_header(header));
     DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header->type);
-    SCOPED_RAW_TIMER(&_statistics.decode_dict_time);
+    SCOPED_RAW_TIMER(&_chunk_statistics.decode_dict_time);
 
     // Using the PLAIN_DICTIONARY enum value is deprecated in the Parquet 2.0 specification.
     // Prefer using RLE_DICTIONARY in a data page and PLAIN in a dictionary page for Parquet 2.0+ files.
@@ -314,7 +314,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_values(size_t num_va
     }
     _remaining_num_values -= num_values;
     if (skip_data) {
-        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+        SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
         return _page_decoder->skip_values(num_values);
     } else {
         return Status::OK();
@@ -328,7 +328,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::decode_values(
     if (select_vector.num_values() == 0) {
         return Status::OK();
     }
-    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+    SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
     if (UNLIKELY((doris_column->is_column_dictionary() || is_dict_filter) && !_has_dict)) {
         return Status::IOError("Not dictionary coded");
     }

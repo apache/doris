@@ -555,7 +555,6 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -2983,20 +2982,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit());
+                String funcOpName = String.format("%sS_ADD", interval.timeUnit());
+                return new UnboundFunction(funcOpName, ImmutableList.of(right, interval.value()));
             }
 
             if (right instanceof Interval) {
-                Operator op;
+                String op;
                 if (type == DorisParser.PLUS) {
-                    op = Operator.ADD;
+                    op = "ADD";
                 } else if (type == DorisParser.SUBTRACT) {
-                    op = Operator.SUBTRACT;
+                    op = "SUB";
                 } else {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit());
+                String funcOpName = String.format("%sS_%s", interval.timeUnit(), op);
+                return new UnboundFunction(funcOpName, ImmutableList.of(left, interval.value()));
             }
 
             return ParserUtils.withOrigin(ctx, () -> {

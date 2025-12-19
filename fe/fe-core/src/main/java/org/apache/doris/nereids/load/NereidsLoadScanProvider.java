@@ -62,11 +62,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * process column mapping expressions, delete conditions and sequence columns
@@ -165,7 +165,7 @@ public class NereidsLoadScanProvider {
         //          (k1, k2, tmpk3 = k1 + k2, k3 = k1 + k2)
         //     so "tmpk3 = k1 + k2" is not needed anymore, we can skip it.
         List<NereidsImportColumnDesc> copiedColumnExprs = new ArrayList<>(columnDescs.size());
-        Set<String> constantMappingColumns = new HashSet<>();
+        Set<String> constantMappingColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         for (NereidsImportColumnDesc importColumnDesc : columnDescs) {
             String mappingColumnName = importColumnDesc.getColumnName();
             if (importColumnDesc.isColumn()) {
@@ -368,7 +368,10 @@ public class NereidsLoadScanProvider {
                 }
             } else {
                 Column slotColumn;
-                if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_ARROW) {
+                TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
+                // Use real column type for arrow/native format, other formats read as varchar first
+                if (fileFormatType == TFileFormatType.FORMAT_ARROW
+                        || fileFormatType == TFileFormatType.FORMAT_NATIVE) {
                     slotColumn = new Column(realColName, colToType.get(realColName), true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS

@@ -187,19 +187,6 @@ Status FileBlock::change_cache_type_lock(FileCacheType new_type,
     return Status::OK();
 }
 
-Status FileBlock::update_expiration_time(uint64_t expiration_time) {
-    std::lock_guard block_lock(_mutex);
-    if (_download_state == State::DOWNLOADED) {
-        auto st = _mgr->_storage->change_key_meta_expiration(_key, expiration_time,
-                                                             _block_range.size());
-        if (!st.ok()) {
-            return st;
-        }
-    }
-    _key.meta.expiration_time = expiration_time;
-    return Status::OK();
-}
-
 FileBlock::State FileBlock::wait() {
     std::unique_lock block_lock(_mutex);
 

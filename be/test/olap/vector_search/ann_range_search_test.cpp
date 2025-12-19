@@ -65,7 +65,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
     auto desc_tbl = std::make_unique<DescriptorTbl>();
     DescriptorTbl* desc_tbl_ptr = desc_tbl.get();
     ASSERT_TRUE(DescriptorTbl::create(pool.get(), table1, &(desc_tbl_ptr)).ok());
-    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0}, {false});
+    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0});
     std::unique_ptr<doris::RuntimeState> state = std::make_unique<doris::RuntimeState>();
     state->set_desc_tbl(desc_tbl_ptr);
 
@@ -101,7 +101,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     auto desc_tbl = std::make_unique<DescriptorTbl>();
     DescriptorTbl* desc_tbl_ptr = desc_tbl.get();
     ASSERT_TRUE(DescriptorTbl::create(pool.get(), table1, &(desc_tbl_ptr)).ok());
-    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0}, {false});
+    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0});
     std::unique_ptr<doris::RuntimeState> state = std::make_unique<doris::RuntimeState>();
     state->set_desc_tbl(desc_tbl_ptr);
 
@@ -198,7 +198,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     auto desc_tbl = std::make_unique<DescriptorTbl>();
     DescriptorTbl* desc_tbl_ptr = desc_tbl.get();
     ASSERT_TRUE(DescriptorTbl::create(pool.get(), table1, &(desc_tbl_ptr)).ok());
-    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0}, {false});
+    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0});
     std::unique_ptr<doris::RuntimeState> state = std::make_unique<doris::RuntimeState>();
     state->set_desc_tbl(desc_tbl_ptr);
 
@@ -709,7 +709,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch_DimensionMismatch) {
     auto desc_tbl = std::make_unique<DescriptorTbl>();
     DescriptorTbl* desc_tbl_ptr = desc_tbl.get();
     ASSERT_TRUE(DescriptorTbl::create(pool.get(), table1, &(desc_tbl_ptr)).ok());
-    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0}, {false});
+    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0});
     std::unique_ptr<doris::RuntimeState> state = std::make_unique<doris::RuntimeState>();
     state->set_desc_tbl(desc_tbl_ptr);
 
@@ -832,7 +832,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch_EarlyReturn_WrongOpcode) {
     auto desc_tbl = std::make_unique<DescriptorTbl>();
     DescriptorTbl* desc_tbl_ptr = desc_tbl.get();
     ASSERT_TRUE(DescriptorTbl::create(pool.get(), table1, &(desc_tbl_ptr)).ok());
-    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0}, {false});
+    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0});
     std::unique_ptr<doris::RuntimeState> state = std::make_unique<doris::RuntimeState>();
     state->set_desc_tbl(desc_tbl_ptr);
 
@@ -878,7 +878,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch_EarlyReturn_NonLiteralRight) 
     auto desc_tbl = std::make_unique<DescriptorTbl>();
     DescriptorTbl* desc_tbl_ptr = desc_tbl.get();
     ASSERT_TRUE(DescriptorTbl::create(pool.get(), table1, &(desc_tbl_ptr)).ok());
-    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0}, {false});
+    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0});
     std::unique_ptr<doris::RuntimeState> state = std::make_unique<doris::RuntimeState>();
     state->set_desc_tbl(desc_tbl_ptr);
 

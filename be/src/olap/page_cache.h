@@ -186,6 +186,12 @@ public:
         return _get_page_cache(page_type)->mem_tracker();
     }
 
+    // Erase the page with key from this cache.
+    void erase(const CacheKey& key, segment_v2::PageTypePB page_type) {
+        auto* cache = _get_page_cache(page_type);
+        cache->erase(key.encode());
+    }
+
 private:
     StoragePageCache();
 

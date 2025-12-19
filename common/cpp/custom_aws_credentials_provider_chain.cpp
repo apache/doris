@@ -92,6 +92,9 @@ CustomAwsCredentialsProviderChain::CustomAwsCredentialsProviderChain()
     AddProvider(Aws::MakeShared<ProcessCredentialsProvider>(DefaultCredentialsProviderChainTag));
 
     AddProvider(Aws::MakeShared<SSOCredentialsProvider>(DefaultCredentialsProviderChainTag));
+
+    AddProvider(
+            Aws::MakeShared<AnonymousAWSCredentialsProvider>(DefaultCredentialsProviderChainTag));
 }
 
 CustomAwsCredentialsProviderChain::CustomAwsCredentialsProviderChain(

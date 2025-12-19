@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 
+#include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
@@ -46,12 +47,16 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
-          _dict_word_page_encoding_type(config::binary_plain_encoding_default_impl == "v2"
-                                                ? PLAIN_ENCODING_V2
-                                                : PLAIN_ENCODING),
-          _fallback_binary_encoding_type(config::binary_plain_encoding_default_impl == "v2"
-                                                 ? PLAIN_ENCODING_V2
-                                                 : PLAIN_ENCODING) {}
+          _dict_word_page_encoding_type(
+                  options.encoding_preference.binary_plain_encoding_default_impl ==
+                                  BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
+                          ? PLAIN_ENCODING_V2
+                          : PLAIN_ENCODING),
+          _fallback_binary_encoding_type(
+                  options.encoding_preference.binary_plain_encoding_default_impl ==
+                                  BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
+                          ? PLAIN_ENCODING_V2
+                          : PLAIN_ENCODING) {}
 
 Status BinaryDictPageBuilder::init() {
     // initially use DICT_ENCODING
@@ -69,7 +74,7 @@ Status BinaryDictPageBuilder::init() {
 
     const EncodingInfo* encoding_info;
     RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                      _dict_word_page_encoding_type, &encoding_info));
+                                      _dict_word_page_encoding_type, {}, &encoding_info));
     RETURN_IF_ERROR(encoding_info->create_page_builder(dict_builder_options, _dict_builder));
     return reset();
 }
@@ -187,7 +192,7 @@ Status BinaryDictPageBuilder::reset() {
                    _fallback_binary_encoding_type == PLAIN_ENCODING_V2);
             const EncodingInfo* encoding_info;
             RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                              _fallback_binary_encoding_type, &encoding_info));
+                                              _fallback_binary_encoding_type, {}, &encoding_info));
             RETURN_IF_ERROR(encoding_info->create_page_builder(_options, _data_page_builder));
             _encoding_type = _fallback_binary_encoding_type;
         } else {

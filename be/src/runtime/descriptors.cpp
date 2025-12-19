@@ -457,12 +457,8 @@ std::string TupleDescriptor::debug_string() const {
     return out.str();
 }
 
-RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples,
-                             const std::vector<bool>& nullable_tuples)
-        : _tuple_idx_nullable_map(nullable_tuples) {
-    DCHECK(nullable_tuples.size() == row_tuples.size())
-            << "nullable_tuples size " << nullable_tuples.size() << " != row_tuples size "
-            << row_tuples.size();
+RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl,
+                             const std::vector<TTupleId>& row_tuples) {
     DCHECK_GT(row_tuples.size(), 0);
     _num_materialized_slots = 0;
     _num_slots = 0;
@@ -479,8 +475,7 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
     init_has_varlen_slots();
 }
 
-RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
-        : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
+RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc) : _tuple_desc_map(1, tuple_desc) {
     init_tuple_idx_map();
     init_has_varlen_slots();
     _num_slots = static_cast<int32_t>(tuple_desc->slots().size());
@@ -491,12 +486,6 @@ RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescrip
                            lhs_row_desc._tuple_desc_map.end());
     _tuple_desc_map.insert(_tuple_desc_map.end(), rhs_row_desc._tuple_desc_map.begin(),
                            rhs_row_desc._tuple_desc_map.end());
-    _tuple_idx_nullable_map.insert(_tuple_idx_nullable_map.end(),
-                                   lhs_row_desc._tuple_idx_nullable_map.begin(),
-                                   lhs_row_desc._tuple_idx_nullable_map.end());
-    _tuple_idx_nullable_map.insert(_tuple_idx_nullable_map.end(),
-                                   rhs_row_desc._tuple_idx_nullable_map.begin(),
-                                   rhs_row_desc._tuple_idx_nullable_map.end());
     init_tuple_idx_map();
     init_has_varlen_slots();
 
@@ -597,15 +586,6 @@ std::string RowDescriptor::debug_string() const {
     for (int i = 0; i < _tuple_idx_map.size(); ++i) {
         ss << _tuple_idx_map[i];
         if (i != _tuple_idx_map.size() - 1) {
-            ss << ", ";
-        }
-    }
-    ss << "] ";
-
-    ss << "tuple_is_nullable: [";
-    for (int i = 0; i < _tuple_idx_nullable_map.size(); ++i) {
-        ss << _tuple_idx_nullable_map[i];
-        if (i != _tuple_idx_nullable_map.size() - 1) {
             ss << ", ";
         }
     }

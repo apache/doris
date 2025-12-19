@@ -28,11 +28,13 @@
 #include <cstdint>
 #include <memory>
 #include <stack>
+#include <string_view>
 #include <utility>
 
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "pipeline/pipeline_task.h"
@@ -958,9 +960,14 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return Status::OK(); // Nothing to evaluate or no literals to compare against
     }
 
+    const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
+    if (auto index_ctx = context->get_index_context(); index_ctx != nullptr) {
+        analyzer_ctx = index_ctx->get_analyzer_ctx_for_expr(this);
+    }
+
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
     auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
-                                                 segment_num_rows, result_bitmap);
+                                                 segment_num_rows, analyzer_ctx, result_bitmap);
     if (!res.ok()) {
         return res;
     }

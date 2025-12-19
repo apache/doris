@@ -608,14 +608,14 @@ TEST_F(PackedFileManagerTest, AppendPackedFileInfoToFileTail) {
     ASSERT_NE(writer, nullptr);
 
     const auto& data = writer->written_data();
-    cloud::PackedFileDebugInfoPB parsed_debug;
+    cloud::PackedFileFooterPB parsed_footer;
     uint32_t version = 0;
-    auto st = parse_packed_file_trailer(data, &parsed_debug, &version);
+    auto st = parse_packed_file_trailer(data, &parsed_footer, &version);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(version, kPackedFileTrailerVersion);
-    ASSERT_TRUE(parsed_debug.has_packed_file_info());
+    ASSERT_TRUE(parsed_footer.has_packed_file_info());
 
-    const auto& parsed_info = parsed_debug.packed_file_info();
+    const auto& parsed_info = parsed_footer.packed_file_info();
     ASSERT_EQ(parsed_info.slices_size(), 1);
     EXPECT_EQ(parsed_info.slices(0).path(), "trailer_path");
     EXPECT_EQ(parsed_info.slices(0).offset(), 0);

@@ -1256,8 +1256,7 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
     std::map<int, std::vector<std::shared_ptr<ColumnPredicate>>> push_down_simple_predicates;
     push_down_simple_predicates.emplace(2, std::vector<std::shared_ptr<ColumnPredicate>> {});
     p_reader->_push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
-    ASSERT_TRUE(p_reader->convert_predicates({and_expr}, push_down_simple_predicates[2],
-                                             p_reader->_push_down_predicates.back(),
+    ASSERT_TRUE(p_reader->convert_predicates({and_expr}, p_reader->_push_down_predicates.back(),
                                              p_reader->_arena)
                         .ok());
 

@@ -60,6 +60,7 @@
 #include "vec/exec/format/avro/avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
+#include "vec/exec/format/native/native_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/hive_reader.h"
@@ -175,8 +176,7 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
 
     if (_is_load) {
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
-                                              std::vector<TupleId>({_input_tuple_desc->id()}),
-                                              std::vector<bool>({false})));
+                                              std::vector<TupleId>({_input_tuple_desc->id()})));
         // prepare pre filters
         if (_params->__isset.pre_filter_exprs_list) {
             RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_trees(
@@ -194,13 +194,11 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
         }
 
         _dest_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
-                                               std::vector<TupleId>({_output_tuple_desc->id()}),
-                                               std::vector<bool>({false})));
+                                               std::vector<TupleId>({_output_tuple_desc->id()})));
     }
 
-    _default_val_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
-                                                  std::vector<TupleId>({_real_tuple_desc->id()}),
-                                                  std::vector<bool>({false})));
+    _default_val_row_desc.reset(
+            new RowDescriptor(_state->desc_tbl(), std::vector<TupleId>({_real_tuple_desc->id()})));
 
     return Status::OK();
 }
@@ -603,10 +601,6 @@ Status FileScanner::_cast_to_input_block(Block* block) {
             // skip columns which does not exist in file
             continue;
         }
-        if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-            // skip variant type
-            continue;
-        }
         auto& arg = _src_block_ptr->get_by_position(_src_block_name_to_idx[slot_desc->col_name()]);
         auto return_type = slot_desc->get_data_type_ptr();
         // remove nullable here, let the get_function decide whether nullable
@@ -621,8 +615,10 @@ Status FileScanner::_cast_to_input_block(Block* block) {
                                          return_type->get_name());
         }
         idx = _src_block_name_to_idx[slot_desc->col_name()];
+        DCHECK(_state != nullptr);
+        auto ctx = FunctionContext::create_context(_state, {}, {});
         RETURN_IF_ERROR(
-                func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
+                func_cast->execute(ctx.get(), *_src_block_ptr, {idx}, idx, arg.column->size()));
         _src_block_ptr->get_by_position(idx).type = std::move(return_type);
     }
     return Status::OK();
@@ -1128,6 +1124,14 @@ Status FileScanner::_get_next_reader() {
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
             break;
         }
+        case TFileFormatType::FORMAT_NATIVE: {
+            auto reader =
+                    NativeReader::create_unique(_profile, *_params, range, _io_ctx.get(), _state);
+            init_status = reader->init_reader();
+            _cur_reader = std::move(reader);
+            need_to_get_parsed_schema = false;
+            break;
+        }
         case TFileFormatType::FORMAT_ARROW: {
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "remote_doris") {
@@ -1488,7 +1492,7 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(_init_io_ctx());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
-    _default_val_row_desc.reset(new RowDescriptor((TupleDescriptor*)_real_tuple_desc, false));
+    _default_val_row_desc.reset(new RowDescriptor((TupleDescriptor*)_real_tuple_desc));
     RETURN_IF_ERROR(_init_expr_ctxes());
 
     // Since only one column is read from the file, there is no need to filter, so set these variables to empty.
@@ -1768,6 +1772,10 @@ void FileScanner::update_realtime_counters() {
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(
             _file_reader_stats->read_bytes);
 
+    int64_t delta_bytes_read_from_local =
+            _file_cache_statistics->bytes_read_from_local - _last_bytes_read_from_local;
+    int64_t delta_bytes_read_from_remote =
+            _file_cache_statistics->bytes_read_from_remote - _last_bytes_read_from_remote;
     if (_file_cache_statistics->bytes_read_from_local == 0 &&
         _file_cache_statistics->bytes_read_from_remote == 0) {
         _state->get_query_ctx()
@@ -1778,16 +1786,15 @@ void FileScanner::update_realtime_counters() {
                 _file_reader_stats->read_bytes);
     } else {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                _file_cache_statistics->bytes_read_from_local);
+                delta_bytes_read_from_local);
         _state->get_query_ctx()
                 ->resource_ctx()
                 ->io_context()
-                ->update_scan_bytes_from_remote_storage(
-                        _file_cache_statistics->bytes_read_from_remote);
+                ->update_scan_bytes_from_remote_storage(delta_bytes_read_from_remote);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                _file_cache_statistics->bytes_read_from_local);
+                delta_bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                _file_cache_statistics->bytes_read_from_remote);
+                delta_bytes_read_from_remote);
     }
 
     COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
@@ -1797,8 +1804,9 @@ void FileScanner::update_realtime_counters() {
 
     _file_reader_stats->read_bytes = 0;
     _file_reader_stats->read_rows = 0;
-    _file_cache_statistics->bytes_read_from_local = 0;
-    _file_cache_statistics->bytes_read_from_remote = 0;
+
+    _last_bytes_read_from_local = _file_cache_statistics->bytes_read_from_local;
+    _last_bytes_read_from_remote = _file_cache_statistics->bytes_read_from_remote;
 }
 
 void FileScanner::_collect_profile_before_close() {

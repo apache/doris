@@ -15,18 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
+#pragma once
 
-#include "vec/aggregate_functions/aggregate_function_min_max_by.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-
-namespace doris::vectorized {
-#include "common/compile_check_begin.h"
-
-void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both(
-            "max_by", create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                           AggregateFunctionMaxByData>);
+#include "vec/runtime/vdatetime_value.h"
+namespace doris {
+inline auto make_datetime(int year, int month, int day, int hour, int minute, int second,
+                          int microsecond) {
+    DateV2Value<DateTimeV2ValueType> dt;
+    dt.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
+    return dt.to_date_int_val();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

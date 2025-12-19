@@ -41,8 +41,6 @@ public:
     Status remove(const FileCacheKey& key) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
                                 const size_t size) override;
-    Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration,
-                                      const size_t size) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
     Status clear(std::string& msg) override;

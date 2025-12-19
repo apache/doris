@@ -21,7 +21,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=()
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk)) otherCondition=((d3.d_date > days_add(d_date, INTERVAL 5 DAY)))
+----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk)) otherCondition=((d3.d_date > days_add(d_date, 5)))
 ------------------------------------------PhysicalProject
 --------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF2 cd_demo_sk->[cs_bill_cdemo_sk]
 ----------------------------------------------PhysicalProject

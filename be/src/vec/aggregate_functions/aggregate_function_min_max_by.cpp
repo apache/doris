@@ -17,9 +17,11 @@
 
 #include "vec/aggregate_functions/aggregate_function_min_max_by.h"
 
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type) {
+std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, int be_version) {
     switch (type->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return std::make_unique<MaxMinValue<SingleValueDataFixed<TYPE_BOOLEAN>>>();
@@ -61,12 +63,24 @@ std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type) {
         return std::make_unique<MaxMinValue<SingleValueDataFixed<TYPE_DATETIMEV2>>>();
     case PrimitiveType::TYPE_BITMAP:
         return std::make_unique<MaxMinValue<BitmapValueData>>();
+    case PrimitiveType::TYPE_ARRAY:
+    case PrimitiveType::TYPE_MAP:
+    case PrimitiveType::TYPE_STRUCT:
+        return std::make_unique<MaxMinValue<SingleValueDataComplexType>>(DataTypes {type},
+                                                                         be_version);
     default:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Illegal type {} of argument of aggregate function min/max_by",
                                type->get_name());
         return nullptr;
     }
+}
+
+void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both(
+            "min_by", create_aggregate_function_min_max_by<AggregateFunctionMinByData>);
+    factory.register_function_both(
+            "max_by", create_aggregate_function_min_max_by<AggregateFunctionMaxByData>);
 }
 
 } // namespace doris::vectorized

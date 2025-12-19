@@ -51,6 +51,8 @@ suite("test_recycler") {
         }
     }
 
+    sql """ drop table IF EXISTS __internal_schema.audit_log force """
+
     do {
         triggerRecycle(token, instanceId)
         Thread.sleep(10000)

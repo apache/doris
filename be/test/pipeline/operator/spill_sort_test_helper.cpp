@@ -42,7 +42,6 @@ TPlanNode SpillSortTestHelper::create_test_plan_node() {
     tnode.num_children = 0;
     tnode.node_type = TPlanNodeType::SORT_NODE;
     tnode.row_tuples.emplace_back(1);
-    tnode.nullable_tuples.emplace_back(false);
     tnode.limit = -1;
 
     tnode.sort_node.sort_info.is_asc_order.emplace_back(true);
@@ -153,7 +152,7 @@ SpillSortTestHelper::create_operators() {
     auto [source_pipeline, _] = generate_sort_pipeline(source_operator, source_side_sink_operator,
                                                        sink_operator, child_operator);
 
-    RowDescriptor row_desc(runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor row_desc(runtime_state->desc_tbl(), {0});
     child_operator->_row_descriptor = row_desc;
 
     EXPECT_TRUE(sink_operator->set_child(child_operator));

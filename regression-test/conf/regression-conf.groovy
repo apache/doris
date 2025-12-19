@@ -314,3 +314,10 @@ trustStoreType="PKCS12"
 trustCert="/your/certificate.crt"
 trustCACert="/your/ca.crt"
 trustCAKey="/your/certificate.key"
+
+
+enableTestTvfAnonymous="true"
+anymousS3Uri="https://datasets-documentation.s3.eu-west-3.amazonaws.com/aapl_stock.csv"
+anymousS3Region="eu-west-3"
+anymousS3ExpectDataCount="8365"
+awsInstanceProfileRegion="us-east-1"

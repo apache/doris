@@ -25,6 +25,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -52,11 +53,14 @@ public:
 class EncodingInfo {
 public:
     // Get EncodingInfo for TypeInfo and EncodingTypePB
-    static Status get(FieldType type, EncodingTypePB encoding_type, const EncodingInfo** encoding);
+    static Status get(FieldType type, EncodingTypePB encoding_type,
+                      EncodingPreference encoding_preference, const EncodingInfo** encoding);
 
     // optimize_value_search: whether the encoding scheme should optimize for ordered data
     // and support fast value seek operation
-    static EncodingTypePB get_default_encoding(FieldType type, bool optimize_value_seek);
+    static EncodingTypePB get_default_encoding(FieldType type,
+                                               EncodingPreference encoding_preference,
+                                               bool optimize_value_seek);
 
     Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) const {
         return _create_builder_func(opts, builder);
@@ -104,9 +108,11 @@ public:
     EncodingInfoResolver();
     ~EncodingInfoResolver();
 
-    EncodingTypePB get_default_encoding(FieldType type, bool optimize_value_seek) const;
+    EncodingTypePB get_default_encoding(FieldType type, EncodingPreference encoding_preference,
+                                        bool optimize_value_seek) const;
 
-    Status get(FieldType data_type, EncodingTypePB encoding_type, const EncodingInfo** out);
+    Status get(FieldType data_type, EncodingTypePB encoding_type,
+               EncodingPreference encoding_preference, const EncodingInfo** out);
 
 private:
     // Not thread-safe

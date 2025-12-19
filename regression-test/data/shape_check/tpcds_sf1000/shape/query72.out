@@ -30,7 +30,7 @@ PhysicalResultSink
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3 RF7 RF9
 --------------------------------------------------PhysicalProject
-----------------------------------------------------NestedLoopJoin[INNER_JOIN](d3.d_date > days_add(d_date, INTERVAL 5 DAY))
+----------------------------------------------------NestedLoopJoin[INNER_JOIN](d3.d_date > days_add(d_date, 5))
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------PhysicalOlapScan[date_dim(d3)]
 ------------------------------------------------------PhysicalProject

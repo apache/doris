@@ -74,6 +74,10 @@ size_t CacheBlockMetaStore::get_write_queue_size() const {
 }
 
 Status CacheBlockMetaStore::init() {
+    if (_initialized.load(std::memory_order_acquire)) {
+        return Status::OK();
+    }
+
     std::filesystem::create_directories(_db_path);
 
     _options.create_if_missing = true;
@@ -119,6 +123,7 @@ Status CacheBlockMetaStore::init() {
     }
 
     _write_thread = std::thread(&CacheBlockMetaStore::async_write_worker, this);
+    _initialized.store(true, std::memory_order_release);
 
     return Status::OK();
 }

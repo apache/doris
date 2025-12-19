@@ -36,18 +36,14 @@ public class AssertNumRowsNode extends PlanNode {
     private String subqueryString;
     private AssertNumRowsElement.Assertion assertion;
 
-    private boolean shouldConvertOutputToNullable = false;
-
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement,
-                             boolean convertToNullable, TupleDescriptor tupleDescriptor) {
+            TupleDescriptor tupleDescriptor) {
         super(id, "ASSERT NUMBER OF ROWS");
         this.desiredNumOfRows = assertNumRowsElement.getDesiredNumOfRows();
         this.subqueryString = assertNumRowsElement.getSubqueryString();
         this.assertion = assertNumRowsElement.getAssertion();
         this.children.add(input);
         this.tupleIds.add(tupleDescriptor.getId());
-        this.nullableTupleIds.addAll(input.getNullableTupleIds());
-        this.shouldConvertOutputToNullable = convertToNullable;
     }
 
     @Override
@@ -73,7 +69,7 @@ public class AssertNumRowsNode extends PlanNode {
         msg.assert_num_rows_node.setDesiredNumRows(desiredNumOfRows);
         msg.assert_num_rows_node.setSubqueryString(subqueryString);
         msg.assert_num_rows_node.setAssertion(assertion.toThrift());
-        msg.assert_num_rows_node.setShouldConvertOutputToNullable(shouldConvertOutputToNullable);
+        msg.assert_num_rows_node.setShouldConvertOutputToNullable(true);
     }
 
     @Override

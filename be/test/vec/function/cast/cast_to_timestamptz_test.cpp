@@ -22,6 +22,7 @@
 #include "cast_test.h"
 #include "runtime/primitive_type.h"
 #include "testutil/column_helper.h"
+#include "testutil/datetime_ut_util.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"

@@ -1125,10 +1125,10 @@ void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
     }
 }
 
-ParquetColumnReader::Statistics RowGroupReader::statistics() {
-    ParquetColumnReader::Statistics st;
+ParquetColumnReader::ColumnStatistics RowGroupReader::merged_column_statistics() {
+    ParquetColumnReader::ColumnStatistics st;
     for (auto& reader : _column_readers) {
-        auto ost = reader.second->statistics();
+        auto ost = reader.second->column_statistics();
         st.merge(ost);
     }
     return st;

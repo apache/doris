@@ -49,7 +49,7 @@ suite("test_s3_load_with_set", "load_p0") {
             kd01 DATE           NOT NULL,
             kd02 INT            NULL,
             kd03 VARCHAR(256)   NULL,
-            kd04 DATE           NOT NULL
+            KD04 DATE           NOT NULL
         )
         DUPLICATE KEY(k00)
         DISTRIBUTED BY HASH(k00) BUCKETS 1

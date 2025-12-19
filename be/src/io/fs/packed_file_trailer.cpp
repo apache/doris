@@ -25,7 +25,7 @@
 
 namespace doris::io {
 
-Status parse_packed_file_trailer(std::string_view data, cloud::PackedFileDebugInfoPB* debug_pb,
+Status parse_packed_file_trailer(std::string_view data, cloud::PackedFileFooterPB* debug_pb,
                                  uint32_t* version) {
     if (debug_pb == nullptr || version == nullptr) {
         return Status::InvalidArgument("Output parameters must not be null");
@@ -39,14 +39,14 @@ Status parse_packed_file_trailer(std::string_view data, cloud::PackedFileDebugIn
     const uint32_t trailer_size = decode_fixed32_le(suffix_ptr);
     const uint32_t trailer_version = decode_fixed32_le(suffix_ptr + sizeof(uint32_t));
 
-    // Preferred format: [PackedFileDebugInfoPB][length][version]
+    // Preferred format: [PackedFileFooterPB][length][version]
     if (trailer_size > 0 && trailer_size <= data.size() - kPackedFileTrailerSuffixSize) {
         const size_t payload_offset = data.size() - kPackedFileTrailerSuffixSize - trailer_size;
         std::string_view payload(data.data() + payload_offset, trailer_size);
         if (payload.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
             return Status::InternalError("Packed file trailer payload too large");
         }
-        cloud::PackedFileDebugInfoPB parsed_pb;
+        cloud::PackedFileFooterPB parsed_pb;
         if (parsed_pb.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
             debug_pb->Swap(&parsed_pb);
             *version = trailer_version;
@@ -80,8 +80,8 @@ Status parse_packed_file_trailer(std::string_view data, cloud::PackedFileDebugIn
     return Status::OK();
 }
 
-Status read_packed_file_trailer(const std::string& file_path,
-                                cloud::PackedFileDebugInfoPB* debug_pb, uint32_t* version) {
+Status read_packed_file_trailer(const std::string& file_path, cloud::PackedFileFooterPB* debug_pb,
+                                uint32_t* version) {
     if (debug_pb == nullptr || version == nullptr) {
         return Status::InvalidArgument("Output parameters must not be null");
     }

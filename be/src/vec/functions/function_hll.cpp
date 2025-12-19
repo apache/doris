@@ -197,7 +197,8 @@ public:
                 doris::HyperLogLog hll;
                 if (!hll.deserialize(decoded_slice)) {
                     return Status::RuntimeError(
-                            fmt::format("hll_from_base64 decode failed: base64: {}", src_str));
+                            fmt::format("hll_from_base64 decode failed: base64: {}",
+                                        StringRef(src_str, src_size).to_string()));
                 } else {
                     res.emplace_back(std::move(hll));
                 }

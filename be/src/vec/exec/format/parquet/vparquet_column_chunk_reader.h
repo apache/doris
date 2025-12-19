@@ -60,6 +60,7 @@ struct ColumnChunkReaderStatistics {
     int64_t decode_level_time = 0;
     int64_t skip_page_header_num = 0;
     int64_t parse_page_header_num = 0;
+    int64_t read_page_header_time = 0;
 };
 
 /**
@@ -146,11 +147,15 @@ public:
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
 
-    ColumnChunkReaderStatistics& statistics() {
-        _statistics.decode_header_time = _page_reader->statistics().decode_header_time;
-        _statistics.skip_page_header_num = _page_reader->statistics().skip_page_header_num;
-        _statistics.parse_page_header_num = _page_reader->statistics().parse_page_header_num;
-        return _statistics;
+    ColumnChunkReaderStatistics& chunk_statistics() {
+        _chunk_statistics.decode_header_time = _page_reader->page_statistics().decode_header_time;
+        _chunk_statistics.skip_page_header_num =
+                _page_reader->page_statistics().skip_page_header_num;
+        _chunk_statistics.parse_page_header_num =
+                _page_reader->page_statistics().parse_page_header_num;
+        _chunk_statistics.read_page_header_time =
+                _page_reader->page_statistics().read_page_header_time;
+        return _chunk_statistics;
     }
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) {
@@ -238,7 +243,7 @@ private:
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
-    ColumnChunkReaderStatistics _statistics;
+    ColumnChunkReaderStatistics _chunk_statistics;
 };
 #include "common/compile_check_end.h"
 

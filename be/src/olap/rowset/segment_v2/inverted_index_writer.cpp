@@ -191,9 +191,9 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
 template <FieldType field_type>
 Result<std::shared_ptr<lucene::analysis::Analyzer>>
 InvertedIndexColumnWriter<field_type>::create_analyzer(
-        std::shared_ptr<InvertedIndexCtx>& inverted_index_ctx) {
+        const InvertedIndexAnalyzerConfig& analyzer_config) {
     try {
-        return inverted_index::InvertedIndexAnalyzer::create_analyzer(inverted_index_ctx.get());
+        return inverted_index::InvertedIndexAnalyzer::create_analyzer(&analyzer_config);
     } catch (CLuceneError& e) {
         return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "inverted index create analyzer failed: {}", e.what()));
@@ -205,20 +205,20 @@ InvertedIndexColumnWriter<field_type>::create_analyzer(
 
 template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
-    _inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
-            get_analyzer_name_from_properties(_index_meta->properties()),
-            get_inverted_index_parser_type_from_string(
-                    get_parser_string_from_properties(_index_meta->properties())),
-            get_parser_mode_string_from_properties(_index_meta->properties()),
-            get_parser_phrase_support_string_from_properties(_index_meta->properties()),
-            get_parser_char_filter_map_from_properties(_index_meta->properties()),
-            get_parser_lowercase_from_properties<true>(_index_meta->properties()),
-            get_parser_stopwords_from_properties(_index_meta->properties()));
+    _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
+    _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(_index_meta->properties()));
+    _analyzer_config.parser_mode =
+            get_parser_mode_string_from_properties(_index_meta->properties());
+    _analyzer_config.char_filter_map =
+            get_parser_char_filter_map_from_properties(_index_meta->properties());
+    _analyzer_config.lower_case =
+            get_parser_lowercase_from_properties<true>(_index_meta->properties());
+    _analyzer_config.stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
     RETURN_IF_ERROR(open_index_directory());
-    _char_string_reader =
-            DORIS_TRY(create_char_string_reader(_inverted_index_ctx->char_filter_map));
+    _char_string_reader = DORIS_TRY(create_char_string_reader(_analyzer_config.char_filter_map));
     if (_should_analyzer) {
-        _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+        _analyzer = DORIS_TRY(create_analyzer(_analyzer_config));
     }
     _similarity = std::make_unique<lucene::search::LengthSimilarity>();
     _index_writer = create_index_writer();
@@ -448,7 +448,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                         // stream can not reuse for different field
                         bool own_token_stream = true;
                         ReaderPtr char_string_reader = DORIS_TRY(
-                                create_char_string_reader(_inverted_index_ctx->char_filter_map));
+                                create_char_string_reader(_analyzer_config.char_filter_map));
                         char_string_reader->init(v->get_data(), cast_set<int32_t>(v->get_size()),
                                                  false);
                         ts = _analyzer->tokenStream(new_field->name(), char_string_reader);

@@ -20,7 +20,9 @@
 #include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
+#include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
+#include <aws/core/platform/Environment.h>
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
@@ -121,6 +123,7 @@ constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 
 constexpr char S3_ROLE_ARN[] = "AWS_ROLE_ARN";
 constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
+constexpr char S3_CREDENTIALS_PROVIDER_TYPE[] = "AWS_CREDENTIALS_PROVIDER_TYPE";
 } // namespace
 
 bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
@@ -323,6 +326,28 @@ S3ClientFactory::_get_aws_credentials_provider_v1(const S3ClientConf& s3_conf) {
     return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
 }
 
+std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::_create_credentials_provider(
+        CredProviderType type) {
+    switch (type) {
+    case CredProviderType::Env:
+        return std::make_shared<Aws::Auth::EnvironmentAWSCredentialsProvider>();
+    case CredProviderType::SystemProperties:
+        return std::make_shared<Aws::Auth::ProfileConfigFileAWSCredentialsProvider>();
+    case CredProviderType::WebIdentity:
+        return std::make_shared<Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>();
+    case CredProviderType::Container:
+        return std::make_shared<Aws::Auth::TaskRoleCredentialsProvider>(
+                Aws::Environment::GetEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").c_str());
+    case CredProviderType::InstanceProfile:
+        return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
+    case CredProviderType::Anonymous:
+        return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
+    case CredProviderType::Default:
+    default:
+        return std::make_shared<CustomAwsCredentialsProviderChain>();
+    }
+}
+
 std::shared_ptr<Aws::Auth::AWSCredentialsProvider>
 S3ClientFactory::_get_aws_credentials_provider_v2(const S3ClientConf& s3_conf) {
     if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
@@ -334,11 +359,8 @@ S3ClientFactory::_get_aws_credentials_provider_v2(const S3ClientConf& s3_conf) {
         return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(std::move(aws_cred));
     }
 
-    if (s3_conf.cred_provider_type == CredProviderType::InstanceProfile) {
-        if (s3_conf.role_arn.empty()) {
-            return std::make_shared<CustomAwsCredentialsProviderChain>();
-        }
-
+    // Handle role_arn for assume role scenario
+    if (!s3_conf.role_arn.empty()) {
         Aws::Client::ClientConfiguration clientConfiguration =
                 S3ClientFactory::getClientConfiguration();
 
@@ -350,15 +372,16 @@ S3ClientFactory::_get_aws_credentials_provider_v2(const S3ClientConf& s3_conf) {
             clientConfiguration.caFile = _ca_cert_file_path;
         }
 
-        auto stsClient = std::make_shared<Aws::STS::STSClient>(
-                std::make_shared<CustomAwsCredentialsProviderChain>(), clientConfiguration);
+        auto baseProvider = _create_credentials_provider(s3_conf.cred_provider_type);
+        auto stsClient = std::make_shared<Aws::STS::STSClient>(baseProvider, clientConfiguration);
 
         return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
                 s3_conf.role_arn, Aws::String(), s3_conf.external_id,
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
     }
 
-    return std::make_shared<CustomAwsCredentialsProviderChain>();
+    // Return provider based on cred_provider_type
+    return _create_credentials_provider(s3_conf.cred_provider_type);
 }
 
 std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_credentials_provider(
@@ -487,6 +510,10 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
 
     if (auto it = properties.find(S3_EXTERNAL_ID); it != properties.end()) {
         s3_conf->client_conf.external_id = it->second;
+    }
+
+    if (auto it = properties.find(S3_CREDENTIALS_PROVIDER_TYPE); it != properties.end()) {
+        s3_conf->client_conf.cred_provider_type = cred_provider_type_from_string(it->second);
     }
 
     if (auto st = is_s3_conf_valid(s3_conf->client_conf); !st.ok()) {
