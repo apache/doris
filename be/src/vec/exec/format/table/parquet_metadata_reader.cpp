@@ -30,6 +30,7 @@
 
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
+#include "io/hdfs_builder.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
@@ -852,6 +853,9 @@ Status ParquetMetadataReader::_append_file_rows(const std::string& path,
     io::FileSystemProperties system_properties;
     system_properties.system_type = _file_type;
     system_properties.properties = _properties;
+    if (_file_type == TFileType::FILE_HDFS) {
+        system_properties.hdfs_params = ::doris::parse_properties(system_properties.properties);
+    }
     io::FileDescription file_desc;
     file_desc.path = path;
     io::FileReaderSPtr file_reader = DORIS_TRY(FileFactory::create_file_reader(

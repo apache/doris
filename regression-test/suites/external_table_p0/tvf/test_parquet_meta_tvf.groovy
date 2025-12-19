@@ -90,6 +90,18 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
         );
     """
 
+    // file metadata
+    order_qt_parquet_file_metadata """
+        select * from parquet_meta(
+            "uri" = "${basePath}/meta.parquet",
+            "s3.access_key" = "${ak}",
+            "s3.secret_key" = "${sk}",
+            "endpoint" = "${endpoint}",
+            "region" = "${region}",
+            "mode" = "parquet_file_metadata"
+        );
+    """
+
     // bloom probe
     order_qt_parquet_bloom_probe """
         select * from parquet_meta(
@@ -133,6 +145,47 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
         );
     """
 
+    // parquet_metadata (HDFS, hive3): reuse group0 parquet files in test_hdfs_parquet_group0.groovy
+    String hdfs_port = context.config.otherConfigs.get("hive3HdfsPort")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
+    def hdfsUserName = "doris"
+    def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
+    def uri = ""
+
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/delta_length_byte_array.parquet"
+            order_qt_parquet_schema_hdfs """
+                select * from parquet_meta(
+                    "uri" = "${uri}",
+                    "hadoop.username" = "${hdfsUserName}",
+                    "mode" = "parquet_schema"
+                );
+            """
+
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/datapage_v1-snappy-compressed-checksum.parquet"
+            order_qt_parquet_file_metadata_hdfs """
+                select * from parquet_meta(
+                    "uri" = "${uri}",
+                    "hadoop.username" = "${hdfsUserName}",
+                    "mode" = "parquet_file_metadata"
+                );
+            """
+
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/column_chunk_key_value_metadata.parquet"
+            order_qt_parquet_kv_metadata_hdfs """
+                select * from parquet_meta(
+                    "uri" = "${uri}",
+                    "hadoop.username" = "${hdfsUserName}",
+                    "mode" = "parquet_kv_metadata"
+                );
+            """
+        } finally {
+        }
+    }
+
     // local parquet_meta: scp files to every BE, then query by local file_path
     def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/"
     def outFilePath="/"
@@ -169,6 +222,13 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
         select * from parquet_meta(
             "file_path" = "${outFilePath}/empty.parquet",
             "mode" = "parquet_metadata"
+        );
+    """
+
+    order_qt_parquet_file_metadata_local """
+        select * from parquet_meta(
+            "file_path" = "${outFilePath}/meta.parquet",
+            "mode" = "parquet_file_metadata"
         );
     """
 

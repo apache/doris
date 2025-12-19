@@ -24,6 +24,9 @@ s3://doris-regression-hk/regression/datalake/pipeline_data/kvmeta.parquet	app	kv
 s3://doris-regression-hk/regression/datalake/pipeline_data/kvmeta.parquet	note	it's ok
 s3://doris-regression-hk/regression/datalake/pipeline_data/kvmeta.parquet	ver	v1
 
+-- !parquet_file_metadata --
+s3://doris-regression-hk/regression/datalake/pipeline_data/meta.parquet	parquet-cpp-arrow version 21.0.0	5	1	2	\N	\N
+
 -- !parquet_bloom_probe --
 s3://doris-regression-hk/regression/datalake/pipeline_data/bloommeta.parquet	0	0
 s3://doris-regression-hk/regression/datalake/pipeline_data/bloommeta.parquet	1	0
@@ -38,6 +41,14 @@ s3://doris-regression-hk/regression/datalake/pipeline_data/meta.parquet	0	-1
 0	5	4	236	2	130	5	date_col	INT32	2023-01-01	2023-01-05	1	\N	2023-01-01
 0	5	4	236	3	191	5	decimal_col	FIXED_LEN_BYTE_ARRAY	10.00	50.00	1	\N	10.00
 
+-- !parquet_schema_hdfs --
+hdfs://127.0.0.1:8320/user/doris/tvf_data/test_hdfs_parquet/group0/delta_length_byte_array.parquet	FRUIT	BYTE_ARRAY	\N	OPTIONAL	0	UTF8	\N	\N	1	STRING
+
+-- !parquet_file_metadata_hdfs --
+hdfs://127.0.0.1:8320/user/doris/tvf_data/test_hdfs_parquet/group0/datapage_v1-snappy-compressed-checksum.parquet	parquet-mr version 1.13.0-SNAPSHOT (build 019361e0da0677360788f0ad96c520fb8c296d7d)	5120	1	1	\N	\N
+
+-- !parquet_kv_metadata_hdfs --
+
 -- !parquet_metadata_local --
 //meta.parquet	0	5	4	236	0	4	5	normal_int	INT32	1	5	1	\N	1	5	SNAPPY	PLAIN,RLE,RLE_DICTIONARY	\N	4	36	61	57	{ARROW:schema://///zABAAAQAAAAAAAKAAwABgAFAAgACgAAAAABBAAMAAAACAAIAAAABAAIAAAABAAAAAQAAADAAAAAfAAAAEQAAAAEAAAAYP///wAAAQcQAAAAJAAAAAQAAAAAAAAACwAAAGRlY2ltYWxfY29sAAgADAAEAAgACAAAAAoAAAACAAAAnP///wAAAQgQAAAAIAAAAAQAAAAAAAAACAAAAGRhdGVfY29sAAAGAAgABgAGAAAAAAAAAND///8AAAEFEAAAACAAAAAEAAAAAAAAAAoAAABzdHJpbmdfY29sAAAEAAQABAAAABAAFAAIAAYABwAMAAAAEAAQAAAAAAABAhAAAAAkAAAABAAAAAAAAAAKAAAAbm9ybWFsX2ludAAACAAMAAgABwAIAAAAAAAAASAAAAAAAAAA}	\N	\N	\N	\N	252
 //meta.parquet	0	5	4	236	1	65	5	string_col	BYTE_ARRAY	\N	\N	1	\N	a	e	SNAPPY	PLAIN,RLE,RLE_DICTIONARY	\N	65	101	65	61	{ARROW:schema://///zABAAAQAAAAAAAKAAwABgAFAAgACgAAAAABBAAMAAAACAAIAAAABAAIAAAABAAAAAQAAADAAAAAfAAAAEQAAAAEAAAAYP///wAAAQcQAAAAJAAAAAQAAAAAAAAACwAAAGRlY2ltYWxfY29sAAgADAAEAAgACAAAAAoAAAACAAAAnP///wAAAQgQAAAAIAAAAAQAAAAAAAAACAAAAGRhdGVfY29sAAAGAAgABgAGAAAAAAAAAND///8AAAEFEAAAACAAAAAEAAAAAAAAAAoAAABzdHJpbmdfY29sAAAEAAQABAAAABAAFAAIAAYABwAMAAAAEAAQAAAAAAABAhAAAAAkAAAABAAAAAAAAAAKAAAAbm9ybWFsX2ludAAACAAMAAgABwAIAAAAAAAAASAAAAAAAAAA}	\N	\N	\N	\N	252
@@ -51,6 +62,9 @@ s3://doris-regression-hk/regression/datalake/pipeline_data/meta.parquet	0	-1
 //meta.parquet	string_col	BYTE_ARRAY	\N	OPTIONAL	0	UTF8	\N	\N	\N	STRING
 
 -- !parquet_metadata_empty_local --
+
+-- !parquet_file_metadata_local --
+//meta.parquet	parquet-cpp-arrow version 21.0.0	5	1	2	\N	\N
 
 -- !parquet_kv_metadata_local --
 //kvmeta.parquet	app	kvmeta_test

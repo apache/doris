@@ -174,8 +174,6 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
             throw new AnalysisException(
                     "Property 'uri' or 'file_path' must contain at least one location");
         }
-        List<String> normalizedPaths = new ArrayList<>(1);
-        normalizedPaths.add(parsedPath);
 
         String rawMode = normalizedParams.getOrDefault(MODE, MODE_METADATA);
         mode = rawMode.toLowerCase();
@@ -224,12 +222,10 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         }
         this.fileType = mapToFileType(storageProperties.getType());
         Map<String, String> backendProps = storageProperties.getBackendConfigProperties();
+        List<String> normalizedPaths;
         try {
-            List<String> tmpPaths = new ArrayList<>(normalizedPaths.size());
-            for (String path : normalizedPaths) {
-                tmpPaths.add(storageProperties.validateAndNormalizeUri(path));
-            }
-            normalizedPaths = tmpPaths;
+            String normalizedPath = storageProperties.validateAndNormalizeUri(parsedPath);
+            normalizedPaths = ImmutableList.of(normalizedPath);
         } catch (UserException e) {
             throw new AnalysisException(
                     "Failed to normalize parquet_meta paths: " + e.getMessage(), e);
