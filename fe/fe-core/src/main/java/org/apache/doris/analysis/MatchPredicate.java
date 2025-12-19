@@ -125,10 +125,13 @@ public class MatchPredicate extends Predicate {
         // Set parser and analyzer fields
         this.invertedIndexParser = selection.parser();
         this.invertedIndexAnalyzerName = selection.analyzer();
-        if (Strings.isNullOrEmpty(this.invertedIndexAnalyzerName)
-                && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(
-                        this.invertedIndexParser)) {
-            this.invertedIndexAnalyzerName = this.invertedIndexParser;
+        if (Strings.isNullOrEmpty(this.invertedIndexAnalyzerName)) {
+            if (invertedIndex == null) {
+                this.invertedIndexAnalyzerName = this.invertedIndexParser;
+            } else if (!InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(
+                               this.invertedIndexParser)) {
+                this.invertedIndexAnalyzerName = this.invertedIndexParser;
+            }
         }
 
         // Extract additional index properties for thrift serialization
