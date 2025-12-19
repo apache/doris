@@ -463,7 +463,13 @@ public class MySqlSourceReader implements SourceReader {
      */
     private void closeChunkSplitterOnly(MySqlSnapshotSplitAssigner splitAssigner) {
         try {
-            // close chunk splitter connection
+            // call closeExecutorService()
+            java.lang.reflect.Method closeExecutorMethod =
+                    MySqlSnapshotSplitAssigner.class.getDeclaredMethod("closeExecutorService");
+            closeExecutorMethod.setAccessible(true);
+            closeExecutorMethod.invoke(splitAssigner);
+
+            // call chunkSplitter.close()
             java.lang.reflect.Field field =
                     MySqlSnapshotSplitAssigner.class.getDeclaredField("chunkSplitter");
             field.setAccessible(true);
@@ -473,16 +479,6 @@ public class MySqlSourceReader implements SourceReader {
                 java.lang.reflect.Method closeMethod = chunkSplitter.getClass().getMethod("close");
                 closeMethod.invoke(chunkSplitter);
                 LOG.info("Closed chunkSplitter JDBC connection");
-            }
-
-            // close executor service
-            java.lang.reflect.Field executorField =
-                    MySqlSnapshotSplitAssigner.class.getDeclaredField("executor");
-            executorField.setAccessible(true);
-            java.util.concurrent.ExecutorService executor =
-                    (java.util.concurrent.ExecutorService) executorField.get(splitAssigner);
-            if (executor != null) {
-                executor.shutdown();
             }
         } catch (Exception e) {
             LOG.warn("Failed to close chunkSplitter via reflection,", e);
