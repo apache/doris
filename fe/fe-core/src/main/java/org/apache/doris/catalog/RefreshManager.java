@@ -167,7 +167,8 @@ public class RefreshManager {
         }
         // See comment in refreshDbInternal for why db and table may be null.
         if (!db.isPresent()) {
-            LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
+            LOG.warn("failed to find db when replaying refresh table: {}, catalog={}, catalogInitialized={}",
+                    log.debugForRefreshTable(), catalog.getName(), catalog.isInitialized());
             return;
         }
         Optional<? extends ExternalTable> table;
@@ -177,7 +178,8 @@ public class RefreshManager {
             table = db.get().getTableForReplay(log.getTableId());
         }
         if (!table.isPresent()) {
-            LOG.warn("failed to find table when replaying refresh table: {}", log.debugForRefreshTable());
+            LOG.warn("failed to find table when replaying refresh table: {}, db={}, dbInitialized={}",
+                    log.debugForRefreshTable(), db.get().getFullName(), db.get().isInitialized());
             return;
         }
         if (!Strings.isNullOrEmpty(log.getNewTableName())) {
@@ -201,6 +203,7 @@ public class RefreshManager {
                         newPartNames == null ? 0 : newPartNames.size());
             } else {
                 // Full table cache invalidation
+                LOG.info("replay refresh table {} with full invalidation", table.get().getName());
                 refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
             }
         }

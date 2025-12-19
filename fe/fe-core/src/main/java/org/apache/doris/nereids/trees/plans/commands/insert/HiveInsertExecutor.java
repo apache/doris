@@ -107,6 +107,8 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
                     table.getName(),
                     modifiedPartNames,
                     newPartNames);
+            LOG.info("doAfterCommit for table {}: writing editlog, modified={}, new={}",
+                    table.getName(), modifiedPartNames, newPartNames);
         } else {
             // Full table refresh for other FEs
             log = ExternalObjectLog.createForRefreshTable(

@@ -636,6 +636,8 @@ public class HiveMetaStoreCache {
         PartitionValueCacheKey key = new PartitionValueCacheKey(nameMapping, partitionColumnTypes);
         HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
         if (partitionValues == null) {
+            LOG.warn("addPartitionsCache: cache miss for table {}.{}, partitions {} will not be added",
+                    nameMapping.getLocalDbName(), nameMapping.getLocalTblName(), partitionNames);
             return;
         }
         HivePartitionValues copy = partitionValues.copy();
