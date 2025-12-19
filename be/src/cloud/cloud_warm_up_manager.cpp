@@ -39,6 +39,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/stack_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 
@@ -210,6 +211,7 @@ void CloudWarmUpManager::handle_jobs() {
                 std::make_shared<bthread::CountdownEvent>(0);
 
         for (int64_t tablet_id : cur_job->tablet_ids) {
+            VLOG_DEBUG << "Warm up tablet " << tablet_id << " stack: " << get_stack_trace();
             if (_cur_job_id == 0) { // The job is canceled
                 break;
             }
@@ -234,13 +236,7 @@ void CloudWarmUpManager::handle_jobs() {
                     continue;
                 }
 
-                int64_t expiration_time =
-                        tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
-                                ? 0
-                                : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
-                if (expiration_time <= UnixSeconds()) {
-                    expiration_time = 0;
-                }
+                int64_t expiration_time = tablet_meta->ttl_seconds();
                 if (!tablet->add_rowset_warmup_state(*rs, WarmUpTriggerSource::JOB)) {
                     LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
                               << ", skip it";

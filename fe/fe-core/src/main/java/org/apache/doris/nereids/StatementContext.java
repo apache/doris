@@ -212,7 +212,7 @@ public class StatementContext implements Closeable {
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
-    private final Map<List<String>, Pair<String, Long>> viewInfos = Maps.newHashMap();
+    private final Map<List<String>, Pair<String, Map<String, String>>> viewInfos = Maps.newHashMap();
     // save insert into schema to avoid schema changed between two read locks
     private final List<Column> insertTargetSchema = new ArrayList<>();
 
@@ -289,6 +289,7 @@ public class StatementContext implements Closeable {
     // For Iceberg rewrite operations: store file scan tasks to be used by IcebergScanNode
     // TODO: better solution?
     private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+    private boolean hasNestedColumns;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -345,18 +346,18 @@ public class StatementContext implements Closeable {
      *
      * @return view info, first is view's def sql, second is view's sql mode
      */
-    public Pair<String, Long> getAndCacheViewInfo(List<String> qualifiedViewName, View view) {
+    public Pair<String, Map<String, String>> getAndCacheViewInfo(List<String> qualifiedViewName, View view) {
         return viewInfos.computeIfAbsent(qualifiedViewName, k -> {
             String viewDef;
-            long sqlMode;
+            Map<String, String> sessionVariables;
             view.readLock();
             try {
                 viewDef = view.getInlineViewDef();
-                sqlMode = view.getSqlMode();
+                sessionVariables = view.getSessionVariables();
             } finally {
                 view.readUnlock();
             }
-            return Pair.of(viewDef, sqlMode);
+            return Pair.of(viewDef, sessionVariables);
         });
     }
 
@@ -1047,5 +1048,13 @@ public class StatementContext implements Closeable {
 
     public void setSkipPrunePredicate(boolean skipPrunePredicate) {
         this.skipPrunePredicate = skipPrunePredicate;
+    }
+
+    public boolean hasNestedColumns() {
+        return hasNestedColumns;
+    }
+
+    public void setHasNestedColumns(boolean hasNestedColumns) {
+        this.hasNestedColumns = hasNestedColumns;
     }
 }

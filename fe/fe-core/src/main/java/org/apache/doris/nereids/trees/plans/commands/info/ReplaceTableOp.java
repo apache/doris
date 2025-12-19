@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -73,11 +71,6 @@ public class ReplaceTableOp extends AlterTableOp {
     }
 
     @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ReplaceTableClause(tblName, properties, isForce, swapTable);
-    }
-
-    @Override
     public Map<String, String> getProperties() {
         return this.properties;
     }
@@ -90,6 +83,10 @@ public class ReplaceTableOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return true;
+    }
+
+    public boolean isForce() {
+        return isForce;
     }
 
     @Override

@@ -147,4 +147,45 @@ public class ParamRulesTest {
                 );
         Assertions.assertDoesNotThrow(() -> rightRule3.validate());
     }
+
+    @Test
+    void testComplexLambdaValidation() {
+        String username = "alice";
+        String password = "";
+        String email = "alice@example.com";
+        int age = 17;
+        int maxAge = 100;
+
+        ParamRules rules = new ParamRules();
+
+        // Add multiple lambda rules
+        rules.check(() -> username == null || username.isEmpty(), "Username must not be empty")
+                .check(() -> password == null || password.length() < 6, "Password must be at least 6 characters")
+                .check(() -> !email.contains("@"), "Email must be valid")
+                .check(() -> age < 18 || age > maxAge, "Age must be between 18 and 100")
+                .check(() -> username.equals(email), "Username and email cannot be the same");
+        // Validate with prefix message
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> rules.validate("Validation Failed"));
+        // Check that the error message is prefixed
+        assert ex.getMessage().startsWith("Validation Failed: ");
+    }
+
+    @Test
+    void testComplexLambdaValidationSuccess() {
+        String username = "alice";
+        String password = "password123";
+        String email = "alice@example.com";
+        int age = 25;
+        int maxAge = 100;
+        ParamRules rules = new ParamRules();
+        // Should pass without exception
+        Assertions.assertDoesNotThrow(() -> {
+            rules.check(() -> username == null || username.isEmpty(), "Username must not be empty")
+                    .check(() -> password == null || password.length() < 6, "Password must be at least 6 characters")
+                    .check(() -> !email.contains("@"), "Email must be valid")
+                    .check(() -> age < 18 || age > maxAge, "Age must be between 18 and 100")
+                    .check(() -> username.equals(email), "Username and email cannot be the same");
+        });
+    }
 }

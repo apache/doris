@@ -252,7 +252,7 @@ public:
                 std::tie(default_value_col, default_value_const) =
                         unpack_if_const(block.get_by_position(arguments[1]).column);
                 if (default_value_const) {
-                    JsonbDocument* default_value_doc = nullptr;
+                    const JsonbDocument* default_value_doc = nullptr;
                     if (default_value_col->is_null_at(0)) {
                         default_value_null_const = true;
                     } else {
@@ -595,7 +595,7 @@ private:
             }
 
             auto json_data = col_from_string.get_data_at(index);
-            JsonbDocument* doc = nullptr;
+            const JsonbDocument* doc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(json_data.data, json_data.size, &doc);
             if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                 dst_arr.clear();
@@ -775,7 +775,7 @@ private:
     static ALWAYS_INLINE void inner_loop_impl(size_t i, Container& res, const char* l_raw_str,
                                               size_t l_str_size, JsonbPath& path) {
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = nullptr;
+        const JsonbDocument* doc = nullptr;
         auto st = JsonbDocument::checkAndCreateDocument(l_raw_str, l_str_size, &doc);
         if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
             return;
@@ -876,7 +876,7 @@ private:
                                               std::unique_ptr<JsonbToJson>& formater,
                                               const char* l_raw, size_t l_size, JsonbPath& path) {
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = nullptr;
+        const JsonbDocument* doc = nullptr;
         auto st = JsonbDocument::checkAndCreateDocument(l_raw, l_size, &doc);
         if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
@@ -1005,7 +1005,7 @@ public:
                 bool has_value = false;
 
                 // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 auto st = JsonbDocument::checkAndCreateDocument(l_raw, l_size, &doc);
 
                 for (size_t pi = 0; pi < rdata_columns.size(); ++pi) {
@@ -1184,7 +1184,7 @@ private:
         }
 
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = nullptr;
+        const JsonbDocument* doc = nullptr;
         auto st = JsonbDocument::checkAndCreateDocument(l_raw_str, l_str_size, &doc);
         if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
             null_map[i] = 1;
@@ -1425,7 +1425,7 @@ struct JsonbLengthUtil {
             }
             auto jsonb_value = jsonb_data_column->get_data_at(i);
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-            JsonbDocument* doc = nullptr;
+            const JsonbDocument* doc = nullptr;
             RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(jsonb_value.data,
                                                                   jsonb_value.size, &doc));
             auto find_result = doc->getValue()->findValue(path);
@@ -1547,16 +1547,16 @@ struct JsonbContainsUtil {
                 continue;
             }
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-            JsonbDocument* doc1 = nullptr;
+            const JsonbDocument* doc1 = nullptr;
             RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(jsonb_value1.data,
                                                                   jsonb_value1.size, &doc1));
-            JsonbDocument* doc2 = nullptr;
+            const JsonbDocument* doc2 = nullptr;
             RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(jsonb_value2.data,
                                                                   jsonb_value2.size, &doc2));
 
             auto find_result = doc1->getValue()->findValue(path);
             const auto* value1 = find_result.value;
-            JsonbValue* value2 = doc2->getValue();
+            const JsonbValue* value2 = doc2->getValue();
             if (!value1 || !value2) {
                 null_map->get_data()[i] = 1;
                 res->insert_data(nullptr, 0);
@@ -1622,7 +1622,7 @@ public:
                         }
                     } else {
                         auto jsonb_binary = jsonb_column.get_data_at(index);
-                        JsonbDocument* doc = nullptr;
+                        const JsonbDocument* doc = nullptr;
                         auto st = JsonbDocument::checkAndCreateDocument(jsonb_binary.data,
                                                                         jsonb_binary.size, &doc);
                         if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
@@ -1642,7 +1642,7 @@ public:
 
                     auto index = index_check_const(i, is_const);
                     auto jsonb_binary = jsonb_column.get_data_at(index);
-                    JsonbDocument* doc = nullptr;
+                    const JsonbDocument* doc = nullptr;
                     auto st = JsonbDocument::checkAndCreateDocument(jsonb_binary.data,
                                                                     jsonb_binary.size, &doc);
                     if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
@@ -1726,7 +1726,7 @@ public:
             }
 
             auto value_string = value_col.get_data_at(index);
-            JsonbDocument* doc = nullptr;
+            const JsonbDocument* doc = nullptr;
             RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(value_string.data,
                                                                   value_string.size, &doc));
             writer.writeValue(doc->getValue());
@@ -1956,10 +1956,10 @@ public:
             }
         }
 
-        DorisVector<JsonbDocument*> json_documents(input_rows_count);
+        DorisVector<const JsonbDocument*> json_documents(input_rows_count);
         if (json_data_const) {
             auto json_data_string = json_data_column->get_data_at(0);
-            JsonbDocument* doc = nullptr;
+            const JsonbDocument* doc = nullptr;
             RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(json_data_string.data,
                                                                   json_data_string.size, &doc));
             if (!doc || !doc->getValue()) [[unlikely]] {
@@ -1977,7 +1977,7 @@ public:
                 }
 
                 auto json_data_string = json_data_column->get_data_at(i);
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(json_data_string.data,
                                                                       json_data_string.size, &doc));
                 if (!doc || !doc->getValue()) [[unlikely]] {
@@ -1989,7 +1989,7 @@ public:
         }
 
         DorisVector<DorisVector<JsonbPath>> json_paths(keys_count);
-        DorisVector<DorisVector<JsonbValue*>> json_values(keys_count);
+        DorisVector<DorisVector<const JsonbValue*>> json_values(keys_count);
 
         RETURN_IF_ERROR(parse_paths_and_values(json_paths, json_values, arguments, input_rows_count,
                                                json_path_columns, json_path_constant,
@@ -2115,7 +2115,7 @@ public:
             if (!null_map[row_idx]) {
                 auto* ptr = res_chars.data() + res_offsets[row_idx - 1];
                 auto size = res_offsets[row_idx] - res_offsets[row_idx - 1];
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(
                         reinterpret_cast<const char*>(ptr), size, &doc));
             }
@@ -2272,7 +2272,7 @@ public:
     }
 
     Status parse_paths_and_values(DorisVector<DorisVector<JsonbPath>>& json_paths,
-                                  DorisVector<DorisVector<JsonbValue*>>& json_values,
+                                  DorisVector<DorisVector<const JsonbValue*>>& json_values,
                                   const ColumnNumbers& arguments, const size_t input_rows_count,
                                   const std::vector<const ColumnString*>& json_path_columns,
                                   const std::vector<bool>& json_path_constant,
@@ -2316,7 +2316,7 @@ public:
                 }
 
                 auto value_string = value_column->get_data_at(row_idx);
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(value_string.data,
                                                                       value_string.size, &doc));
                 if (doc) {
@@ -2477,7 +2477,7 @@ private:
                 continue;
             }
             const auto& json_doc_str = col_json_string(i);
-            JsonbDocument* json_doc = nullptr;
+            const JsonbDocument* json_doc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(json_doc_str.data, json_doc_str.size,
                                                             &json_doc);
             if (!st.ok()) {
@@ -2810,7 +2810,7 @@ public:
 
             // Parse JSON document
             const auto& json_data = json_data_column->get_data_at(json_idx);
-            JsonbDocument* json_doc = nullptr;
+            const JsonbDocument* json_doc = nullptr;
             Status parse_status = JsonbDocument::checkAndCreateDocument(json_data.data,
                                                                         json_data.size, &json_doc);
 
@@ -2889,7 +2889,7 @@ public:
                            writer_output->getSize());
                     tmp_buffer.size = writer_output->getSize();
 
-                    JsonbDocument* new_doc = nullptr;
+                    const JsonbDocument* new_doc = nullptr;
                     RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(
                             tmp_buffer.ptr.get(), tmp_buffer.size, &new_doc));
 
@@ -2897,7 +2897,7 @@ public:
                 }
             }
 
-            JsonbDocument* modified_doc = nullptr;
+            const JsonbDocument* modified_doc = nullptr;
             if (current_value != json_doc->getValue()) {
                 RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(
                         tmp_buffer.ptr.get(), tmp_buffer.size, &modified_doc));
@@ -3070,7 +3070,7 @@ public:
                 result_data_col.insert_default();
                 continue;
             }
-            JsonbDocument* json_doc = nullptr;
+            const JsonbDocument* json_doc = nullptr;
             const auto& json_str = json_column->get_data_at(i);
             RETURN_IF_ERROR(
                     JsonbDocument::checkAndCreateDocument(json_str.data, json_str.size, &json_doc));

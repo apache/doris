@@ -37,23 +37,27 @@ suite("test_mysql_connection") { suite ->
     String tempString = jdbcUrlConfig.substring(jdbcUrlConfig.indexOf("jdbc:mysql://") + 13);
     String mysqlHost = tempString.substring(0, tempString.indexOf(":"));
     String mysqlPort = tempString.substring(tempString.indexOf(":") + 1, tempString.indexOf("/"));
-    String cmdDefault = "mysql -uroot -h" + mysqlHost + " -P" + mysqlPort + " -e \"show variables\"";
-    String cmdDisabledSsl = "mysql --ssl-mode=DISABLE -uroot -h" + mysqlHost + " -P" + mysqlPort + " -e \"show variables\"";
-    String cmdSsl12 = "mysql --ssl-mode=REQUIRED -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
-    // client verifies server certificate
-    String cmdv1 = "mysql --ssl-mode=VERIFY_CA --ssl-ca=" + context.config.sslCertificatePath + "/ca.pem -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
-    
-    // two-way ssl auth (client and server both verify their respective certificates)
-    String cmdv2 = "mysql --ssl-mode=VERIFY_CA --ssl-ca=" + context.config.sslCertificatePath + "/ca.pem \
-                    --ssl-cert=" + context.config.sslCertificatePath + "/client-cert.pem \
-                    --ssl-key=" + context.config.sslCertificatePath + "/client-key.pem -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
 
-    // The current mysql-client version of the test environment is 5.7.32, which does not support TLSv1.3, so comment this part.
-    // String cmdSsl13 = "mysql --ssl-mode=REQUIRED -uroot -h" + mysqlHost + " -P" + mysqlPort +  " --tls-version=TLSv1.3 -e \"show variables\"";
-    executeMySQLCommand(cmdDefault);
-    executeMySQLCommand(cmdDisabledSsl);
-    executeMySQLCommand(cmdSsl12);
-    // executeMySQLCommand(cmdSsl13);
-    executeMySQLCommand(cmdv1);
-    executeMySQLCommand(cmdv2);
+    } else {
+        String cmdDefault = "mysql -uroot -h" + mysqlHost + " -P" + mysqlPort + " -e \"show variables\"";
+        String cmdDisabledSsl = "mysql --ssl-mode=DISABLE -uroot -h" + mysqlHost + " -P" + mysqlPort + " -e \"show variables\"";
+        String cmdSsl12 = "mysql --ssl-mode=REQUIRED -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
+        // client verifies server certificate
+        String cmdv1 = "mysql --ssl-mode=VERIFY_CA --ssl-ca=" + context.config.sslCertificatePath + "/ca.pem -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
+        
+        // two-way ssl auth (client and server both verify their respective certificates)
+        String cmdv2 = "mysql --ssl-mode=VERIFY_CA --ssl-ca=" + context.config.sslCertificatePath + "/ca.pem \
+                        --ssl-cert=" + context.config.sslCertificatePath + "/client-cert.pem \
+                        --ssl-key=" + context.config.sslCertificatePath + "/client-key.pem -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
+
+        // The current mysql-client version of the test environment is 5.7.32, which does not support TLSv1.3, so comment this part.
+        // String cmdSsl13 = "mysql --ssl-mode=REQUIRED -uroot -h" + mysqlHost + " -P" + mysqlPort +  " --tls-version=TLSv1.3 -e \"show variables\"";
+        executeMySQLCommand(cmdDefault);
+        executeMySQLCommand(cmdDisabledSsl);
+        executeMySQLCommand(cmdSsl12);
+        // executeMySQLCommand(cmdSsl13);
+        executeMySQLCommand(cmdv1);
+        executeMySQLCommand(cmdv2);
+    }
 }

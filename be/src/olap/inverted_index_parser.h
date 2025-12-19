@@ -45,18 +45,34 @@ enum class InvertedIndexParserType {
 
 using CharFilterMap = std::map<std::string, std::string>;
 
-struct InvertedIndexCtx {
-    std::string custom_analyzer;
-    InvertedIndexParserType parser_type;
+// Configuration for creating analyzer (SRP: only used during analyzer creation)
+// This is typically a stack-allocated temporary object, discarded after use
+struct InvertedIndexAnalyzerConfig {
+    std::string analyzer_name;
+    InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
     std::string parser_mode;
-    std::string support_phrase;
-    CharFilterMap char_filter_map;
     std::string lower_case;
     std::string stop_words;
-    lucene::analysis::Analyzer* analyzer = nullptr;
+    CharFilterMap char_filter_map;
 };
 
-using InvertedIndexCtxSPtr = std::shared_ptr<InvertedIndexCtx>;
+// Runtime context for analyzer
+// Contains only the fields needed at runtime
+struct InvertedIndexAnalyzerCtx {
+    // Used by execute_column path to determine if tokenization should be skipped
+    std::string analyzer_name;
+    InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
+
+    // Used for creating reader and tokenization
+    CharFilterMap char_filter_map;
+    lucene::analysis::Analyzer* analyzer = nullptr;
+
+    // Helper method: returns true if tokenization should be performed
+    bool should_tokenize() const {
+        return !(parser_type == InvertedIndexParserType::PARSER_NONE && analyzer_name.empty());
+    }
+};
+using InvertedIndexAnalyzerCtxSPtr = std::shared_ptr<InvertedIndexAnalyzerCtx>;
 
 const std::string INVERTED_INDEX_PARSER_TRUE = "true";
 const std::string INVERTED_INDEX_PARSER_FALSE = "false";
@@ -97,7 +113,8 @@ const std::string INVERTED_INDEX_PARSER_STOPWORDS_KEY = "stopwords";
 
 const std::string INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY = "dict_compression";
 
-const std::string INVERTED_INDEX_CUSTOM_ANALYZER_KEY = "analyzer";
+const std::string INVERTED_INDEX_ANALYZER_NAME_KEY = "analyzer";
+const std::string INVERTED_INDEX_NORMALIZER_NAME_KEY = "normalizer";
 
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
@@ -138,7 +155,6 @@ std::string get_parser_stopwords_from_properties(
 std::string get_parser_dict_compression_from_properties(
         const std::map<std::string, std::string>& properties);
 
-std::string get_custom_analyzer_string_from_properties(
-        const std::map<std::string, std::string>& properties);
+std::string get_analyzer_name_from_properties(const std::map<std::string, std::string>& properties);
 
 } // namespace doris

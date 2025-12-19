@@ -49,5 +49,5 @@ COPY --from=apache/doris:debug-latest /dorisctl /opt/apache-doris/
 
 WORKDIR /opt/apache-doris
 
-# The last update at: April 29, 2025.
-# The docker image tag is changed to: base-3.0
+# The last update at: December 1, 2025.
+# The docker image tag is changed to: base-5.0

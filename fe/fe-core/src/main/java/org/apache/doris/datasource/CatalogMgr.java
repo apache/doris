@@ -65,6 +65,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -85,7 +86,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
-    private Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog
+            = Maps.newConcurrentMap();
     // this map will be regenerated from idToCatalog, so not need to persist.
     private Map<String, CatalogIf> nameToCatalog = Maps.newConcurrentMap();
 
@@ -759,14 +761,27 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public void registerCatalogRefreshListener(Env env) {
+        int registeredCount = 0;
         for (CatalogIf catalog : idToCatalog.values()) {
             Map<String, String> properties = catalog.getProperties();
             if (properties.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
-                Integer metadataRefreshIntervalSec = Integer.valueOf(properties.get(METADATA_REFRESH_INTERVAL_SEC));
-                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
-                env.getRefreshManager().addToRefreshMap(catalog.getId(), sec);
+                try {
+                    Integer metadataRefreshIntervalSec = Integer.valueOf(properties.get(METADATA_REFRESH_INTERVAL_SEC));
+                    LOG.info("Registering scheduled refresh for catalog {} (id={}), type={}, interval={}s",
+                            catalog.getName(), catalog.getId(), catalog.getType(), metadataRefreshIntervalSec);
+                    Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                    env.getRefreshManager().addToRefreshMap(catalog.getId(), sec);
+                    registeredCount++;
+                } catch (Exception e) {
+                    LOG.warn("Failed to register scheduled refresh for catalog {} (id={}), "
+                            + "invalid {} value: {}",
+                            catalog.getName(), catalog.getId(), METADATA_REFRESH_INTERVAL_SEC,
+                            properties.get(METADATA_REFRESH_INTERVAL_SEC), e);
+                }
             }
         }
+        LOG.info("Finished registering catalog refresh listeners, {} catalogs with scheduled refresh enabled",
+                registeredCount);
     }
 
     @Override
@@ -777,16 +792,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        // After deserializing from Gson, the concurrent map may become a normal map.
-        // So here we reconstruct the concurrent map.
-        Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> newIdToCatalog = Maps.newConcurrentMap();
         Map<String, CatalogIf> newNameToCatalog = Maps.newConcurrentMap();
         for (CatalogIf catalog : idToCatalog.values()) {
             newNameToCatalog.put(catalog.getName(), catalog);
-            newIdToCatalog.put(catalog.getId(), catalog);
             // ATTN: can not call catalog.getProperties() here, because ResourceMgr is not replayed yet.
         }
-        this.idToCatalog = newIdToCatalog;
         this.nameToCatalog = newNameToCatalog;
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
     }

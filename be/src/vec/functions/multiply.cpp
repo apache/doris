@@ -43,6 +43,7 @@ struct MultiplyIntegralImpl {
     using DataTypeA = typename PrimitiveTypeTraits<Type>::DataType;
     using DataTypeB = typename PrimitiveTypeTraits<Type>::DataType;
     static constexpr PrimitiveType ResultType = Type;
+    constexpr static bool need_replace_null_data_to_default = false;
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>(),
@@ -110,6 +111,8 @@ struct MultiplyDecimalImpl {
     static_assert(is_decimal(TypeA) && is_decimal(TypeB));
     static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
                   (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
+
+    constexpr static bool need_replace_null_data_to_default = true;
     using ArgA = typename PrimitiveTypeTraits<TypeA>::ColumnItemType;
     using ArgB = typename PrimitiveTypeTraits<TypeB>::ColumnItemType;
     using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
@@ -464,7 +467,6 @@ struct MultiplyDecimalImpl {
 template <typename Impl>
 class FunctionMultiply : public IFunction {
     static constexpr bool result_is_decimal = Impl::result_is_decimal;
-    mutable bool need_replace_null_data_to_default_ = false;
 
 public:
     static constexpr auto name = "multiply";
@@ -476,7 +478,7 @@ public:
     String get_name() const override { return name; }
 
     bool need_replace_null_data_to_default() const override {
-        return need_replace_null_data_to_default_;
+        return Impl::need_replace_null_data_to_default;
     }
 
     size_t get_number_of_arguments() const override { return 2; }
@@ -486,7 +488,6 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        need_replace_null_data_to_default_ = is_decimal(arguments[0]->get_primitive_type());
         return arguments[0];
     }
 

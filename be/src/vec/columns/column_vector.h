@@ -52,6 +52,11 @@
 
 class SipHash;
 
+namespace doris::pipeline {
+template <int JoinOpType>
+struct ProcessHashTableProbe;
+}
+
 namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
@@ -65,11 +70,15 @@ namespace doris::vectorized {
 template <PrimitiveType T>
 class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64);
+                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64 ||
+                  T == TYPE_TIMESTAMPTZ);
 
 private:
     using Self = ColumnVector;
     friend class COWHelper<IColumn, Self>;
+
+    template <int JoinOpType>
+    friend struct doris::pipeline::ProcessHashTableProbe;
 
     struct less;
     struct greater;
@@ -78,6 +87,7 @@ public:
     using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
     using Container = PaddedPODArray<value_type>;
 
+private:
     ColumnVector() = default;
     explicit ColumnVector(const size_t n) : data(n) {}
     explicit ColumnVector(const size_t n, const value_type x) : data(n, x) {}
@@ -86,6 +96,7 @@ public:
     /// Sugar constructor.
     ColumnVector(std::initializer_list<value_type> il) : data {il} {}
 
+public:
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
@@ -353,7 +364,8 @@ protected:
     // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
     // raise errors for null cell.
     static value_type default_value() {
-        if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2) {
+        if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2 ||
+                      T == PrimitiveType::TYPE_TIMESTAMPTZ) {
             return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE.to_date_int_val();
         } else if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATETIME) {
             return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
@@ -382,6 +394,7 @@ using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
 using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
 using ColumnTime = ColumnVector<TYPE_TIME>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
+using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
 

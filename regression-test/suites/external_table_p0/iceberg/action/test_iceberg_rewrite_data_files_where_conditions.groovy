@@ -71,6 +71,10 @@ suite("test_iceberg_rewrite_data_files_where_conditions", "p0,external,doris,ext
     // Test 1: Rewrite without WHERE condition (baseline - should rewrite files)
     logger.info("Test 1: Rewrite without WHERE condition (baseline)")
     
+    def totalRecordsBaselineBefore = sql """SELECT COUNT(*) FROM ${table_baseline}"""
+    logger.info("Baseline table record count before rewrite: ${totalRecordsBaselineBefore[0][0]}")
+    assertTrue(totalRecordsBaselineBefore[0][0] == 30, "Total record count should be 30 before baseline test")
+    
     def rewriteResultNoWhere = sql """
         ALTER TABLE ${catalog_name}.${db_name}.${table_baseline} 
         EXECUTE rewrite_data_files(
@@ -90,6 +94,7 @@ suite("test_iceberg_rewrite_data_files_where_conditions", "p0,external,doris,ext
     
     // Verify data integrity
     def totalRecords1 = sql """SELECT COUNT(*) FROM ${table_baseline}"""
+    logger.info("Total record count after baseline test: ${totalRecords1[0][0]}")
     assertTrue(totalRecords1[0][0] == 30, "Total record count should be 30 after baseline test")
     
     // Test 2: Rewrite with WHERE condition matching subset of data

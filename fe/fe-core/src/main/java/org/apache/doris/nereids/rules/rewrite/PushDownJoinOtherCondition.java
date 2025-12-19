@@ -37,7 +37,10 @@ import java.util.Set;
  * Push the other join conditions in LogicalJoin to children.
  */
 public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
-    private static final ImmutableList<JoinType> PUSH_DOWN_LEFT_VALID_TYPE = ImmutableList.of(
+    /**
+     * left push support type
+     */
+    public static final ImmutableList<JoinType> PUSH_DOWN_LEFT_VALID_TYPE = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_SEMI_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
@@ -46,7 +49,10 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
             JoinType.CROSS_JOIN
     );
 
-    private static final ImmutableList<JoinType> PUSH_DOWN_RIGHT_VALID_TYPE = ImmutableList.of(
+    /**
+     * right push support type
+     */
+    public static final ImmutableList<JoinType> PUSH_DOWN_RIGHT_VALID_TYPE = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.LEFT_ANTI_JOIN,
@@ -60,7 +66,8 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 // TODO: we may need another rule to handle on true or on false condition
-                .when(join -> !join.getOtherJoinConjuncts().isEmpty() && !join.isMarkJoin())
+                .when(join -> !join.getOtherJoinConjuncts().isEmpty())
+                .when(PushDownJoinOtherCondition::needRewrite)
                 .then(join -> {
                     List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
                     List<Expression> remainingOther = Lists.newArrayList();
@@ -93,7 +100,14 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
                 }).toRule(RuleType.PUSH_DOWN_JOIN_OTHER_CONDITION);
     }
 
-    private boolean allCoveredBy(Expression predicate, Set<Slot> inputSlotSet) {
+    /**
+     * check need rewrite
+     */
+    public static boolean needRewrite(LogicalJoin<Plan, Plan> join) {
+        return !join.isMarkJoin();
+    }
+
+    private static boolean allCoveredBy(Expression predicate, Set<Slot> inputSlotSet) {
         return inputSlotSet.containsAll(predicate.getInputSlots());
     }
 }

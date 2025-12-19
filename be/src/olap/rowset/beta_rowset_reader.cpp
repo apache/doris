@@ -103,6 +103,10 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.remaining_conjunct_roots = _read_context->remaining_conjunct_roots;
     _read_options.common_expr_ctxs_push_down = _read_context->common_expr_ctxs_push_down;
     _read_options.virtual_column_exprs = _read_context->virtual_column_exprs;
+
+    _read_options.all_access_paths = _read_context->all_access_paths;
+    _read_options.predicate_access_paths = _read_context->predicate_access_paths;
+
     _read_options.ann_topn_runtime = _read_context->ann_topn_runtime;
     _read_options.vir_cid_to_idx_in_block = _read_context->vir_cid_to_idx_in_block;
     _read_options.vir_col_idx_to_type = _read_context->vir_col_idx_to_type;
@@ -228,13 +232,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.condition_cache_digest = _read_context->condition_cache_digest;
     }
 
-    _read_options.io_ctx.expiration_time =
-            read_context->ttl_seconds > 0 && _rowset->rowset_meta()->newest_write_timestamp() > 0
-                    ? _rowset->rowset_meta()->newest_write_timestamp() + read_context->ttl_seconds
-                    : 0;
-    if (_read_options.io_ctx.expiration_time <= UnixSeconds()) {
-        _read_options.io_ctx.expiration_time = 0;
-    }
+    _read_options.io_ctx.expiration_time = read_context->ttl_seconds;
 
     bool enable_segment_cache = true;
     auto* state = read_context->runtime_state;

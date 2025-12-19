@@ -31,7 +31,8 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "enable.mapping.varbinary" = "true"
         );"""
 
         sql """use mysql_all_type_test.doris_test"""

@@ -145,7 +145,7 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(output_exprs, _output_exprs_ctxs));
-    RowDescriptor row_desc(tuple_desc(), false);
+    RowDescriptor row_desc(tuple_desc());
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_exprs_ctxs, _runtime_state.get()));
@@ -590,21 +590,12 @@ Status PointQueryExecutor::_output_data() {
         RuntimeState state;
         auto buffer = std::make_shared<PointQueryResultBlockBuffer>(&state);
         // TODO reuse mysql_writer
-        if (_binary_row_format) {
-            vectorized::VMysqlResultWriter<true> mysql_writer(buffer, _reusable->output_exprs(),
-                                                              nullptr);
-            RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
-            _result_block->clear_names();
-            RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
-            RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
-        } else {
-            vectorized::VMysqlResultWriter<false> mysql_writer(buffer, _reusable->output_exprs(),
-                                                               nullptr);
-            RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
-            _result_block->clear_names();
-            RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
-            RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
-        }
+        vectorized::VMysqlResultWriter mysql_writer(buffer, _reusable->output_exprs(), nullptr,
+                                                    _binary_row_format);
+        RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
+        _result_block->clear_names();
+        RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
+        RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
         VLOG_DEBUG << "dump block " << _result_block->dump_data();
     } else {
         _response->set_empty_batch(true);

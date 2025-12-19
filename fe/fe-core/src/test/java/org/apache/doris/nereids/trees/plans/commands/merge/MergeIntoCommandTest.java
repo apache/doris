@@ -34,7 +34,9 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -134,17 +136,18 @@ public class MergeIntoCommandTest {
         MergeIntoCommand command = new MergeIntoCommand(
                 ImmutableList.of("ctl", "db", "tbl"), Optional.of("alias"), Optional.empty(),
                 source, onClause, matchedClauses, notMatchedClauses);
+        UnboundSlot unboundSlot = new UnboundSlot("alias", "__DORIS_DELETE_SIGN__");
 
         Class<?> clazz = Class.forName("org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand");
-        Method generateBranchLabel = clazz.getDeclaredMethod("generateBranchLabel");
+        Method generateBranchLabel = clazz.getDeclaredMethod("generateBranchLabel", NamedExpression.class);
         generateBranchLabel.setAccessible(true);
-        NamedExpression result = (NamedExpression) generateBranchLabel.invoke(command);
+        NamedExpression result = (NamedExpression) generateBranchLabel.invoke(command, unboundSlot);
         Expression matchedLabel = new If(new IntegerLiteral(1), new IntegerLiteral(0),
                 new If(new IntegerLiteral(2), new IntegerLiteral(1), new IntegerLiteral(2)));
         Expression notMatchedLabel = new If(new IntegerLiteral(3), new IntegerLiteral(3),
                 new If(new IntegerLiteral(4), new IntegerLiteral(4), new IntegerLiteral(5)));
-        NamedExpression expected = new UnboundAlias(new If(onClause, matchedLabel, notMatchedLabel),
-                "__DORIS_MERGE_INTO_BRANCH_LABEL__");
+        NamedExpression expected = new UnboundAlias(new If(new Not(new IsNull(unboundSlot)),
+                matchedLabel, notMatchedLabel), "__DORIS_MERGE_INTO_BRANCH_LABEL__");
         Assertions.assertEquals(expected, result);
     }
 
@@ -161,7 +164,7 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT)
         );
 
@@ -202,14 +205,14 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 new Column("c4", PrimitiveType.BIGINT),
                 new Column("c5", PrimitiveType.BIGINT),
                 new Column("c6", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", true, new DefaultValueExprDef("CURRENT_TIMESTAMP"), 1,
-                        null, new HashSet<>())
+                        null, new HashSet<>(), null)
         );
 
         OlapTable olapTable = Mockito.mock(OlapTable.class);
@@ -263,14 +266,14 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 new Column("c4", PrimitiveType.BIGINT),
                 new Column("c5", PrimitiveType.BIGINT),
                 new Column("c6", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", true, new DefaultValueExprDef("CURRENT_TIMESTAMP"), 1,
-                        null, new HashSet<>())
+                        null, new HashSet<>(), null)
         );
 
         OlapTable olapTable = Mockito.mock(OlapTable.class);
@@ -317,14 +320,14 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 new Column("c4", PrimitiveType.BIGINT),
                 new Column("c5", PrimitiveType.BIGINT),
                 new Column("c6", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", true, new DefaultValueExprDef("CURRENT_TIMESTAMP"), 1,
-                        null, new HashSet<>())
+                        null, new HashSet<>(), null)
         );
 
         OlapTable olapTable = Mockito.mock(OlapTable.class);
@@ -371,14 +374,14 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 new Column("c4", PrimitiveType.BIGINT),
                 new Column("c5", PrimitiveType.BIGINT),
                 new Column("c6", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", true, new DefaultValueExprDef("CURRENT_TIMESTAMP"), 1,
-                        null, new HashSet<>())
+                        null, new HashSet<>(), null)
         );
 
         OlapTable olapTable = Mockito.mock(OlapTable.class);
@@ -425,14 +428,14 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 new Column("c4", PrimitiveType.BIGINT),
                 new Column("c5", PrimitiveType.BIGINT),
                 new Column("c6", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", true, new DefaultValueExprDef("CURRENT_TIMESTAMP"), 1,
-                        null, new HashSet<>())
+                        null, new HashSet<>(), null)
         );
 
         OlapTable olapTable = Mockito.mock(OlapTable.class);
@@ -470,7 +473,7 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, "", false, -1),
@@ -510,7 +513,7 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, "", false, -1),
@@ -526,7 +529,7 @@ public class MergeIntoCommandTest {
         Column seqCol = new Column(Column.SEQUENCE_COL, ScalarType.createType(PrimitiveType.BIGINT), false,
                 AggregateType.NONE, false, -1, "default", "",
                 true, null, -1, "", true, new DefaultValueExprDef("CURRENT_TIMESTAMP"), 1,
-                null, new HashSet<>());
+                null, new HashSet<>(), null);
 
         LogicalPlan source = new LogicalEmptyRelation(new RelationId(1), ImmutableList.of());
         Expression onClause = new NullLiteral();
@@ -558,7 +561,7 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, "", false, -1),
@@ -603,7 +606,7 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, "", false, -1),
@@ -643,7 +646,7 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, "", false, -1)
@@ -683,13 +686,13 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, -1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column("c3", PrimitiveType.BIGINT),
                 // auto inc
                 new Column("c4", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, 1, null, "",
                         true, null, -1, "", false, null, 1,
-                        null, new HashSet<>()),
+                        null, new HashSet<>(), null),
                 // null default
                 new Column("c5", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, true, null, ""),
@@ -745,7 +748,7 @@ public class MergeIntoCommandTest {
         Column seqCol = new Column(Column.SEQUENCE_COL, ScalarType.createType(PrimitiveType.DATEV2), false,
                 AggregateType.NONE, false, -1, null, "",
                 true, null, -1, "", false, null, 1,
-                null, new HashSet<>());
+                null, new HashSet<>(), null);
 
         Class<?> clazz = Class.forName("org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand");
         Method generateInsertWithColListProjection = clazz.getDeclaredMethod("generateInsertWithColListProjection",
@@ -838,7 +841,7 @@ public class MergeIntoCommandTest {
                 new Column("c2", ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, -1, "default", "",
                         true, null, -1, "", false, null, 1,
-                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>()),
+                        new GeneratedColumnInfo("cc", new IntLiteral(1)), new HashSet<>(), null),
                 new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
                         AggregateType.NONE, false, "", false, -1)
         );

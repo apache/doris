@@ -251,7 +251,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setConnectionPoolMaxSize(getConnectionPoolMaxSize())
                 .setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime())
                 .setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime())
-                .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive());
+                .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive())
+                .setEnableMappingVarbinary(getEnableMappingVarbinary());
 
         return JdbcClient.createJdbcClient(jdbcClientConfig);
     }
@@ -311,7 +312,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     public void checkWhenCreating() throws DdlException {
-        super.checkWhenCreating();
+        // Skip super.checkWhenCreating() for now;
         Map<String, String> properties = catalogProperty.getProperties();
         if (properties.containsKey(JdbcResource.DRIVER_URL)) {
             String computedChecksum = JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL));

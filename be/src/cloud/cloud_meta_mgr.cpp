@@ -367,6 +367,8 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" index_id={}", req.index_id());
     } else if constexpr (is_any_v<Request, RestoreJobRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
+    } else if constexpr (is_any_v<Request, UpdatePackedFileInfoRequest>) {
+        return fmt::format(" packed_file_path={}", req.packed_file_path());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -388,6 +390,7 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
     static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
     static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
 
+    // Applies only to the current file, and all req are non-const, but passed as const types.
     const_cast<Request&>(req).set_request_ip(BackendOptions::get_be_endpoint());
 
     int retry_times = 0;
@@ -1931,12 +1934,12 @@ void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lo
     }
 }
 
-void CloudMetaMgr::check_table_size_correctness(const RowsetMeta& rs_meta) {
+void CloudMetaMgr::check_table_size_correctness(RowsetMeta& rs_meta) {
     if (!config::enable_table_size_correctness_check) {
         return;
     }
     int64_t total_segment_size = get_segment_file_size(rs_meta);
-    int64_t total_inverted_index_size = get_inverted_index_file_szie(rs_meta);
+    int64_t total_inverted_index_size = get_inverted_index_file_size(rs_meta);
     if (rs_meta.data_disk_size() != total_segment_size ||
         rs_meta.index_disk_size() != total_inverted_index_size ||
         rs_meta.data_disk_size() + rs_meta.index_disk_size() != rs_meta.total_disk_size()) {
@@ -1955,9 +1958,9 @@ void CloudMetaMgr::check_table_size_correctness(const RowsetMeta& rs_meta) {
     }
 }
 
-int64_t CloudMetaMgr::get_segment_file_size(const RowsetMeta& rs_meta) {
+int64_t CloudMetaMgr::get_segment_file_size(RowsetMeta& rs_meta) {
     int64_t total_segment_size = 0;
-    const auto fs = const_cast<RowsetMeta&>(rs_meta).fs();
+    const auto fs = rs_meta.fs();
     if (!fs) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
     }
@@ -1982,9 +1985,9 @@ int64_t CloudMetaMgr::get_segment_file_size(const RowsetMeta& rs_meta) {
     return total_segment_size;
 }
 
-int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
+int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
     int64_t total_inverted_index_size = 0;
-    const auto fs = const_cast<RowsetMeta&>(rs_meta).fs();
+    const auto fs = rs_meta.fs();
     if (!fs) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
     }
@@ -2227,5 +2230,26 @@ Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status
                                         : 3600;
     return Status::OK();
 }
+
+Status CloudMetaMgr::update_packed_file_info(const std::string& packed_file_path,
+                                             const cloud::PackedFileInfoPB& packed_file_info) {
+    VLOG_DEBUG << "Updating meta service for packed file: " << packed_file_path << " with "
+               << packed_file_info.total_slice_num() << " small files"
+               << ", total bytes: " << packed_file_info.total_slice_bytes();
+
+    // Create request
+    cloud::UpdatePackedFileInfoRequest req;
+    cloud::UpdatePackedFileInfoResponse resp;
+
+    // Set required fields
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_packed_file_path(packed_file_path);
+    *req.mutable_packed_file_info() = packed_file_info;
+
+    // Make RPC call using retry pattern
+    return retry_rpc("update packed file info", req, &resp,
+                     &cloud::MetaService_Stub::update_packed_file_info);
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::cloud

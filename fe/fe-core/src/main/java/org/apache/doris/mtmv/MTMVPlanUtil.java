@@ -96,7 +96,6 @@ import javax.annotation.Nullable;
 
 public class MTMVPlanUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVPlanUtil.class);
-
     // The rules should be disabled when generate MTMV cache
     // Because these rules may change the plan structure and cause the plan can not match the mv
     // this is mainly for final CBO phase rewrite, pre RBO phase does not need to consider, because
@@ -111,14 +110,13 @@ public class MTMVPlanUtil {
             RuleType.ELIMINATE_JOIN_BY_UK,
             RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
             RuleType.ELIMINATE_GROUP_BY,
-            RuleType.SALT_JOIN,
-            RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION
+            RuleType.SALT_JOIN
     );
     // The rules should be disabled when run MTMV task
     public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE;
 
     public static ConnectContext createMTMVContext(MTMV mtmv, List<RuleType> disableRules) {
-        ConnectContext ctx = createBasicMvContext(null, disableRules);
+        ConnectContext ctx = createBasicMvContext(null, disableRules, mtmv.getSessionVariables());
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
@@ -131,13 +129,14 @@ public class MTMVPlanUtil {
     }
 
     public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext,
-            List<RuleType> disableRules) {
+            List<RuleType> disableRules, Map<String, String> sessionVariables) {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
         ctx.getState().setInternal(true);
         ctx.setThreadLocalInfo();
+        ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
         // Debug session variable should be disabled when refreshed
         ctx.getSessionVariable().skipDeletePredicate = false;
         ctx.getSessionVariable().skipDeleteBitmap = false;

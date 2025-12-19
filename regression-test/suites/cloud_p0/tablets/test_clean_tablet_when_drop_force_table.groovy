@@ -33,12 +33,45 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
     options.beConfigs += [
         'report_tablet_interval_seconds=1',
         'write_buffer_size=10240',
-        'write_buffer_size_for_agg=10240'
+        'write_buffer_size_for_agg=10240',
+        'sys_log_verbose_modules=task_worker_pool'
     ]
     options.setFeNum(3)
     options.setBeNum(3)
     options.cloudMode = true
     options.enableDebugPoints()
+
+    def checkBeLog = { String beLogPath ->
+        log.info("search be log path: {}", beLogPath)
+        def logFile = new File(beLogPath)
+        assertTrue(logFile.exists(), "BE log file not found: ${beLogPath}")
+        def queueZeroLine = logFile.readLines().find { line ->
+            line =~ /remove task info\. type=DROP, .*queue_size=0/
+        }
+        assertTrue(queueZeroLine != null,
+                "Expected to find log line with queue_size=0 in ${beLogPath}, but none matched.")
+        log.info("found queue_size=0 log line: {}", queueZeroLine)
+    }
+
+    def waitForTabletCacheState = { Collection<Long> tabletIds, boolean expectPresent, long timeoutMs = 60000L, long intervalMs = 2000L ->
+        long start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            boolean conditionMet = tabletIds.every { Long tabletId ->
+                def rows = sql "select tablet_id from information_schema.file_cache_info where tablet_id = ${tabletId}"
+                expectPresent ? !rows.isEmpty() : rows.isEmpty()
+            }
+            if (conditionMet) {
+                return
+            }
+            sleep(intervalMs)
+        }
+        def stillPresent = tabletIds.findAll { Long tabletId -> !(sql "select tablet_id from information_schema.file_cache_info where tablet_id = ${tabletId}").isEmpty() }
+        if (expectPresent) {
+            assertTrue(false, "Tablet cache info never appeared for tablet ids ${stillPresent}")
+        } else {
+            assertTrue(false, "Tablet cache info still exists for tablet ids ${stillPresent}")
+        }
+    }
     
     def testCase = { tableName, waitTime, useDp=false-> 
         def ms = cluster.getAllMetaservices().get(0)
@@ -130,6 +163,8 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
             assertTrue(beforeGetFromBe.containsKey(it.Key))
             assertEquals(beforeGetFromBe[it.Key], it.Value[1])
         }
+        def tabletIds = beforeGetFromFe.keySet()
+        waitForTabletCacheState.call(tabletIds, true, 90000L)
         if (useDp) {
             GetDebugPoint().enableDebugPointForAllBEs("WorkPoolCloudDropTablet.drop_tablet_callback.failed")
         }
@@ -191,6 +226,10 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
             }
         }
 
+        String beLogPath = cluster.getBeByIndex(1).getLogFilePath()
+        checkBeLog(beLogPath)
+
+        waitForTabletCacheState.call(tabletIds, false, 90000L)
     }
 
     docker(options) {

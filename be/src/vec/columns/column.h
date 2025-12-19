@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
@@ -647,6 +648,17 @@ public:
       */
     String dump_structure() const;
 
+    // count how many const column including self
+    int count_const_column() const;
+
+    bool null_map_check() const;
+
+    // const column nested check, eg. const(nullable(...)) is allowed
+    //  const(array(const(...))) is not allowed
+    bool const_nested_check() const;
+
+    Status column_self_check() const;
+
     // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
@@ -748,7 +760,18 @@ ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
     if (raw_type_ptr == nullptr) {
         return nullptr;
     }
-    return typename ColumnType::Ptr(raw_type_ptr);
+    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+}
+
+template <typename ColumnType>
+ColumnType::Ptr cast_to_column(const ColumnPtr& column) {
+    const ColumnType* raw_type_ptr = assert_cast<const ColumnType*>(column.get());
+    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+}
+template <typename ColumnType>
+ColumnType::MutablePtr cast_to_column(MutableColumnPtr column) {
+    ColumnType* raw_type_ptr = assert_cast<ColumnType*>(column.get());
+    return ColumnType::cast_to_column_mutptr(raw_type_ptr);
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

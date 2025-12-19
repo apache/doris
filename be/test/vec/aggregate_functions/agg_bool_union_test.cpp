@@ -26,14 +26,16 @@ struct AggregateFunctionBoolUnionTest : public AggregateFunctiontest {};
 
 TEST_F(AggregateFunctionBoolUnionTest, test_bool_or) {
     {
-        create_agg("bool_or", false, {std::make_shared<DataTypeBool>()});
+        create_agg("bool_or", false, {std::make_shared<DataTypeBool>()},
+                   std::make_shared<DataTypeBool>());
 
         execute(Block({ColumnHelper::create_column_with_name<DataTypeBool>({false, false, true})}),
                 ColumnHelper::create_column_with_name<DataTypeBool>({true}));
     }
 
     {
-        create_agg("boolor_agg", false, {std::make_shared<DataTypeBool>()});
+        create_agg("boolor_agg", false, {std::make_shared<DataTypeBool>()},
+                   std::make_shared<DataTypeBool>());
 
         execute(Block({ColumnHelper::create_column_with_name<DataTypeBool>({true, false, true})}),
                 ColumnHelper::create_column_with_name<DataTypeBool>({true}));
@@ -42,14 +44,16 @@ TEST_F(AggregateFunctionBoolUnionTest, test_bool_or) {
 
 TEST_F(AggregateFunctionBoolUnionTest, test_bool_and) {
     {
-        create_agg("bool_and", false, {std::make_shared<DataTypeBool>()});
+        create_agg("bool_and", false, {std::make_shared<DataTypeBool>()},
+                   std::make_shared<DataTypeBool>());
 
         execute(Block({ColumnHelper::create_column_with_name<DataTypeBool>({true, true})}),
                 ColumnHelper::create_column_with_name<DataTypeBool>({true}));
     }
 
     {
-        create_agg("booland_agg", false, {std::make_shared<DataTypeBool>()});
+        create_agg("booland_agg", false, {std::make_shared<DataTypeBool>()},
+                   std::make_shared<DataTypeBool>());
 
         execute(Block({ColumnHelper::create_column_with_name<DataTypeBool>({true, false, true})}),
                 ColumnHelper::create_column_with_name<DataTypeBool>({false}));
@@ -58,14 +62,16 @@ TEST_F(AggregateFunctionBoolUnionTest, test_bool_and) {
 
 TEST_F(AggregateFunctionBoolUnionTest, test_bool_xor) {
     {
-        create_agg("bool_xor", false, {std::make_shared<DataTypeBool>()});
+        create_agg("bool_xor", false, {std::make_shared<DataTypeBool>()},
+                   std::make_shared<DataTypeBool>());
 
         execute(Block({ColumnHelper::create_column_with_name<DataTypeBool>({true, true, true})}),
                 ColumnHelper::create_column_with_name<DataTypeBool>({false}));
     }
 
     {
-        create_agg("boolxor_agg", false, {std::make_shared<DataTypeBool>()});
+        create_agg("boolxor_agg", false, {std::make_shared<DataTypeBool>()},
+                   std::make_shared<DataTypeBool>());
 
         execute(Block({ColumnHelper::create_column_with_name<DataTypeBool>({true, false, false})}),
                 ColumnHelper::create_column_with_name<DataTypeBool>({true}));

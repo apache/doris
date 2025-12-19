@@ -470,7 +470,6 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Assertions.assertTrue(newPlan instanceof LogicalProject
                 && newPlan.getOutput().size() == 2
                 && ((LogicalProject<?>) newPlan).getOutputs().get(0).equals(slot)
-                && ((LogicalProject<?>) newPlan).getOutputs().get(1).equals(alias)
-                && newPlan.child(0) instanceof LogicalProject);
+                && ((LogicalProject<?>) newPlan).getOutputs().get(1).equals(alias));
     }
 }

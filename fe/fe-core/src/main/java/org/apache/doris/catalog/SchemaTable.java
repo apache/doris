@@ -595,6 +595,14 @@ public class SchemaTable extends Table {
                                     .column("PROPERTY_VALUE", ScalarType.createStringType())
                                     .build())
             )
+            .put("database_properties",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "database_properties", TableType.SCHEMA,
+                            builder().column("CATALOG_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("SCHEMA_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("PROPERTY_NAME", ScalarType.createStringType())
+                                    .column("PROPERTY_VALUE", ScalarType.createStringType())
+                                    .build())
+            )
             .put("workload_group_resource_usage",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_group_resource_usage", TableType.SCHEMA,
                             builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))

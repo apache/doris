@@ -139,6 +139,7 @@ FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offs
     ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
     ctx.expiration_time = _expiration_time;
     ctx.is_cold_data = _is_cold_data;
+    ctx.tablet_id = tablet_id;
     ReadStatistics stats;
     ctx.stats = &stats;
     auto holder = _cache->get_or_set(_cache_hash, offset, size, ctx);
@@ -199,6 +200,10 @@ std::optional<int64_t> get_tablet_id(std::string file_path) {
     std::string_view data_prefix = DATA_PREFIX;
     size_t data_pos = path_view.find(data_prefix);
     if (data_pos == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    if (data_prefix.length() + data_pos >= path_view.length()) {
         return std::nullopt;
     }
 

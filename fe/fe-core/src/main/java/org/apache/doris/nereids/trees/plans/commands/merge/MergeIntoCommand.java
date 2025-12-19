@@ -170,7 +170,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
     /**
      * generate a branch number column to indicate this row matched witch branch
      */
-    private NamedExpression generateBranchLabel() {
+    private NamedExpression generateBranchLabel(NamedExpression deleteSign) {
         Expression matchedLabel = new NullLiteral(IntegerType.INSTANCE);
         for (int i = matchedClauses.size() - 1; i >= 0; i--) {
             MergeMatchedClause clause = matchedClauses.get(i);
@@ -197,7 +197,8 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                 notMatchedLabel = currentResult;
             }
         }
-        return new UnboundAlias(new If(onClause, matchedLabel, notMatchedLabel), BRANCH_LABEL);
+        return new UnboundAlias(new If(new Not(new IsNull(deleteSign)),
+                matchedLabel, notMatchedLabel), BRANCH_LABEL);
     }
 
     private List<Expression> generateDeleteProjection(List<Column> columns) {
@@ -267,9 +268,8 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
             Optional<Column> seqMappingColInTable, Optional<Type> seqColType) {
         ImmutableList.Builder<Expression> builder = ImmutableList.builder();
         if (hasSequenceCol && seqColumnIndex < 0) {
-            if ((!seqMappingColInTable.isPresent() || seqMappingColInTable.get().getDefaultValue() == null
-                    || !seqMappingColInTable.get().getDefaultValue()
-                    .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP))) {
+            if (!seqMappingColInTable.isPresent() || seqMappingColInTable.get().getDefaultValue() == null
+                    || !DefaultValue.isCurrentTimeStampDefaultValue(seqMappingColInTable.get().getDefaultValue())) {
                 throw new AnalysisException("Table " + targetTable.getName()
                         + " has sequence column, need to specify the sequence column");
             }
@@ -330,8 +330,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
             }
             if (!colNameToExpression.containsKey(seqColumnName)
                     && (!seqMappingColInTable.isPresent() || seqMappingColInTable.get().getDefaultValue() == null
-                    || !seqMappingColInTable.get().getDefaultValue()
-                    .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP))) {
+                    || !DefaultValue.isCurrentTimeStampDefaultValue(seqMappingColInTable.get().getDefaultValue()))) {
                 throw new AnalysisException("Table " + targetTable.getName()
                         + " has sequence column, need to specify the sequence column");
             }
@@ -462,11 +461,11 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
         // generate a project to add delete sign, seq column, label and mark
         ImmutableList.Builder<NamedExpression> outputProjections = ImmutableList.builder();
         outputProjections.add(new UnboundStar(ImmutableList.of()));
-        outputProjections.add(generateBranchLabel());
         List<String> targetDeleteSignNameParts = Lists.newArrayList(targetNameInPlan);
         targetDeleteSignNameParts.add(Column.DELETE_SIGN);
         NamedExpression deleteSign = new UnboundSlot(targetDeleteSignNameParts);
         outputProjections.add(deleteSign);
+        outputProjections.add(generateBranchLabel(deleteSign));
         if (hasSequenceCol) {
             List<String> targetSeqColNameParts = Lists.newArrayList(targetNameInPlan);
             targetSeqColNameParts.add(Column.SEQUENCE_COL);

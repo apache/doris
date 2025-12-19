@@ -207,7 +207,7 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         // The blockId must be base64 encoded
         s3_put_rate_limit([&]() {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-            client.StageBlock(base64_encode_part_num(part_num), memory_body);
+            return client.StageBlock(base64_encode_part_num(part_num), memory_body);
         });
     } catch (Azure::Core::RequestFailedException& e) {
         auto msg = fmt::format(

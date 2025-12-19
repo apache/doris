@@ -394,18 +394,18 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (`timestamp0` > '2022-01-01 00:00:00')"
         }
         explain {
-            sql ("select k6, k8 from test1 where nvl(k6, 1) = 1;")
+            sql ("select k6, k8 from test1 where nvl(k6, 1) = k6;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, 1) = 1))"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, 1) = `k6`))"
         }
         explain {
-            sql ("select k6, k8 from test1 where nvl(nvl(k6, 1), 1) = 1;")
+            sql ("select k6, k8 from test1 where nvl(k6, nvl(k6, 1)) = k6;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, 1) = 1))"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, ifnull(`k6`, 1)) = `k6`))"
         }
         sql """ set enable_ext_func_pred_pushdown = "false"; """
         explain {
-            sql ("select k6, k8 from test1 where nvl(k6, 1) = 1 and k8 = 1;")
+            sql ("select k6, k8 from test1 where nvl(k6, 1) = k6 and k8 = 1;")
 
             contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((`k8` = 1))"
         }

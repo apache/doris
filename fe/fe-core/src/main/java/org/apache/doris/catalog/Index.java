@@ -25,7 +25,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TIndexType;
@@ -80,7 +79,8 @@ public class Index implements Writable {
             if (this.properties != null && !this.properties.isEmpty()) {
                 if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
                         || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY)) {
+                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
+                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY)) {
                     String supportPhraseKey = InvertedIndexUtil
                             .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
                     if (!this.properties.containsKey(supportPhraseKey)) {
@@ -189,12 +189,14 @@ public class Index implements Writable {
 
     // Whether the index can be changed in light mode
     public boolean isLightIndexChangeSupported() {
-        return indexType == IndexDefinition.IndexType.INVERTED || indexType == IndexType.NGRAM_BF;
+        return indexType == IndexDefinition.IndexType.INVERTED
+                || indexType == IndexDefinition.IndexType.NGRAM_BF
+                || indexType == IndexDefinition.IndexType.ANN;
     }
 
     // Whether the index can be added in light mode
     // cloud mode supports light add for ngram_bf index and non-tokenized inverted index (parser="none")
-    // local mode supports light add for both inverted index and ngram_bf index
+    // local mode supports light add for inverted index, ann index and ngram_bf index
     // the rest of the index types do not support light add
     public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
         if (Config.isCloudMode()) {
@@ -206,11 +208,11 @@ public class Index implements Writable {
             return false;
         }
         return (indexType == IndexDefinition.IndexType.NGRAM_BF && enableAddIndexForNewData)
-                || (indexType == IndexDefinition.IndexType.INVERTED);
+                || (indexType == IndexDefinition.IndexType.INVERTED) || (indexType == IndexDefinition.IndexType.ANN);
     }
 
-    public String getInvertedIndexCustomAnalyzer() {
-        return InvertedIndexUtil.getInvertedIndexCustomAnalyzer(properties);
+    public String getInvertedIndexAnalyzerName() {
+        return InvertedIndexUtil.getInvertedIndexAnalyzerName(properties);
     }
 
     public String getComment() {
@@ -381,11 +383,16 @@ public class Index implements Writable {
         }
     }
 
+    /**
+     * Returns whether this index is an analyzed inverted index,
+     * i.e. an inverted index with parser/analyzer/normalizer properties.
+     */
     public boolean isAnalyzedInvertedIndex() {
         return indexType == IndexDefinition.IndexType.INVERTED
                 && properties != null
                 && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY));
     }
 }

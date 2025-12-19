@@ -224,8 +224,7 @@ public:
      * number_filters(4) | length(4) | column_name | op(4) | scale(4) | num_values(4) | value_length(4) | value | ...
      * Then, pass the byte array address in configuration map, like "push_down_predicates=${address}"
      */
-    Status init(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init();
 
     /**
      * Call java side function JniScanner.getNextBatchMeta. The columns information are stored as long array:
@@ -256,6 +255,14 @@ public:
      * Close scanner and release jni resources.
      */
     Status close();
+
+    /**
+     * Set column name to block index map from FileScanner to avoid repeated map creation.
+     */
+    void set_col_name_to_block_idx(
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        _col_name_to_block_idx = col_name_to_block_idx;
+    }
 
     static std::string get_jni_type(const DataTypePtr& data_type);
     static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
@@ -319,6 +326,9 @@ private:
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates;
 
+    // Column name to block index map, passed from FileScanner to avoid repeated map creation
+    const std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
+
     /**
      * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta
      */
@@ -363,9 +373,6 @@ private:
     static long _get_fixed_length_column_address(const IColumn& doris_column) {
         return (long)assert_cast<const COLUMN_TYPE&>(doris_column).get_data().data();
     }
-
-    void _generate_predicates(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     template <PrimitiveType primitive_type>
     void _parse_value_range(const ColumnValueRange<primitive_type>& col_val_range,

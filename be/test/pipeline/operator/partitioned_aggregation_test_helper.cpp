@@ -97,7 +97,6 @@ TPlanNode PartitionedAggregationTestHelper::create_test_plan_node() {
     fn_child_node.type.types.emplace_back(type_node);
 
     tnode.row_tuples.push_back(0);
-    tnode.nullable_tuples.push_back(false);
 
     return tnode;
 }
@@ -175,7 +174,7 @@ PartitionedAggregationTestHelper::create_operators() {
     auto [source_pipeline, _] = generate_agg_pipeline(source_operator, source_side_sink_operator,
                                                       sink_operator, child_operator);
 
-    RowDescriptor row_desc(runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor row_desc(runtime_state->desc_tbl(), {0});
     child_operator->_row_descriptor = row_desc;
 
     EXPECT_TRUE(sink_operator->set_child(child_operator));

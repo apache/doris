@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -56,7 +57,7 @@ import java.util.List;
  */
 public class Sum0 extends NotNullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecisionForSum,
-        SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct {
+        SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct, NeedSessionVarGuard {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),

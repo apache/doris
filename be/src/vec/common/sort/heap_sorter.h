@@ -49,7 +49,6 @@ public:
     }
 
 private:
-    Status _prepare_sort_descs(Block* block);
     void _do_filter(MergeSortCursorImpl& block, size_t num_rows);
     size_t _data_size = 0;
     size_t _heap_size = 0;

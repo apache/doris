@@ -56,7 +56,9 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/runtime/vcsv_transformer.h"
+#include "vec/runtime/vnative_transformer.h"
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
 #include "vec/sink/vmysql_result_writer.h"
@@ -118,9 +120,10 @@ Status VFileResultWriter::_create_next_file_writer() {
 }
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
+    auto file_type = DORIS_TRY(FileFactory::convert_storage_type(_storage_type));
     _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
-            FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name,
+            file_type, _state->exec_env(), _file_opts->broker_addresses,
+            _file_opts->broker_properties, file_name,
             {
                     .write_file_cache = false,
                     .sync_file_data = false,
@@ -143,6 +146,12 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
         _vfile_writer.reset(new VOrcTransformer(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->orc_schema, {},
                 _output_object_data, _file_opts->orc_compression_type));
+        break;
+    case TFileFormatType::FORMAT_NATIVE:
+        // Doris Native binary format writer with configurable compression.
+        _vfile_writer.reset(new VNativeTransformer(_state, _file_writer_impl.get(),
+                                                   _vec_output_expr_ctxs, _output_object_data,
+                                                   _file_opts->compression_type));
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -201,6 +210,8 @@ std::string VFileResultWriter::_file_format_to_name() {
         return "parquet";
     case TFileFormatType::FORMAT_ORC:
         return "orc";
+    case TFileFormatType::FORMAT_NATIVE:
+        return "native";
     default:
         return "unknown";
     }
@@ -287,6 +298,12 @@ Status VFileResultWriter::_close_file_writer(bool done) {
     return Status::OK();
 }
 
+template <typename SRC>
+void direct_write_to_mysql_result_int(std::string& mysql_rows, const SRC& value) {
+    auto str = CastToString::from_number(value);
+    direct_write_to_mysql_result_string(mysql_rows, str.c_str(), str.size());
+}
+
 Status VFileResultWriter::_send_result() {
     if (_is_result_sent) {
         return Status::OK();
@@ -301,29 +318,30 @@ Status VFileResultWriter::_send_result() {
     // | WriteTimeSec    | Varchar |
     // | WriteSpeedKB    | Varchar |
     // The type of these field should be consistent with types defined in OutFileClause.java of FE.
-    MysqlRowBuffer<> row_buffer;
-    row_buffer.push_int(_file_idx);                         // FileNumber
-    row_buffer.push_bigint(_written_rows_counter->value()); // TotalRows
-    row_buffer.push_bigint(_written_data_bytes->value());   // FileSize
+
+    auto result = std::make_shared<TFetchDataResult>();
+    result->result_batch.rows.resize(1);
+    auto& mysql_output = result->result_batch.rows[0];
+
+    direct_write_to_mysql_result_int(mysql_output, _file_idx);                      // FileNumber
+    direct_write_to_mysql_result_int(mysql_output, _written_rows_counter->value()); // TotalRows
+    direct_write_to_mysql_result_int(mysql_output, _written_data_bytes->value());   // FileSize
     std::string file_url;
     _get_file_url(&file_url);
     std::stringstream ss;
     ss << file_url << "*";
     file_url = ss.str();
-    row_buffer.push_string(file_url.c_str(), file_url.length()); // URL
+    direct_write_to_mysql_result_string(mysql_output, file_url.c_str(),
+                                        file_url.length()); // URL
     double write_time = _file_write_timer->value() / nons_to_second;
     std::string formatted_write_time = fmt::format("{:.3f}", write_time);
-    row_buffer.push_string(formatted_write_time.c_str(),
-                           formatted_write_time.length()); // WriteTimeSec
+    direct_write_to_mysql_result_string(mysql_output, formatted_write_time.c_str(),
+                                        formatted_write_time.length()); // WriteTimeSec
 
     double write_speed = _get_write_speed(_written_data_bytes->value(), _file_write_timer->value());
     std::string formatted_write_speed = fmt::format("{:.2f}", write_speed);
-    row_buffer.push_string(formatted_write_speed.c_str(),
-                           formatted_write_speed.length()); // WriteSpeedKB
-
-    auto result = std::make_shared<TFetchDataResult>();
-    result->result_batch.rows.resize(1);
-    result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
+    direct_write_to_mysql_result_string(mysql_output, formatted_write_speed.c_str(),
+                                        formatted_write_speed.length()); // WriteSpeedKB
 
     std::map<std::string, std::string> attach_infos;
     attach_infos.insert(std::make_pair("FileNumber", std::to_string(_file_idx)));

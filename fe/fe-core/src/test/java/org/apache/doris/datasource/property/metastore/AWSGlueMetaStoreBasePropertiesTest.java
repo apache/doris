@@ -28,7 +28,7 @@ public class AWSGlueMetaStoreBasePropertiesTest {
         Map<String, String> props = new HashMap<>();
         props.put("glue.access_key", "ak");
         props.put("glue.secret_key", "sk");
-        props.put("glue.endpoint", "glue.us-east-1.amazonaws.com");
+        props.put("glue.endpoint", "https://glue.us-east-1.amazonaws.com");
         return props;
     }
 
@@ -103,15 +103,28 @@ public class AWSGlueMetaStoreBasePropertiesTest {
     void testInvalidEndpoint() {
         Map<String, String> props = baseValidProps();
         props.put("glue.endpoint", "http://invalid-endpoint.com");
-        Assertions.assertDoesNotThrow(() -> AWSGlueMetaStoreBaseProperties.of(props));
+        IllegalArgumentException ex = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> AWSGlueMetaStoreBaseProperties.of(props)
+        );
+        Assertions.assertTrue(ex.getMessage().contains("glue.endpoint must use https protocol,please set glue.endpoint to https://..."));
+        props.put("glue.endpoint", "http://glue.us-east-1.amazonaws.com");
+        ex = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> AWSGlueMetaStoreBaseProperties.of(props)
+        );
+        Assertions.assertTrue(ex.getMessage().contains("glue.endpoint must use https protocol,please set glue.endpoint to https://..."));
     }
 
     @Test
     void testExtractRegionFailsWhenPatternMatchesButNoRegion() {
         Map<String, String> props = baseValidProps();
         props.put("glue.endpoint", "glue..amazonaws.com"); // malformed
-        Assertions.assertDoesNotThrow(() -> AWSGlueMetaStoreBaseProperties.of(props)
+        IllegalArgumentException ex = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> AWSGlueMetaStoreBaseProperties.of(props)
         );
+        Assertions.assertTrue(ex.getMessage().contains("glue.endpoint must use https protocol,please set glue.endpoint to https://..."));
     }
 
     @Test

@@ -24,17 +24,16 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -67,6 +66,7 @@ import javax.annotation.Nullable;
  */
 public class PlanTranslatorContext {
     private final ConnectContext connectContext;
+    private final StatementContext statementContext;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
     private DescriptorTable descTable;
@@ -118,16 +118,20 @@ public class PlanTranslatorContext {
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
 
+    /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
+        this.statementContext = ctx.getStatementContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
         this.descTable = new DescriptorTable();
     }
 
+    /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
         this.connectContext = ctx.getConnectContext();
+        this.statementContext = ctx.getStatementContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
@@ -140,6 +144,7 @@ public class PlanTranslatorContext {
     @VisibleForTesting
     public PlanTranslatorContext() {
         this.connectContext = null;
+        this.statementContext = new StatementContext();
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
         IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
@@ -177,6 +182,10 @@ public class PlanTranslatorContext {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public StatementContext getStatementContext() {
+        return statementContext;
     }
 
     public Set<ScanNode> getScanNodeWithUnknownColumnStats() {
@@ -298,30 +307,30 @@ public class PlanTranslatorContext {
         } else {
             slotDescriptor.setCaptionAndNormalize(slotReference.toString());
         }
+        slotDescriptor.setLabel(slotReference.getName());
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
-        SlotRef slotRef;
-        if (slotReference instanceof VirtualSlotReference) {
-            slotRef = new VirtualSlotRef(slotDescriptor);
-            VirtualSlotReference virtualSlot = (VirtualSlotReference) slotReference;
-            slotDescriptor.setColumn(new Column(
-                    virtualSlot.getName(), virtualSlot.getDataType().toCatalogDataType()));
-            slotDescriptor.setLabel(slotReference.getName());
-        } else {
-            slotRef = new SlotRef(slotDescriptor);
-            if (slotReference.hasSubColPath() && slotReference.getOriginalColumn().isPresent()) {
-                slotDescriptor.setSubColLables(slotReference.getSubPath());
-                // use lower case name for variant's root, since backend treat parent column as lower case
-                // see issue: https://github.com/apache/doris/pull/32999/commits
-                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
-                            + "." + String.join(".", slotReference.getSubPath()));
-            }
-        }
-        slotRef.setLabel(slotReference.getName());
+        slotDescriptor.setIsNullable(slotReference.nullable());
+
         if (column.isPresent()) {
             slotDescriptor.setAutoInc(column.get().isAutoInc());
         }
+        if (slotReference.getAllAccessPaths().isPresent()) {
+            slotDescriptor.setAllAccessPaths(slotReference.getAllAccessPaths().get());
+            slotDescriptor.setPredicateAccessPaths(slotReference.getPredicateAccessPaths().get());
+            slotDescriptor.setDisplayAllAccessPaths(slotReference.getDisplayAllAccessPaths().get());
+            slotDescriptor.setDisplayPredicateAccessPaths(slotReference.getDisplayPredicateAccessPaths().get());
+        }
+        SlotRef slotRef;
+        slotRef = new SlotRef(slotDescriptor);
+        slotRef.setLabel(slotReference.getName());
+        if (slotReference.hasSubColPath() && slotReference.getOriginalColumn().isPresent()) {
+            slotDescriptor.setSubColLables(slotReference.getSubPath());
+            // use lower case name for variant's root, since backend treat parent column as lower case
+            // see issue: https://github.com/apache/doris/pull/32999/commits
+            slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
+                    + "." + String.join(".", slotReference.getSubPath()));
+        }
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
-        slotDescriptor.setIsNullable(slotReference.nullable());
         return slotDescriptor;
     }
 

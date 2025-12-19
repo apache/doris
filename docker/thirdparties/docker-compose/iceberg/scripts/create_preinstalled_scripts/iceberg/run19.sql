@@ -364,6 +364,93 @@ VALUES (1, 'z', 0.00),
     (9, 'big', 9999999.99),
     (10, 'null', NULL);
 
+-- =============================================
+-- Time transform partition coverage (day/year/month/hour)
+-- =============================================
+
+-- Day transform by TIMESTAMP
+CREATE TABLE day_partitioned (
+    id BIGINT,
+    name STRING,
+    ts TIMESTAMP
+) USING ICEBERG PARTITIONED BY (day(ts));
+
+INSERT INTO day_partitioned VALUES
+    (1, 'd1', TIMESTAMP '2024-01-15 08:00:00'),
+    (2, 'd2', TIMESTAMP '2024-01-15 12:30:00'),
+    (3, 'd3', TIMESTAMP '2024-01-15 23:59:59'),
+    (4, 'd4', TIMESTAMP '2024-01-16 00:00:00'),
+    (5, 'd5', TIMESTAMP '2024-01-16 10:00:00'),
+    (6, 'd6', TIMESTAMP '2024-02-29 12:00:00'),
+    (7, 'd7', TIMESTAMP '2024-12-31 23:59:59'),
+    (8, 'null', NULL);
+
+-- Year transform by TIMESTAMP
+CREATE TABLE year_partitioned (
+    id BIGINT,
+    name STRING,
+    ts TIMESTAMP
+) USING ICEBERG PARTITIONED BY (year(ts));
+
+INSERT INTO year_partitioned VALUES
+    (1, 'y1', TIMESTAMP '2023-01-01 00:00:00'),
+    (2, 'y2', TIMESTAMP '2023-06-15 12:00:00'),
+    (3, 'y3', TIMESTAMP '2023-12-31 23:59:59'),
+    (4, 'y4', TIMESTAMP '2024-01-01 00:00:00'),
+    (5, 'y5', TIMESTAMP '2024-06-15 12:00:00'),
+    (6, 'y6', TIMESTAMP '2024-12-31 23:59:59'),
+    (7, 'y7', TIMESTAMP '2025-01-01 00:00:00'),
+    (8, 'null', NULL);
+
+-- Month transform by TIMESTAMP
+CREATE TABLE month_partitioned (
+    id BIGINT,
+    name STRING,
+    ts TIMESTAMP
+) USING ICEBERG PARTITIONED BY (month(ts));
+
+INSERT INTO month_partitioned VALUES
+    (1, 'm1', TIMESTAMP '2024-01-01 00:00:00'),
+    (2, 'm2', TIMESTAMP '2024-01-15 12:00:00'),
+    (3, 'm3', TIMESTAMP '2024-01-31 23:59:59'),
+    (4, 'm4', TIMESTAMP '2024-02-01 00:00:00'),
+    (5, 'm5', TIMESTAMP '2024-02-15 12:00:00'),
+    (6, 'm6', TIMESTAMP '2024-02-29 23:59:59'),
+    (7, 'm7', TIMESTAMP '2024-12-01 00:00:00'),
+    (8, 'm8', TIMESTAMP '2024-12-31 23:59:59'),
+    (9, 'null', NULL);
+
+-- Hour transform by TIMESTAMP
+CREATE TABLE hour_partitioned (
+    id BIGINT,
+    name STRING,
+    ts TIMESTAMP
+) USING ICEBERG PARTITIONED BY (hour(ts));
+
+INSERT INTO hour_partitioned VALUES
+    (1, 'h1', TIMESTAMP '2024-01-15 10:00:00'),
+    (2, 'h2', TIMESTAMP '2024-01-15 10:30:00'),
+    (3, 'h3', TIMESTAMP '2024-01-15 10:59:59'),
+    (4, 'h4', TIMESTAMP '2024-01-15 11:00:00'),
+    (5, 'h5', TIMESTAMP '2024-01-15 11:30:00'),
+    (6, 'h6', TIMESTAMP '2024-01-15 23:00:00'),
+    (7, 'h7', TIMESTAMP '2024-01-15 23:59:59'),
+    (8, 'h8', TIMESTAMP '2024-01-16 00:00:00'),
+    (9, 'null', NULL);
+
+-- Create _copy tables for write testing
+CREATE TABLE day_partitioned_copy AS
+SELECT * FROM day_partitioned;
+
+CREATE TABLE year_partitioned_copy AS
+SELECT * FROM year_partitioned;
+
+CREATE TABLE month_partitioned_copy AS
+SELECT * FROM month_partitioned;
+
+CREATE TABLE hour_partitioned_copy AS
+SELECT * FROM hour_partitioned;
+
 -- create table for testing query partitions with snapshot has been expired
 
 CREATE TABLE test_partitions_with_expired_snapshot (

@@ -69,20 +69,17 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
             _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
-    _num_columns = _tablet_schema->num_columns();
     if (partial_update_info != nullptr) {
         _partial_update_mode = partial_update_info->update_mode();
         if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
-            _num_columns = partial_update_info->partial_update_input_columns.size();
             if (partial_update_info->is_schema_contains_auto_inc_column &&
                 !partial_update_info->is_input_columns_contains_auto_inc_column) {
                 _is_partial_update_and_auto_inc = true;
-                _num_columns += 1;
             }
         }
     }
-    // TODO: Support ZOrderComparator in the future
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
+    // TODO: Support ZOrderComparator in the future
     _row_in_blocks = std::make_unique<DorisVector<std::shared_ptr<RowInBlock>>>();
     _load_mem_limit = MemInfo::mem_limit() * config::load_process_max_memory_limit_percent / 100;
 }
@@ -101,12 +98,14 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
     if (_is_partial_update_and_auto_inc) {
         _column_offset.emplace_back(_column_offset.size());
     }
+    _num_columns = _column_offset.size();
 }
 
 void MemTable::_init_agg_functions(const vectorized::Block* block) {
     if (_num_columns > _column_offset.size()) [[unlikely]] {
-        throw std::runtime_error(fmt::format("num_columns {} is greater than block columns {}",
-                                             _num_columns, _column_offset.size()));
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "num_columns {} is greater than block columns {}", _num_columns,
+                               _column_offset.size());
     }
     for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         vectorized::AggregateFunctionPtr function;
@@ -115,13 +114,13 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             // the aggregate function manually.
             if (_skip_bitmap_col_idx != cid) {
                 function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                        "replace_load", {block->get_data_type(cid)},
+                        "replace_load", {block->get_data_type(cid)}, block->get_data_type(cid),
                         block->get_data_type(cid)->is_nullable(),
                         BeExecVersionManager::get_newest_version());
             } else {
                 function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                        "bitmap_intersect", {block->get_data_type(cid)}, false,
-                        BeExecVersionManager::get_newest_version());
+                        "bitmap_intersect", {block->get_data_type(cid)}, block->get_data_type(cid),
+                        false, BeExecVersionManager::get_newest_version());
             }
         } else {
             function = _tablet_schema->column(cid).get_aggregate_function(

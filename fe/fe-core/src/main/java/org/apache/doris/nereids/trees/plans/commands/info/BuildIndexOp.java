@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -143,7 +141,15 @@ public class BuildIndexOp extends AlterTableOp {
             throw new AnalysisException(indexType + " index is not needed to build.");
         }
 
-        indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);
+        if (indexType == IndexDefinition.IndexType.ANN) {
+            List<String> columns = existedIdx.getColumns();
+            Map<String, String> properties = existedIdx.getProperties();
+            String comment = existedIdx.getComment();
+            indexDef = new IndexDefinition(indexName, false, columns, "ANN", properties, comment);
+        } else {
+            indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);
+        }
+
         if (!table.isPartitionedTable()) {
             List<String> specifiedPartitions = indexDef.getPartitionNames();
             if (!specifiedPartitions.isEmpty()) {
@@ -151,18 +157,9 @@ public class BuildIndexOp extends AlterTableOp {
                         + " is not partitioned, cannot build index with partitions.");
             }
         }
-        if (indexDef.getIndexType() == IndexType.ANN) {
-            throw new AnalysisException(
-                    "ANN index can only be created during table creation, not through BUILD INDEX.");
-        }
+
         indexDef.validate();
         this.index = existedIdx.clone();
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        indexDef.getIndexType();
-        return new BuildIndexClause(tableName, indexDef, index, alter);
     }
 
     @Override

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.constants;
 
 public class RemoteDorisProperties {
+    public static final String FE_THRIFT_HOSTS = "fe_thrift_hosts";
     public static final String FE_HTTP_HOSTS = "fe_http_hosts";
     public static final String FE_ARROW_HOSTS = "fe_arrow_hosts";
 
@@ -25,6 +26,9 @@ public class RemoteDorisProperties {
     public static final String PASSWORD = "password";
 
     public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
+
+    // query remote doris use arrow flight or treat it as olap table
+    public static final String USE_ARROW_FLIGHT = "use_arrow_flight";
 
     // Supports older versions of remote Doris; enabling this may introduce some inaccuracies in schema parsing.
     public static final String COMPATIBLE = "compatible";

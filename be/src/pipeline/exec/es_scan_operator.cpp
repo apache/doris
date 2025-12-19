@@ -142,10 +142,7 @@ Status EsScanOperatorX::prepare(RuntimeState* state) {
     }
 
     // set up column name vector for ESScrollQueryBuilder
-    for (auto slot_desc : _tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
+    for (auto* slot_desc : _tuple_desc->slots()) {
         _column_names.push_back(slot_desc->col_name());
     }
 

@@ -49,22 +49,22 @@ import java.util.regex.Pattern;
 public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     @Setter
-    @ConnectorProperty(names = {"oss.hdfs.endpoint",
-            "dlf.endpoint", "dlf.catalog.endpoint", "oss.endpoint"},
+    @ConnectorProperty(names = {"oss.hdfs.endpoint", "oss.endpoint",
+            "dlf.endpoint", "dlf.catalog.endpoint"},
             description = "The endpoint of OSS.")
     protected String endpoint = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.access_key", "dlf.access_key", "dlf.catalog.accessKeyId", "oss.access_key"},
+    @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key", "dlf.access_key", "dlf.catalog.accessKeyId"},
             sensitive = true,
             description = "The access key of OSS.")
     protected String accessKey = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.secret_key", "dlf.secret_key", "dlf.catalog.secret_key", "oss.secret_key"},
+    @ConnectorProperty(names = {"oss.hdfs.secret_key", "oss.secret_key", "dlf.secret_key", "dlf.catalog.secret_key"},
             sensitive = true,
             description = "The secret key of OSS.")
     protected String secretKey = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.region", "dlf.region", "oss.region"},
+    @ConnectorProperty(names = {"oss.hdfs.region", "oss.region", "dlf.region"},
             required = false,
             description = "The region of OSS.")
     protected String region;
@@ -86,8 +86,8 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
             description = "The security token of OSS.")
     protected String securityToken = "";
 
-    private static final Set<String> OSS_ENDPOINT_KEY_NAME = ImmutableSet.of("oss.hdfs.endpoint",
-            "dlf.endpoint", "dlf.catalog.endpoint", "oss.endpoint");
+    private static final Set<String> OSS_ENDPOINT_KEY_NAME = ImmutableSet.of("oss.hdfs.endpoint", "oss.endpoint",
+            "dlf.endpoint", "dlf.catalog.endpoint");
 
     private Map<String, String> backendConfigProperties;
 
@@ -111,21 +111,15 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         }
         String endpoint = OSS_ENDPOINT_KEY_NAME.stream()
                 .map(props::get)
-                .filter(StringUtils::isNotBlank)
+                .filter(ep -> StringUtils.isNotBlank(ep) && ep.endsWith(OSS_HDFS_ENDPOINT_SUFFIX))
                 .findFirst()
                 .orElse(null);
-        if (StringUtils.isBlank(endpoint)) {
-            return false;
-        }
-        return endpoint.endsWith(OSS_HDFS_ENDPOINT_SUFFIX) || endpoint.contains(DLF_ENDPOINT_KEY_WORDS);
+        return StringUtils.isNotBlank(endpoint);
     }
 
     @Override
     protected void checkRequiredProperties() {
         super.checkRequiredProperties();
-        if (!isValidEndpoint(endpoint)) {
-            throw new IllegalArgumentException("Property oss.endpoint is required and must be a valid OSS endpoint.");
-        }
     }
 
     private void convertDlfToOssEndpointIfNeeded() {
@@ -145,22 +139,9 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         return Optional.empty();
     }
 
-    public static boolean isValidEndpoint(String endpoint) {
-        for (Pattern pattern : ENDPOINT_PATTERN) {
-            if (pattern.matcher(endpoint.toLowerCase()).matches()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        if (!isValidEndpoint(endpoint.toLowerCase())) {
-            throw new IllegalArgumentException("The endpoint is not a valid OSS HDFS endpoint: " + endpoint
-                    + ". It should match the pattern: <region>.oss-dls.aliyuncs.com");
-        }
         // Extract region from the endpoint, e.g., "cn-shanghai.oss-dls.aliyuncs.com" -> "cn-shanghai"
         if (StringUtils.isBlank(this.region)) {
             Optional<String> regionOptional = extractRegion(endpoint);
@@ -178,8 +159,6 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     }
 
     private static final String OSS_HDFS_ENDPOINT_SUFFIX = ".oss-dls.aliyuncs.com";
-
-    private static final String DLF_ENDPOINT_KEY_WORDS = "dlf";
 
     @Override
     public Map<String, String> getBackendConfigProperties() {

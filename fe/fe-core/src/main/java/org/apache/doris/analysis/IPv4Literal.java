@@ -47,14 +47,14 @@ public class IPv4Literal extends LiteralExpr {
         super();
         this.value = value;
         this.type = Type.IPV4;
-        analysisDone();
+        this.nullable = false;
     }
 
     public IPv4Literal(String value) throws AnalysisException {
         super();
         this.value = parseIPv4toLong(value);
         this.type = Type.IPV4;
-        analysisDone();
+        this.nullable = false;
     }
 
     protected IPv4Literal(IPv4Literal other) {

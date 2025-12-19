@@ -51,9 +51,6 @@ inline bvar::Adder<int64_t> g_segment_estimate_mem_bytes("doris_segment_estimate
 inline bvar::Adder<int64_t> g_column_reader_mem_bytes("doris_column_reader_mem_bytes");
 inline bvar::Adder<int64_t> g_column_reader_num("doris_column_reader_num");
 
-inline bvar::Adder<int64_t> g_bitmap_index_reader_mem_bytes("doris_bitmap_index_reader_mem_bytes");
-inline bvar::Adder<int64_t> g_bitmap_index_reader_num("doris_bitmap_index_reader_num");
-
 inline bvar::Adder<int64_t> g_bloom_filter_index_reader_mem_bytes(
         "doris_bloom_filter_index_reader_mem_bytes");
 inline bvar::Adder<int64_t> g_bloom_filter_index_reader_num("doris_bloom_filter_index_reader_num");
@@ -86,7 +83,6 @@ class TabletSchema;
 namespace segment_v2 {
 class Segment;
 class ColumnReader;
-class BitmapIndexReader;
 class BloomFilterIndexReader;
 class IndexPageReader;
 class IndexedColumnReader;
@@ -129,7 +125,6 @@ public:
 
     static int64_t get_all_segments_size() {
         return g_segment_mem_bytes.get_value() + g_column_reader_mem_bytes.get_value() +
-               g_bitmap_index_reader_mem_bytes.get_value() +
                g_bloom_filter_index_reader_mem_bytes.get_value() +
                g_index_page_reader_mem_bytes.get_value() +
                g_indexed_column_reader_mem_bytes.get_value() +
@@ -249,8 +244,6 @@ void MetadataAdder<T>::add_mem_size(int64_t val) {
         g_segment_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, segment_v2::ColumnReader>) {
         g_column_reader_mem_bytes << val;
-    } else if constexpr (std::is_same_v<T, segment_v2::BitmapIndexReader>) {
-        g_bitmap_index_reader_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, segment_v2::BloomFilterIndexReader>) {
         g_bloom_filter_index_reader_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, segment_v2::IndexPageReader>) {
@@ -290,8 +283,6 @@ void MetadataAdder<T>::add_num(int64_t val) {
         g_segment_num << val;
     } else if constexpr (std::is_same_v<T, segment_v2::ColumnReader>) {
         g_column_reader_num << val;
-    } else if constexpr (std::is_same_v<T, segment_v2::BitmapIndexReader>) {
-        g_bitmap_index_reader_num << val;
     } else if constexpr (std::is_same_v<T, segment_v2::BloomFilterIndexReader>) {
         g_bloom_filter_index_reader_num << val;
     } else if constexpr (std::is_same_v<T, segment_v2::IndexPageReader>) {
@@ -367,13 +358,6 @@ void MetadataAdder<T>::dump_metadata_object(RuntimeProfile* object_heap_dump_sna
             ADD_COUNTER(object_heap_dump_snapshot, "ColumnReaderNum", TUnit::UNIT);
     COUNTER_SET(column_reader_mem_bytes_counter, g_column_reader_mem_bytes.get_value());
     COUNTER_SET(column_reader_num_counter, g_column_reader_num.get_value());
-
-    RuntimeProfile::Counter* bitmap_index_reader_mem_bytes_counter =
-            ADD_COUNTER(object_heap_dump_snapshot, "BitmapIndexReaderMemBytes", TUnit::BYTES);
-    RuntimeProfile::Counter* bitmap_index_reader_num_counter =
-            ADD_COUNTER(object_heap_dump_snapshot, "BitmapIndexReaderNum", TUnit::UNIT);
-    COUNTER_SET(bitmap_index_reader_mem_bytes_counter, g_bitmap_index_reader_mem_bytes.get_value());
-    COUNTER_SET(bitmap_index_reader_num_counter, g_bitmap_index_reader_num.get_value());
 
     RuntimeProfile::Counter* bloom_filter_index_reader_mem_bytes_counter =
             ADD_COUNTER(object_heap_dump_snapshot, "BloomFilterIndexReaderMemBytes", TUnit::BYTES);

@@ -27,6 +27,7 @@ import org.apache.doris.common.plugin.CloudPluginDownloader;
 import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 
 import com.google.common.base.Preconditions;
@@ -134,7 +135,8 @@ public class JdbcResource extends Resource {
             CONNECTION_POOL_MAX_WAIT_TIME,
             CONNECTION_POOL_KEEP_ALIVE,
             TEST_CONNECTION,
-            ExternalCatalog.USE_META_CACHE
+            ExternalCatalog.USE_META_CACHE,
+            CatalogProperty.ENABLE_MAPPING_VARBINARY
     ).build();
 
     // The default value of optional properties
@@ -155,6 +157,7 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(TEST_CONNECTION, "true");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.USE_META_CACHE,
                 String.valueOf(ExternalCatalog.DEFAULT_USE_META_CACHE));
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.

@@ -84,14 +84,14 @@ public class DecimalV3Type extends FractionalType {
             return (DecimalV3Type) dataType;
         }
         if (dataType instanceof DecimalV2Type) {
-            return createDecimalV3Type(
+            return createDecimalV3TypeNotCheck256(
                     ((DecimalV2Type) dataType).getPrecision(), ((DecimalV2Type) dataType).getScale());
         }
         if (FOR_TYPE_MAP.containsKey(dataType)) {
             return FOR_TYPE_MAP.get(dataType);
         }
         if (dataType.isDateTimeV2Type()) {
-            return createDecimalV3Type(14 + ((DateTimeV2Type) dataType).getScale(),
+            return createDecimalV3TypeNotCheck256(14 + ((DateTimeV2Type) dataType).getScale(),
                     ((DateTimeV2Type) dataType).getScale());
         }
         return SYSTEM_DEFAULT;
@@ -100,6 +100,12 @@ public class DecimalV3Type extends FractionalType {
     /** createDecimalV3Type. */
     public static DecimalV3Type createDecimalV3Type(int precision) {
         return createDecimalV3Type(precision, DEFAULT_SCALE);
+    }
+
+    public static DecimalV3Type createDecimalV3Type(BigDecimal bigDecimal) {
+        int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
+        int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
+        return createDecimalV3TypeLooseCheck(precision, scale);
     }
 
     /** createDecimalV3Type. */
@@ -122,10 +128,20 @@ public class DecimalV3Type extends FractionalType {
         }
     }
 
-    public static DecimalV3Type createDecimalV3Type(BigDecimal bigDecimal) {
+    /** createDecimalV3Type. */
+    public static DecimalV3Type createDecimalV3TypeNotCheck256(int precision, int scale) {
+        Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL256_PRECISION,
+                "precision should in (0, " + MAX_DECIMAL256_PRECISION + "], but real precision is " + precision);
+        Preconditions.checkArgument(scale >= 0, "scale should not smaller than 0, but real scale is " + scale);
+        Preconditions.checkArgument(precision >= scale, "precision should not smaller than scale,"
+                + " but precision is " + precision, ", scale is " + scale);
+        return new DecimalV3Type(precision, scale);
+    }
+
+    public static DecimalV3Type createDecimalV3TypeNotCheck256(BigDecimal bigDecimal) {
         int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
         int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
-        return createDecimalV3TypeLooseCheck(precision, scale);
+        return createDecimalV3TypeNotCheck256(precision, scale);
     }
 
     /**

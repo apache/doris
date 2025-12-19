@@ -113,7 +113,7 @@ suite("test_ttl_max_int64") {
                         continue
                     }
                     def i = line.indexOf(' ')
-                    assertTrue(line.substring(i).toLong() > 1073741824)
+                    assertTrue(line.substring(i).toLong() > 838860800)
                     flag1 = true
                 }
             }

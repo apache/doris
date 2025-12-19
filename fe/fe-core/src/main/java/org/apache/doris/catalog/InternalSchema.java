@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
@@ -137,7 +138,7 @@ public class InternalSchema {
         AUDIT_SCHEMA = new ArrayList<>();
         // uuid and time
         AUDIT_SCHEMA.add(new ColumnDef("query_id",
-                ScalarType.createVarchar(48), ColumnNullableType.NULLABLE));
+                ScalarType.createVarchar(Config.label_regex_length), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("time",
                 ScalarType.createDatetimeV2Type(3), ColumnNullableType.NULLABLE));
         // cs info

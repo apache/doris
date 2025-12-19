@@ -17,6 +17,19 @@
 
 suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker_hive") {
     withGlobalLock("cache_last_version_interval_second") {
+        def assertHasCache = { String sqlStr ->
+            explain {
+                sql ("physical plan ${sqlStr}")
+                contains("PhysicalSqlCache")
+            }
+        }
+
+        def assertNoCache = { String sqlStr ->
+            explain {
+                sql ("physical plan ${sqlStr}")
+                notContains("PhysicalSqlCache")
+            }
+        }
         def q01 = {
             qt_q24 """ select name, count(1) as c from student group by name order by c desc;"""
             qt_q25 """ select lo_orderkey, count(1) as c from lineorder group by lo_orderkey order by c desc;"""
@@ -65,9 +78,9 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
 
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
-            "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
-        );"""
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            );"""
             sql """switch ${catalog_name}"""
 
             sql """set enable_fallback_to_original_planner=false"""
@@ -75,30 +88,30 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
             sql """set enable_hive_sql_cache=false"""
 
             def tpch_1sf_q09 = """
-            select
-                nation,
-                o_year,
-                sum(amount) as sum_profit
-            from
-                (
-                    select
-                        n_name as nation,
-                        extract(year from o_orderdate) as o_year,
-                        l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
-                    from
-                            lineitem join[shuffle] orders on o_orderkey = l_orderkey
-                            join[shuffle] partsupp on ps_suppkey = l_suppkey and ps_partkey = l_partkey
-                            join[shuffle] part on p_partkey = l_partkey and p_name like '%green%'
-                            join supplier on s_suppkey = l_suppkey
-                            join nation on s_nationkey = n_nationkey
-                ) as profit
-            group by
-                nation,
-                o_year
-            order by
-                nation,
-                o_year desc;
-        """
+                select
+                    nation,
+                    o_year,
+                    sum(amount) as sum_profit
+                from
+                    (
+                        select
+                            n_name as nation,
+                            extract(year from o_orderdate) as o_year,
+                            l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
+                        from
+                                lineitem join[shuffle] orders on o_orderkey = l_orderkey
+                                join[shuffle] partsupp on ps_suppkey = l_suppkey and ps_partkey = l_partkey
+                                join[shuffle] part on p_partkey = l_partkey and p_name like '%green%'
+                                join supplier on s_suppkey = l_suppkey
+                                join nation on s_nationkey = n_nationkey
+                    ) as profit
+                group by
+                    nation,
+                    o_year
+                order by
+                    nation,
+                    o_year desc;
+            """
 
             // // test sql cache
             sql """admin set frontend config("cache_last_version_interval_second" = "1");"""
@@ -115,7 +128,6 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
             try {
                 sql """set enable_sql_cache=true;"""
                 sql """set enable_hive_sql_cache=true"""
-                sql """set test_query_cache_hit="none";"""
                 sql """select * from lineitem where l_suppkey="abc";""" // non exist l_suppkey;
                 sql """select * from lineitem where l_suppkey="abc";"""
             } catch (java.sql.SQLException t) {
@@ -127,7 +139,6 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
             sql """use `default`"""
             sql """set enable_sql_cache=true;"""
             sql """set enable_hive_sql_cache=true"""
-            sql """set test_query_cache_hit="none";"""
             // 1. first query, because we need to init the schema of table_with_x01 to update the table's update time
             // then sleep 2 seconds to wait longer than Config.cache_last_version_interval_second,
             // so that when doing the second query, we can fill the cache on BE
@@ -136,22 +147,15 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
             // 2. second query is for filling the cache on BE
             qt_sql2 """select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
             // 3. third query, to test cache hit.
-            sql """set test_query_cache_hit="sql";"""
+            assertHasCache """select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
             qt_sql3 """select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
 
             // test not hit
-            try {
-                sql """set enable_sql_cache=true;"""
-                sql """set enable_hive_sql_cache=true"""
-                sql """set test_query_cache_hit="sql";"""
-                def r = UUID.randomUUID().toString();
-                // using a random sql
-                sql """select dt, "${r}" from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
-                assertTrue(1 == 2)
-            } catch (Exception t) {
-                print t.getMessage()
-                assertTrue(t.getMessage().contains("but the query cache is not hit"));
-            }
+            sql """set enable_sql_cache=true;"""
+            sql """set enable_hive_sql_cache=true"""
+            def r = UUID.randomUUID().toString();
+            // using a random sql
+            assertNoCache """select dt, "${r}" from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
         }
     }
 }

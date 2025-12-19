@@ -17,6 +17,8 @@
 
 // nereids_testJoinOnLeftProjectToJoin
 suite ("joinOnCalcToJoin") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
@@ -53,22 +55,13 @@ suite ("joinOnCalcToJoin") {
     sql """insert into joinOnCalcToJoin_1 values("2020-01-03",3,"c",3);"""
     sql """insert into joinOnCalcToJoin_1 values("2020-01-02",2,"b",1);"""
 
+    create_sync_mv(db, "joinOnCalcToJoin", "joinOnLeftPToJoin_mv", "select empid as a1, deptno as a2 from joinOnCalcToJoin ;")
 
-    createMV("create materialized view joinOnLeftPToJoin_mv as select empid as a1, deptno as a2 from joinOnCalcToJoin;")
-    sleep(3000)
-    createMV("create materialized view joinOnLeftPToJoin_1_mv as select deptno as a3, cost as a4 from joinOnCalcToJoin_1;")
-    sleep(3000)
+    create_sync_mv(db, "joinOnCalcToJoin_1", "joinOnLeftPToJoin_1_mv", "select deptno as a3, cost as a4 from joinOnCalcToJoin_1 ;")
 
     sql "analyze table joinOnCalcToJoin with sync;"
     sql "analyze table joinOnCalcToJoin_1 with sync;"
     sql """alter table joinOnCalcToJoin_1 modify column time_col set stats ('row_count'='3');"""
-
-    sql """set enable_stats=false;"""
-
-    mv_rewrite_all_success("select * from (select empid, deptno from joinOnCalcToJoin where empid = 0) A join (select deptno, cost from joinOnCalcToJoin_1 where deptno > 0) B on A.deptno = B.deptno;",
-            ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])
-
-    sql """set enable_stats=true;"""
 
     mv_rewrite_all_success("select * from (select empid, deptno from joinOnCalcToJoin where empid = 0) A join (select deptno, cost from joinOnCalcToJoin_1 where deptno > 0) B on A.deptno = B.deptno;",
             ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])

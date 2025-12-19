@@ -74,6 +74,7 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
 
 AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
                                                        const DataTypes& argument_types,
+                                                       const DataTypePtr& result_type,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr) {
     assert_arity_range(name, argument_types, 1, 2);

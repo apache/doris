@@ -257,7 +257,8 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
         const auto& column = tablet_schema.column(cur_cid);
         if (column.has_default_value()) {
             std::string default_value;
-            if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
+            if (UNLIKELY((column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+                          column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) &&
                          to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
                                  std::string::npos)) {
                 auto pos = to_lower(column.default_value()).find('(');
@@ -265,11 +266,17 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, timezone);
                     default_value = dtv.to_string();
+                    if (column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) {
+                        default_value += timezone;
+                    }
                 } else {
                     int precision = std::stoi(column.default_value().substr(pos + 1));
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
                     default_value = dtv.to_string();
+                    if (column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) {
+                        default_value += timezone;
+                    }
                 }
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
                                 to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
@@ -433,9 +440,12 @@ Status FixedReadPlan::fill_missing_columns(
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto* auto_inc_column =
                             assert_cast<vectorized::ColumnInt64*>(missing_col.get());
-                    auto_inc_column->insert_from(
-                            *block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get(),
-                            idx);
+                    int pos = block->get_position_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL);
+                    if (pos == -1) {
+                        return Status::InternalError("auto increment column not found in block {}",
+                                                     block->dump_structure());
+                    }
+                    auto_inc_column->insert_from(*block->get_by_position(pos).column.get(), idx);
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value

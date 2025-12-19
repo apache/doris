@@ -59,6 +59,7 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 
         /// This will also prevent possible overflow in offset.
         if (keys_column->size() != last_offset) {
+            DCHECK(0);
             throw doris::Exception(
                     doris::ErrorCode::INTERNAL_ERROR,
                     "offsets_column size {} has data inconsistent with key_column {}", last_offset,
@@ -517,7 +518,7 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
             values_column_ = (assert_cast<ColumnNullable&>(*values_column)).get_nested_column_ptr();
         }
 
-        if (ColumnMap* values_map = check_and_get_column<ColumnMap>(values_column_.get())) {
+        if (auto* values_map = check_and_get_column<ColumnMap>(values_column_.get())) {
             RETURN_IF_ERROR(values_map->deduplicate_keys(recursive));
         }
     }

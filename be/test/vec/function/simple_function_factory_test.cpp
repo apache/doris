@@ -64,8 +64,8 @@ class SimpleFunctionFactoryTest : public testing::Test {
 
 TEST_F(SimpleFunctionFactoryTest, test_return_type_check) {
     EXPECT_THROW(SimpleFunctionFactory::instance().get_function(
-                         "be_test_mock", {}, std::make_shared<DataTypeInt64>(),
-                         {.enable_decimal256 = false}, BeExecVersionManager::get_newest_version()),
+                         "be_test_mock", {}, std::make_shared<DataTypeInt64>(), {},
+                         BeExecVersionManager::get_newest_version()),
                  doris::Exception);
 }
 

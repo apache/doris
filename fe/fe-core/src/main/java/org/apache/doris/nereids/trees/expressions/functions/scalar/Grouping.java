@@ -51,7 +51,7 @@ public class Grouping extends GroupingScalarFunction implements UnaryExpression,
     }
 
     @Override
-    public List<Long> computeVirtualSlotValue(GroupingSetShapes shapes) {
+    public List<Long> computeValue(GroupingSetShapes shapes) {
         int index = shapes.indexOf(child());
         return shapes.shapes.stream()
                 .map(groupingSetShape -> computeLongValue(groupingSetShape, index))

@@ -93,6 +93,7 @@
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "runtime/stream_load/stream_load_recorder_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/user_function_cache.h"
 #include "runtime/workload_group/workload_group_manager.h"
@@ -129,6 +130,7 @@
 //  /doris/thirdparty/installed/include/hadoop_hdfs/hdfs.h:61:19: note: expanded from macro 'EINTERNAL'
 //  #define EINTERNAL 255
 #include "io/fs/hdfs/hdfs_mgr.h"
+#include "io/fs/packed_file_manager.h"
 // clang-format on
 
 namespace doris {
@@ -300,7 +302,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _init_runtime_filter_timer_queue();
 
     _workload_group_manager = new WorkloadGroupMgr();
-    _scanner_scheduler = new doris::vectorized::ScannerScheduler();
 
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -354,7 +355,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     }
     _broker_mgr->init();
     static_cast<void>(_small_file_mgr->init());
-    status = _scanner_scheduler->init(this);
     if (!status.ok()) {
         LOG(ERROR) << "Scanner scheduler init failed. " << status;
         return status;
@@ -397,10 +397,21 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return st;
     }
 
+    // should start after storage_engine->open()
+    _stream_load_recorder_manager = new StreamLoadRecorderManager();
+    _stream_load_recorder_manager->start();
+
     // create internal workload group should be after storage_engin->open()
     RETURN_IF_ERROR(_create_internal_workload_group());
     _workload_sched_mgr = new WorkloadSchedPolicyMgr();
     _workload_sched_mgr->start(this);
+
+    // Initialize packed file manager
+    _packed_file_manager = io::PackedFileManager::instance();
+    if (config::is_cloud_mode()) {
+        RETURN_IF_ERROR(_packed_file_manager->init());
+        _packed_file_manager->start_background_manager();
+    }
 
     _index_policy_mgr = new IndexPolicyMgr();
 
@@ -763,13 +774,13 @@ void ExecEnv::destroy() {
     SAFE_STOP(_wal_manager);
     _wal_manager.reset();
     SAFE_STOP(_load_channel_mgr);
-    SAFE_STOP(_scanner_scheduler);
     SAFE_STOP(_broker_mgr);
     SAFE_STOP(_load_path_mgr);
     SAFE_STOP(_result_mgr);
     SAFE_STOP(_group_commit_mgr);
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
+    SAFE_STOP(_stream_load_recorder_manager);
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
     // stop pipline step 2, cgroup execution
@@ -825,8 +836,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_tablet_schema_cache);
     SAFE_DELETE(_tablet_column_object_pool);
 
-    // _scanner_scheduler must be desotried before _storage_page_cache
-    SAFE_DELETE(_scanner_scheduler);
     // _storage_page_cache must be destoried before _cache_manager
     SAFE_DELETE(_storage_page_cache);
 
@@ -837,6 +846,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_file_meta_cache);
     SAFE_DELETE(_group_commit_mgr);
     SAFE_DELETE(_routine_load_task_executor);
+    SAFE_DELETE(_stream_load_recorder_manager);
     // _stream_load_executor
     SAFE_DELETE(_function_client_cache);
     SAFE_DELETE(_streaming_client_cache);
@@ -899,6 +909,11 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_dns_cache);
     SAFE_DELETE(_kerberos_ticket_mgr);
     SAFE_DELETE(_hdfs_mgr);
+    // PackedFileManager is a singleton, just stop its background thread
+    if (_packed_file_manager) {
+        _packed_file_manager->stop_background_manager();
+        _packed_file_manager = nullptr;
+    }
 
     SAFE_DELETE(_process_profile);
     SAFE_DELETE(_heap_profiler);

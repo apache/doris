@@ -58,7 +58,6 @@ public:
     virtual ~Weight() = default;
 
     virtual ScorerPtr scorer(const QueryExecutionContext& context) { return scorer(context, {}); }
-
     virtual ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) {
         (void)binding_key;
         return scorer(context);
@@ -107,31 +106,32 @@ protected:
         return nullptr;
     }
 
-    TermPostingsPtr create_term_posting(lucene::index::IndexReader* reader,
-                                        const std::wstring& field, const std::string& term,
-                                        bool enable_scoring, const io::IOContext* io_ctx) const {
+    SegmentPostingsPtr create_term_posting(lucene::index::IndexReader* reader,
+                                           const std::wstring& field, const std::string& term,
+                                           bool enable_scoring, const io::IOContext* io_ctx) const {
         auto term_wstr = StringHelper::to_wstring(term);
         auto t = make_term_ptr(field.c_str(), term_wstr.c_str());
         auto iter = make_term_doc_ptr(reader, t.get(), enable_scoring, io_ctx);
         if (iter) {
-            return std::make_shared<SegmentPostings<TermDocsPtr>>(std::move(iter));
+            return make_segment_postings(std::move(iter), enable_scoring);
         }
         return nullptr;
     }
 
-    PositionPostingsPtr create_position_posting(lucene::index::IndexReader* reader,
-                                                const std::wstring& field, const std::string& term,
-                                                bool enable_scoring,
-                                                const io::IOContext* io_ctx) const {
+    SegmentPostingsPtr create_position_posting(lucene::index::IndexReader* reader,
+                                               const std::wstring& field, const std::string& term,
+                                               bool enable_scoring,
+                                               const io::IOContext* io_ctx) const {
         auto term_wstr = StringHelper::to_wstring(term);
         auto t = make_term_ptr(field.c_str(), term_wstr.c_str());
         auto iter = make_term_positions_ptr(reader, t.get(), enable_scoring, io_ctx);
         if (iter) {
-            return std::make_shared<SegmentPostings<TermPositionsPtr>>(std::move(iter));
+            return make_segment_postings(std::move(iter), enable_scoring);
         }
         return nullptr;
     }
 };
+
 using WeightPtr = std::shared_ptr<Weight>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

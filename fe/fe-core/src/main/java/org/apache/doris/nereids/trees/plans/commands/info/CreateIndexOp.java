@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -79,18 +77,8 @@ public class CreateIndexOp extends AlterTableOp {
             tableName.analyze(ctx);
         }
 
-        if (indexDef.getIndexType() == IndexDefinition.IndexType.ANN) {
-            throw new AnalysisException(
-                    "ANN index can only be created during table creation, not through CREATE INDEX.");
-        }
-
         indexDef.validate();
         index = indexDef.translateToCatalogStyle();
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new CreateIndexClause(tableName, indexDef, index, alter);
     }
 
     @Override

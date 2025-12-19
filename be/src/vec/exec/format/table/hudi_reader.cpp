@@ -32,7 +32,7 @@ Status HudiReader::get_next_block_inner(Block* block, size_t* read_rows, bool* e
 
 Status HudiParquetReader::init_reader(
         const std::vector<std::string>& read_table_col_names,
-        const std::unordered_map<std::string, ColumnValueRangeType>* table_col_name_to_value_range,
+        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
         const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -47,9 +47,9 @@ Status HudiParquetReader::init_reader(
     RETURN_IF_ERROR(gen_table_info_node_by_field_id(
             _params, _range.table_format_params.hudi_params.schema_id, tuple_descriptor,
             *field_desc));
-    return parquet_reader->init_reader(read_table_col_names, table_col_name_to_value_range,
-                                       conjuncts, tuple_descriptor, row_descriptor,
-                                       colname_to_slot_id, not_single_slot_filter_conjuncts,
+    return parquet_reader->init_reader(read_table_col_names, col_name_to_block_idx, conjuncts,
+                                       tuple_descriptor, row_descriptor, colname_to_slot_id,
+                                       not_single_slot_filter_conjuncts,
                                        slot_id_to_filter_conjuncts, table_info_node_ptr);
 }
 

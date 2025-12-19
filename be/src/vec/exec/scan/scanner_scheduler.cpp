@@ -52,25 +52,6 @@
 
 namespace doris::vectorized {
 
-ScannerScheduler::ScannerScheduler() = default;
-
-ScannerScheduler::~ScannerScheduler() = default;
-
-void ScannerScheduler::stop() {
-    if (!_is_init) {
-        return;
-    }
-
-    _is_closed = true;
-
-    LOG(INFO) << "ScannerScheduler stopped";
-}
-
-Status ScannerScheduler::init(ExecEnv* env) {
-    _is_init = true;
-    return Status::OK();
-}
-
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                                 std::shared_ptr<ScanTask> scan_task) {
     if (ctx->done()) {
@@ -90,7 +71,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     scanner_delegate->_scanner->start_wait_worker_timer();
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
-        SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
         auto work_func = [scanner_ref = scan_task, ctx]() {
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
@@ -105,7 +85,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             return scanner_ref->is_eos();
         };
         SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
-        return scan_sched->submit_scan_task(simple_scan_task);
+        return this->submit_scan_task(simple_scan_task);
     };
 
     Status submit_status = sumbit_task();
@@ -177,6 +157,17 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     max_run_time_watch.start();
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();
+    Defer defer_scanner(
+            [&] { // WorkloadGroup Policy will check cputime realtime, so that should update the counter
+                // as soon as possible, could not update it on close.
+                if (scanner->has_prepared()) {
+                    // Counter update need prepare successfully, or it maybe core. For example, olap scanner
+                    // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
+                    scanner->update_scan_cpu_timer();
+                    scanner->update_realtime_counters();
+                    scanner->start_wait_worker_timer();
+                }
+            });
     Status status = Status::OK();
     bool eos = false;
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
@@ -333,14 +324,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scan_task->set_status(status);
         eos = true;
     }
-    // WorkloadGroup Policy will check cputime realtime, so that should update the counter
-    // as soon as possible, could not update it on close.
-    if (scanner->has_prepared()) {
-        // Counter update need prepare successfully, or it maybe core. For example, olap scanner
-        // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
-        scanner->update_scan_cpu_timer();
-        scanner->update_realtime_counters();
-    }
+
     if (eos) {
         scanner->mark_to_need_to_close();
     }
@@ -354,19 +338,32 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
     ctx->push_back_scan_task(scan_task);
 }
-
-int ScannerScheduler::get_remote_scan_thread_num() {
-    static int remote_max_thread_num = []() {
-        int num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                          ? config::doris_max_remote_scanner_thread_pool_thread_num
-                          : std::max(512, CpuInfo::num_cores() * 10);
-        return std::max(num, config::doris_scanner_thread_pool_thread_num);
-    }();
-    return remote_max_thread_num;
+int ScannerScheduler::default_local_scan_thread_num() {
+    return config::doris_scanner_thread_pool_thread_num > 0
+                   ? config::doris_scanner_thread_pool_thread_num
+                   : std::max(48, CpuInfo::num_cores() * 2);
+}
+int ScannerScheduler::default_remote_scan_thread_num() {
+    int num = config::doris_max_remote_scanner_thread_pool_thread_num > 0
+                      ? config::doris_max_remote_scanner_thread_pool_thread_num
+                      : std::max(512, CpuInfo::num_cores() * 10);
+    return std::max(num, default_local_scan_thread_num());
 }
 
 int ScannerScheduler::get_remote_scan_thread_queue_size() {
     return config::doris_remote_scanner_thread_pool_queue_size;
+}
+
+int ScannerScheduler::default_min_active_scan_threads() {
+    return config::min_active_scan_threads > 0
+                   ? config::min_active_scan_threads
+                   : config::min_active_scan_threads = CpuInfo::num_cores() * 2;
+}
+
+int ScannerScheduler::default_min_active_file_scan_threads() {
+    return config::min_active_file_scan_threads > 0
+                   ? config::min_active_file_scan_threads
+                   : config::min_active_file_scan_threads = CpuInfo::num_cores() * 8;
 }
 
 void ScannerScheduler::_make_sure_virtual_col_is_materialized(

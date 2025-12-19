@@ -251,7 +251,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // datetimev2 needs scale
-    if (type == PrimitiveType::TYPE_DATETIMEV2) {
+    if (type == PrimitiveType::TYPE_DATETIMEV2 || type == PrimitiveType::TYPE_TIMESTAMPTZ) {
         column.set_precision(-1);
         column.set_frac(data_type->get_scale());
         return;
@@ -614,8 +614,7 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     const auto& column_new = new_schema->column(new_col_idx);
     const auto& column_old = old_schema->column(old_col_idx);
 
-    if (column_new.is_bf_column() != column_old.is_bf_column() ||
-        column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+    if (column_new.is_bf_column() != column_old.is_bf_column()) {
         return true;
     }
 
@@ -699,8 +698,10 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
+            auto* variant_column_reader =
+                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            // load external meta before getting stats
+            RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -738,8 +739,10 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
+            auto* variant_column_reader =
+                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            // load external meta before getting stats
+            RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -1417,9 +1420,16 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                 }
 
                 CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-                const auto* subcolumn_meta_info =
-                        assert_cast<VariantColumnReader*>(column_reader.get())
-                                ->get_subcolumns_meta_info();
+                auto* variant_column_reader =
+                        assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+                // load external meta before getting subcolumn meta info
+                st = variant_column_reader->load_external_meta_once();
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed to load external meta for column: " << column->name()
+                                 << " error: " << st.to_string();
+                    continue;
+                }
+                const auto* subcolumn_meta_info = variant_column_reader->get_subcolumns_meta_info();
                 for (const auto& entry : *subcolumn_meta_info) {
                     if (entry->path.empty()) {
                         continue;
