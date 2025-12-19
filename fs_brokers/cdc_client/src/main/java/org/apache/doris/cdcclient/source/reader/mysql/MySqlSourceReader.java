@@ -117,6 +117,7 @@ public class MySqlSourceReader implements SourceReader {
 
     @Override
     public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
+        LOG.info("Get table {} splits for job {}", ftsReq.getSnapshotTable(), ftsReq.getJobId());
         MySqlSourceConfig sourceConfig = getSourceConfig(ftsReq);
         StartupMode startupMode = sourceConfig.getStartupOptions().startupMode;
         List<MySqlSnapshotSplit> remainingSnapshotSplits = new ArrayList<>();
@@ -437,17 +438,55 @@ public class MySqlSourceReader implements SourceReader {
                 new MySqlSnapshotSplitAssigner(
                         sourceConfig, 1, remainingTables, false, new MockSplitEnumeratorContext(1));
         splitAssigner.open();
-        while (true) {
-            Optional<MySqlSplit> mySqlSplit = splitAssigner.getNext();
-            if (mySqlSplit.isPresent()) {
-                MySqlSnapshotSplit snapshotSplit = mySqlSplit.get().asSnapshotSplit();
-                remainingSplits.add(snapshotSplit);
-            } else {
-                break;
+        try {
+            while (true) {
+                Optional<MySqlSplit> mySqlSplit = splitAssigner.getNext();
+                if (mySqlSplit.isPresent()) {
+                    MySqlSnapshotSplit snapshotSplit = mySqlSplit.get().asSnapshotSplit();
+                    remainingSplits.add(snapshotSplit);
+                } else {
+                    break;
+                }
             }
+        } finally {
+            // splitAssigner.close();
+            closeChunkSplitterOnly(splitAssigner);
         }
-        splitAssigner.close();
         return remainingSplits;
+    }
+
+    /**
+     * The JdbcConnectionPools inside MySqlSnapshotSplitAssigner are singletons. Calling
+     * MySqlSnapshotSplitAssigner.close() closes the entire JdbcConnectionPools, which can cause
+     * problems under high concurrency. This only closes the connection of the current
+     * MySqlSnapshotSplitAssigner.
+     */
+    private void closeChunkSplitterOnly(MySqlSnapshotSplitAssigner splitAssigner) {
+        try {
+            // close chunk splitter connection
+            java.lang.reflect.Field field =
+                    MySqlSnapshotSplitAssigner.class.getDeclaredField("chunkSplitter");
+            field.setAccessible(true);
+            Object chunkSplitter = field.get(splitAssigner);
+
+            if (chunkSplitter != null) {
+                java.lang.reflect.Method closeMethod = chunkSplitter.getClass().getMethod("close");
+                closeMethod.invoke(chunkSplitter);
+                LOG.info("Closed chunkSplitter JDBC connection");
+            }
+
+            // close executor service
+            java.lang.reflect.Field executorField =
+                    MySqlSnapshotSplitAssigner.class.getDeclaredField("executor");
+            executorField.setAccessible(true);
+            java.util.concurrent.ExecutorService executor =
+                    (java.util.concurrent.ExecutorService) executorField.get(splitAssigner);
+            if (executor != null) {
+                executor.shutdown();
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to close chunkSplitter via reflection,", e);
+        }
     }
 
     private SplitRecords pollSplitRecordsWithSplit(MySqlSplit split, JobBaseConfig jobConfig)
