@@ -110,7 +110,6 @@ import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
-import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -3721,19 +3720,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
-                int instanceNum = 0;
                 // For single-instance imports (like stream load from FE), we don't need cache either
                 // Only multi-instance imports need to ensure consistent tablet replica information
                 // Coordinator may be null for stream load or other BE-initiated loads
-                if (coordinator instanceof NereidsCoordinator) {
-                    NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
-                    instanceNum = nereidsCoordinator.getCoordinatorContext().instanceNum.get();
-                } else {
-                    Map<String, Integer> beToInstancesNum = coordinator.getBeToInstancesNum();
-                    instanceNum = beToInstancesNum.values().stream()
-                            .mapToInt(Integer::intValue)
-                            .sum();
-                }
+                Map<String, Integer> beToInstancesNum = coordinator.getBeToInstancesNum();
+                int instanceNum = beToInstancesNum.values().stream()
+                        .mapToInt(Integer::intValue)
+                        .sum();
                 if (instanceNum > 1) {
                     needUseCache = true;
                 }
