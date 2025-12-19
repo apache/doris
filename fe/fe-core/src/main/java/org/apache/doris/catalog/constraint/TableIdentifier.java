@@ -56,7 +56,7 @@ public class TableIdentifier {
         }
         TableIf tableIf = databaseIf.getTableNullable(tableId);
         if (tableIf == null) {
-            throw new MetaNotFoundException(String.format("Can not find table %s in constraint", databaseId));
+            throw new MetaNotFoundException(String.format("Can not find table %s in constraint", tableId));
         }
         return tableIf;
     }
