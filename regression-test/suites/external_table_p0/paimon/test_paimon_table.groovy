@@ -91,15 +91,6 @@ suite("test_create_paimon_table", "p0,external,doris,external_docker,external_do
                 properties("primary-key"=c0);
             """
 
-            sql """drop database if exists test_iceberg_meta_cache_db"""
-            sql """create database test_iceberg_meta_cache_db"""
-            sql """
-                CREATE TABLE test_iceberg_meta_cache_db.sales (
-                  id INT,
-                  amount DOUBLE
-                );
-            """
-
             sql """ drop table if exists ${db_name}.test01"""
             sql """ drop table if exists ${db_name}.test02"""
             sql """ drop table if exists ${db_name}.test03"""

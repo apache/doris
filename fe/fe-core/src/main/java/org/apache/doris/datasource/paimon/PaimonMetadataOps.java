@@ -135,8 +135,12 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
+                // Database does not exist and IF EXISTS is specified; treat as no-op.
+                return;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
+                // ErrorReport.reportDdlException is expected to throw DdlException.
+                return;
             }
         }
 
@@ -155,7 +159,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         } catch (DatabaseNotExistException e) {
             throw new RuntimeException("database " + dbName + " does not exist!");
         } catch (DatabaseNotEmptyException e) {
-            throw new RuntimeException("database " + dbName + " does not empty! please check!");
+            throw new RuntimeException("database " + dbName + " is not empty! please check!");
         }
     }
 
