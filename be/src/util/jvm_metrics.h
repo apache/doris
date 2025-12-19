@@ -105,7 +105,7 @@ public:
 class JvmMetrics {
 public:
     JvmMetrics(MetricRegistry* registry, JNIEnv* env);
-    ~JvmMetrics() = default;
+    ~JvmMetrics();
     void update();
 
     IntGauge* jvm_heap_size_bytes_max = nullptr;
