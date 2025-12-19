@@ -177,10 +177,12 @@ Status IcebergTableReader::_equality_delete_base(
             init_schema = true;
         }
         if (auto* parquet_reader = typeid_cast<ParquetReader*>(delete_reader.get())) {
+            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+            std::vector<std::shared_ptr<MutilColumnBlockPredicate>> or_predicates;
             RETURN_IF_ERROR(parquet_reader->init_reader(
-                    equality_delete_col_names, &delete_col_name_to_block_idx, {}, nullptr, nullptr,
-                    nullptr, nullptr, nullptr, TableSchemaChangeHelper::ConstNode::get_instance(),
-                    false));
+                    equality_delete_col_names, &delete_col_name_to_block_idx, {}, tmp,
+                    or_predicates, nullptr, nullptr, nullptr, nullptr, nullptr,
+                    TableSchemaChangeHelper::ConstNode::get_instance(), false));
         } else if (auto* orc_reader = typeid_cast<OrcReader*>(delete_reader.get())) {
             RETURN_IF_ERROR(orc_reader->init_reader(&equality_delete_col_names,
                                                     &delete_col_name_to_block_idx, {}, false, {},
@@ -443,8 +445,11 @@ void IcebergTableReader::_gen_position_delete_file_range(Block& block, DeleteFil
 Status IcebergParquetReader::init_reader(
         const std::vector<std::string>& file_col_names,
         std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-        const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-        const RowDescriptor* row_descriptor,
+        const VExprContextSPtrs& conjuncts,
+        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                slot_id_to_predicates,
+        std::vector<std::shared_ptr<MutilColumnBlockPredicate>>& or_predicates,
+        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
@@ -487,9 +492,10 @@ Status IcebergParquetReader::init_reader(
         }
     }
     return parquet_reader->init_reader(
-            _all_required_col_names, _col_name_to_block_idx, conjuncts, tuple_descriptor,
-            row_descriptor, colname_to_slot_id, not_single_slot_filter_conjuncts,
-            slot_id_to_filter_conjuncts, table_info_node_ptr, true, column_ids, filter_column_ids);
+            _all_required_col_names, _col_name_to_block_idx, conjuncts, slot_id_to_predicates,
+            or_predicates, tuple_descriptor, row_descriptor, colname_to_slot_id,
+            not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts, table_info_node_ptr,
+            true, column_ids, filter_column_ids);
 }
 
 ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
@@ -559,10 +565,12 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
     ParquetReader parquet_delete_reader(_profile, _params, *delete_range,
                                         READ_DELETE_FILE_BATCH_SIZE, &_state->timezone_obj(),
                                         _io_ctx, _state, _meta_cache);
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> or_predicates;
     RETURN_IF_ERROR(parquet_delete_reader.init_reader(
             delete_file_col_names,
             const_cast<std::unordered_map<std::string, uint32_t>*>(&DELETE_COL_NAME_TO_BLOCK_IDX),
-            {}, nullptr, nullptr, nullptr, nullptr, nullptr,
+            {}, tmp, or_predicates, nullptr, nullptr, nullptr, nullptr, nullptr,
             TableSchemaChangeHelper::ConstNode::get_instance(), false));
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
