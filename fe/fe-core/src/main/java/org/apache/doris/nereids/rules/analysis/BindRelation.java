@@ -174,8 +174,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
         }
         LogicalPlan scan;
-        List<String> tableQualifier = RelationUtil.getQualifierName(
-                cascadesContext.getConnectContext(), unboundRelation.getNameParts());
         if (tableName.equalsIgnoreCase(cascadesContext.getCurrentRecursiveCteName().orElse(""))) {
             if (cascadesContext.isAnalyzingRecursiveCteAnchorChild()) {
                 throw new AnalysisException(
@@ -188,8 +186,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
             RecursiveCteTempTable cteTempTable = new RecursiveCteTempTable(tableName, schema.build());
             scan = new LogicalRecursiveCteScan(cascadesContext.getStatementContext().getNextRelationId(),
-                    cteTempTable, tableQualifier);
+                    cteTempTable, unboundRelation.getNameParts());
         } else {
+            List<String> tableQualifier = RelationUtil.getQualifierName(
+                    cascadesContext.getConnectContext(), unboundRelation.getNameParts());
             TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
                     Optional.of(unboundRelation));
 

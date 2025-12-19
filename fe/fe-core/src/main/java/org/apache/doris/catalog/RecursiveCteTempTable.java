@@ -19,10 +19,17 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.SystemIdGenerator;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 public class RecursiveCteTempTable extends Table {
     public RecursiveCteTempTable(String tableName, List<Column> fullSchema) {
         super(SystemIdGenerator.getNextId(), tableName, TableType.RECURSIVE_CTE_TEMP_TABLE, fullSchema);
+    }
+
+    @Override
+    public List<String> getFullQualifiers() {
+        return ImmutableList.of(name);
     }
 }
