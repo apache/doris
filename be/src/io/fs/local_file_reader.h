@@ -35,6 +35,7 @@ struct CachePath;
 namespace doris::io {
 
 struct BeConfDataDirReader {
+    static std::atomic_bool be_config_data_dir_list_inited;
     static std::vector<doris::DataDirInfo> be_config_data_dir_list;
 
     static void get_data_dir_by_file_path(Path* file_path, std::string* data_dir_arg);

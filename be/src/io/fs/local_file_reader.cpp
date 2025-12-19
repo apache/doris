@@ -46,10 +46,13 @@
 namespace doris {
 namespace io {
 
+std::atomic_bool be_config_data_dir_list_inited = false;
+
 std::vector<doris::DataDirInfo> BeConfDataDirReader::be_config_data_dir_list;
 
 void BeConfDataDirReader::get_data_dir_by_file_path(io::Path* file_path,
                                                     std::string* data_dir_arg) {
+    be_config_data_dir_list_inited.wait(false);
     for (const auto& data_dir_info : be_config_data_dir_list) {
         if (data_dir_info.path.size() >= file_path->string().size()) {
             continue;
@@ -96,6 +99,8 @@ void BeConfDataDirReader::init_be_conf_data_dir(
               [](const DataDirInfo& a, const DataDirInfo& b) {
                   return a.path.length() > b.path.length();
               });
+    be_config_data_dir_list_inited.store(true, std::memory_order_release);
+    be_config_data_dir_list_inited.notify_all();
 }
 
 LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd)
