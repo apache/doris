@@ -90,12 +90,6 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK(arguments.size() % 2 == 0)
                 << "function: " << get_name() << ", arguments should not be even number";
-        LOG(INFO) << "[FunctionMap.execute_impl] input_rows_count: " << input_rows_count;
-        for (size_t i = 0; i < arguments.size(); ++i) {
-            auto& col = block.get_by_position(arguments[i]).column;
-            LOG(INFO) << "[FunctionMap.execute_impl] argument " << i
-                      << " column type: " << col->get_name() << " data:" << col->dump_structure();
-        }
         size_t num_element = arguments.size();
 
         auto result_col = block.get_by_position(result).type->create_column();
