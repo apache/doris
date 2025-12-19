@@ -42,7 +42,9 @@ public class JsonbExtractString extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).args(JsonType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).args(JsonType.INSTANCE, StringType.INSTANCE)
+            FunctionSignature.ret(StringType.INSTANCE).args(JsonType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
