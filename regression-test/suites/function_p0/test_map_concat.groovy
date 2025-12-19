@@ -101,7 +101,6 @@ suite("test_map_concat") {
             ) as decimal_values,
             map_concat({'date1': DATE '2023-01-01', 'date2': DATE '2023-12-31'}, 
                       {'timestamp1': TIMESTAMP '2023-01-01 12:00:00'}) as timestamp_values,
-            -- 类型混合测试：兼容类型间的混合
             map_concat(
                 CAST({'int_val': 100} AS MAP<VARCHAR, INT>),
                 CAST({'bigint_val': 200} AS MAP<VARCHAR, BIGINT>)
