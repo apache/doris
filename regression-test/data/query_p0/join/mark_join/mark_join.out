@@ -64,3 +64,11 @@
 8	v3	\N	\N	\N
 9	v4	\N	\N	\N
 10	v5	\N	\N	\N
+
+-- !test_right_semi_mark_join_no_null_3 --
+false
+true
+true
+false
+true
+

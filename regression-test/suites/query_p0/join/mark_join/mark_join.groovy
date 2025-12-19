@@ -282,4 +282,117 @@ suite("mark_join") {
         from
             ${table_tbl3} order by 1,2,3,4,5;
     """
+
+    sql "drop table if exists mark_join_tbl4"
+    sql """
+        CREATE TABLE `mark_join_tbl4` (
+            `key1` int NOT NULL,
+            `key2` int NULL ,
+            `v1` int NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`key1`)
+        DISTRIBUTED BY HASH(`key1`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql "drop table if exists mark_join_tbl5"
+    sql """
+        CREATE TABLE `mark_join_tbl5` (
+            `key1` int NOT NULL,
+            `key2` int NULL ,
+            `v1` int NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`key1`)
+        DISTRIBUTED BY HASH(`key1`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into mark_join_tbl4 values
+            (1, null, 10),
+            (2, 2, 20),
+            (3, 3, 30),
+            (4, null, 40),
+            (5, 5, 50),
+            (6, 6, 60),
+            (7, null, 70),
+            (8, 8, 80),
+            (9, 9, 90),
+            (10, null, 100),
+            (11, 11, 110),
+            (12, null, 120),
+            (13, 13, 130),
+            (14, null, 140),
+            (15, 15, 150),
+            (1, null, 10),
+            (2, 2, 20),
+            (3, 3, 30),
+            (4, null, 40),
+            (5, 5, 50),
+            (6, 6, 60),
+            (7, null, 70),
+            (8, 8, 80),
+            (9, 9, 90),
+            (10, null, 100),
+            (11, 11, 110),
+            (12, null, 120),
+            (13, 13, 130),
+            (14, null, 140),
+            (15, 15, 150),
+            (1, null, 10),
+            (2, 2, 20),
+            (3, 3, 30),
+            (4, null, 40),
+            (5, 5, 50),
+            (6, 6, 60),
+            (7, null, 70),
+            (8, 8, 80),
+            (9, 9, 90),
+            (10, null, 100),
+            (11, 11, 110),
+            (12, null, 120),
+            (13, 13, 130),
+            (14, null, 140),
+            (15, 15, 150),
+            (1, null, 10),
+            (2, 2, 20),
+            (3, 3, 30),
+            (4, null, 40),
+            (5, 5, 50),
+            (6, 6, 60),
+            (7, null, 70),
+            (8, 8, 80),
+            (9, 9, 90),
+            (10, null, 100),
+            (11, 11, 110),
+            (12, null, 120),
+            (13, 13, 130),
+            (14, null, 140),
+            (15, 15, 150);
+    """
+
+    sql """
+        insert into mark_join_tbl5 values
+            (1, null, 10),
+            (2, 2, 20),
+            (3, 3, 30),
+            (4, null, 40),
+            (15, 15, 150);
+    """
+
+    sql "analyze table mark_join_tbl4 with sync;"
+    sql "analyze table mark_join_tbl5 with sync;"
+
+    qt_test_right_semi_mark_join_no_null_3 """
+        select t1.key1 in (
+            select t2.key1
+            from mark_join_tbl4 t2
+            where t1.key2 = t2.key2
+        ) as in_result
+        from mark_join_tbl5 t1 order by t1.key1;
+    """
 }
