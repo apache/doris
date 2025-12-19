@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import org.apache.paimon.catalog.Catalog;
@@ -59,6 +60,7 @@ public class PaimonMetadataOpsTest {
     public static PaimonExternalCatalog paimonCatalog;
     public static PaimonMetadataOps ops;
     public static String dbName = "testdb";
+    public static ConnectContext connectContext;
 
     @BeforeClass
     public static void beforeClass() throws Throwable {
@@ -76,6 +78,10 @@ public class PaimonMetadataOpsTest {
         ops = new PaimonMetadataOps(paimonCatalog, paimonCatalog.catalog);
         ops.createDb(dbName, true, Maps.newHashMap());
         paimonCatalog.makeSureInitialized();
+
+        // context
+        connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
     }
 
     @Test
