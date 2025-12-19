@@ -252,42 +252,44 @@ Status convert(const vectorized::DataTypePtr& data_type, const std::list<std::st
         v.size = sizeof(tmp);                                                                     \
         switch (res.condition_op) {                                                               \
         case PredicateType::EQ:                                                                   \
-            predicate =                                                                           \
-                    create_comparison_predicate0<PredicateType::EQ>(index, type, v, true, arena); \
+            predicate = create_comparison_predicate0<PredicateType::EQ>(index, col_name, type, v, \
+                                                                        true, arena);             \
             return Status::OK();                                                                  \
         case PredicateType::NE:                                                                   \
-            predicate =                                                                           \
-                    create_comparison_predicate0<PredicateType::NE>(index, type, v, true, arena); \
+            predicate = create_comparison_predicate0<PredicateType::NE>(index, col_name, type, v, \
+                                                                        true, arena);             \
             return Status::OK();                                                                  \
         case PredicateType::GT:                                                                   \
-            predicate =                                                                           \
-                    create_comparison_predicate0<PredicateType::GT>(index, type, v, true, arena); \
+            predicate = create_comparison_predicate0<PredicateType::GT>(index, col_name, type, v, \
+                                                                        true, arena);             \
             return Status::OK();                                                                  \
         case PredicateType::GE:                                                                   \
-            predicate =                                                                           \
-                    create_comparison_predicate0<PredicateType::GE>(index, type, v, true, arena); \
+            predicate = create_comparison_predicate0<PredicateType::GE>(index, col_name, type, v, \
+                                                                        true, arena);             \
             return Status::OK();                                                                  \
         case PredicateType::LT:                                                                   \
-            predicate =                                                                           \
-                    create_comparison_predicate0<PredicateType::LT>(index, type, v, true, arena); \
+            predicate = create_comparison_predicate0<PredicateType::LT>(index, col_name, type, v, \
+                                                                        true, arena);             \
             return Status::OK();                                                                  \
         case PredicateType::LE:                                                                   \
-            predicate =                                                                           \
-                    create_comparison_predicate0<PredicateType::LE>(index, type, v, true, arena); \
+            predicate = create_comparison_predicate0<PredicateType::LE>(index, col_name, type, v, \
+                                                                        true, arena);             \
             return Status::OK();                                                                  \
         default:                                                                                  \
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(                                    \
                     "invalid condition operator. operator={}", type_to_op_str(res.condition_op)); \
         }                                                                                         \
     }
-Status parse_to_predicate(const uint32_t index, const vectorized::DataTypePtr& type,
+Status parse_to_predicate(const uint32_t index, const std::string col_name,
+                          const vectorized::DataTypePtr& type,
                           DeleteHandler::ConditionParseResult& res, vectorized::Arena& arena,
                           std::shared_ptr<ColumnPredicate>& predicate) {
     DCHECK_EQ(res.value_str.size(), 1);
     if (res.condition_op == PredicateType::IS_NULL ||
         res.condition_op == PredicateType::IS_NOT_NULL) {
-        predicate = NullPredicate::create_shared(
-                index, res.condition_op == PredicateType::IS_NOT_NULL, type->get_primitive_type());
+        predicate = NullPredicate::create_shared(index, col_name,
+                                                 res.condition_op == PredicateType::IS_NOT_NULL,
+                                                 type->get_primitive_type());
         return Status::OK();
     }
     StringRef v;
@@ -318,28 +320,28 @@ Status parse_to_predicate(const uint32_t index, const vectorized::DataTypePtr& t
         RETURN_IF_ERROR(convert<TYPE_STRING>(type, res.value_str.front(), arena, v));
         switch (res.condition_op) {
         case PredicateType::EQ:
-            predicate =
-                    create_comparison_predicate0<PredicateType::EQ>(index, type, v, true, arena);
+            predicate = create_comparison_predicate0<PredicateType::EQ>(index, col_name, type, v,
+                                                                        true, arena);
             return Status::OK();
         case PredicateType::NE:
-            predicate =
-                    create_comparison_predicate0<PredicateType::NE>(index, type, v, true, arena);
+            predicate = create_comparison_predicate0<PredicateType::NE>(index, col_name, type, v,
+                                                                        true, arena);
             return Status::OK();
         case PredicateType::GT:
-            predicate =
-                    create_comparison_predicate0<PredicateType::GT>(index, type, v, true, arena);
+            predicate = create_comparison_predicate0<PredicateType::GT>(index, col_name, type, v,
+                                                                        true, arena);
             return Status::OK();
         case PredicateType::GE:
-            predicate =
-                    create_comparison_predicate0<PredicateType::GE>(index, type, v, true, arena);
+            predicate = create_comparison_predicate0<PredicateType::GE>(index, col_name, type, v,
+                                                                        true, arena);
             return Status::OK();
         case PredicateType::LT:
-            predicate =
-                    create_comparison_predicate0<PredicateType::LT>(index, type, v, true, arena);
+            predicate = create_comparison_predicate0<PredicateType::LT>(index, col_name, type, v,
+                                                                        true, arena);
             return Status::OK();
         case PredicateType::LE:
-            predicate =
-                    create_comparison_predicate0<PredicateType::LE>(index, type, v, true, arena);
+            predicate = create_comparison_predicate0<PredicateType::LE>(index, col_name, type, v,
+                                                                        true, arena);
             return Status::OK();
         default:
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
@@ -356,7 +358,8 @@ Status parse_to_predicate(const uint32_t index, const vectorized::DataTypePtr& t
 #undef CONVERT_CASE
 }
 
-Status parse_to_in_predicate(const uint32_t index, const vectorized::DataTypePtr& type,
+Status parse_to_in_predicate(const uint32_t index, const std::string& col_name,
+                             const vectorized::DataTypePtr& type,
                              DeleteHandler::ConditionParseResult& res, vectorized::Arena& arena,
                              std::shared_ptr<ColumnPredicate>& predicate) {
     DCHECK_GT(res.value_str.size(), 1);
@@ -364,13 +367,15 @@ Status parse_to_in_predicate(const uint32_t index, const vectorized::DataTypePtr
     case PredicateType::IN_LIST: {
         std::shared_ptr<HybridSetBase> set;
         RETURN_IF_ERROR(convert(type, res.value_str, arena, set));
-        predicate = create_in_list_predicate<PredicateType::IN_LIST>(index, type, set, true);
+        predicate =
+                create_in_list_predicate<PredicateType::IN_LIST>(index, col_name, type, set, true);
         break;
     }
     case PredicateType::NOT_IN_LIST: {
         std::shared_ptr<HybridSetBase> set;
         RETURN_IF_ERROR(convert(type, res.value_str, arena, set));
-        predicate = create_in_list_predicate<PredicateType::NOT_IN_LIST>(index, type, set, true);
+        predicate = create_in_list_predicate<PredicateType::NOT_IN_LIST>(index, col_name, type, set,
+                                                                         true);
         break;
     }
     default:
@@ -741,7 +746,7 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
         const auto& column = complete_schema->column_by_uid(col_unique_id);
         uint32_t index = complete_schema->field_index(col_unique_id);
         std::shared_ptr<ColumnPredicate> predicate;
-        RETURN_IF_ERROR(parse_to_predicate(index, column.get_vec_type(), condition,
+        RETURN_IF_ERROR(parse_to_predicate(index, column.name(), column.get_vec_type(), condition,
                                            _predicate_arena, predicate));
         if (predicate != nullptr) {
             delete_conditions->column_predicate_vec.push_back(predicate);
@@ -800,8 +805,8 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             const auto& column = tablet_schema->column_by_uid(col_unique_id);
             uint32_t index = tablet_schema->field_index(col_unique_id);
             std::shared_ptr<ColumnPredicate> predicate;
-            RETURN_IF_ERROR(parse_to_in_predicate(index, column.get_vec_type(), condition,
-                                                  _predicate_arena, predicate));
+            RETURN_IF_ERROR(parse_to_in_predicate(index, column.name(), column.get_vec_type(),
+                                                  condition, _predicate_arena, predicate));
             temp.column_predicate_vec.push_back(predicate);
         }
 

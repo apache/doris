@@ -83,7 +83,7 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
     std::vector<uint16_t> sel_idx(rows);
@@ -111,9 +111,9 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(col_idx, less_value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(col_idx, "", less_value));
     std::shared_ptr<ColumnPredicate> great_pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::GT>(col_idx, great_value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::GT>(col_idx, "", great_value));
     auto single_less_pred = SingleColumnBlockPredicate::create_unique(less_pred);
     auto single_great_pred = SingleColumnBlockPredicate::create_unique(great_pred);
 
@@ -146,9 +146,9 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(col_idx, less_value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(col_idx, "", less_value));
     std::shared_ptr<ColumnPredicate> great_pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::GT>(col_idx, great_value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::GT>(col_idx, "", great_value));
     auto single_less_pred = SingleColumnBlockPredicate::create_unique(less_pred);
     auto single_great_pred = SingleColumnBlockPredicate::create_unique(great_pred);
 
@@ -181,11 +181,11 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(0, less_value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(0, "", less_value));
     std::shared_ptr<ColumnPredicate> great_pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::GT>(0, great_value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::GT>(0, "", great_value));
     std::shared_ptr<ColumnPredicate> less_pred1(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(0, great_value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(0, "", great_value));
 
     // Test for and or single
     // (column < 5 and column > 3) or column < 3
@@ -248,11 +248,11 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(0, less_value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(0, "", less_value));
     std::shared_ptr<ColumnPredicate> great_pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::GT>(0, great_value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::GT>(0, "", great_value));
     std::shared_ptr<ColumnPredicate> less_pred1(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(0, great_value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(0, "", great_value));
 
     // Test for and or single
     // (column < 5 or column < 3) and column > 3
@@ -305,7 +305,8 @@ void single_column_predicate_test_func(const std::pair<WrapperField*, WrapperFie
                                        typename PrimitiveTypeTraits<T>::CppType check_value,
                                        bool expect_match) {
     int col_idx = 0;
-    std::shared_ptr<ColumnPredicate> pred(new ComparisonPredicateBase<T, PT>(col_idx, check_value));
+    std::shared_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
     bool matched = single_column_block_pred.evaluate_and(statistic);
@@ -1331,7 +1332,8 @@ void single_column_predicate_test_func(const segment_v2::BloomFilter* bf,
                                        typename PrimitiveTypeTraits<T>::CppType check_value,
                                        bool expect_match) {
     int col_idx = 0;
-    std::shared_ptr<ColumnPredicate> pred(new ComparisonPredicateBase<T, PT>(col_idx, check_value));
+    std::shared_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
     bool matched = single_column_block_pred.evaluate_and(bf);
@@ -1388,7 +1390,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
       int value = 5;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
     std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
             std::make_unique<vectorized::FieldSchema>();
@@ -1465,7 +1467,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     int value = 5;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
     std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
             std::make_unique<vectorized::FieldSchema>();
@@ -1534,7 +1536,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     int value = 5;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::GE>(col_idx, value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::GE>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
     std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
             std::make_unique<vectorized::FieldSchema>();
@@ -1603,7 +1605,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     int value = 5;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::LE>(col_idx, value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::LE>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
     std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
             std::make_unique<vectorized::FieldSchema>();
@@ -1675,7 +1677,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         float value = 5.0;
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
                 std::make_unique<vectorized::FieldSchema>();
@@ -1769,7 +1771,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         float value = 5;
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::NE>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::NE>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
                 std::make_unique<vectorized::FieldSchema>();
@@ -1838,7 +1840,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         float value = 5.0;
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::GE>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::GE>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
                 std::make_unique<vectorized::FieldSchema>();
@@ -1907,7 +1909,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         float value = 5.0;
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LE>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LE>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
                 std::make_unique<vectorized::FieldSchema>();
@@ -1983,7 +1985,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
             hybrid_set->insert(&value);
             std::shared_ptr<ColumnPredicate> pred(
                     new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST, 1>(
-                            col_idx, hybrid_set, false));
+                            col_idx, "", hybrid_set, false));
             SingleColumnBlockPredicate single_column_block_pred(pred);
             std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
                     std::make_unique<vectorized::FieldSchema>();
@@ -2029,7 +2031,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
             hybrid_set->insert(&value);
             std::shared_ptr<ColumnPredicate> pred(
                     new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST, 1>(
-                            col_idx, hybrid_set, false));
+                            col_idx, "", hybrid_set, false));
             SingleColumnBlockPredicate single_column_block_pred(pred);
             std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
                     std::make_unique<vectorized::FieldSchema>();
@@ -2076,7 +2078,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
     const int value = 42;
     const int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, value));
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
     auto parquet_field = std::make_unique<vectorized::FieldSchema>();
@@ -2238,7 +2240,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE_BLOOM_FILTER) {
     const int included_value = 7;
     hybrid_set->insert(&included_value);
     std::shared_ptr<ColumnPredicate> pred(
-            new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST, 1>(col_idx, hybrid_set,
+            new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST, 1>(col_idx, "", hybrid_set,
                                                                          false));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
@@ -2370,7 +2372,7 @@ TEST_F(BlockColumnPredicateTest, NULL_PREDICATE) {
     {
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
-                new NullPredicate(col_idx, true, PrimitiveType::TYPE_INT));
+                new NullPredicate(col_idx, "", true, PrimitiveType::TYPE_INT));
         SingleColumnBlockPredicate single_column_block_pred(pred);
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
                 std::make_unique<vectorized::FieldSchema>();
@@ -2408,7 +2410,7 @@ TEST_F(BlockColumnPredicateTest, NULL_PREDICATE) {
     {
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
-                new NullPredicate(col_idx, false, PrimitiveType::TYPE_INT));
+                new NullPredicate(col_idx, "", false, PrimitiveType::TYPE_INT));
         SingleColumnBlockPredicate single_column_block_pred(pred);
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
                 std::make_unique<vectorized::FieldSchema>();
@@ -2464,12 +2466,12 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
         int col_idx = 0;
         int value = 5;
         std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate = std::make_unique<SingleColumnBlockPredicate>(pred);
 
         std::unique_ptr<SingleColumnBlockPredicate> false_predicate;
         std::shared_ptr<ColumnPredicate> pred2(
-                new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
@@ -2509,12 +2511,12 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
         int col_idx = 0;
         int value = 5;
         std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate = std::make_unique<SingleColumnBlockPredicate>(pred);
 
         std::unique_ptr<SingleColumnBlockPredicate> true_predicate2;
         std::shared_ptr<ColumnPredicate> pred2(
-                new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate2 = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
@@ -2554,12 +2556,12 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
         int col_idx = 0;
         int value = 5;
         std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate = std::make_unique<SingleColumnBlockPredicate>(pred);
 
         std::unique_ptr<SingleColumnBlockPredicate> false_predicate;
         std::shared_ptr<ColumnPredicate> pred2(
-                new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
@@ -2599,12 +2601,12 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
         int col_idx = 0;
         int value = 5;
         std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate2 = std::make_unique<SingleColumnBlockPredicate>(pred);
 
         std::unique_ptr<SingleColumnBlockPredicate> false_predicate;
         std::shared_ptr<ColumnPredicate> pred2(
-                new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
@@ -2644,7 +2646,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
         int value = 5;
         std::unique_ptr<SingleColumnBlockPredicate> false_predicate;
         std::shared_ptr<ColumnPredicate> pred2(
-                new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, value));
+                new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
         std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
