@@ -45,6 +45,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Throwables;
@@ -204,7 +205,7 @@ public class DistributePlanner {
 
         List<AssignedJob> receiverInstances = filterInstancesWhichCanReceiveDataFromRemote(
                 receiverPlan, enableShareHashTableForBroadcastJoin, linkNode);
-        if (receiverPlan.getFragmentJob() instanceof UnassignedScanBucketOlapTableJob) {
+        if (linkNode.getPartitionType() == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
             receiverInstances = getDestinationsByBuckets(receiverPlan, receiverInstances);
         }
 
