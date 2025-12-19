@@ -48,7 +48,15 @@ public final class AnalyzerSelector {
             return new Selection(normalizedRequest, parser, true);
         }
 
-        String resolvedAnalyzer = Strings.isNullOrEmpty(preferredAnalyzer) ? parser : preferredAnalyzer;
+        String resolvedAnalyzer;
+        if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
+            resolvedAnalyzer = preferredAnalyzer;
+        } else if (!Strings.isNullOrEmpty(parser)
+                && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
+            resolvedAnalyzer = parser;
+        } else {
+            resolvedAnalyzer = "";
+        }
         return new Selection(resolvedAnalyzer, parser, false);
     }
 
