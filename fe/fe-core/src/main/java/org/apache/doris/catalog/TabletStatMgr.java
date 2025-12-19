@@ -128,13 +128,17 @@ public class TabletStatMgr extends MasterDaemon {
         Long tabletCount = 0L;
         Long partitionCount = 0L;
         Long tableCount = 0L;
-        List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
+        // Create a snapshot of dbIds to avoid ConcurrentModificationException
+        List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds().stream()
+                .collect(Collectors.toList());
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
-            List<Table> tableList = db.getTables();
+            // Create a snapshot of tables to avoid ConcurrentModificationException
+            List<Table> tableList = db.getTables().stream()
+                    .collect(Collectors.toList());
             for (Table table : tableList) {
                 // Will process OlapTable and MTMV
                 if (!table.isManagedTable()) {
@@ -161,7 +165,9 @@ public class TabletStatMgr extends MasterDaemon {
                     continue;
                 }
                 try {
-                    List<Partition> allPartitions = olapTable.getAllPartitions();
+                    // Create a snapshot of partitions to avoid ConcurrentModificationException
+                    List<Partition> allPartitions = olapTable.getAllPartitions().stream()
+                            .collect(Collectors.toList());
                     partitionCount += allPartitions.size();
                     for (Partition partition : allPartitions) {
                         Long partitionDataSize = 0L;
