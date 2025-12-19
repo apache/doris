@@ -710,7 +710,7 @@ protected:
         // Create IcebergParquetReader
         auto iceberg_reader = std::make_unique<IcebergParquetReader>(
                 std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range,
-                nullptr, nullptr, cache.get());
+                nullptr, nullptr, cache.get(), false);
 
         return {std::move(iceberg_reader), field_desc};
     }
@@ -763,7 +763,7 @@ protected:
         // Create IcebergOrcReader
         auto iceberg_reader = std::make_unique<IcebergOrcReader>(
                 std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range,
-                nullptr, nullptr, cache.get());
+                nullptr, nullptr, cache.get(), false);
 
         return {std::move(iceberg_reader), orc_type_ptr};
     }
