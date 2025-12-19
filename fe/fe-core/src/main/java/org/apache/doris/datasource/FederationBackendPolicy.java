@@ -63,12 +63,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 public class FederationBackendPolicy {
     private static final Logger LOG = LogManager.getLogger(FederationBackendPolicy.class);
+
+    private static final long FIXED_SHUFFLE_SEED = 123456789L;
+
     protected final List<Backend> backends = Lists.newArrayList();
     private final Map<String, List<Backend>> backendMap = Maps.newHashMap();
 
@@ -220,6 +224,7 @@ public class FederationBackendPolicy {
     public Multimap<Backend, Split> computeScanRangeAssignment(List<Split> splits) throws UserException {
         ListMultimap<Backend, Split> assignment = ArrayListMultimap.create();
 
+        Collections.shuffle(splits, new Random(FIXED_SHUFFLE_SEED));
         List<Split> remainingSplits;
 
         List<Backend> backends = new ArrayList<>();
@@ -227,8 +232,6 @@ public class FederationBackendPolicy {
             backends.addAll(backendList);
         }
         ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
-
-        boolean splitsToBeRedistributed = false;
 
         // optimizedLocalScheduling enables prioritized assignment of splits to local nodes when splits contain
         // locality information
@@ -246,7 +249,6 @@ public class FederationBackendPolicy {
                         assignment.put(selectedBackend, split);
                         assignedWeightPerBackend.put(selectedBackend,
                                 assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());
-                        splitsToBeRedistributed = true;
                         continue;
                     }
                 }
@@ -276,7 +278,6 @@ public class FederationBackendPolicy {
                     case CONSISTENT_HASHING: {
                         candidateNodes = consistentHash.getNode(split,
                                 Config.split_assigner_min_consistent_hash_candidate_num);
-                        splitsToBeRedistributed = true;
                         break;
                     }
                     default: {
@@ -302,7 +303,7 @@ public class FederationBackendPolicy {
                     assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());
         }
 
-        if (enableSplitsRedistribution && splitsToBeRedistributed) {
+        if (enableSplitsRedistribution) {
             equateDistribution(assignment);
         }
         return assignment;
@@ -499,3 +500,4 @@ public class FederationBackendPolicy {
         }
     }
 }
+
