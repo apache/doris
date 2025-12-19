@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    doris::cloud::PackedFileDebugInfoPB debug_info;
+    doris::cloud::PackedFileFooterPB debug_info;
     uint32_t version = 0;
     doris::Status st = doris::io::read_packed_file_trailer(FLAGS_file, &debug_info, &version);
     if (!st.ok()) {

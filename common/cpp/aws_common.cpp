@@ -37,6 +37,35 @@ CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provi
     }
 }
 
+CredProviderType cred_provider_type_from_string(const std::string& type) {
+    if (type.empty() || type == "DEFAULT") {
+        return CredProviderType::Default;
+    }
+    if (type == "SIMPLE") {
+        return CredProviderType::Simple;
+    }
+    if (type == "INSTANCE_PROFILE") {
+        return CredProviderType::InstanceProfile;
+    }
+    if (type == "ENV") {
+        return CredProviderType::Env;
+    }
+    if (type == "SYSTEM_PROPERTIES") {
+        return CredProviderType::SystemProperties;
+    }
+    if (type == "WEB_IDENTITY") {
+        return CredProviderType::WebIdentity;
+    }
+    if (type == "CONTAINER") {
+        return CredProviderType::Container;
+    }
+    if (type == "ANONYMOUS") {
+        return CredProviderType::Anonymous;
+    }
+    LOG(WARNING) << "Unknown credentials provider type: " << type << ", use default instead.";
+    return CredProviderType::Default;
+}
+
 std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths) {
     for (const auto& path : ca_cert_file_paths) {
         if (std::filesystem::exists(path)) {
