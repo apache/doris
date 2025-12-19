@@ -574,7 +574,6 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
         _sink_buffer->close();
         _sink_buffer.reset();
     }
-    channels.clear();
     return Base::close(state, exec_status);
 }
 
