@@ -17,6 +17,10 @@ SyntaxError:
 -- !bucket_shuffle_union_with_all_column_result --
 1	1	1	1
 1	1	1	1
+2	2	2	2
+2	2	2	2
+3	3	3	3
+3	3	3	3
 
 -- !bucket_shuffle_intersect_shape --
 PhysicalResultSink
@@ -83,6 +87,9 @@ PhysicalResultSink
 ------PhysicalOlapScan[bucket_shuffle_set_operation3] RFV2: RF0 RF1
 
 -- !bucket_shuffle_to_right_result --
+1
+2
+3
 
 -- !bucket_shuffle_except_1_shape --
 PhysicalResultSink
