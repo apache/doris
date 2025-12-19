@@ -98,7 +98,7 @@ ScorerPtr RegexpWeight::regexp_scorer(const QueryExecutionContext& context,
         auto t = make_term_ptr(_field.c_str(), term.c_str());
         auto reader = lookup_reader(_field, context, binding_key);
         auto iter = make_term_doc_ptr(reader.get(), t.get(), _context->io_ctx);
-        auto segment_postings = std::make_shared<SegmentPostings<TermDocsPtr>>(std::move(iter));
+        auto segment_postings = make_segment_postings(std::move(iter));
 
         uint32_t doc = segment_postings->doc();
         while (doc != TERMINATED) {

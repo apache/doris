@@ -27,7 +27,7 @@
 
 #include "gen_cpp/Exprs_types.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator_boolean_query.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"

@@ -113,10 +113,6 @@ uint32_t LoadedPostings::freq() const {
     return end - start;
 }
 
-uint32_t LoadedPostings::norm() const {
-    return 1;
-}
-
 void LoadedPostings::append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) {
     if (_cursor >= _doc_ids.size()) {
         return;
@@ -130,7 +126,6 @@ void LoadedPostings::append_positions_with_offset(uint32_t offset, std::vector<u
     }
 }
 
-template LoadedPostingsPtr LoadedPostings::load<SegmentPostings<TermPositionsPtr>>(
-        SegmentPostings<TermPositionsPtr>& segment_postings);
+template LoadedPostingsPtr LoadedPostings::load<SegmentPostings>(SegmentPostings& segment_postings);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

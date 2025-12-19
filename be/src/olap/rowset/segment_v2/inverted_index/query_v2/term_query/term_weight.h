@@ -27,36 +27,25 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 class TermWeight : public Weight {
 public:
     TermWeight(IndexQueryContextPtr context, std::wstring field, std::wstring term)
-            : _context(std::move(context)),
-              _field(std::move(field)),
-              _term(std::move(term)) {}
+            : _context(std::move(context)), _field(std::move(field)), _term(std::move(term)) {}
     ~TermWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         auto reader = lookup_reader(_field, ctx, binding_key);
         auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
-        auto make_scorer = [&](auto segment_postings) -> ScorerPtr {
-            using PostingsT = decltype(segment_postings);
-            return std::make_shared<TermScorer<PostingsT>>(std::move(segment_postings),
-                                                           logical_field);
-        };
 
         if (!reader) {
-            auto segment_postings = std::make_shared<EmptySegmentPosting<TermDocsPtr>>();
-            return make_scorer(std::move(segment_postings));
+            return std::make_shared<EmptyScorer>();
         }
 
         auto t = make_term_ptr(_field.c_str(), _term.c_str());
         auto iter = make_term_doc_ptr(reader.get(), t.get(), _context->io_ctx);
-
         if (iter) {
-            auto segment_postings =
-                    std::make_shared<NoScoreSegmentPosting<TermDocsPtr>>(std::move(iter));
-            return make_scorer(std::move(segment_postings));
+            return std::make_shared<TermScorer>(make_segment_postings(std::move(iter)),
+                                                logical_field);
         }
 
-        auto segment_postings = std::make_shared<EmptySegmentPosting<TermDocsPtr>>();
-        return make_scorer(std::move(segment_postings));
+        return std::make_shared<EmptyScorer>();
     }
 
 private:

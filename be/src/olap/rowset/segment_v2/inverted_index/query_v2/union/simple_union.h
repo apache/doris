@@ -43,7 +43,6 @@ public:
     uint32_t doc() const override;
     uint32_t size_hint() const override;
     uint32_t freq() const override;
-    uint32_t norm() const override;
 
     void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override;
 
@@ -56,5 +55,10 @@ private:
     std::vector<TDocSet> _docsets;
     uint32_t _doc;
 };
+
+template <typename TDocSet>
+auto make_simple_union(std::vector<TDocSet> docsets) {
+    return SimpleUnion<TDocSet>::create(std::move(docsets));
+}
 
 } // namespace doris::segment_v2::inverted_index::query_v2

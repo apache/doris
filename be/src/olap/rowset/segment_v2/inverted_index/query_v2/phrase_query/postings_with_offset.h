@@ -37,7 +37,6 @@ public:
     uint32_t doc() const override { return _postings->doc(); }
     uint32_t size_hint() const override { return _postings->size_hint(); }
     uint32_t freq() const override { return _postings->freq(); }
-    uint32_t norm() const override { return _postings->norm(); }
 
 private:
     TPostings _postings;

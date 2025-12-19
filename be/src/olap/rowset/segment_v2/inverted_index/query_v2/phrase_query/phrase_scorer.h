@@ -47,15 +47,15 @@ public:
     ~PhraseScorer() override = default;
 
     static ScorerPtr create(const std::vector<std::pair<size_t, TPostings>>& term_postings,
-                            uint32_t slop) {
-        return create_with_offset(term_postings, slop, 0);
+                            uint32_t slop, uint32_t num_docs) {
+        return create_with_offset(term_postings, slop, 0, num_docs);
     }
 
     uint32_t advance() override;
     uint32_t seek(uint32_t target) override;
     uint32_t doc() const override;
     uint32_t size_hint() const override;
-    uint32_t norm() const override;
+    uint64_t cost() const override;
 
     float score() override;
 
@@ -64,7 +64,7 @@ public:
 private:
     static ScorerPtr create_with_offset(
             const std::vector<std::pair<size_t, TPostings>>& term_postings_with_offset,
-            uint32_t slop, size_t offset);
+            uint32_t slop, size_t offset, uint32_t num_docs);
 
     bool phrase_exists();
     uint32_t compute_phrase_count();

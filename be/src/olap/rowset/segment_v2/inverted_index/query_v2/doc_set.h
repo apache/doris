@@ -51,22 +51,20 @@ public:
                         "size_hint() method not implemented in base DocSet class");
     }
 
+    virtual uint64_t cost() const { return static_cast<uint64_t>(size_hint()); }
+
     virtual uint32_t freq() const {
         throw Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
                         "freq() method not implemented in base DocSet class");
     }
-
-    virtual uint32_t norm() const {
-        throw Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                        "norm() method not implemented in base DocSet class");
-    }
 };
+
 using DocSetPtr = std::shared_ptr<DocSet>;
 
 class MockDocSet : public DocSet {
 public:
-    MockDocSet(std::vector<uint32_t> docs, uint32_t size_hint_val = 0, uint32_t norm_val = 1)
-            : _docs(std::move(docs)), _size_hint_val(size_hint_val), _norm_val(norm_val) {
+    MockDocSet(std::vector<uint32_t> docs, uint32_t size_hint_val = 0)
+            : _docs(std::move(docs)), _size_hint_val(size_hint_val) {
         if (_docs.empty()) {
             _current_doc = TERMINATED;
         } else {
@@ -79,11 +77,10 @@ public:
     }
 
     MockDocSet(std::vector<uint32_t> docs, std::map<uint32_t, std::vector<uint32_t>> doc_positions,
-               uint32_t size_hint_val = 0, uint32_t norm_val = 1)
+               uint32_t size_hint_val = 0)
             : _docs(std::move(docs)),
               _doc_positions(std::move(doc_positions)),
-              _size_hint_val(size_hint_val),
-              _norm_val(norm_val) {
+              _size_hint_val(size_hint_val) {
         if (_docs.empty()) {
             _current_doc = TERMINATED;
         } else {
@@ -146,8 +143,6 @@ public:
 
     uint32_t size_hint() const override { return docFreq(); }
 
-    uint32_t norm() const override { return _norm_val; }
-
     uint32_t freq() const override {
         if (_current_doc == TERMINATED) {
             return 0;
@@ -184,8 +179,8 @@ private:
     size_t _index = 0;
     uint32_t _current_doc = TERMINATED;
     uint32_t _size_hint_val = 0;
-    uint32_t _norm_val = 1;
 };
+
 using MockDocSetPtr = std::shared_ptr<MockDocSet>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

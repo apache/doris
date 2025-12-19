@@ -109,16 +109,6 @@ uint32_t SimpleUnion<TDocSet>::freq() const {
 }
 
 template <typename TDocSet>
-uint32_t SimpleUnion<TDocSet>::norm() const {
-    for (const auto& docset : _docsets) {
-        if (docset->doc() == _doc) {
-            return docset->norm();
-        }
-    }
-    return 1;
-}
-
-template <typename TDocSet>
 void SimpleUnion<TDocSet>::append_positions_with_offset(uint32_t offset,
                                                         std::vector<uint32_t>& output) {
     size_t initial_size = output.size();
@@ -138,6 +128,6 @@ void SimpleUnion<TDocSet>::append_positions_with_offset(uint32_t offset,
 
 template class SimpleUnion<MockDocSetPtr>;
 template class SimpleUnion<PostingsPtr>;
-template class SimpleUnion<PositionPostingsPtr>;
+template class SimpleUnion<SegmentPostingsPtr>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

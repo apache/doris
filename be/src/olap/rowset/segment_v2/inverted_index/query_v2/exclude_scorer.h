@@ -17,38 +17,34 @@
 
 #pragma once
 
-#include <memory>
-#include <vector>
-
-#include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class LoadedPostings;
-using LoadedPostingsPtr = std::shared_ptr<LoadedPostings>;
+template <typename TDocSetExclude>
+inline bool is_within(TDocSetExclude& docset, uint32_t doc) {
+    return docset->doc() <= doc && docset->seek(doc) == doc;
+}
 
-class LoadedPostings final : public Postings {
+template <typename TDocSet, typename TDocSetExclude>
+class Exclude final : public Scorer {
 public:
-    LoadedPostings() = default;
-    LoadedPostings(std::vector<uint32_t> doc_ids, std::vector<std::vector<uint32_t>> positions);
-    ~LoadedPostings() override = default;
-
-    template <typename TPostings>
-    static LoadedPostingsPtr load(TPostings& segment_postings);
+    Exclude(TDocSet underlying_docset, TDocSetExclude excluding_docset);
+    ~Exclude() override = default;
 
     uint32_t advance() override;
     uint32_t seek(uint32_t target) override;
     uint32_t doc() const override;
     uint32_t size_hint() const override;
-    uint32_t freq() const override;
-
-    void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override;
+    float score() override;
 
 private:
-    std::vector<uint32_t> _doc_ids;
-    std::vector<uint32_t> _position_offsets;
-    std::vector<uint32_t> _positions;
-    size_t _cursor = 0;
+    TDocSet _underlying_docset;
+    TDocSetExclude _excluding_docset;
 };
+
+using ExcludeScorerPtr = std::shared_ptr<Exclude<ScorerPtr, ScorerPtr>>;
+
+ScorerPtr make_exclude(ScorerPtr underlying, ScorerPtr excluding);
 
 } // namespace doris::segment_v2::inverted_index::query_v2
