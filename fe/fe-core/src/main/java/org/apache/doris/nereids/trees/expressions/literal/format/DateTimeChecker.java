@@ -98,6 +98,45 @@ public class DateTimeChecker extends FormatChecker {
         return INSTANCE.check(stringInspect).matched && stringInspect.eos();
     }
 
+    /** check tz or dt */
+    public static boolean hasTimeZone(String str) {
+        str = str.trim();
+
+        if (!isValidDateTime(str)) {
+            return false;
+        }
+
+        if (str.endsWith("Z")) {
+            return true;
+        }
+
+        // Find the separator between date and time parts (' ' or 'T')
+        int timeSeparatorIndex = -1;
+        for (int i = 0; i < str.length(); i++) {
+            if (str.charAt(i) == ' ' || str.charAt(i) == 'T') {
+                timeSeparatorIndex = i;
+                break;
+            }
+        }
+
+        // no time part found
+        if (timeSeparatorIndex == -1) {
+            return false;
+        }
+
+        // Only search for timezone after the time separator
+        for (int i = str.length() - 1; i > timeSeparatorIndex; i--) {
+            char c = str.charAt(i);
+            if (c == '+' || c == '-') {
+                if (i + 1 < str.length() && Character.isDigit(str.charAt(i + 1))) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     @Override
     protected boolean doCheck(StringInspect stringInspect) {
         return checker.check(stringInspect).matched;
