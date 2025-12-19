@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Strings;
@@ -67,6 +68,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     protected int sendBatchParallelism;
     protected boolean loadToSingleTablet;
     protected TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+    protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
     protected boolean memtableOnSinkNode;
     protected int timeoutSec;
 
@@ -78,7 +80,8 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
             String sequenceCol, double maxFilterRatio, NereidsImportColumnDescs columnDescs,
             Expression precedingFilter, Expression whereExpr, Separator columnSeparator,
             Separator lineDelimiter, byte enclose, byte escape, int sendBatchParallelism,
-            boolean loadToSingleTablet, boolean isPartialUpdate, boolean memtableOnSinkNode) {
+            boolean loadToSingleTablet, boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+            boolean memtableOnSinkNode) {
         this.execMemLimit = execMemLimit;
         this.jobProperties = jobProperties;
         this.maxBatchIntervalS = maxBatchIntervalS;
@@ -99,6 +102,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         if (isPartialUpdate) {
             this.uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
         }
+        this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
         this.memtableOnSinkNode = memtableOnSinkNode;
         this.timeoutSec = calTimeoutSec();
     }
@@ -325,6 +329,11 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     @Override
     public boolean isFlexiblePartialUpdate() {
         return uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
+    }
+
+    @Override
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return partialUpdateNewKeyPolicy;
     }
 
     @Override
