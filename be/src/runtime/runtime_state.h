@@ -73,6 +73,7 @@ class MemTrackerLimiter;
 class QueryContext;
 class RuntimeFilterConsumer;
 class RuntimeFilterProducer;
+class TaskExecutionContext;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.

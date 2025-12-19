@@ -572,6 +572,7 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_sink_buffer) {
         _sink_buffer->update_profile(custom_profile());
         _sink_buffer->close();
+        _sink_buffer.reset();
     }
     return Base::close(state, exec_status);
 }

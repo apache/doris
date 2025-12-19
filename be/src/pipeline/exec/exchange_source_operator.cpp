@@ -210,6 +210,7 @@ Status ExchangeLocalState::close(RuntimeState* state) {
     }
     if (stream_recvr != nullptr) {
         stream_recvr->close();
+        stream_recvr.reset();
     }
     if (_parent->cast<ExchangeSourceOperatorX>()._is_merging) {
         vsort_exec_exprs.close(state);

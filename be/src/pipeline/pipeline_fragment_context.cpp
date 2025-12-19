@@ -1793,7 +1793,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
     Defer defer_op {[&]() {
         _is_fragment_instance_closed = true;
-        _close_cv.notify_all();
+        _notify_cv.notify_all();
     }};
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     if (!_need_notify_close) {
@@ -1979,8 +1979,9 @@ std::string PipelineFragmentContext::debug_string() {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
                    "PipelineFragmentContext Info: _closed_tasks={}, _total_tasks={}, "
-                   "need_notify_close={}\n",
-                   _closed_tasks, _total_tasks, _need_notify_close);
+                   "need_notify_close={}, has_task_execution_ctx_ref_count={}\n",
+                   _closed_tasks, _total_tasks, _need_notify_close,
+                   _has_task_execution_ctx_ref_count);
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
@@ -2065,7 +2066,9 @@ Status PipelineFragmentContext::wait_close(bool close) {
 
     {
         std::unique_lock<std::mutex> lock(_task_mutex);
-        _close_cv.wait(lock, [this] { return _is_fragment_instance_closed.load(); });
+        _notify_cv.wait(lock, [this] {
+            return _is_fragment_instance_closed.load() && !_has_task_execution_ctx_ref_count;
+        });
     }
 
     if (close) {
