@@ -416,7 +416,9 @@ std::string decode_statistics_value(const FieldSchema* schema_field,
     if (logical_column->size() != 1) {
         return bytes_to_hex_string(encoded_value);
     }
-    return logical_data_type->to_string(*logical_column, 0);
+    DataTypeSerDe::FormatOptions options;
+    options.timezone = &ctz;
+    return logical_data_type->to_string(*logical_column, 0, options);
 }
 
 void build_path_map(const FieldSchema& field, const std::string& prefix,

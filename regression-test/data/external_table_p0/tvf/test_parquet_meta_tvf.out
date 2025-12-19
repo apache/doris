@@ -71,3 +71,27 @@ hdfs://127.0.0.1:8320/user/doris/tvf_data/test_hdfs_parquet/group0/datapage_v1-s
 -- !parquet_file_metadata_local --
 //meta.parquet	parquet-cpp-arrow version 21.0.0	5	1	2	\N	\N
 
+-- !parquet_file_metadata_local_glob --
+/mnt/disk1/chenjunwei/doris_build/doris/output/be/bloommeta.parquet
+/mnt/disk1/chenjunwei/doris_build/doris/output/be/kvmeta.parquet
+/mnt/disk1/chenjunwei/doris_build/doris/output/be/meta.parquet
+
+-- !parquet_kv_metadata_local --
+//kvmeta.parquet	app	kvmeta_test
+//kvmeta.parquet	note	it's ok
+//kvmeta.parquet	ver	v1
+
+-- !parquet_bloom_probe_local --
+//bloommeta.parquet	0	0
+//bloommeta.parquet	1	0
+//bloommeta.parquet	2	1
+
+-- !parquet_bloom_probe_no_bf_local --
+//meta.parquet	0	-1
+
+-- !parquet_metadata_local_mapping --
+0	5	4	236	0	4	5	normal_int	INT32	1	5	1	\N	1
+0	5	4	236	1	65	5	string_col	BYTE_ARRAY	\N	\N	1	\N	a
+0	5	4	236	2	130	5	date_col	INT32	2023-01-01	2023-01-05	1	\N	2023-01-01
+0	5	4	236	3	191	5	decimal_col	FIXED_LEN_BYTE_ARRAY	10.00	50.00	1	\N	10.00
+
