@@ -3765,4 +3765,8 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
+
+    @ConfField(mutable = true, masterOnly = true, description = {"是否开启批量设置系统变量的失败回退",
+        "Whether to enable rollback after session variables set failed"})
+    public static boolean enable_rollback_after_bulk_session_variables_set_failed = false;
 }

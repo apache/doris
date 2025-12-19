@@ -191,4 +191,86 @@ public class VariableMgrTest {
         VariableMgr.setVar(var, setVar);
         Assert.assertEquals(new String[] {""}, var.getSqlConvertorFeatures());
     }
+
+    @Test
+    public void testSetGlobalVarWithSameValueSkipEditLog() throws Exception {
+        // Set initial value
+        SetOptionsCommand stmt1 = (SetOptionsCommand) UtFrameUtils.parseStmt(
+            "set global exec_mem_limit=5678", ctx);
+        stmt1.run(ctx, null);
+        Assert.assertEquals(5678, VariableMgr.newSessionVariable().getMaxExecMemByte());
+
+        // Get edit log count before setting same value
+        long editLogCountBefore = Env.getCurrentEnv().getEditLog().getMaxJournalId();
+
+        // Set same value again - should skip edit log writing
+        SetOptionsCommand stmt2 = (SetOptionsCommand) UtFrameUtils.parseStmt(
+            "set global exec_mem_limit=5678", ctx);
+        stmt2.run(ctx, null);
+
+        // Verify value is still correct
+        Assert.assertEquals(5678, VariableMgr.newSessionVariable().getMaxExecMemByte());
+
+        // Verify edit log was not written (count should be the same)
+        long editLogCountAfter = Env.getCurrentEnv().getEditLog().getMaxJournalId();
+        Assert.assertEquals(editLogCountBefore, editLogCountAfter);
+    }
+
+    @Test
+    public void testSetGlobalVarWithDifferentValueWritesEditLog() throws Exception {
+        // Set initial value
+        SetOptionsCommand stmt1 = (SetOptionsCommand) UtFrameUtils.parseStmt(
+            "set global exec_mem_limit=5678", ctx);
+        stmt1.run(ctx, null);
+        Assert.assertEquals(5678, VariableMgr.newSessionVariable().getMaxExecMemByte());
+
+        // Get edit log count before setting different value
+        long editLogCountBefore = Env.getCurrentEnv().getEditLog().getMaxJournalId();
+
+        // Set different value - should write edit log
+        SetOptionsCommand stmt2 = (SetOptionsCommand) UtFrameUtils.parseStmt(
+            "set global exec_mem_limit=7890", ctx);
+        stmt2.run(ctx, null);
+
+        // Verify value is updated
+        Assert.assertEquals(7890, VariableMgr.newSessionVariable().getMaxExecMemByte());
+
+        // Verify edit log was written (count should increase)
+        long editLogCountAfter = Env.getCurrentEnv().getEditLog().getMaxJournalId();
+        Assert.assertTrue(editLogCountAfter > editLogCountBefore);
+    }
+
+    @Test
+    public void testSetGlobalVarToDefaultOptimization() throws Exception {
+        // Set global variable to a non-default value
+        SetOptionsCommand stmt1 = (SetOptionsCommand) UtFrameUtils.parseStmt(
+            "set global enable_profile = false", ctx);
+        stmt1.run(ctx, null);
+        Assert.assertFalse(VariableMgr.newSessionVariable().enableProfile());
+
+        // Get edit log count before setting to default
+        long editLogCountBefore = Env.getCurrentEnv().getEditLog().getMaxJournalId();
+
+        // Set to default value (true) - should write edit log
+        SetOptionsCommand stmt2 = (SetOptionsCommand) UtFrameUtils.parseStmt(
+            "set global enable_profile = default", ctx);
+        stmt2.run(ctx, null);
+
+        // Verify value is set to default
+        SessionVariable defaultSessionVar = new SessionVariable();
+        Assert.assertEquals(defaultSessionVar.enableProfile(),
+                VariableMgr.newSessionVariable().enableProfile());
+
+        // Verify edit log was written
+        long editLogCountAfter = Env.getCurrentEnv().getEditLog().getMaxJournalId();
+        Assert.assertTrue(editLogCountAfter > editLogCountBefore);
+
+        // Set to default again - should skip edit log writing
+        SetOptionsCommand stmt3 = (SetOptionsCommand) UtFrameUtils.parseStmt(
+            "set global enable_profile = default", ctx);
+        stmt3.run(ctx, null);
+
+        long editLogCountAfterSecond = Env.getCurrentEnv().getEditLog().getMaxJournalId();
+        Assert.assertEquals(editLogCountAfter, editLogCountAfterSecond);
+    }
 }
