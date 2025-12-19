@@ -110,6 +110,7 @@ import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
+import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -3667,6 +3668,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TCreatePartitionResult createPartition(TCreatePartitionRequest request) throws TException {
         LOG.info("Receive create partition request: {}", request);
         long dbId = request.getDbId();
+        long txnId = request.getTxnId();
         long tableId = request.getTableId();
         TCreatePartitionResult result = new TCreatePartitionResult();
         TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
@@ -3707,6 +3709,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setStatus(errorStatus);
             LOG.warn("send create partition error status: {}", result);
             return result;
+        }
+
+        // Cache tablet location only when needed:
+        // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica
+        //    distribution issues due to concurrent createPartition RPCs.
+        // 2. From a necessity perspective: For BE-initiated loads (e.g., stream load commit/abort from BE),
+        //    if a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
+        //    So we skip caching for them.
+        boolean needUseCache = false;
+        if (request.isSetQueryId()) {
+            Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
+            if (coordinator != null) {
+                int instanceNum = 0;
+                // For single-instance imports (like stream load from FE), we don't need cache either
+                // Only multi-instance imports need to ensure consistent tablet replica information
+                // Coordinator may be null for stream load or other BE-initiated loads
+                if (coordinator instanceof NereidsCoordinator) {
+                    NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
+                    instanceNum = nereidsCoordinator.getCoordinatorContext().instanceNum.get();
+                } else {
+                    Map<String, Integer> beToInstancesNum = coordinator.getBeToInstancesNum();
+                    instanceNum = beToInstancesNum.values().stream()
+                            .mapToInt(Integer::intValue)
+                            .sum();
+                }
+                if (instanceNum > 1) {
+                    needUseCache = true;
+                }
+            }
         }
 
         OlapTable olapTable = (OlapTable) table;
@@ -3763,11 +3794,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // build partition & tablets
-        List<TOlapTablePartition> partitions = Lists.newArrayList();
-        List<TTabletLocation> tablets = Lists.newArrayList();
+        List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
+        List<TOlapTablePartition> partitions = Lists.newArrayList();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
+            // For thread safety, we preserve the tablet distribution information of each partition
+            // before calling getOrSetAutoPartitionInfo, but not check the partition first
+            List<TTabletLocation> partitionTablets = new ArrayList<>();
+            List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();
@@ -3787,6 +3822,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
             partitions.add(tPartition);
             // tablet
+            if (needUseCache
+                    && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                            .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                                    partitionSlaveTablets)) {
+                // fast path, if cached
+                tablets.addAll(partitionTablets);
+                slaveTablets.addAll(partitionSlaveTablets);
+                LOG.debug("Fast path: use cached auto partition info, txnId: {}, partitionId: {}, "
+                        + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
+                        partitionTablets.size(), partitionSlaveTablets.size());
+                continue;
+            }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
                     + 1;
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
@@ -3817,15 +3864,28 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         Long masterNode = nodes[random.nextInt(nodes.length)];
                         Multimap<Long, Long> slaveBePathsMap = bePathsMap;
                         slaveBePathsMap.removeAll(masterNode);
-                        tablets.add(new TTabletLocation(tablet.getId(),
+                        partitionTablets.add(new TTabletLocation(tablet.getId(),
                                 Lists.newArrayList(Sets.newHashSet(masterNode))));
-                        slaveTablets.add(new TTabletLocation(tablet.getId(),
+                        partitionSlaveTablets.add(new TTabletLocation(tablet.getId(),
                                 Lists.newArrayList(slaveBePathsMap.keySet())));
                     } else {
-                        tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                        partitionTablets.add(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(bePathsMap.keySet())));
                     }
                 }
             }
+
+            if (needUseCache) {
+                Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                        .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                                partitionSlaveTablets);
+                LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
+                        + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
+                        partitionTablets.size(), partitionSlaveTablets.size());
+            }
+
+            tablets.addAll(partitionTablets);
+            slaveTablets.addAll(partitionSlaveTablets);
         }
         result.setPartitions(partitions);
         result.setTablets(tablets);
