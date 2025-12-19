@@ -618,7 +618,22 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
 
         // return temp table first
-        Table table = nameToTable.get(Util.generateTempTableInnerName(tableName));
+        String tempTableInnerName = Util.generateTempTableInnerName(tableName);
+        // For case-insensitive mode, resolve the temp table inner name as well
+        if (Env.isTableNamesCaseInsensitive()) {
+            String resolvedTempName = lowerCaseToTableName.get(tempTableInnerName.toLowerCase());
+            if (resolvedTempName != null) {
+                tempTableInnerName = resolvedTempName;
+            }
+        } else if (Env.isStoredTableNamesLowerCase()) {
+            // Mode 1 (store lower case) still needs to map back from lowercased temp inner name
+            // because nameToTable stores the original (non-forced) name string, while we lowered tableName above.
+            String resolvedTempName = lowerCaseToTableName.get(tempTableInnerName.toLowerCase());
+            if (resolvedTempName != null) {
+                tempTableInnerName = resolvedTempName;
+            }
+        }
+        Table table = nameToTable.get(tempTableInnerName);
         if (table == null) {
             table = nameToTable.get(tableName);
         }

@@ -29,6 +29,8 @@ import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Strings;
 
+import java.util.Locale;
+
 public class FeNameFormat {
     private static final String LABEL_REGEX = "^[\\-_A-Za-z0-9:]{1," + Config.label_regex_length + "}$";
     // if modify the matching length of a regular expression,
@@ -53,6 +55,8 @@ public class FeNameFormat {
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
 
     public static final String TEMPORARY_TABLE_SIGN = "_#TEMP#_";
+    // lower-case version for case-insensitive matching when lower_case_table_names is enabled
+    public static final String TEMPORARY_TABLE_SIGN_LOWER = TEMPORARY_TABLE_SIGN.toLowerCase(Locale.ROOT);
 
     private static final String NESTED_DB_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9\\-_]*(\\.([a-zA-Z0-9\\-_]+))*$";
     private static final String NESTED_UNICODE_DB_NAME_REGEX
@@ -84,8 +88,8 @@ public class FeNameFormat {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_NAME_LENGTH_LIMIT, tableName,
                     tableName.length(), Config.table_name_length_limit);
         }
-        // forbid table name contains sign of temporary table
-        if (tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1) {
+        // forbid table name contains sign of temporary table (check case-insensitively)
+        if (tableName.toLowerCase(Locale.ROOT).indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER) != -1) {
             ErrorReport.reportAnalysisException("Incorrect table name, table name can't contains "
                     + FeNameFormat.TEMPORARY_TABLE_SIGN);
         }
