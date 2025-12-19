@@ -2629,7 +2629,8 @@ int check_idempotent_for_txn_or_job(Transaction* txn, const std::string& recycle
             return 1;
         } else {
             code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get recycle rowset, err={}", err);
+            msg = fmt::format("failed to get recycle rowset, err={}, key={}", err,
+                              hex(recycle_rs_key));
             return -1;
         }
     } else if (!config::enable_recycle_delete_rowset_key_check) {

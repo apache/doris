@@ -1222,7 +1222,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     if (rs_meta.has_is_recycled() && rs_meta.is_recycled()) {
         SS << "rowset has already been marked as recycled, tablet_id=" << tablet_id
-           << " txn_id=" << rs_meta.txn_id();
+           << " txn_id=" << rs_meta.txn_id() << " rowset_id=" << rs_meta.rowset_id_v2();
         msg = ss.str();
         code = MetaServiceCode::TXN_ALREADY_ABORTED;
         return;
@@ -1815,7 +1815,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
         if (tmp_rowset_meta.has_is_recycled() && tmp_rowset_meta.is_recycled()) {
             SS << "rowset has already been marked as recycled, tablet_id=" << new_tablet_id
-               << " txn_id=" << tmp_rowset_meta.txn_id();
+               << " txn_id=" << tmp_rowset_meta.txn_id()
+               << " rowset_id=" << tmp_rowset_meta.rowset_id_v2();
             msg = ss.str();
             code = MetaServiceCode::TXN_ALREADY_ABORTED;
             return;
