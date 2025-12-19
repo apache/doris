@@ -368,7 +368,7 @@ public:
                                                               InstanceInfoPB* instance);
 
     MetaServiceResponseStatus fix_tablet_stats(std::string cloud_unique_id_str,
-                                               std::string table_id_str);
+                                               std::string table_id_str, std::string tablet_id_str);
 
     std::pair<MetaServiceCode, std::string> fix_tablet_db_id(const std::string& instance_id,
                                                              int64_t tablet_id, int64_t db_id);

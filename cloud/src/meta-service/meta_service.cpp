@@ -5464,13 +5464,45 @@ std::pair<std::string, std::string> init_key_pair(std::string instance_id, int64
 }
 
 MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_unique_id_str,
-                                                            std::string table_id_str) {
+                                                            std::string table_id_str,
+                                                            std::string tablet_id_str) {
     // parse params
     int64_t table_id;
+    int64_t tablet_id = -1;
     std::string instance_id;
-    MetaServiceResponseStatus st = parse_fix_tablet_stats_param(
-            resource_mgr_, table_id_str, cloud_unique_id_str, table_id, instance_id);
+    MetaServiceResponseStatus st =
+            parse_fix_tablet_stats_param(resource_mgr_, table_id_str, cloud_unique_id_str,
+                                         tablet_id_str, table_id, instance_id, tablet_id);
     if (st.code() != MetaServiceCode::OK) {
+        return st;
+    }
+
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    if (is_versioned_write) {
+        if (tablet_id < 0) {
+            st.set_code(MetaServiceCode::INVALID_ARGUMENT);
+            st.set_msg(
+                    "cannot fix tablet stats for all tablets of a table when versioned write is "
+                    "enabled, consider specifying tablet_id");
+            return st;
+        }
+
+        TabletIndexPB tablet_idx;
+        CloneChainReader reader(instance_id, txn_kv_.get(), resource_mgr_.get());
+        TxnErrorCode err = reader.get_tablet_index(tablet_id, &tablet_idx);
+        if (err != TxnErrorCode::TXN_OK) {
+            st.set_code(cast_as<ErrCategory::READ>(err));
+            st.set_msg(fmt::format("failed to get tablet index for tablet_id={}, err={}", tablet_id,
+                                   err));
+            return st;
+        }
+
+        auto&& [code, msg] = fix_versioned_tablet_stats_internal(
+                txn_kv_.get(), instance_id, tablet_idx, is_versioned_read, is_versioned_write,
+                resource_mgr_.get());
+        st.set_code(code);
+        st.set_msg(std::move(msg));
         return st;
     }
 
