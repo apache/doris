@@ -316,4 +316,66 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
         """
         exception "Property 'uri' or 'file_path' must contain at least one location"
     }
+
+    test {
+        sql """
+            select * from parquet_meta(
+                "uri" = "meta.parquet",
+                "mode" = "parquet_metadata"
+            );
+        """
+        exception "Property 'uri' must contain a scheme for parquet_meta"
+    }
+
+    test {
+        sql """
+            select * from parquet_meta(
+                "file_path" = "s3://bucket/path.parquet",
+                "mode" = "parquet_metadata"
+            );
+        """
+        exception "Property 'file_path' must not contain a scheme for parquet_meta"
+    }
+
+    test {
+        sql """
+            select * from parquet_meta(
+                "file_path" = "${outFilePath}/meta.parquet",
+                "mode" = "parquet_unknown"
+            );
+        """
+        exception "Unsupported mode 'parquet_unknown' for parquet_meta"
+    }
+
+    test {
+        sql """
+            select * from parquet_meta(
+                "file_path" = "${outFilePath}/meta.parquet",
+                "mode" = "parquet_bloom_probe",
+                "value" = 1
+            );
+        """
+        exception "Missing 'column' or 'value' for mode parquet_bloom_probe"
+    }
+
+    test {
+        sql """
+            select * from parquet_meta(
+                "file_path" = "${outFilePath}/meta.parquet",
+                "mode" = "parquet_bloom_probe",
+                "column" = "col"
+            );
+        """
+        exception "Missing 'column' or 'value' for mode parquet_bloom_probe"
+    }
+
+    test {
+        sql """
+            select * from parquet_meta(
+                "file_path" = "${outFilePath}/__parquet_meta_tvf_no_match_*.parquet",
+                "mode" = "parquet_metadata"
+            );
+        """
+        exception "failed to glob"
+    }
 }
