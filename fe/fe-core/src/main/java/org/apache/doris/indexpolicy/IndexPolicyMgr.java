@@ -349,6 +349,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 }
                 throw new DdlException("index policy " + indexPolicyName + " does not exist");
             }
+            if (policyToDrop.getType() != type) {
+                throw new DdlException("Cannot drop " + policyToDrop.getType() + " policy '"
+                        + indexPolicyName + "' by DROP " + type + " statement.");
+            }
             if (policyToDrop.getType() == IndexPolicyTypeEnum.ANALYZER) {
                 checkAnalyzerNotUsedByIndex(policyToDrop.getName());
             }
