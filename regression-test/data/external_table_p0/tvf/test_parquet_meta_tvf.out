@@ -47,7 +47,7 @@ s3://doris-regression-hk/regression/datalake/pipeline_data/meta.parquet	0	-1
 0	5	4	236	3	191	5	decimal_col	FIXED_LEN_BYTE_ARRAY	10.00	50.00	1	\N	10.00
 
 -- !parquet_schema_hdfs --
-hdfs://127.0.0.1:8320/user/doris/tvf_data/test_hdfs_parquet/group0/delta_length_byte_array.parquet	FRUIT	BYTE_ARRAY	\N	OPTIONAL	0	UTF8	\N	\N	1	STRING
+1
 
 -- !parquet_file_metadata_hdfs --
 1

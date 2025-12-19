@@ -170,7 +170,7 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
         try {
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/delta_length_byte_array.parquet"
             order_qt_parquet_schema_hdfs """
-                select * from parquet_meta(
+                select count(*) from parquet_meta(
                     "uri" = "${uri}",
                     "hadoop.username" = "${hdfsUserName}",
                     "mode" = "parquet_schema"
