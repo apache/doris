@@ -218,11 +218,6 @@ public:
         }
     }
 
-    Status close(RuntimeState* state, Status exec_status) override {
-        _sink_buffer.reset();
-        return DataSinkOperatorX<ExchangeSinkLocalState>::close(state, exec_status);
-    }
-
     // For a normal shuffle scenario, if the concurrency is n,
     // there can be up to n * n RPCs in the current fragment.
     // Therefore, a shared sink buffer is used here to limit the number of concurrent RPCs.

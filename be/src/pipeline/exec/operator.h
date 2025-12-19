@@ -674,7 +674,7 @@ public:
 
     [[nodiscard]] bool is_sink() const override { return true; }
 
-    virtual Status close(RuntimeState* state, Status exec_status) {
+    static Status close(RuntimeState* state, Status exec_status) {
         auto result = state->get_sink_local_state_result();
         if (!result) {
             return result.error();
