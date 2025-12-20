@@ -51,6 +51,7 @@ void handle_sigchld(int sig_no) {
 }
 
 // Check CDC client health
+#ifndef BE_TEST
 Status check_cdc_client_health(int retry_times, int sleep_time, std::string& health_response) {
     const std::string cdc_health_url =
             "http://127.0.0.1:" + std::to_string(doris::config::cdc_client_port) +
@@ -79,6 +80,7 @@ Status check_cdc_client_health(int retry_times, int sleep_time, std::string& hea
 
     return Status::OK();
 }
+#endif
 
 } // anonymous namespace
 
@@ -133,6 +135,11 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
 
     pid_t existing_pid = _child_pid.load();
     if (existing_pid > 0) {
+#ifdef BE_TEST
+        // In test mode, skip health check and directly return OK if PID exists
+        LOG(INFO) << "cdc client already started (BE_TEST mode), pid=" << existing_pid;
+        return Status::OK();
+#else
         // Check if process is still alive
         if (kill(existing_pid, 0) == 0) {
             std::string check_response;
@@ -149,6 +156,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
             // Process is dead, reset PID
             _child_pid.store(0);
         }
+#endif
     }
 
     Status st = Status::OK();
@@ -189,6 +197,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     }
 
     // check cdc process already started
+#ifndef BE_TEST
     std::string check_response;
     auto check_st = check_cdc_client_health(1, 0, check_response);
     if (check_st.ok()) {
@@ -197,6 +206,9 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     } else {
         LOG(INFO) << "cdc client not started, to start.";
     }
+#else
+    LOG(INFO) << "cdc client not started (BE_TEST mode), to start.";
+#endif
 
     const auto* java_home = getenv("JAVA_HOME");
     if (!java_home) {

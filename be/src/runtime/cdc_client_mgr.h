@@ -48,6 +48,11 @@ public:
 
     Status start_cdc_client(PRequestCdcClientResult* result);
 
+#ifdef BE_TEST
+    // For testing only: get current child PID
+    pid_t get_child_pid() const { return _child_pid.load(); }
+#endif
+
 private:
     std::mutex _start_mutex;
     std::atomic<pid_t> _child_pid {0};
