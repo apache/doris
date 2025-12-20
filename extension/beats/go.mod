@@ -112,7 +112,7 @@ require (
 	github.com/samuel/go-thrift v0.0.0-20140522043831-2187045faa54 // indirect
 	github.com/santhosh-tekuri/jsonschema v1.2.4 // indirect
 	github.com/shirou/gopsutil v3.20.12+incompatible // indirect
-	github.com/sirupsen/logrus v1.8.1 // indirect
+	github.com/sirupsen/logrus v1.8.3 // indirect
 	github.com/spf13/cobra v1.0.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/tsg/gopacket v0.0.0-20200626092518-2ab8e397a786 // indirect
@@ -140,7 +140,7 @@ require (
 	golang.org/x/net v0.0.0-20211020060615-d418f374d309 // indirect
 	golang.org/x/oauth2 v0.0.0-20211005180243-6b3c2da341f1 // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
-	golang.org/x/sys v0.0.0-20211102192858-4dd72447c267 // indirect
+	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8 // indirect
 	golang.org/x/term v0.0.0-20210220032956-6a3ed077a48d // indirect
 	golang.org/x/text v0.3.7 // indirect
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac // indirect
