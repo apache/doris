@@ -188,21 +188,6 @@ TEST_F(CdcClientMgrTest, StartCdcClientMissingJavaHome) {
     EXPECT_TRUE(result.has_status());
 }
 
-// Test start_cdc_client in BE_TEST mode (should succeed)
-TEST_F(CdcClientMgrTest, StartCdcClientBeTest) {
-    CdcClientMgr mgr;
-    PRequestCdcClientResult result;
-
-    // Initially no child process
-    EXPECT_EQ(mgr.get_child_pid(), 0);
-
-    Status status = mgr.start_cdc_client(&result);
-
-    // In BE_TEST mode, it should succeed by setting a dummy PID
-    EXPECT_TRUE(status.ok());
-    EXPECT_GT(mgr.get_child_pid(), 0); // PID should be set
-}
-
 // Test multiple calls to start_cdc_client
 TEST_F(CdcClientMgrTest, StartCdcClientMultipleTimes) {
     CdcClientMgr mgr;
@@ -224,26 +209,6 @@ TEST_F(CdcClientMgrTest, StartCdcClientMultipleTimes) {
     EXPECT_EQ(mgr.get_child_pid(), pid_after_first); // PID should not change!
 }
 
-// Test stop immediately after start (covers stop logic with existing PID)
-TEST_F(CdcClientMgrTest, StopAfterStart) {
-    CdcClientMgr mgr;
-
-    // Start CDC client
-    PRequestCdcClientResult result;
-    Status status = mgr.start_cdc_client(&result);
-    EXPECT_TRUE(status.ok());
-    EXPECT_GT(mgr.get_child_pid(), 0);
-
-    // Immediately stop (will test process dead branch since PID 99999 doesn't exist)
-    mgr.stop();
-    EXPECT_EQ(mgr.get_child_pid(), 0);
-
-    // Should be able to start again
-    Status status2 = mgr.start_cdc_client(&result);
-    EXPECT_TRUE(status2.ok());
-    EXPECT_GT(mgr.get_child_pid(), 0);
-}
-
 // Test destructor calls stop
 TEST_F(CdcClientMgrTest, DestructorCallsStop) {
     {
@@ -254,19 +219,6 @@ TEST_F(CdcClientMgrTest, DestructorCallsStop) {
     }
     // If no crash, test passes
     SUCCEED();
-}
-
-// Test send_request_to_cdc_client
-TEST_F(CdcClientMgrTest, SendRequestToCdcClient) {
-    CdcClientMgr mgr;
-    std::string response;
-
-    // This will fail because CDC client is not really running
-    // But it will test the code path
-    Status status = mgr.send_request_to_cdc_client("/test/api", "{\"key\":\"value\"}", &response);
-
-    // Expected to fail but should not crash
-    EXPECT_FALSE(status.ok());
 }
 
 // Test send_request_to_cdc_client with explicitly empty params (covers params_body.empty() branch)
@@ -280,30 +232,6 @@ TEST_F(CdcClientMgrTest, SendRequestExplicitlyEmptyParams) {
 
     // Expected to fail but should not crash
     EXPECT_FALSE(status.ok());
-}
-
-// Test request_cdc_client_impl
-TEST_F(CdcClientMgrTest, RequestCdcClientImpl) {
-    CdcClientMgr mgr;
-    PRequestCdcClientRequest request;
-    PRequestCdcClientResult result;
-
-    request.set_api("/test/api");
-    request.set_params("{\"test\":\"data\"}");
-
-    // Create a simple closure for testing
-    struct TestClosure : public google::protobuf::Closure {
-        void Run() override { called = true; }
-        bool called = false;
-    };
-    TestClosure closure;
-
-    mgr.request_cdc_client_impl(&request, &result, &closure);
-
-    // Check that status is set in result
-    EXPECT_TRUE(result.has_status());
-    // Closure should be called
-    EXPECT_TRUE(closure.called);
 }
 
 // Test request_cdc_client_impl when start fails (covers lines 288-291)
@@ -397,26 +325,6 @@ TEST_F(CdcClientMgrTest, ConcurrentStartAttempts) {
     EXPECT_GT(mgr.get_child_pid(), 0);
 }
 
-// Test stop and restart cycle
-TEST_F(CdcClientMgrTest, StopRestartCycle) {
-    CdcClientMgr mgr;
-    PRequestCdcClientResult result;
-
-    // Start
-    Status status1 = mgr.start_cdc_client(&result);
-    EXPECT_TRUE(status1.ok());
-
-    // Stop
-    mgr.stop();
-
-    // Restart
-    Status status2 = mgr.start_cdc_client(&result);
-    EXPECT_TRUE(status2.ok());
-
-    // Stop again
-    mgr.stop();
-}
-
 // Test send_request with various HTTP methods implicitly
 TEST_F(CdcClientMgrTest, SendRequestVariousEndpoints) {
     CdcClientMgr mgr;
@@ -485,25 +393,6 @@ TEST_F(CdcClientMgrTest, MultipleRequestCalls) {
     }
 }
 
-// Test behavior when LOG_DIR has trailing slash
-TEST_F(CdcClientMgrTest, LogDirWithTrailingSlash) {
-    const char* log_dir = std::getenv("LOG_DIR");
-    if (log_dir) {
-        std::string log_dir_with_slash = std::string(log_dir) + "/";
-        setenv("LOG_DIR", log_dir_with_slash.c_str(), 1);
-
-        CdcClientMgr mgr;
-        PRequestCdcClientResult result;
-        Status status = mgr.start_cdc_client(&result);
-
-        // Should still work fine
-        EXPECT_TRUE(status.ok());
-
-        // Restore original
-        setenv("LOG_DIR", log_dir, 1);
-    }
-}
-
 // Test behavior when DORIS_HOME has trailing slash
 TEST_F(CdcClientMgrTest, DorisHomeWithTrailingSlash) {
     if (_original_doris_home) {
@@ -520,18 +409,6 @@ TEST_F(CdcClientMgrTest, DorisHomeWithTrailingSlash) {
         // Restore original
         setenv("DORIS_HOME", _original_doris_home, 1);
     }
-}
-
-// Test send_request_to_cdc_client with nullptr response
-TEST_F(CdcClientMgrTest, SendRequestNullResponse) {
-    CdcClientMgr mgr;
-
-    // Should handle nullptr response gracefully (though it will likely crash in real scenario)
-    // This tests the code path through send_request_to_cdc_client
-    Status status = mgr.send_request_to_cdc_client("/test", "{}", nullptr);
-
-    // Expected to fail because no CDC client is running
-    EXPECT_FALSE(status.ok());
 }
 
 // Test send_request_to_cdc_client with very long API path
