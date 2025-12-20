@@ -51,6 +51,8 @@ public:
 #ifdef BE_TEST
     // For testing only: get current child PID
     pid_t get_child_pid() const { return _child_pid.load(); }
+    // For testing only: set child PID directly
+    void set_child_pid_for_test(pid_t pid) { _child_pid.store(pid); }
 #endif
 
 private:

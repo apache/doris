@@ -19,10 +19,16 @@
 
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
+#include <signal.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
+#include <thread>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -107,7 +113,7 @@ TEST_F(CdcClientMgrTest, StopWithoutChild) {
     mgr.stop();
 }
 
-// Test stop when child process is already dead (covers lines 124-127)
+// Test stop when child process is already dead (covers lines 98-111: kill(pid, 0) == 0 is false)
 TEST_F(CdcClientMgrTest, StopWhenProcessDead) {
     CdcClientMgr mgr;
 
@@ -118,11 +124,84 @@ TEST_F(CdcClientMgrTest, StopWhenProcessDead) {
     EXPECT_GT(mgr.get_child_pid(), 0);
 
     // Stop - since PID 99999 doesn't exist, kill(99999, 0) will fail
-    // This should trigger the "Process already dead" branch (lines 124-127)
+    // This should trigger the branch where kill(pid, 0) != 0 (process already dead)
     mgr.stop();
 
     // PID should be reset to 0
     EXPECT_EQ(mgr.get_child_pid(), 0);
+}
+
+// Test stop with real process that exits gracefully (covers lines 98-111: graceful shutdown)
+TEST_F(CdcClientMgrTest, StopWithRealProcessGraceful) {
+    CdcClientMgr mgr;
+
+    // Use popen to start a background sleep process and get its PID
+    // This avoids fork() which conflicts with gcov/coverage tools
+    FILE* pipe = popen("sleep 10 & echo $!", "r");
+    if (pipe) {
+        char buffer[128];
+        if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+            pid_t real_pid = std::atoi(buffer);
+            pclose(pipe);
+
+            if (real_pid > 0) {
+                // Set the PID in the manager
+                mgr.set_child_pid_for_test(real_pid);
+
+                // Call stop - process will respond to SIGTERM and exit
+                // This covers the graceful shutdown path
+                mgr.stop();
+
+                // Verify PID is reset
+                EXPECT_EQ(mgr.get_child_pid(), 0);
+
+                // Clean up: make sure child is dead
+                kill(real_pid, SIGKILL);
+                waitpid(real_pid, nullptr, WNOHANG);
+            }
+        } else {
+            pclose(pipe);
+        }
+    }
+}
+
+// Test stop with real process that requires force kill (covers lines 98-111: force kill path)
+TEST_F(CdcClientMgrTest, StopWithRealProcessForceKill) {
+    CdcClientMgr mgr;
+
+    // Start a bash process that ignores SIGTERM by trapping it
+    // This process will not exit on SIGTERM, requiring SIGKILL
+    const char* script = "bash -c 'trap \"\" TERM; while true; do sleep 1; done' & echo $!";
+    FILE* pipe = popen(script, "r");
+    if (pipe) {
+        char buffer[128];
+        if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+            pid_t real_pid = std::atoi(buffer);
+            pclose(pipe);
+
+            if (real_pid > 0) {
+                // Give the process a moment to start
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                // Set the PID
+                mgr.set_child_pid_for_test(real_pid);
+
+                // Call stop - should try graceful shutdown first, then force kill
+                // Since process ignores SIGTERM, it will still be alive after 200ms
+                // This should trigger the force kill path (lines 105-110)
+                mgr.stop();
+
+                // Verify PID is reset
+                EXPECT_EQ(mgr.get_child_pid(), 0);
+
+                // Clean up: make sure child is dead
+                kill(real_pid, SIGKILL);
+                waitpid(real_pid, nullptr, WNOHANG);
+            }
+        } else {
+            pclose(pipe);
+        }
+    }
 }
 
 // Test start_cdc_client with missing DORIS_HOME

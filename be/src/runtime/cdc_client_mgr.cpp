@@ -88,7 +88,6 @@ CdcClientMgr::CdcClientMgr() = default;
 
 CdcClientMgr::~CdcClientMgr() {
     stop();
-    LOG(INFO) << "CdcClientMgr is destroyed";
 }
 
 void CdcClientMgr::stop() {
@@ -97,34 +96,19 @@ void CdcClientMgr::stop() {
         // Check if process is still alive
         if (kill(pid, 0) == 0) {
             LOG(INFO) << "Stopping CDC client process, pid=" << pid;
-
             // Send SIGTERM for graceful shutdown
-            if (kill(pid, SIGTERM) == 0) {
-                // Wait up to 10 seconds for graceful shutdown
-                for (int i = 0; i < 10; ++i) {
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
-                    if (kill(pid, 0) != 0) {
-                        // Process has exited
-                        _child_pid.store(0);
-                        LOG(INFO) << "CDC client process stopped gracefully";
-                        return;
-                    }
-                }
-            }
-
+            kill(pid, SIGTERM);
+            // Wait a short time for graceful shutdown
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
             // Force kill if still alive
             if (kill(pid, 0) == 0) {
-                LOG(WARNING) << "Force killing CDC client process, pid=" << pid;
+                LOG(INFO) << "Force killing CDC client process, pid=" << pid;
                 kill(pid, SIGKILL);
-                // Wait for process to exit
                 int status = 0;
                 waitpid(pid, &status, 0);
             }
-            _child_pid.store(0);
-        } else {
-            // Process already dead
-            _child_pid.store(0);
         }
+        _child_pid.store(0);
     }
 
     LOG(INFO) << "CdcClientMgr is stopped";
@@ -133,33 +117,42 @@ void CdcClientMgr::stop() {
 Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     std::lock_guard<std::mutex> lock(_start_mutex);
 
+    Status st = Status::OK();
     pid_t existing_pid = _child_pid.load();
     if (existing_pid > 0) {
 #ifdef BE_TEST
-        // In test mode, skip health check and directly return OK if PID exists
+        // In test mode, directly return OK if PID exists
         LOG(INFO) << "cdc client already started (BE_TEST mode), pid=" << existing_pid;
         return Status::OK();
 #else
         // Check if process is still alive
         if (kill(existing_pid, 0) == 0) {
+            // Process exists, verify it's actually our CDC client by health check
             std::string check_response;
             auto check_st = check_cdc_client_health(1, 0, check_response);
             if (check_st.ok()) {
-                LOG(INFO) << "cdc client already started, pid=" << existing_pid;
+                // Process exists and responding, CDC client is running
                 return Status::OK();
             } else {
-                // Process exists but not healthy, reset PID
-                LOG(WARNING) << "CDC client process exists but unhealthy, pid=" << existing_pid;
+                // Process exists but CDC client not responding
+                // Either it's a different process (PID reused) or CDC client is unhealthy
+                // Reset PID and return error
                 _child_pid.store(0);
+                st = Status::InternalError(
+                        fmt::format("CDC client process (pid={}) exists but not responding, "
+                                    "PID may be reused by another process",
+                                    existing_pid));
+                if (result) {
+                    st.to_protobuf(result->mutable_status());
+                }
+                return st;
             }
         } else {
-            // Process is dead, reset PID
+            // Process is dead, reset PID and continue to start
             _child_pid.store(0);
         }
 #endif
     }
-
-    Status st = Status::OK();
 
     const char* doris_home = getenv("DORIS_HOME");
     if (!doris_home) {
@@ -196,20 +189,8 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
         return st;
     }
 
-    // check cdc process already started
-#ifndef BE_TEST
-    std::string check_response;
-    auto check_st = check_cdc_client_health(1, 0, check_response);
-    if (check_st.ok()) {
-        LOG(INFO) << "cdc client already started.";
-        return Status::OK();
-    } else {
-        LOG(INFO) << "cdc client not started, to start.";
-    }
-#else
-    LOG(INFO) << "cdc client not started (BE_TEST mode), to start.";
-#endif
-
+    // Ready to start cdc client
+    LOG(INFO) << "Ready to start cdc client";
     const auto* java_home = getenv("JAVA_HOME");
     if (!java_home) {
         st = Status::InternalError("Can not find java home.");
@@ -245,14 +226,11 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
 #ifndef __APPLE__
         prctl(PR_SET_PDEATHSIG, SIGKILL);
 #endif
-
-        LOG(INFO) << "Cdc client child process ready to start";
         std::cout << "Cdc client child process ready to start." << std::endl;
         std::string java_bin = path + "/bin/java";
         // java -jar -Dlog.path=xx cdc-client.jar --server.port=9096 --backend.http.port=8040
         execlp(java_bin.c_str(), "java", java_opts.c_str(), "-jar", cdc_jar_path.c_str(),
                cdc_jar_port.c_str(), backend_http_port.c_str(), (char*)NULL);
-        std::cerr << "Cdc client child process error." << std::endl;
         exit(1);
     } else {
         // Parent process: save PID and wait for startup
@@ -280,7 +258,6 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
 void CdcClientMgr::request_cdc_client_impl(const PRequestCdcClientRequest* request,
                                            PRequestCdcClientResult* result,
                                            google::protobuf::Closure* done) {
-    VLOG_RPC << "request to cdc client, api " << request->api();
     brpc::ClosureGuard closure_guard(done);
 
     // Start CDC client if not started
