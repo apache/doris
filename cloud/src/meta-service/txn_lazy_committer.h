@@ -37,6 +37,8 @@ public:
 
     std::pair<MetaServiceCode, std::string> wait();
 
+    int64_t txn_id() const { return txn_id_; }
+
 private:
     friend class TxnLazyCommitter;
 

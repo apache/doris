@@ -1139,6 +1139,9 @@ message GetVersionRequest {
     optional bool is_table_version = 9;
 
     optional string request_ip = 10;
+
+    // Wait the pending txn to be finished before getting version
+    optional bool wait_for_pending_txn = 11;
 };
 
 message GetVersionResponse {
