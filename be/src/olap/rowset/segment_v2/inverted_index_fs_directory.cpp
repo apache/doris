@@ -454,6 +454,26 @@ int64_t DorisFSDirectory::FSIndexOutputV2::length() const {
     return _index_v2_file_writer->bytes_appended();
 }
 
+std::unique_ptr<lucene::store::IndexOutput> DorisFSDirectory::FSIndexOutputV2::create(
+        io::FileWriter* file_writer) {
+    auto ret = std::make_unique<FSIndexOutputV2>();
+    ErrorContext error_context;
+    try {
+        ret->init(file_writer);
+    } catch (CLuceneError& err) {
+        error_context.eptr = std::current_exception();
+        error_context.err_msg.append("FSIndexOutputV2::create init error: ");
+        error_context.err_msg.append(err.what());
+        LOG(ERROR) << error_context.err_msg;
+    }
+    FINALLY_EXCEPTION({
+        if (error_context.eptr) {
+            FINALLY_CLOSE(ret);
+        }
+    })
+    return ret;
+}
+
 DorisFSDirectory::DorisFSDirectory() {
     filemode = 0644;
     this->lockFactory = nullptr;
