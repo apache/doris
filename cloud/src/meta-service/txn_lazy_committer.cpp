@@ -20,6 +20,7 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <cerrno>
 #include <chrono>
 
 #include "common/bvars.h"
@@ -526,7 +527,7 @@ void TxnLazyCommitTask::commit() {
     StopWatch sw;
     DORIS_CLOUD_DEFER {
         {
-            std::unique_lock<std::mutex> lock(mutex_);
+            std::unique_lock lock(mutex_);
             this->finished_ = true;
         }
         this->cond_.notify_all();
@@ -803,16 +804,18 @@ void TxnLazyCommitTask::commit() {
 }
 
 std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::wait() {
+    constexpr auto WAIT_FOR_MICROSECONDS = 5 * 1000000;
+
     StopWatch sw;
     uint64_t round = 0;
 
-    while (true) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        if (cond_.wait_for(lock, std::chrono::seconds(5),
-                           [this]() { return this->finished_ == true; })) {
-            break;
+    {
+        std::unique_lock lock(mutex_);
+        while (!finished_) {
+            if (cond_.wait_for(lock, WAIT_FOR_MICROSECONDS) == ETIMEDOUT) {
+                LOG(INFO) << "txn_id=" << txn_id_ << " wait_for 5s timeout round=" << ++round;
+            }
         }
-        LOG(INFO) << "txn_id=" << txn_id_ << " wait_for 5s timeout round=" << ++round;
     }
 
     sw.pause();
