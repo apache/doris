@@ -153,6 +153,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32Internal
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CrossProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Csc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
@@ -695,6 +696,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(CreateMap.class, "map"),
             scalar(CreateStruct.class, "struct"),
             scalar(CreateNamedStruct.class, "named_struct"),
+            scalar(CrossProduct.class, "cross_product"),
             scalar(CurrentCatalog.class, "current_catalog"),
             scalar(CurrentDate.class, "curdate", "current_date"),
             scalar(CurrentTime.class, "curtime", "current_time"),
