@@ -140,7 +140,7 @@ suite("test_recycler_clone_instance") {
     logger.info("Verified snapshot_info.json content: ${jsonContent}")
 
     logger.info("Starting FE with snapshot_info.json")
-    def startFeCmd = "ssh -o StrictHostKeyChecking=no ${username}@${masterFeHost} \"cd ${dorisHome}/fe/bin && ./start_fe.sh --daemon --cluster_snapshot snapshot_info.json\""
+    def startFeCmd = "ssh -o StrictHostKeyChecking=no ${username}@${masterFeHost} \"cd ${dorisHome}/fe/bin && export JAVA_HOME=${DORIS_JAVA_HOME} && ./start_fe.sh --daemon --cluster_snapshot snapshot_info.json\""
     executeCommand(startFeCmd, true)
     logger.info("Master FE started successfully with cluster snapshot")
     
@@ -152,7 +152,7 @@ suite("test_recycler_clone_instance") {
     logger.info("Starting all BEs")
     for (def beHost : beHosts) {
         logger.info("Starting BE on ${beHost}")
-        def startBeCmd = "ssh -o StrictHostKeyChecking=no ${username}@${beHost} \"cd ${dorisHome}/be/bin && ./start_be.sh --daemon\""
+        def startBeCmd = "ssh -o StrictHostKeyChecking=no ${username}@${beHost} \"cd ${dorisHome}/be/bin && export JAVA_HOME=${DORIS_JAVA_HOME} && ./start_be.sh --daemon\""
         executeCommand(startBeCmd, true)
         logger.info("BE on ${beHost} started successfully")
     }

@@ -487,6 +487,10 @@ private:
                                    const std::vector<int64_t>& partition_ids, MetaServiceCode& code,
                                    std::string& msg, KVStats& stats);
 
+    // Wait for all pending transactions before returning, and bump up the version to the latest.
+    std::pair<MetaServiceCode, std::string> wait_for_pending_txns(const std::string& instance_id,
+                                                                  std::vector<VersionPB>& versions);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
