@@ -289,6 +289,24 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                                   table_id);
                 return;
             }
+
+            if (request->wait_for_pending_txn() && partition_version.pending_txn_ids_size() > 0) {
+                DCHECK_EQ(partition_version.pending_txn_ids_size(), 1)
+                        << "only support one pending txn id for now, version="
+                        << partition_version.ShortDebugString();
+                int64_t first_txn_id = partition_version.pending_txn_ids(0);
+                std::shared_ptr<TxnLazyCommitTask> task =
+                        txn_lazy_committer_->submit(instance_id, first_txn_id);
+                std::tie(code, msg) = task->wait();
+                if (code != MetaServiceCode::OK) {
+                    LOG(WARNING) << "wait for pending txn " << first_txn_id
+                                 << " failed, code=" << code << " msg=" << msg;
+                    return;
+                }
+                partition_version.set_version(partition_version.version() + 1);
+                partition_version.clear_pending_txn_ids();
+            }
+
             response->set_version(partition_version.version());
             response->add_version_update_time_ms(partition_version.update_time_ms());
         }
@@ -336,6 +354,23 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 msg = "not found";
                 code = MetaServiceCode::VERSION_NOT_FOUND;
                 return;
+            }
+
+            if (request->wait_for_pending_txn() && version_pb.pending_txn_ids_size() > 0) {
+                DCHECK_EQ(version_pb.pending_txn_ids_size(), 1)
+                        << "only support one pending txn id for now, version="
+                        << version_pb.ShortDebugString();
+                int64_t first_txn_id = version_pb.pending_txn_ids(0);
+                std::shared_ptr<TxnLazyCommitTask> task =
+                        txn_lazy_committer_->submit(instance_id, first_txn_id);
+                std::tie(code, msg) = task->wait();
+                if (code != MetaServiceCode::OK) {
+                    LOG(WARNING) << "wait for pending txn " << first_txn_id
+                                 << " failed, code=" << code << " msg=" << msg;
+                    return;
+                }
+                version_pb.set_version(version_pb.version() + 1);
+                version_pb.clear_pending_txn_ids();
             }
 
             response->set_version(version_pb.version());
@@ -465,35 +500,48 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                 break;
             }
 
-            for (auto&& value : version_values) {
-                if (!value.has_value()) {
-                    // return -1 if the target version is not exists.
-                    response->add_versions(-1);
-                    response->add_version_update_time_ms(-1);
-                } else if (is_table_version) {
-                    int64_t version = 0;
-                    if (!txn->decode_atomic_int(*value, &version)) {
-                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                        msg = "malformed table version value";
-                        break;
+            if (is_table_version) {
+                for (auto&& value : version_values) {
+                    if (!value.has_value()) {
+                        // return -1 if the target version is not exists.
+                        response->add_versions(-1);
+                    } else {
+                        int64_t version = 0;
+                        if (!txn->decode_atomic_int(*value, &version)) {
+                            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                            msg = "malformed table version value";
+                            break;
+                        }
+                        response->add_versions(version);
                     }
-                    response->add_versions(version);
-                } else {
+                }
+            } else {
+                std::vector<VersionPB> partition_versions;
+                for (auto&& value : version_values) {
                     VersionPB version_pb;
-                    if (!version_pb.ParseFromString(*value)) {
+                    if (!value.has_value()) {
+                        // return -1 if the target version is not exists.
+                        version_pb.set_version(-1);
+                        version_pb.set_update_time_ms(-1);
+                    } else if (!version_pb.ParseFromString(*value)) {
                         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                         msg = "malformed version value";
                         break;
                     }
-
-                    if (!version_pb.has_version()) {
-                        // return -1 if the target version is not exists.
-                        response->add_versions(-1);
-                        response->add_version_update_time_ms(-1);
-                    } else {
-                        response->add_versions(version_pb.version());
-                        response->add_version_update_time_ms(version_pb.update_time_ms());
+                    partition_versions.push_back(std::move(version_pb));
+                }
+                if (code != MetaServiceCode::OK) {
+                    break;
+                }
+                if (request->wait_for_pending_txn()) {
+                    std::tie(code, msg) = wait_for_pending_txns(instance_id, partition_versions);
+                    if (code != MetaServiceCode::OK) {
+                        break;
                     }
+                }
+                for (auto& version_pb : partition_versions) {
+                    response->add_versions(version_pb.version());
+                    response->add_version_update_time_ms(version_pb.update_time_ms());
                 }
             }
         }
@@ -595,10 +643,10 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::batch_get_partition_ver
             for (size_t j = i; j < limit; j++) {
                 acquired_ids.push_back(request->partition_ids(j));
             }
-            std::unordered_map<int64_t, VersionPB> partition_versions;
+            std::unordered_map<int64_t, VersionPB> partition_version_map;
             std::unordered_map<int64_t, Versionstamp> versionstamps;
-            err = reader.get_partition_versions(acquired_ids, &partition_versions, &versionstamps,
-                                                true);
+            err = reader.get_partition_versions(acquired_ids, &partition_version_map,
+                                                &versionstamps, true);
             if (err == TxnErrorCode::TXN_TOO_OLD) {
                 // txn too old, fallback to non-snapshot versions.
                 LOG(WARNING) << "batch_get_version execution time exceeds the txn mvcc window, "
@@ -609,16 +657,30 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::batch_get_partition_ver
                 return {cast_as<ErrCategory::READ>(err),
                         fmt::format("failed to batch get versions, index={}, err={}", i, err)};
             }
+
+            std::vector<VersionPB> partition_versions;
             for (auto& acquired_id : acquired_ids) {
-                auto it = partition_versions.find(acquired_id);
-                if (it == partition_versions.end()) {
+                auto it = partition_version_map.find(acquired_id);
+                if (it == partition_version_map.end()) {
                     // return -1 if the target version is not exists.
-                    response->add_versions(-1);
-                    response->add_version_update_time_ms(-1);
+                    VersionPB version_pb;
+                    version_pb.set_version(-1);
+                    version_pb.set_update_time_ms(-1);
+                    partition_versions.push_back(std::move(version_pb));
                 } else {
-                    response->add_versions(it->second.version());
-                    response->add_version_update_time_ms(it->second.update_time_ms());
+                    partition_versions.push_back(it->second);
                 }
+            }
+            if (request->wait_for_pending_txn()) {
+                auto&& [code, msg] =
+                        wait_for_pending_txns(std::string(instance_id), partition_versions);
+                if (code != MetaServiceCode::OK) {
+                    return {code, msg};
+                }
+            }
+            for (auto& version_pb : partition_versions) {
+                response->add_versions(version_pb.version());
+                response->add_version_update_time_ms(version_pb.update_time_ms());
             }
         }
     }
@@ -5708,6 +5770,44 @@ std::string hide_access_key(const std::string& ak) {
                     x_count - left_x_count, 'x');
     }
     return key;
+}
+
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::wait_for_pending_txns(
+        const std::string& instance_id, std::vector<VersionPB>& versions) {
+    std::vector<std::shared_ptr<TxnLazyCommitTask>> tasks;
+    for (auto& version : versions) {
+        if (version.pending_txn_ids_size() == 0) {
+            continue;
+        }
+
+        DCHECK_EQ(version.pending_txn_ids_size(), 1)
+                << "only support one pending txn id for now, version="
+                << version.ShortDebugString();
+
+        int64_t first_txn_id = version.pending_txn_ids(0);
+        std::shared_ptr<TxnLazyCommitTask> task =
+                txn_lazy_committer_->submit(instance_id, first_txn_id);
+        tasks.push_back(task);
+    }
+
+    for (auto& task : tasks) {
+        auto&& [code, msg] = task->wait();
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "wait for pending txn " << task->txn_id() << " failed, code=" << code
+                         << " msg=" << msg;
+            return {code, msg};
+        }
+    }
+
+    for (auto& version : versions) {
+        if (version.pending_txn_ids_size() == 0) {
+            continue;
+        }
+        version.clear_pending_txn_ids();
+        version.set_version(version.version() + 1);
+    }
+
+    return {MetaServiceCode::OK, ""};
 }
 
 } // namespace doris::cloud
