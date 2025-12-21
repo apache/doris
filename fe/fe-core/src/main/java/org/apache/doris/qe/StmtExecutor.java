@@ -2642,48 +2642,60 @@ public class StmtExecutor {
         return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
     }
 
-    public void sendStmtPrepareOK(int stmtId, List<String> labels) throws IOException {
-        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
-        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
-        serializer.reset();
-        // 0x00 OK
-        serializer.writeInt1(0);
-        // statement_id
-        serializer.writeInt4(stmtId);
-        // num_columns
-        int numColumns = 0;
-        serializer.writeInt2(numColumns);
-        // num_params
-        int numParams = labels.size();
-        serializer.writeInt2(numParams);
-        // reserved_1
-        serializer.writeInt1(0);
-        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        if (numParams > 0) {
-            // send field one by one
-            // TODO use real type instead of string, for JDBC client it's ok
-            // but for other client, type should be correct
-            // List<PrimitiveType> types = exprToStringType(labels);
-            List<String> colNames = labels;
-            for (int i = 0; i < colNames.size(); ++i) {
-                serializer.reset();
-                // serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
-                serializer.writeField(colNames.get(i), Type.STRING);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-            serializer.reset();
-            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-                eofPacket.writeTo(serializer);
-            } else {
-                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
-                okPacket.writeTo(serializer);
-            }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        }
-        context.getMysqlChannel().flush();
-        context.getState().setNoop();
-    }
+
+     public void sendStmtPrepareOK(int stmtId, List<String> labels) throws IOException {
+         Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
+         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
+         serializer.reset();
+         // 0x00 OK
+         serializer.writeInt1(0);
+         // statement_id
+         serializer.writeInt4(stmtId);
+         // num_columns: Refer to the 4.0 version code and MySQL metadata protocol,
+         // set numColumns to the actual value to fix the null metadata issue #59037
+         int numColumns = 0;
+         if (parsedStmt instanceof SelectStmt) {
+             List<String> colLabels = ((SelectStmt) parsedStmt).getColLabels();
+             numColumns = colLabels != null ? colLabels.size() : 0;
+         } else if (parsedStmt instanceof LogicalPlanAdapter) {
+             List<String> colLabels = ((LogicalPlanAdapter) parsedStmt).getColLabels();
+             numColumns = colLabels != null ? colLabels.size() : 0;
+         } else if (parsedStmt instanceof ShowStmt) {
+             ShowResultSetMetaData metaData = ((ShowStmt) parsedStmt).getMetaData();
+             numColumns = metaData != null ? metaData.getColumnCount() : 0;
+         }
+         serializer.writeInt2(numColumns);
+         // num_params
+         int numParams = labels.size();
+         serializer.writeInt2(numParams);
+         // reserved_1
+         serializer.writeInt1(0);
+         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+         if (numParams > 0) {
+             // send field one by one
+             // TODO use real type instead of string, for JDBC client it's ok
+             // but for other client, type should be correct
+             // List<PrimitiveType> types = exprToStringType(labels);
+             List<String> colNames = labels;
+             for (int i = 0; i < colNames.size(); ++i) {
+                 serializer.reset();
+                 // serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
+                 serializer.writeField(colNames.get(i), Type.STRING);
+                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+             }
+             serializer.reset();
+             if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                 MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+                 eofPacket.writeTo(serializer);
+             } else {
+                 MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
+                 okPacket.writeTo(serializer);
+             }
+             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+         }
+         context.getMysqlChannel().flush();
+         context.getState().setNoop();
+}
 
     private void sendFields(List<String> colNames, List<Type> types) throws IOException {
         sendFields(colNames, null, types);
