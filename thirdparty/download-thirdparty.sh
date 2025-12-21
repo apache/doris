@@ -101,18 +101,6 @@ md5sum_func() {
     return 0
 }
 
-# build a mirror url when possible
-mirror_url_for() {
-    local url="$1"
-    if echo "${url}" | grep -q "github.com"; then
-        echo "https://ghproxy.it/${url}"
-        return 0
-    fi
-    return 1
-}
-
-WGET_OPTS=(--no-check-certificate --timeout=30 --tries=2)
-
 # return 0 if download succeed.
 # return 1 if not.
 download_func() {
@@ -135,36 +123,29 @@ download_func() {
     fi
 
     local STATUS=1
-    local url_candidates=("${DOWNLOAD_URL}")
-    if MIRROR_URL="$(mirror_url_for "${DOWNLOAD_URL}")"; then
-        url_candidates+=("${MIRROR_URL}")
-    fi
-
-    for url in "${url_candidates[@]}"; do
-        for attempt in 1 2; do
-            if [[ -r "${DESC_DIR}/${FILENAME}" ]]; then
-                if md5sum_func "${FILENAME}" "${DESC_DIR}" "${MD5SUM}"; then
-                    echo "Archive ${FILENAME} already exist."
-                    STATUS=0
-                    break 2
-                fi
-                echo "Archive ${FILENAME} will be removed and download again."
-                rm -f "${DESC_DIR}/${FILENAME}"
+    for attemp in 1 2; do
+        if [[ -r "${DESC_DIR}/${FILENAME}" ]]; then
+            if md5sum_func "${FILENAME}" "${DESC_DIR}" "${MD5SUM}"; then
+                echo "Archive ${FILENAME} already exist."
+                STATUS=0
+                break
             fi
-
-            echo "Downloading ${FILENAME} from ${url} to ${DESC_DIR}"
-            if wget "${WGET_OPTS[@]}" -q "${url}" -O "${DESC_DIR}/${FILENAME}"; then
+            echo "Archive ${FILENAME} will be removed and download again."
+            rm -f "${DESC_DIR}/${FILENAME}"
+        else
+            echo "Downloading ${FILENAME} from ${DOWNLOAD_URL} to ${DESC_DIR}"
+            if wget --no-check-certificate -q "${DOWNLOAD_URL}" -O "${DESC_DIR}/${FILENAME}"; then
                 if md5sum_func "${FILENAME}" "${DESC_DIR}" "${MD5SUM}"; then
                     STATUS=0
                     echo "Success to download ${FILENAME}"
-                    break 2
+                    break
                 fi
                 echo "Archive ${FILENAME} will be removed and download again."
                 rm -f "${DESC_DIR}/${FILENAME}"
             else
-                echo "Failed to download ${FILENAME}. attempt: ${attempt} url: ${url}"
+                echo "Failed to download ${FILENAME}. attemp: ${attemp}"
             fi
-        done
+        fi
     done
 
     if [[ "${STATUS}" -ne 0 ]]; then
