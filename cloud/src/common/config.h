@@ -409,4 +409,7 @@ CONF_Validator(aws_credentials_provider_version,
 CONF_mBool(enable_notify_instance_update, "true");
 CONF_Bool(enable_instance_update_watcher, "true");
 
+CONF_mBool(advance_txn_lazy_commit_during_reads, "true");
+CONF_mBool(wait_txn_lazy_commit_during_reads, "true");
+
 } // namespace doris::cloud::config

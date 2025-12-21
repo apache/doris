@@ -3117,7 +3117,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         DCHECK(request->has_idx());
 
-        if (idx.has_db_id()) {
+        if (idx.has_db_id() && config::advance_txn_lazy_commit_during_reads) {
             // there is maybe a lazy commit txn when call get_rowset
             // we need advance lazy commit txn here
             int64_t first_txn_id = -1;
@@ -3152,13 +3152,15 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 std::shared_ptr<TxnLazyCommitTask> task =
                         txn_lazy_committer_->submit(instance_id, first_txn_id);
 
-                std::tie(code, msg) = task->wait();
-                if (code != MetaServiceCode::OK) {
-                    LOG(WARNING) << "advance_last_txn failed last_txn=" << first_txn_id
-                                 << " code=" << code << " msg=" << msg;
-                    return;
+                if (config::wait_txn_lazy_commit_during_reads) {
+                    std::tie(code, msg) = task->wait();
+                    if (code != MetaServiceCode::OK) {
+                        LOG(WARNING) << "advance_last_txn failed last_txn=" << first_txn_id
+                                     << " code=" << code << " msg=" << msg;
+                        return;
+                    }
+                    continue;
                 }
-                continue;
             }
         }
 
