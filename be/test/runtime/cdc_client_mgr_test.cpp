@@ -204,41 +204,6 @@ TEST_F(CdcClientMgrTest, StopWithRealProcessForceKill) {
     }
 }
 
-// Test start_cdc_client with missing DORIS_HOME
-TEST_F(CdcClientMgrTest, StartCdcClientMissingDorisHome) {
-    unsetenv("DORIS_HOME");
-
-    CdcClientMgr mgr;
-    PRequestCdcClientResult result;
-    Status status = mgr.start_cdc_client(&result);
-
-    EXPECT_FALSE(status.ok());
-    EXPECT_TRUE(status.to_string().find("DORIS_HOME") != std::string::npos);
-    EXPECT_TRUE(result.has_status());
-    EXPECT_FALSE(result.status().status_code() == 0);
-
-    // Restore DORIS_HOME
-    if (_original_doris_home) {
-        setenv("DORIS_HOME", _original_doris_home, 1);
-    }
-}
-
-// Test start_cdc_client with missing LOG_DIR
-TEST_F(CdcClientMgrTest, StartCdcClientMissingLogDir) {
-    unsetenv("LOG_DIR");
-
-    CdcClientMgr mgr;
-    PRequestCdcClientResult result;
-    Status status = mgr.start_cdc_client(&result);
-
-    EXPECT_FALSE(status.ok());
-    EXPECT_TRUE(status.to_string().find("LOG_DIR") != std::string::npos);
-    EXPECT_TRUE(result.has_status());
-    EXPECT_FALSE(result.status().status_code() == 0);
-
-    setenv("LOG_DIR", _log_dir.c_str(), 1);
-}
-
 // Test start_cdc_client with missing jar file
 TEST_F(CdcClientMgrTest, StartCdcClientMissingJar) {
     [[maybe_unused]] int rm_ret = system(("rm -f " + _jar_path).c_str());
@@ -263,7 +228,7 @@ TEST_F(CdcClientMgrTest, StartCdcClientMissingJavaHome) {
     Status status = mgr.start_cdc_client(&result);
 
     EXPECT_FALSE(status.ok());
-    EXPECT_TRUE(status.to_string().find("java home") != std::string::npos);
+    EXPECT_TRUE(status.to_string().find("JAVA_HOME") != std::string::npos);
     EXPECT_TRUE(result.has_status());
 }
 
@@ -322,8 +287,8 @@ TEST_F(CdcClientMgrTest, RequestCdcClientImplStartFailed) {
     request.set_api("/test/api");
     request.set_params("{}");
 
-    // Remove DORIS_HOME to make start_cdc_client fail
-    unsetenv("DORIS_HOME");
+    // Remove JAVA_HOME to make start_cdc_client fail
+    unsetenv("JAVA_HOME");
 
     struct TestClosure : public google::protobuf::Closure {
         void Run() override { called = true; }
@@ -338,38 +303,41 @@ TEST_F(CdcClientMgrTest, RequestCdcClientImplStartFailed) {
     EXPECT_NE(result.status().status_code(), 0);
     EXPECT_TRUE(closure.called);
 
-    // Restore DORIS_HOME
-    if (_original_doris_home) {
-        setenv("DORIS_HOME", _original_doris_home, 1);
+    // Restore JAVA_HOME
+    if (_original_java_home) {
+        setenv("JAVA_HOME", _original_java_home, 1);
     }
 }
 
-// Test start_cdc_client with nullptr result
-TEST_F(CdcClientMgrTest, StartCdcClientNullResult) {
+// Test start_cdc_client with result
+TEST_F(CdcClientMgrTest, StartCdcClientWithResult) {
     CdcClientMgr mgr;
+    PRequestCdcClientResult result;
 
     EXPECT_EQ(mgr.get_child_pid(), 0);
 
-    Status status = mgr.start_cdc_client(nullptr);
+    Status status = mgr.start_cdc_client(&result);
 
-    // Should handle nullptr result gracefully
+    // Should succeed
     EXPECT_TRUE(status.ok());
     EXPECT_GT(mgr.get_child_pid(), 0); // PID should be set
 }
 
-// Test start_cdc_client when environment is missing (nullptr result)
-TEST_F(CdcClientMgrTest, StartCdcClientMissingEnvNullResult) {
-    unsetenv("DORIS_HOME");
+// Test start_cdc_client when environment is missing
+TEST_F(CdcClientMgrTest, StartCdcClientMissingEnv) {
+    unsetenv("JAVA_HOME");
 
     CdcClientMgr mgr;
-    Status status = mgr.start_cdc_client(nullptr);
+    PRequestCdcClientResult result;
+    Status status = mgr.start_cdc_client(&result);
 
     EXPECT_FALSE(status.ok());
-    EXPECT_TRUE(status.to_string().find("DORIS_HOME") != std::string::npos);
+    EXPECT_TRUE(status.to_string().find("JAVA_HOME") != std::string::npos);
+    EXPECT_TRUE(result.has_status());
 
-    // Restore DORIS_HOME
-    if (_original_doris_home) {
-        setenv("DORIS_HOME", _original_doris_home, 1);
+    // Restore JAVA_HOME
+    if (_original_java_home) {
+        setenv("JAVA_HOME", _original_java_home, 1);
     }
 }
 
@@ -561,14 +529,14 @@ TEST_F(CdcClientMgrTest, StartAfterFailedStart) {
     CdcClientMgr mgr;
     PRequestCdcClientResult result1;
 
-    // First attempt: remove DORIS_HOME to fail
-    unsetenv("DORIS_HOME");
+    // First attempt: remove JAVA_HOME to fail
+    unsetenv("JAVA_HOME");
     Status status1 = mgr.start_cdc_client(&result1);
     EXPECT_FALSE(status1.ok());
 
-    // Restore DORIS_HOME
-    if (_original_doris_home) {
-        setenv("DORIS_HOME", _original_doris_home, 1);
+    // Restore JAVA_HOME
+    if (_original_java_home) {
+        setenv("JAVA_HOME", _original_java_home, 1);
     }
 
     // Second attempt: should succeed now
