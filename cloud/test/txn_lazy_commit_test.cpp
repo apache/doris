@@ -3309,7 +3309,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
     BeginTxnResponse res;
     meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
                             nullptr);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.ShortDebugString();
     int64_t txn_id = res.txn_id();
 
     // mock rowset and tablet
@@ -3416,6 +3416,14 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithSchemaChangeTest) {
     });
 
     sp->set_call_back("convert_tmp_rowsets::already_been_converted", [&](auto&& args) {
+        auto version_pb = *try_any_cast<VersionPB*>(args[0]);
+        LOG(INFO) << "version_pb:" << version_pb.ShortDebugString();
+        std::unique_lock<std::mutex> _lock(go_mutex);
+        tmp_rowsets_been_already_converted++;
+        go_cv.notify_all();
+    });
+
+    sp->set_call_back("TxnLazyCommitTask::commit::already_been_converted", [&](auto&& args) {
         auto version_pb = *try_any_cast<VersionPB*>(args[0]);
         LOG(INFO) << "version_pb:" << version_pb.ShortDebugString();
         std::unique_lock<std::mutex> _lock(go_mutex);
