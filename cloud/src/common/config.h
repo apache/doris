@@ -370,4 +370,8 @@ CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
 CONF_mString(aws_credentials_provider_version, "v2");
 CONF_Validator(aws_credentials_provider_version,
                [](const std::string& config) -> bool { return config == "v1" || config == "v2"; });
+
+CONF_mBool(advance_txn_lazy_commit_during_reads, "true");
+CONF_mBool(wait_txn_lazy_commit_during_reads, "true");
+
 } // namespace doris::cloud::config

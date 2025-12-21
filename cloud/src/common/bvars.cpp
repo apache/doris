@@ -116,6 +116,10 @@ BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_tablet_count("ms", "
 MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count("instance", "txn_commit_with_partition_count", {"instance_id"});
 MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count("instance", "txn_commit_with_tablet_count", {"instance_id"});
 
+bvar::LatencyRecorder g_bvar_txn_lazy_committer_waiting_duration("txn_lazy_committer", "waiting");
+bvar::LatencyRecorder g_bvar_txn_lazy_committer_committing_duration("txn_lazy_committer", "committing");
+bvar::Adder<int64_t> g_bvar_txn_lazy_committer_submitted("txn_lazy_committer", "submitted");
+bvar::Adder<int64_t> g_bvar_txn_lazy_committer_finished("txn_lazy_committer", "finished");
 
 // recycler's bvars
 // TODO: use mbvar for per instance, https://github.com/apache/brpc/blob/master/docs/cn/mbvar_c++.md
