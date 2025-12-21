@@ -692,9 +692,8 @@ public:
     IndexStorageFormatV2MockCreateOutputStream(IndexFileWriter* index_file_writer)
             : IndexStorageFormatV2(index_file_writer) {}
 
-    MOCK_METHOD((std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                           std::unique_ptr<lucene::store::IndexOutput>>),
-                create_output_stream, (), (override));
+    MOCK_METHOD((std::unique_ptr<lucene::store::IndexOutput>), create_output_stream, (),
+                (override));
 };
 
 class IndexFileWriterMockCreateOutputStreamV1 : public IndexFileWriter {
