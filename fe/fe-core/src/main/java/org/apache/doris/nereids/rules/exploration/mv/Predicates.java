@@ -21,8 +21,14 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.EquivalenceClassMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -33,6 +39,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -194,20 +201,24 @@ public class Predicates {
                 viewSplitPredicate.getRangePredicateMap().keySet(), viewToQuerySlotMapping);
         Set<Expression> queryRangeSet = new HashSet<>(querySplitPredicate.getRangePredicateMap().keySet());
 
-        Set<Expression> mvExtraRange = Sets.difference(viewRangeQueryBasedSet, queryRangeSet);
+        // TODO: Seems already normalized. Is further normalization necessary?
+        Set<Expression> normalizedViewRange = normalizeExpressionSet(viewRangeQueryBasedSet, cascadesContext);
+        Set<Expression> normalizedQueryRange = normalizeExpressionSet(queryRangeSet, cascadesContext);
+
+        Set<Expression> mvExtraRange = Sets.difference(normalizedViewRange, normalizedQueryRange);
         if (!mvExtraRange.isEmpty()) {
             return null;
         }
 
-        uncoveredRanges.addAll(Sets.difference(queryRangeSet, viewRangeQueryBasedSet));
+        uncoveredRanges.addAll(Sets.difference(normalizedQueryRange, normalizedViewRange));
         return ImmutableMap.of();
     }
 
     /**
      * Compensate residual predicates with extra query residuals (uncovered equal/range predicates).
-     * Supports OR branch matching. For example, if MV has predicate (ds >= '202531' OR ds = '202529')
-     * and query has (ds = '202529'), the query matches one branch of MV's OR predicate.
-     * Compensation NOT(ds >= '202531') is generated to exclude the extra MV branch.
+     * Supports OR branch matching. For example, if MV has predicate (id = 5 OR id > 10)
+     * and query has (id = 5), the query matches one branch of MV's OR predicate.
+     * Compensation NOT(id > 10) is generated to exclude the extra MV branch.
      */
     public static Map<Expression, ExpressionInfo> compensateResidualPredicate(StructInfo queryStructInfo,
             StructInfo viewStructInfo,
@@ -234,11 +245,33 @@ public class Predicates {
             if (compensation.anyMatch(AggregateFunction.class::isInstance)) {
                 return null;
             }
-            compensationMap.put(compensation, ExpressionInfo.EMPTY);
+            Set<Literal> literalSet = compensation.collect(expressionTreeNode -> expressionTreeNode instanceof Literal);
+            ExpressionInfo exprInfo;
+            if (compensation instanceof ComparisonPredicate
+                    && !(compensation instanceof GreaterThan || compensation instanceof LessThanEqual)
+                    && literalSet.size() == 1) {
+                exprInfo = new ExpressionInfo(literalSet.iterator().next());
+            } else {
+                exprInfo = ExpressionInfo.EMPTY;
+            }
+            compensationMap.put(compensation, exprInfo);
         }
         return compensationMap;
     }
 
+    /**
+     * Check if MV residual predicates can cover query residual predicates, return compensation expressions.
+     * <p>
+     * Example:
+     * MV residuals: [(id = 5 OR id > 10)]
+     * Query residuals: [(id = 5), (score = 1)]
+     * <p>
+     * Process:
+     * 1. (id = 5 OR id > 10) matches (id = 5) → compensation: NOT(id > 10)
+     * 2. (score = 1) is uncovered → added to compensation
+     * <p>
+     * Result compensation = NOT(MV extra OR branches) + uncovered query residuals
+     */
     private static Set<Expression> coverResidualSets(Set<Expression> viewResidualSet,
             Set<Expression> queryResidualSet) {
         Set<Expression> coveredQueryExprs = new HashSet<>();
@@ -258,6 +291,23 @@ public class Predicates {
         return compensations;
     }
 
+    /**
+     * Check if a single MV residual expression can be covered by query residual expressions.
+     * <p>
+     * Example:
+     * MV residual: (id = 5 OR id > 10)
+     * Query residuals: [(id = 5), (score = 1)]
+     * <p>
+     * Process:
+     * 1. Extract OR branches: MV branches = [id = 5, id > 10]
+     * 2. Try to match query residual (id = 5):
+     * - Query branches = [id = 5]
+     * - Intersection = [id = 5] ✓ non-empty, match succeeds
+     * 3. Return: (matched query expression, compensation expression set)
+     * - Compensation: NOT(id > 10) (MV's extra branch)
+     *
+     * @return Pair(matched query expression, compensation expression set), or null if cannot match
+     */
     private static Pair<Expression, Set<Expression>> coverSingleResidual(
             Expression viewExpr, Set<Expression> queryResidualSet) {
         Set<Expression> mvBranches = new HashSet<>(ExpressionUtils.extractDisjunction(viewExpr));
@@ -274,6 +324,7 @@ public class Predicates {
         return null;
     }
 
+    // Map expressions from MV slot space to query slot space.
     private static Set<Expression> mapExpressionsToQueryContext(
             Collection<Expression> expressions, SlotMapping viewToQuerySlotMapping) {
         Set<Expression> mapped = new HashSet<>();
@@ -285,6 +336,22 @@ public class Predicates {
             }
         }
         return mapped;
+    }
+
+    private static Set<Expression> normalizeExpressionSet(Set<Expression> expressions,
+            CascadesContext cascadesContext) {
+        // ExpressionUtils.and(empty) returns BooleanLiteral.TRUE, which breaks Sets.difference logic
+        // So we return empty set directly to avoid this issue
+        if (expressions.isEmpty()) {
+            return ImmutableSet.of();
+        }
+        Expression expression = ExpressionUtils.and(expressions);
+        ExpressionNormalization expressionNormalization = new ExpressionNormalization();
+        ExpressionOptimization expressionOptimization = new ExpressionOptimization();
+        ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
+        expression = expressionNormalization.rewrite(expression, context);
+        expression = expressionOptimization.rewrite(expression, context);
+        return ExpressionUtils.extractConjunctionToSet(expression);
     }
 
     private static Set<Expression> buildResidualCompensation(

@@ -39,7 +39,9 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-/** Test the method in Predicates*/
+/**
+ * Test the method in Predicates
+ */
 public class PredicatesTest extends SqlTestBase {
 
     @Override
@@ -114,7 +116,7 @@ public class PredicatesTest extends SqlTestBase {
         StructInfo queryStructInfo = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
                 queryContext, new BitSet()).get(0);
         RelationMapping relationMapping = RelationMapping.generate(mvStructInfo.getRelations(),
-                        queryStructInfo.getRelations(), 16).get(0);
+                queryStructInfo.getRelations(), 16).get(0);
 
         SlotMapping mvToQuerySlotMapping = SlotMapping.generate(relationMapping);
         ComparisonResult comparisonResult = HyperGraphComparator.isLogicCompatible(
@@ -178,7 +180,8 @@ public class PredicatesTest extends SqlTestBase {
                 mvStructInfo.getHyperGraph(),
                 constructContext(queryPlan, mvPlan, queryContext));
 
-        Map<Expression, ExpressionInfo> compensateCouldNotPullUpPredicates = Predicates.compensateCouldNotPullUpPredicates(
+        Map<Expression, ExpressionInfo> compensateCouldNotPullUpPredicates
+                = Predicates.compensateCouldNotPullUpPredicates(
                 queryStructInfo, mvStructInfo, mvToQuerySlotMapping, comparisonResult);
         Assertions.assertNotNull(compensateCouldNotPullUpPredicates);
         Assertions.assertTrue(compensateCouldNotPullUpPredicates.isEmpty());
@@ -224,8 +227,6 @@ public class PredicatesTest extends SqlTestBase {
 
         Map<Expression, ExpressionInfo> residualComp = Predicates.compensateResidualPredicate(
                 queryStructInfo, mvStructInfo, mvToQuerySlotMapping, comparisonResult, uncoveredRanges);
-        Assertions.assertEquals(1, residualComp.size());
-
         Assertions.assertEquals("[( not (score#1 = 1))]", residualComp.keySet().toString());
     }
 }
