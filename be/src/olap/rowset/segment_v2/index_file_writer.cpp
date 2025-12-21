@@ -184,7 +184,7 @@ Result<std::unique_ptr<IndexSearcherBuilder>> IndexFileWriter::_construct_index_
     return IndexSearcherBuilder::create_index_searcher_builder(reader_type);
 }
 
-Status IndexFileWriter::close() {
+Status IndexFileWriter::close_async() {
     DCHECK(!_closed) << debug_string();
     _closed = true;
     if (_indices_dirs.empty()) {
@@ -192,7 +192,7 @@ Status IndexFileWriter::close() {
         if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
             dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr ||
             dynamic_cast<io::PackedFileWriter*>(_idx_v2_writer.get()) != nullptr) {
-            return _idx_v2_writer->close();
+            return _idx_v2_writer->close(true);
         }
         return Status::OK();
     }
@@ -224,14 +224,22 @@ Status IndexFileWriter::close() {
                     err.what());
         }
     }
-    LOG_INFO("IndexFileWriter closing, enable_write_index_searcher_cache: {}",
+    return Status::OK();
+}
+
+Status IndexFileWriter::wait_close() {
+    DCHECK(_closed) << debug_string();
+    if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
+        RETURN_IF_ERROR(_idx_v2_writer->close(false));
+    }
+    LOG_INFO("IndexFileWriter wait_close, enable_write_index_searcher_cache: {}",
              config::enable_write_index_searcher_cache);
     Status st = Status::OK();
     if (config::enable_write_index_searcher_cache) {
         st = add_into_searcher_cache();
     }
     _indices_dirs.clear();
-    return st;
+    return Status::OK();
 }
 
 std::vector<std::string> IndexFileWriter::get_index_file_names() const {

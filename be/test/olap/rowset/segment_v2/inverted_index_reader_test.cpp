@@ -153,7 +153,9 @@ public:
         // Finish and close
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
-        status = index_file_writer->close();
+        status = index_file_writer->close_async();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->wait_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 
@@ -215,7 +217,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->close_async();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->wait_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 
@@ -272,7 +276,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->close_async();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->wait_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 
@@ -2666,7 +2672,9 @@ public:
 
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
-        status = index_file_writer->close();
+        status = index_file_writer->close_async();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->wait_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 
@@ -3136,7 +3144,9 @@ public:
 
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
-        status = index_file_writer->close();
+        status = index_file_writer->close_async();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->wait_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 
@@ -3611,7 +3621,9 @@ public:
         if (status.ok()) {
             status = column_writer->finish();
             EXPECT_TRUE(status.ok()) << status;
-            status = index_file_writer->close();
+            status = index_file_writer->close_async();
+            EXPECT_TRUE(status.ok()) << status;
+            status = index_file_writer->wait_close();
             EXPECT_TRUE(status.ok()) << status;
 
             // Try to create reader and test unsupported query

@@ -247,9 +247,14 @@ TEST_F(IndexFileWriterTest, WriteV1Test) {
     out_file->close();
     dir->close();
 
-    Status close_status = writer.close();
+    Status close_status = writer.close_async();
     if (!close_status.ok()) {
-        std::cout << "close error:" << close_status.msg() << std::endl;
+        std::cout << "close_async error:" << close_status.msg() << std::endl;
+    }
+    ASSERT_TRUE(close_status.ok());
+    close_status = writer.wait_close();
+    if (!close_status.ok()) {
+        std::cout << "wait_close error:" << close_status.msg() << std::endl;
     }
     ASSERT_TRUE(close_status.ok());
 
@@ -302,7 +307,9 @@ TEST_F(IndexFileWriterTest, WriteV2Test) {
     out_file_2->writeString("test2");
     out_file_2->close();
     dir_2->close();
-    Status close_status = writer.close();
+    Status close_status = writer.close_async();
+    ASSERT_TRUE(close_status.ok());
+    close_status = writer.wait_close();
     ASSERT_TRUE(close_status.ok());
 
     const InvertedIndexFileInfo* file_info = writer.get_index_file_info();
@@ -620,7 +627,7 @@ TEST_F(IndexFileWriterTest, WriteV1ExceptionHandlingTest) {
                                       ::testing::_))
             .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
 
-    Status status = writer_mock.close();
+    Status status = writer_mock.close_async();
     ASSERT_FALSE(status.ok());
     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 }
@@ -673,7 +680,7 @@ TEST_F(IndexFileWriterTest, WriteV2ExceptionHandlingTest) {
                 write_index_headers_and_metadata(::testing::_, ::testing::_))
             .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
 
-    Status status = writer_mock.close();
+    Status status = writer_mock.close_async();
     ASSERT_FALSE(status.ok());
     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 }
@@ -780,7 +787,7 @@ TEST_F(IndexFileWriterTest, WriteV1OutputTest) {
     out_file->close();
     dir->close();
 
-    Status status = writer_mock.close();
+    Status status = writer_mock.close_async();
     ASSERT_FALSE(status.ok());
     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 }
@@ -829,7 +836,7 @@ TEST_F(IndexFileWriterTest, WriteV2OutputTest) {
     out_file->close();
     dir->close();
 
-    Status status = writer_mock.close();
+    Status status = writer_mock.close_async();
     ASSERT_FALSE(status.ok());
     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 }
@@ -892,7 +899,7 @@ TEST_F(IndexFileWriterTest, WriteV2OutputCloseErrorTest) {
     out_file->close();
     dir->close();
 
-    Status status = writer_mock.close();
+    Status status = writer_mock.close_async();
     ASSERT_FALSE(status.ok());
     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 }
@@ -942,7 +949,7 @@ TEST_F(IndexFileWriterTest, WriteV1OutputCloseErrorTest) {
     out_file->close();
     dir->close();
 
-    Status status = writer_mock.close();
+    Status status = writer_mock.close_async();
     ASSERT_FALSE(status.ok());
     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 }
@@ -1005,7 +1012,9 @@ TEST_F(IndexFileWriterTest, AddIntoSearcherCacheTest) {
     EXPECT_CALL(writer, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder))));
 
-    Status close_status = writer.close();
+    Status close_status = writer.close_async();
+    ASSERT_TRUE(close_status.ok());
+    close_status = writer.wait_close();
     ASSERT_TRUE(close_status.ok());
 
     auto index_file_key = InvertedIndexDescriptor::get_index_file_cache_key(_index_path_prefix,
@@ -1065,7 +1074,9 @@ TEST_F(IndexFileWriterTest, CacheEvictionTest) {
     EXPECT_CALL(writer1, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder1))));
 
-    Status close_status1 = writer1.close();
+    Status close_status1 = writer1.close_async();
+    ASSERT_TRUE(close_status1.ok());
+    close_status1 = writer1.wait_close();
     ASSERT_TRUE(close_status1.ok());
 
     MockIndexFileWriter writer2(_fs, _index_path_prefix + "_2", "rowset2", 2,
@@ -1096,7 +1107,9 @@ TEST_F(IndexFileWriterTest, CacheEvictionTest) {
     EXPECT_CALL(writer2, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder2))));
 
-    Status close_status2 = writer2.close();
+    Status close_status2 = writer2.close_async();
+    ASSERT_TRUE(close_status2.ok());
+    close_status2 = writer2.wait_close();
     ASSERT_TRUE(close_status2.ok());
 
     MockIndexFileWriter writer3(_fs, _index_path_prefix + "_3", "rowset3", 3,
@@ -1126,7 +1139,9 @@ TEST_F(IndexFileWriterTest, CacheEvictionTest) {
     EXPECT_CALL(writer3, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder3))));
 
-    Status close_status3 = writer3.close();
+    Status close_status3 = writer3.close_async();
+    ASSERT_TRUE(close_status3.ok());
+    close_status3 = writer3.wait_close();
     ASSERT_TRUE(close_status3.ok());
 
     InvertedIndexCacheHandle cache_handle1;
@@ -1196,7 +1211,9 @@ TEST_F(IndexFileWriterTest, CacheUpdateTest) {
     EXPECT_CALL(writer, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder))));
 
-    Status close_status = writer.close();
+    Status close_status = writer.close_async();
+    ASSERT_TRUE(close_status.ok());
+    close_status = writer.wait_close();
     ASSERT_TRUE(close_status.ok());
 
     auto index_file_key = InvertedIndexDescriptor::get_index_file_cache_key(
@@ -1234,7 +1251,9 @@ TEST_F(IndexFileWriterTest, CacheUpdateTest) {
     EXPECT_CALL(writer_new, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder_new))));
 
-    Status close_status_new = writer_new.close();
+    Status close_status_new = writer_new.close_async();
+    ASSERT_TRUE(close_status_new.ok());
+    close_status_new = writer_new.wait_close();
     ASSERT_TRUE(close_status_new.ok());
 
     InvertedIndexCacheHandle cache_handle_new;
@@ -1280,7 +1299,9 @@ TEST_F(IndexFileWriterTest, AddIntoSearcherCacheV1Test) {
                     }));
     EXPECT_CALL(writer, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder))));
-    Status close_status = writer.close();
+    Status close_status = writer.close_async();
+    ASSERT_TRUE(close_status.ok());
+    close_status = writer.wait_close();
     ASSERT_TRUE(close_status.ok());
 
     auto index_file_key = InvertedIndexDescriptor::get_index_file_cache_key(
@@ -1392,7 +1413,9 @@ TEST_F(IndexFileWriterTest, RowsetWriterCreateIndexFileWriterWithoutRamDir) {
 
     // Cleanup
     dir->close();
-    status = index_file_writer->close();
+    status = index_file_writer->close_async();
+    ASSERT_TRUE(status.ok());
+    status = index_file_writer->wait_close();
     ASSERT_TRUE(status.ok());
 }
 
@@ -1441,7 +1464,9 @@ TEST_F(IndexFileWriterTest, RowsetWriterCreateIndexFileWriterWithRamDir) {
 
     // Cleanup
     dir->close();
-    status = index_file_writer->close();
+    status = index_file_writer->close_async();
+    ASSERT_TRUE(status.ok());
+    status = index_file_writer->wait_close();
     ASSERT_TRUE(status.ok());
 }
 
@@ -1490,7 +1515,9 @@ TEST_F(IndexFileWriterTest, RowsetWriterCreateIndexFileWriterNonBaseCompaction) 
 
     // Cleanup
     dir->close();
-    status = index_file_writer->close();
+    status = index_file_writer->close_async();
+    ASSERT_TRUE(status.ok());
+    status = index_file_writer->wait_close();
     ASSERT_TRUE(status.ok());
 }
 
@@ -1568,7 +1595,7 @@ TEST_F(IndexFileWriterTest, MultipleIndicesCreateOutputStreamException) {
             .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
 
     // When we call close(), it should process both indices and fail on the second one
-    Status status = writer_mock.close();
+    Status status = writer_mock.close_async();
     ASSERT_FALSE(status.ok());
     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 }
@@ -1908,7 +1935,9 @@ TEST_F(IndexFileWriterTest, CloseV1DirectoryDeletionTest) {
     dir->close();
 
     // Close should handle directory cleanup
-    Status status = writer.close();
+    Status status = writer.close_async();
+    ASSERT_TRUE(status.ok());
+    status = writer.wait_close();
     ASSERT_TRUE(status.ok());
 }
 
@@ -1939,9 +1968,12 @@ TEST_F(IndexFileWriterTest, CloseV2CLuceneExceptionTest) {
     dir->close();
 
     // The test should verify that CLucene exceptions are properly caught and handled
-    Status status = writer.close();
+    Status status = writer.close_async();
     // Even if there are CLucene errors, the status should still indicate completion
     // The error handling should log the error but not crash
+    if (status.ok()) {
+        status = writer.wait_close();
+    }
 }
 
 // Test for compound directory deletion error handling
@@ -1973,7 +2005,9 @@ TEST_F(IndexFileWriterTest, CompoundDirectoryDeletionTest) {
     if (std::strcmp(dir->getObjectName(), "DorisFSDirectory") == 0) {
         // This path should trigger the compound directory deletion code
         dir->close();
-        Status status = writer.close();
+        Status status = writer.close_async();
+        ASSERT_TRUE(status.ok());
+        status = writer.wait_close();
         ASSERT_TRUE(status.ok());
     }
 }
@@ -2068,7 +2102,9 @@ TEST_F(IndexFileWriterTest, WriteIndexHeadersAndMetadataTest) {
     ASSERT_TRUE(insert_st.ok());
 
     // Test close which should trigger write_index_headers_and_metadata
-    Status close_status = writer.close();
+    Status close_status = writer.close_async();
+    ASSERT_TRUE(close_status.ok());
+    close_status = writer.wait_close();
     ASSERT_TRUE(close_status.ok());
 
     // Clean up
@@ -2145,7 +2181,9 @@ TEST_F(IndexFileWriterTest, EmptyIndexV2Test) {
                            InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
     // Close without adding any indices - should handle empty case
-    Status close_status = writer.close();
+    Status close_status = writer.close_async();
+    ASSERT_TRUE(close_status.ok());
+    close_status = writer.wait_close();
     ASSERT_TRUE(close_status.ok());
 }
 
@@ -2156,7 +2194,9 @@ TEST_F(IndexFileWriterTest, StreamSinkFileWriterCloseTest) {
                            InvertedIndexStorageFormatPB::V2);
 
     // Close should handle the case where _idx_v2_writer is not a StreamSinkFileWriter
-    Status close_status = writer.close();
+    Status close_status = writer.close_async();
+    ASSERT_TRUE(close_status.ok());
+    close_status = writer.wait_close();
     ASSERT_TRUE(close_status.ok());
 }
 

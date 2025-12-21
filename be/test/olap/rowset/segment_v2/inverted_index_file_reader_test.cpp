@@ -202,8 +202,10 @@ public:
 
         dir->close();
 
-        // Write and close the file - only call close(), not write()
-        st = writer->close();
+        // Write and close the file - only call close_async() and wait_close(), not write()
+        st = writer->close_async();
+        ASSERT_TRUE(st.ok()) << st.msg();
+        st = writer->wait_close();
         ASSERT_TRUE(st.ok()) << st.msg();
     }
 

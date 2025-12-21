@@ -111,7 +111,9 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
 }
 
 Status SegmentFlusher::close() {
-    return _seg_files.close();
+    RETURN_IF_ERROR(_seg_files.close());
+    RETURN_IF_ERROR(_idx_files.wait_close());
+    return Status::OK();
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,

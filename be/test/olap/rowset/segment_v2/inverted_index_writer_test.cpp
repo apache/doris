@@ -357,7 +357,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->close_async();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->wait_close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -425,7 +427,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->close_async();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->wait_close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -491,7 +495,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->close_async();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->wait_close();
         EXPECT_TRUE(status.ok()) << status;
 
         // For BKD index, we need to verify using BkdIndexReader instead of check_terms_stats
@@ -567,7 +573,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->close_async();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->wait_close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Restore original config value
@@ -756,12 +764,16 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     // Finish and close both writers
     status = column_writer_enabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_enabled->close();
+    status = index_file_writer_enabled->close_async();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer_enabled->wait_close();
     EXPECT_TRUE(status.ok()) << status;
 
     status = column_writer_disabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_disabled->close();
+    status = index_file_writer_disabled->close_async();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer_disabled->wait_close();
     EXPECT_TRUE(status.ok()) << status;
 
     // Restore original config value
@@ -899,7 +911,9 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->close_async();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->wait_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1023,7 +1037,9 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->close_async();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->wait_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1157,7 +1173,9 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->close_async();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->wait_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1211,7 +1229,9 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->close_async();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->wait_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1280,7 +1300,9 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->close_async();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->wait_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1344,7 +1366,9 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->close_async();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->wait_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
