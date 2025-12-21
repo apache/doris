@@ -229,6 +229,15 @@ Status IndexFileWriter::close_async() {
 
 Status IndexFileWriter::wait_close() {
     DCHECK(_closed) << debug_string();
+    if (_indices_dirs.empty()) {
+        // An empty file must still be created even if there are no indexes to write
+        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
+            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr ||
+            dynamic_cast<io::PackedFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+            return _idx_v2_writer->close(false);
+        }
+        return Status::OK();
+    }
     if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_idx_v2_writer->close(false));
     }
