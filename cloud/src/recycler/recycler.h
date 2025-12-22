@@ -136,6 +136,7 @@ struct RowsetDeleteTask {
     RowsetMetaCloudPB rowset_meta;
     std::string recycle_rowset_key;       // Primary key marking "pending recycle"
     std::string non_versioned_rowset_key; // Legacy non-versioned rowset meta key
+    std::string versioned_rowset_key;     // Versioned meta rowset key
     std::string rowset_ref_count_key;
 };
 

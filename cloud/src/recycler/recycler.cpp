@@ -4002,12 +4002,15 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
 
     std::vector<RowsetDeleteTask> all_tasks;
 
-    auto create_delete_task = [](const RowsetMetaCloudPB& rs_meta, std::string_view recycle_key,
-                                 std::string_view secondary_key = "") -> RowsetDeleteTask {
+    auto create_delete_task = [this](const RowsetMetaCloudPB& rs_meta, std::string_view recycle_key,
+                                     std::string_view non_versioned_rowset_key =
+                                             "") -> RowsetDeleteTask {
         RowsetDeleteTask task;
         task.rowset_meta = rs_meta;
         task.recycle_rowset_key = std::string(recycle_key);
-        task.non_versioned_rowset_key = std::string(secondary_key);
+        task.non_versioned_rowset_key = std::string(non_versioned_rowset_key);
+        task.versioned_rowset_key = versioned::meta_rowset_key(
+                {instance_id_, rs_meta.tablet_id(), rs_meta.rowset_id_v2()});
         return task;
     };
 
@@ -6994,6 +6997,19 @@ int InstanceRecycler::cleanup_rowset_metadata(const std::vector<RowsetDeleteTask
                 .tag("rowset_id", rowset_id)
                 .tag("begin", hex(versioned_dbm_start_key))
                 .tag("end", hex(versioned_dbm_end_key));
+
+        // Remove versioned meta rowset key
+        if (!task.versioned_rowset_key.empty()) {
+            std::string versioned_rowset_key_end = task.versioned_rowset_key;
+            encode_int64(INT64_MAX, &versioned_rowset_key_end);
+            txn->remove(task.versioned_rowset_key, versioned_rowset_key_end);
+            LOG_INFO("remove versioned meta rowset key in cleanup phase")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("begin", hex(task.versioned_rowset_key))
+                    .tag("end", hex(versioned_rowset_key_end));
+        }
 
         if (!task.non_versioned_rowset_key.empty()) {
             txn->remove(task.non_versioned_rowset_key);
