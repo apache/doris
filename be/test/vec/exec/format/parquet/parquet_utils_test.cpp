@@ -70,8 +70,7 @@ TEST(ParquetUtilsTest, InsertNumericAndString) {
 
 TEST(ParquetUtilsTest, InsertIntoNullable) {
     {
-        auto nested = ColumnInt32::create();
-        auto nullable = ColumnNullable::create(nested, ColumnUInt8::create());
+        auto nullable = ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
         MutableColumnPtr ptr = nullable->get_ptr();
         insert_int32(ptr, 7);
         insert_null(ptr);
@@ -84,8 +83,7 @@ TEST(ParquetUtilsTest, InsertIntoNullable) {
         EXPECT_EQ(1, nullable->get_null_map_data()[1]);
     }
     {
-        auto nested = ColumnString::create();
-        auto nullable = ColumnNullable::create(nested, ColumnUInt8::create());
+        auto nullable = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
         MutableColumnPtr ptr = nullable->get_ptr();
         insert_string(ptr, "xyz");
         insert_null(ptr);
