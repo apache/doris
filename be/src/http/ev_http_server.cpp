@@ -50,8 +50,8 @@
 #include "http/http_request.h"
 #include "http/http_status.h"
 #include "service/backend_options.h"
-#include "util/threadpool.h"
 #include "util/ssl_key_logger.h"
+#include "util/threadpool.h"
 // #include <event2/bufferevent_ssl.h>
 #include <event2/listener.h>
 #include <openssl/err.h>
@@ -221,7 +221,8 @@ void EvHttpServer::start() {
                               .set_min_threads(_num_workers)
                               .set_max_threads(_num_workers)
                               .build(&_workers));
-    if (config::enable_tls) {
+    if (config::enable_tls &&
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::http)) {
         init_ssl_library();
         _ssl_ctx = _create_ssl_context();
 
@@ -257,7 +258,7 @@ void EvHttpServer::start() {
             auto res = evhttp_accept_socket(http.get(), _server_fd);
             CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
 
-            if (config::enable_tls && _ssl_ctx != nullptr) {
+            if (_ssl_ctx != nullptr) {
                 evhttp_set_bevcb(http.get(), bevcb, _ssl_ctx);
             }
 
@@ -284,7 +285,8 @@ void EvHttpServer::stop() {
     _workers->shutdown();
     _event_bases.clear();
     close(_server_fd);
-    if (config::enable_tls) {
+    if (config::enable_tls &&
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::http)) {
         _stop_cert_monitor = true;
         if (_cert_monitor_thread.joinable()) {
             _cert_monitor_thread.join();
@@ -307,7 +309,8 @@ void EvHttpServer::stop() {
 void EvHttpServer::join() {}
 
 bool EvHttpServer::_reload_cert() {
-    if (!config::enable_tls || !_started) {
+    if (!config::enable_tls ||
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::http) || !_started) {
         LOG(WARNING) << "SSL not enabled or server not started, cannot reload SSL context";
         return false;
     }

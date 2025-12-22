@@ -44,7 +44,7 @@ public class JettySslCustomizer implements WebServerFactoryCustomizer<JettyServl
 
     @Override
     public void customize(JettyServletWebServerFactory factory) {
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http)) {
             factory.addServerCustomizers(server -> {
                 try {
                     createSslConnector(server);

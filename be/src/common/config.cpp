@@ -569,6 +569,8 @@ DEFINE_String(tls_verify_mode, "verify_peer");
 DEFINE_String(tls_ca_certificate_path, "");
 // Tls certificate reload thread refresh cycle
 DEFINE_Int32(tls_cert_refresh_interval_seconds, "3600");
+// Tls excluded protocols, e.g: brpc,thrift,arrowflight,http
+DEFINE_String(tls_excluded_protocols, "");
 
 // Port to start debug webserver on
 DEFINE_Int32(webserver_port, "8040");

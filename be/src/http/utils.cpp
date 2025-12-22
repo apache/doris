@@ -27,6 +27,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/certificate_manager.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -242,7 +243,8 @@ bool load_size_smaller_than_wal_limit(int64_t content_length) {
 }
 
 std::string get_http_scheme() {
-    if (config::enable_tls) {
+    if (config::enable_tls &&
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::http)) {
         return "https://";
     }
     return "http://";

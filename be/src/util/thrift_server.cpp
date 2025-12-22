@@ -375,7 +375,8 @@ Status ThriftServer::start() {
     // logic in createContext is still accurate.
     apache::thrift::transport::TServerSocket* server_socket = nullptr;
 
-    if (config::enable_tls) {
+    if (config::enable_tls &&
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::thrift)) {
         _reloadable_ssl_factory = std::make_shared<ReloadableSSLSocketFactory>(
                 apache::thrift::transport::SSLProtocol::TLSv1_2);
         _reloadable_ssl_factory->loadCertificate(config::tls_certificate_path.c_str());
@@ -390,11 +391,11 @@ Status ThriftServer::start() {
             _reloadable_ssl_factory->loadPrivateKey(config::tls_private_key_path.c_str());
         }
         _reloadable_ssl_factory->loadTrustedCertificates(config::tls_ca_certificate_path.c_str());
-        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+        if (config::tls_verify_mode == CertificateManager::verify_fail_if_no_peer_cert) {
             _reloadable_ssl_factory->authenticate(true);
-        } else if (config::tls_verify_mode == "verify_peer") {
+        } else if (config::tls_verify_mode == CertificateManager::verify_peer) {
             // Relax the certificate restrictions for verify_peer
-        } else if (config::tls_verify_mode == "verify_none") {
+        } else if (config::tls_verify_mode == CertificateManager::verify_none) {
             // nothing
         } else {
             std::string msg = fmt::format(

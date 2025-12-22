@@ -25,11 +25,15 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <system_error>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "util/time.h"
 
@@ -325,6 +329,60 @@ bool CertificateManager::check_certificate_file(const std::string& path,
     }
 
     return false;
+}
+
+bool CertificateManager::is_protocol_excluded(Protocol protocol) {
+    if (config::tls_excluded_protocols.empty()) {
+        return false;
+    }
+
+    static std::unordered_map<Protocol, std::string> protocol_map {
+            {Protocol::brpc, "brpc"},
+            {Protocol::http, "http"},
+            {Protocol::thrift, "thrift"},
+            {Protocol::arrowflight, "arrowflight"}};
+
+    static const auto excluded_set = []() {
+        std::unordered_set<std::string> excluded_set;
+        std::string raw_config = config::tls_excluded_protocols;
+        std::ranges::transform(raw_config, raw_config.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+
+        auto trim = [](std::string_view sv) {
+            auto start = sv.find_first_not_of(' ');
+            if (start == std::string_view::npos) return std::string_view {};
+            auto end = sv.find_last_not_of(' ');
+            return sv.substr(start, end - start + 1);
+        };
+
+        std::string_view sv = raw_config;
+        std::string excluded_protocols;
+        size_t start = 0;
+        while (start < sv.size()) {
+            size_t end = sv.find(',', start);
+
+            size_t len = (end == std::string_view::npos) ? std::string_view::npos : (end - start);
+            auto clean_segment = trim(sv.substr(start, len));
+
+            if (!clean_segment.empty()) {
+                excluded_protocols += ' ';
+                excluded_protocols += clean_segment;
+                excluded_set.emplace(clean_segment);
+            }
+
+            if (end == std::string_view::npos) break;
+            start = end + 1;
+        }
+        LOG(INFO) << fmt::format("excluded protocols:{}, origin config: {}", excluded_protocols,
+                                 config::tls_excluded_protocols);
+        return excluded_set;
+    }();
+
+    return excluded_set.contains(protocol_map[protocol]);
+}
+
+bool CertificateManager::is_protocol_included(Protocol protocol) {
+    return !is_protocol_excluded(protocol);
 }
 
 } // namespace doris

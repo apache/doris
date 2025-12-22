@@ -20,6 +20,7 @@
 
 #include <bthread/butex.h>
 #include <butil/iobuf.h>
+#include <fmt/compile.h>
 #include <google/protobuf/util/json_util.h>
 
 // FIXME: we should not rely other modules that may rely on this common module
@@ -234,6 +235,56 @@ TxnErrorCode key_exists(Transaction* txn, std::string_view key, bool snapshot) {
         return err;
     }
     return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
+}
+
+bool is_protocol_excluded(TlsProtocol protocol) {
+    if (config::tls_excluded_protocols.empty()) {
+        return false;
+    }
+
+    static std::unordered_map<TlsProtocol, std::string> protocols_map {{TlsProtocol::brpc, "brpc"}};
+
+    static const auto excluded_set = []() {
+        std::unordered_set<std::string> excluded_set;
+        std::string raw_config = config::tls_excluded_protocols;
+        std::ranges::transform(raw_config, raw_config.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+
+        auto trim = [](std::string_view sv) {
+            auto start = sv.find_first_not_of(' ');
+            if (start == std::string_view::npos) return std::string_view {};
+            auto end = sv.find_last_not_of(' ');
+            return sv.substr(start, end - start + 1);
+        };
+
+        std::string_view sv = raw_config;
+        std::string excluded_protocols;
+        size_t start = 0;
+        while (start < sv.size()) {
+            size_t end = sv.find(',', start);
+
+            size_t len = (end == std::string_view::npos) ? std::string_view::npos : (end - start);
+            auto clean_segment = trim(sv.substr(start, len));
+
+            if (!clean_segment.empty()) {
+                excluded_protocols += ' ';
+                excluded_protocols += clean_segment;
+                excluded_set.emplace(clean_segment);
+            }
+
+            if (end == std::string_view::npos) break;
+            start = end + 1;
+        }
+        LOG(INFO) << fmt::format("excluded protocols:{}, origin config: {}", excluded_protocols,
+                                 config::tls_excluded_protocols);
+        return excluded_set;
+    }();
+
+    return excluded_set.contains(protocols_map[protocol]);
+}
+
+bool is_protocol_included(TlsProtocol protocol) {
+    return !is_protocol_excluded(protocol);
 }
 
 } // namespace doris::cloud

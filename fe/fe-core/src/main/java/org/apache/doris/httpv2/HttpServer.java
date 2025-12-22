@@ -226,7 +226,7 @@ public class HttpServer extends SpringBootServletInitializer {
                 .properties(properties)
                 .registerShutdownHook(false)
                 .listeners((ApplicationListener<ApplicationReadyEvent>) event -> {
-                    if (Config.enable_tls) {
+                    if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http)) {
                         // Start custom certificate monitoring for Jetty
                         try {
                             ServletWebServerApplicationContext context =
@@ -260,13 +260,9 @@ public class HttpServer extends SpringBootServletInitializer {
     }
 
     public void startMonitoringCertificates() {
-        if (monitoring || !Config.enable_tls) {
-            return;
-        }
-
-        monitoring = true;
         initLastModifiedTimes();
 
+        monitoring = true;
         // Check certificate files
         scheduler.scheduleWithFixedDelay(
                 this::reloadCertificateIfNeeded,

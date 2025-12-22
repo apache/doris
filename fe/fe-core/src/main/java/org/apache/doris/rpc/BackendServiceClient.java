@@ -18,6 +18,7 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -52,7 +53,7 @@ public class BackendServiceClient {
                 .keepAliveWithoutCalls(true)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes).enableRetry()
                 .maxRetryAttempts(MAX_RETRY_NUM);
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.brpc)) {
             builder.sslContext(GrpcTlsContextFactory.newClientContext());
         } else {
             builder.usePlaintext();

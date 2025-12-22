@@ -19,6 +19,7 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.common.util.X509TlsReloadableKeyManager;
 import org.apache.doris.common.util.X509TlsReloadableTrustManager;
 import org.apache.doris.qe.ConnectScheduler;
@@ -101,7 +102,7 @@ public class MysqlServer {
     }
 
     private void initTlsManager() {
-        if (!Config.enable_tls) {
+        if (!Config.enable_tls || CertificateManager.isProtocolExcluded(CertificateManager.Protocol.mysql)) {
             return;
         }
         try {
@@ -159,18 +160,10 @@ public class MysqlServer {
     }
 
     public static X509TlsReloadableKeyManager getKeyManager() {
-        if (!Config.enable_tls) {
-            LOG.warn("Not set enable_tls");
-            throw new RuntimeException("Not set enable_tls");
-        }
         return keyManager;
     }
 
     public static X509TlsReloadableTrustManager getTrustManager() {
-        if (!Config.enable_tls) {
-            LOG.warn("Not set enable_tls");
-            throw new RuntimeException("Not set enable_tls");
-        }
         return trustManager;
     }
 

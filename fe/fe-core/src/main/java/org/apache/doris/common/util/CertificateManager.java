@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.Config;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,9 +39,13 @@ import java.security.PrivateKey;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Collectors;
 import javax.crypto.Cipher;
 import javax.crypto.EncryptedPrivateKeyInfo;
 import javax.crypto.SecretKeyFactory;
@@ -50,7 +56,52 @@ public class CertificateManager {
     private static final int MAX_RETRY_NUM = 30;
     private static final long RETRY_INTERVAL_MS = 1000;
 
+    public enum Protocol { thrift, mysql, http, brpc, arrowflight, bdbje }
+
     private CertificateManager() {}
+
+    /**
+     * Check if a protocol is excluded from TLS
+     * @param protocol protocol name to check (e.g., "thrift", "mysql", "http", "brpc", "arrowflight", "bdbje")
+     * @return true if the protocol should not use TLS, false otherwise
+     */
+    public static boolean isProtocolExcluded(Protocol protocol) {
+        if (Config.tls_excluded_protocols == null || Config.tls_excluded_protocols.isEmpty()) {
+            return false;
+        }
+
+        // Lazy initialization of excluded set
+        Set<String> excludedSet = ExcludedProtocolsHolder.EXCLUDED_SET;
+
+        return excludedSet.contains(protocol.toString());
+    }
+
+    public static boolean isProtocolIncluded(Protocol protocol) {
+        return !isProtocolExcluded(protocol);
+    }
+
+    /**
+     * Holder class for lazy initialization of excluded protocols set
+     */
+    private static class ExcludedProtocolsHolder {
+        private static final Set<String> EXCLUDED_SET = parseExcludedProtocols();
+
+        private static Set<String> parseExcludedProtocols() {
+            if (Config.tls_excluded_protocols == null || Config.tls_excluded_protocols.isEmpty()) {
+                return new HashSet<>();
+            }
+
+            Set<String> excludedSet = Arrays.stream(Config.tls_excluded_protocols.toLowerCase().split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toSet());
+
+            LOG.info("excluded protocols: {}, origin config: {}",
+                    String.join(" ", excludedSet), Config.tls_excluded_protocols);
+
+            return excludedSet;
+        }
+    }
 
     /**
      * Read file with retry logic for files that might be temporarily unavailable.

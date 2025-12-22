@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.qe.GlobalVariable;
 
@@ -91,7 +92,7 @@ public class AuditStreamLoader {
                         Collectors.joining(",")) + "\" \\\n  ");
         sb.append("-H \"").append("redirect-policy\":").append("\"random-be").append("\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http)) {
             sb.append(" --cert ").append(Config.tls_certificate_path);
             sb.append(" --key ").append(Config.tls_private_key_path);
             sb.append(" --cacert ").append(Config.tls_ca_certificate_path);

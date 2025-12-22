@@ -18,6 +18,7 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.common.util.X509TlsReloadableKeyManager;
 import org.apache.doris.common.util.X509TlsReloadableTrustManager;
 
@@ -48,7 +49,7 @@ public final class GrpcTlsContextFactory {
     private GrpcTlsContextFactory() {}
 
     public static SslContext newClientContext() {
-        if (!Config.enable_tls) {
+        if (!Config.enable_tls || CertificateManager.isProtocolExcluded(CertificateManager.Protocol.brpc)) {
             throw new IllegalStateException("TLS is disabled while attempting to build gRPC SSL context");
         }
         initTlsManager();

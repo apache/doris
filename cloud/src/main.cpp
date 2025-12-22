@@ -38,6 +38,7 @@
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/network_util.h"
+#include "common/util.h"
 #include "meta-service/meta_server.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
@@ -136,7 +137,7 @@ static void help() {
 
 static std::string build_info() {
     std::stringstream ss;
-// clang-format off
+    // clang-format off
 #if defined(NDEBUG)
     ss << "version:{" DORIS_CLOUD_BUILD_VERSION "-release}"
 #else
@@ -327,7 +328,7 @@ int main(int argc, char** argv) {
 
     // start service
     brpc::ServerOptions options;
-    if (config::enable_tls) {
+    if (config::enable_tls && is_protocol_included(TlsProtocol::brpc)) {
         options.mutable_ssl_options()->default_cert.certificate = config::tls_certificate_path;
         options.mutable_ssl_options()->default_cert.private_key = config::tls_private_key_path;
         options.mutable_ssl_options()->default_cert.private_key_passwd =

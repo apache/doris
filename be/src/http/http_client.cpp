@@ -19,19 +19,20 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
+#include <openssl/ssl.h>
 #include <unistd.h>
 
 #include <memory>
 #include <ostream>
 
+#include "common/certificate_manager.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "http/http_headers.h"
 #include "runtime/exec_env.h"
 #include "util/security.h"
-#include "util/stack_util.h"
 #include "util/ssl_key_logger.h"
-#include <openssl/ssl.h>
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -361,9 +362,10 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
         return Status::InternalError("fail to set CURLOPT_URL");
     }
-    if (config::enable_tls) {
-        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert" ||
-            config::tls_verify_mode == "verify_peer") {
+    if (config::enable_tls &&
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::http)) {
+        if (config::tls_verify_mode == CertificateManager::verify_fail_if_no_peer_cert ||
+            config::tls_verify_mode == CertificateManager::verify_peer) {
             code = curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 1L);
             if (code != CURLE_OK) {
                 LOG(WARNING) << "fail to set CURLOPT_SSL_VERIFYPEER, msg=" << _to_errmsg(code);
@@ -374,7 +376,7 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
                 LOG(WARNING) << "fail to set CURLOPT_SSL_VERIFYHOST, msg=" << _to_errmsg(code);
                 return Status::InternalError("fail to set CURLOPT_CAINFO");
             }
-        } else if (config::tls_verify_mode == "verify_none") {
+        } else if (config::tls_verify_mode == CertificateManager::verify_none) {
             code = curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
             if (code != CURLE_OK) {
                 LOG(WARNING) << "fail to set CURLOPT_SSL_VERIFYHOST, msg=" << _to_errmsg(code);

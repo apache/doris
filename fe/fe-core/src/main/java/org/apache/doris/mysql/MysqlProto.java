@@ -23,6 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
@@ -39,7 +40,9 @@ import java.util.Optional;
 // MySQL protocol util
 public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
-    public static final boolean SERVER_USE_SSL = Config.enable_tls || Config.enable_ssl;
+    public static final boolean SERVER_USE_SSL =
+            (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.mysql))
+             || Config.enable_ssl;
 
 
     private static String parseUser(ConnectContext context, byte[] scramble, String user) {
@@ -163,7 +166,7 @@ public class MysqlProto {
             }
         } else {
             // Client doesn't request SSL
-            if (Config.enable_tls) {
+            if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.mysql)) {
                 // Server requires TLS but client doesn't use it, reject the connection
                 ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE, "Server requires TLS connection");
                 sendResponsePacket(context);

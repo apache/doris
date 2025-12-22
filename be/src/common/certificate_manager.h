@@ -37,6 +37,12 @@ public:
         bool has_value = false;
     };
 
+    enum class Protocol { brpc, thrift, http, arrowflight };
+
+    // read the 'tls_excluded_protocols' configuration to determine whether TLS should be enabled for this protocol
+    static bool is_protocol_excluded(Protocol protocol);
+    static bool is_protocol_included(Protocol protocol);
+
     static X509* load_ca(std::filesystem::path path);
     static X509* load_cert(std::filesystem::path path);
     static EVP_PKEY* load_key(std::filesystem::path path, std::string passwd);

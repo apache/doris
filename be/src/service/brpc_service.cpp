@@ -30,6 +30,7 @@
 
 #include "cloud/cloud_internal_service.h"
 #include "cloud/config.h"
+#include "common/certificate_manager.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/storage_engine.h"
@@ -82,7 +83,8 @@ Status BRpcService::start(int port, int num_threads) {
     }
     options.idle_timeout_sec = config::brpc_idle_timeout_sec;
 
-    if (config::enable_tls) {
+    if (config::enable_tls &&
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::brpc)) {
         options.mutable_ssl_options()->default_cert.certificate = config::tls_certificate_path;
         options.mutable_ssl_options()->default_cert.private_key = config::tls_private_key_path;
         options.mutable_ssl_options()->default_cert.private_key_passwd =
@@ -90,12 +92,12 @@ Status BRpcService::start(int port, int num_threads) {
         options.mutable_ssl_options()->enable_certificate_reload = true;
         options.mutable_ssl_options()->certificate_reload_interval_s =
                 config::tls_cert_refresh_interval_seconds;
-        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+        if (config::tls_verify_mode == CertificateManager::verify_fail_if_no_peer_cert) {
             options.mutable_ssl_options()->verify.verify_depth = 2;
-        } else if (config::tls_verify_mode == "verify_peer") {
+        } else if (config::tls_verify_mode == CertificateManager::verify_peer) {
             // Relax the certificate restrictions for verify_peer
             // nothing
-        } else if (config::tls_verify_mode == "verify_none") {
+        } else if (config::tls_verify_mode == CertificateManager::verify_none) {
             // nothing
         } else {
             std::string msg = fmt::format(

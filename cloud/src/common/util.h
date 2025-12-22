@@ -75,4 +75,14 @@ std::string proto_to_json(const ::google::protobuf::Message& msg, bool add_white
  */
 TxnErrorCode key_exists(Transaction* txn, std::string_view key, bool snapshot = false);
 
+enum class TlsProtocol { brpc };
+/**
+ * Check if a protocol is excluded from TLS
+ * @param protocol protocol name to check (e.g., "brpc")
+ * @return true if the protocol should not use TLS, false otherwise
+ */
+bool is_protocol_excluded(TlsProtocol protocol);
+
+bool is_protocol_included(TlsProtocol protocol);
+
 } // namespace doris::cloud

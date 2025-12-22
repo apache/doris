@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.common.util.X509TlsReloadableKeyManager;
 import org.apache.doris.common.util.X509TlsReloadableTrustManager;
 import org.apache.doris.service.FrontendOptions;
@@ -124,7 +125,7 @@ public class ThriftServer {
         }
 
         TServerSocket serverTransport;
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.thrift)) {
             try {
                 X509TlsReloadableTrustManager trustManager = X509TlsReloadableTrustManager.newBuilder()
                         .setVerification(
@@ -223,7 +224,7 @@ public class ThriftServer {
         }
 
         TServerSocket serverTransport;
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.thrift)) {
             try {
                 X509TlsReloadableTrustManager trustManager = X509TlsReloadableTrustManager.newBuilder()
                         .setVerification(

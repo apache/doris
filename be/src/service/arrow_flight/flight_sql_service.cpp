@@ -118,7 +118,8 @@ Status FlightSqlServer::init(int port) {
     }
     _inited = true;
     arrow::flight::Location bind_location;
-    if (config::enable_tls) {
+    if (config::enable_tls &&
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::arrowflight)) {
         RETURN_DORIS_STATUS_IF_ERROR(arrow::flight::Location::ForGrpcTls(
                                              BackendOptions::get_service_bind_address(), port)
                                              .Value(&bind_location));
@@ -139,11 +140,12 @@ Status FlightSqlServer::init(int port) {
     flight_options.auth_handler = std::make_unique<arrow::flight::NoOpAuthHandler>();
     flight_options.middleware.push_back({"header-auth-server", _header_middleware});
     flight_options.middleware.push_back({"bearer-auth-server", _bearer_middleware});
-    if (config::enable_tls) {
-        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+    if (config::enable_tls &&
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::arrowflight)) {
+        if (config::tls_verify_mode == CertificateManager::verify_fail_if_no_peer_cert) {
             flight_options.verify_client = true;
-        } else if (config::tls_verify_mode == "verify_none" ||
-                   config::tls_verify_mode == "verify_peer") {
+        } else if (config::tls_verify_mode == CertificateManager::verify_none ||
+                   config::tls_verify_mode == CertificateManager::verify_peer) {
             flight_options.verify_client = false;
         } else {
             return Status::RuntimeError(

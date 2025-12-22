@@ -72,7 +72,7 @@ private:
     SSL_CTX* _create_ssl_context();
     bool _reload_cert();
 
-    SSL_CTX* _ssl_ctx;
+    SSL_CTX* _ssl_ctx = nullptr;
 
     // Certificate file monitoring
     std::thread _cert_monitor_thread;

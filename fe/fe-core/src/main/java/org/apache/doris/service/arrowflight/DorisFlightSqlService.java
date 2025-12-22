@@ -61,7 +61,7 @@ public class DorisFlightSqlService {
             FlightServer.Builder builder =
                     FlightServer.builder(allocator, Location.forGrpcInsecure("0.0.0.0", port), producer)
                     .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager));
-            if (Config.enable_tls) {
+            if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.arrowflight)) {
                 builder.useTls(new FileInputStream(Config.tls_certificate_path),
                         CertificateManager.decryptPrivateKey(Config.tls_private_key_path,
                                 Config.tls_private_key_password.toCharArray()));

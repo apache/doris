@@ -385,6 +385,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, description = {"证书轮转周期", "certificate rotation cycle"})
     public static int tls_cert_refresh_interval_seconds = 3600;
 
+    @ConfField(mutable = false, description = {"不使用TLS的协议列表，逗号分隔，例如: thrift,mysql,http,brpc,arrowflight,bdbje",
+            "Protocols excluded from TLS, comma separated, e.g., thrift,mysql,http,brpc,arrowflight,bdbje"})
+    public static String tls_excluded_protocols = "";
+
     @ConfField(mutable = true, description = {"是否启用所有 http 接口的认证",
             "Whether to enable all http interface authentication"}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;

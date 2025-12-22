@@ -18,6 +18,7 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.common.util.X509TlsReloadableKeyManager;
 import org.apache.doris.common.util.X509TlsReloadableTrustManager;
 
@@ -72,7 +73,7 @@ public class MysqlSslContext {
     }
 
     private void initSslContext() {
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.mysql)) {
             initSSLContextForTLS();
             return;
         }

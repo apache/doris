@@ -145,7 +145,8 @@ bool ReloadableSSLSocketFactory::create_and_swap_ssl_context() {
 }
 
 void ReloadableSSLSocketFactory::start_cert_monitoring() {
-    if (config::enable_tls) {
+    if (config::enable_tls &&
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::thrift)) {
         _cert_monitor_thread = std::thread([this] {
 #if defined(__linux__)
             pthread_setname_np(pthread_self(), "thrift_cert_monitor");

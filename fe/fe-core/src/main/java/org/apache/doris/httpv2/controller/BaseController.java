@@ -24,6 +24,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpAuthManager;
@@ -333,7 +334,8 @@ public class BaseController {
     }
 
     protected String getCurrentFrontendURL() {
-        if (Config.enable_tls) {
+        boolean useTls = Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http);
+        if (useTls) {
             // this could be the result of redirection.
             return "https://" + NetUtils
                     .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.http_port);

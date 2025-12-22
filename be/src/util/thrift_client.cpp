@@ -33,7 +33,8 @@ namespace doris {
 
 ThriftClientImpl::ThriftClientImpl(const std::string& ipaddress, int port)
         : _ipaddress(ipaddress), _port(port) {
-    if (config::enable_tls) {
+    if (config::enable_tls &&
+        CertificateManager::is_protocol_included(CertificateManager::Protocol::thrift)) {
         apache::thrift::transport::initializeOpenSSL();
         auto ssl_factory = std::make_unique<apache::thrift::transport::TSSLSocketFactory>(
                 apache::thrift::transport::SSLProtocol::TLSv1_2);

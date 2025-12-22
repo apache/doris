@@ -19,6 +19,7 @@ package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.BDBStateChangeListener;
 import org.apache.doris.ha.FrontendNodeType;
@@ -112,7 +113,7 @@ public class BDBEnvironment {
         // set replication config
         replicationConfig = new ReplicationConfig();
 
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.bdbje)) {
             ReplicationSSLConfig sslConfig = new ReplicationSSLConfig();
             sslConfig.setSSLPemCertFile(Config.tls_certificate_path);
             sslConfig.setSSLPemKeyFile(Config.tls_private_key_path);

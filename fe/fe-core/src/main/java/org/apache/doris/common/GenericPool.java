@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.common.util.X509TlsReloadableKeyManager;
 import org.apache.doris.common.util.X509TlsReloadableTrustManager;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -67,7 +68,7 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
         this.isNonBlockingIO = isNonBlockingIO;
 
         // Initialize global TLS managers
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.thrift)) {
             initGlobalTlsManagers();
         }
     }
@@ -236,7 +237,7 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
             }
 
             TSocket clientSocket;
-            if (Config.enable_tls) {
+            if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.thrift)) {
                 // Use global shared TLS managers for certificate hot-reload
                 SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
                 sslContext.init(new KeyManager[]{ sharedKeyManager },
@@ -252,7 +253,8 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
             TTransport transport = isNonBlockingIO
                     ? new TFramedTransport(new TSocket(key.hostname, key.port, timeoutMs))
                     : clientSocket;
-            if (!Config.enable_tls) {
+            // if not support tls for thrift, open the transport
+            if (!(Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.thrift))) {
                 transport.open();
             }
             TProtocol protocol = new TBinaryProtocol(transport);

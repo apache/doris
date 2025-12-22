@@ -271,6 +271,8 @@ CONF_String(tls_ca_certificate_path, "");
 CONF_Int32(tls_cert_refresh_interval_seconds, "3600");
 // one of: Check.Valid=1 Check.Valid=0 Check.Expired=1 Check.Expired=0
 CONF_String(tls_fdb_verify_peers, "Check.Valid=1");
+// Tls excluded protocols, e.g: brpc
+CONF_String(tls_excluded_protocols, "");
 
 CONF_Bool(enable_cluster_name_check, "false");
 

@@ -609,6 +609,8 @@ DECLARE_String(tls_verify_mode);
 DECLARE_String(tls_ca_certificate_path);
 // Tls certificate reload thread refresh cycle
 DECLARE_Int32(tls_cert_refresh_interval_seconds);
+// Tls excluded protocols, e.g: brpc,thrift,arrowflight,http
+DECLARE_String(tls_excluded_protocols);
 
 // Port to start debug webserver on
 DECLARE_Int32(webserver_port);

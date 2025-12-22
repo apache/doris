@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -85,7 +86,9 @@ public class RestBaseController extends BaseController {
         }
         try {
             urlObj = new URI(urlStr);
-            resultUriObj = new URI(Config.enable_tls ? "https" : "http", userInfo, addr.getHostname(),
+            boolean useTls = Config.enable_tls
+                    && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http);
+            resultUriObj = new URI(useTls ? "https" : "http", userInfo, addr.getHostname(),
                     addr.getPort(), urlObj.getPath(), "", null);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -94,7 +97,8 @@ public class RestBaseController extends BaseController {
         if (!Strings.isNullOrEmpty(request.getQueryString())) {
             redirectUrl += request.getQueryString();
         }
-        LOG.info("Redirect url: {}", (Config.enable_tls ? "https://" : "http://") + addr.getHostname() + ":"
+        boolean useTls = Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http);
+        LOG.info("Redirect url: {}", (useTls ? "https://" : "http://") + addr.getHostname() + ":"
                     + addr.getPort() + urlObj.getPath());
         RedirectView redirectView = new RedirectView(redirectUrl);
         redirectView.setContentType("text/html;charset=utf-8");
@@ -183,7 +187,8 @@ public class RestBaseController extends BaseController {
     }
 
     public boolean needRedirect(String scheme) {
-        return (Config.enable_https | Config.enable_tls) && "http".equalsIgnoreCase(scheme);
+        boolean useTls = Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http);
+        return (Config.enable_https | useTls) && "http".equalsIgnoreCase(scheme);
     }
 
     public Object redirectToHttps(HttpServletRequest request) {
@@ -192,7 +197,8 @@ public class RestBaseController extends BaseController {
         String query = request.getQueryString();
         query = query == null ? "" : query;
         String newUrl;
-        if (Config.enable_tls) {
+        boolean useTls = Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http);
+        if (useTls) {
             newUrl = "https://" + NetUtils.getHostPortInAccessibleFormat(serverName, Config.http_port) + uri + "?"
                 + query;
         } else {

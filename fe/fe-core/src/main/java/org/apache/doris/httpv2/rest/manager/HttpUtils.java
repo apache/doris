@@ -66,7 +66,7 @@ public class HttpUtils {
     }
 
     static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
-        StringBuilder url = new StringBuilder(Config.enable_tls ? "https://" : "http://")
+        StringBuilder url = new StringBuilder((Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http)) ? "https://" : "http://")
                 .append(ipPort.first).append(":").append(ipPort.second).append(path);
         boolean isFirst = true;
         for (Map.Entry<String, String> entry : arguments.entrySet()) {
@@ -84,7 +84,7 @@ public class HttpUtils {
     }
 
     public static String doGet(String url, Map<String, String> headers, int timeoutMs) throws IOException {
-        if (Config.enable_tls && url.startsWith("http://")) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http) && url.startsWith("http://")) {
             url = "https://" + url.substring(7);
         }
         HttpGet httpGet = new HttpGet(url);
@@ -97,7 +97,7 @@ public class HttpUtils {
     }
 
     static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
-        if (Config.enable_tls && url.startsWith("http://")) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http) && url.startsWith("http://")) {
             url = "https://" + url.substring(7);
         }
         HttpPost httpPost = new HttpPost(url);
@@ -128,7 +128,7 @@ public class HttpUtils {
 
     public static CloseableHttpClient getHttpClient() {
         SSLContext sslContext = null;
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http)) {
             KeyStore keyStore;
             KeyStore trustStore;
             try {

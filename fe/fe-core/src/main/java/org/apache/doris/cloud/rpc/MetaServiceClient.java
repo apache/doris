@@ -20,6 +20,7 @@ package org.apache.doris.cloud.rpc;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.MetaServiceGrpc;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.rpc.GrpcTlsContextFactory;
 
 import com.google.common.base.Preconditions;
@@ -80,7 +81,7 @@ public class MetaServiceClient {
                 .withOption(ChannelOption.CONNECT_TIMEOUT_MILLIS, Config.meta_service_brpc_connect_timeout_ms);
 
 
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.brpc)) {
             builder.sslContext(GrpcTlsContextFactory.newClientContext());
         } else {
             builder.usePlaintext();

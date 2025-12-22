@@ -38,6 +38,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/certificate_manager.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -188,8 +189,7 @@ public:
         // new one stub and insert into map
         auto stub = get_new_client_no_cache(host_port);
         if (stub != nullptr) {
-            _stub_map.try_emplace_l(
-                    host_port, [&stub](const auto& v) { stub = v.second; }, stub);
+            _stub_map.try_emplace_l(host_port, [&stub](const auto& v) { stub = v.second; }, stub);
         }
         return stub;
     }
@@ -212,16 +212,17 @@ public:
                                                const std::string& connection_type = "",
                                                const std::string& connection_group = "") {
         brpc::ChannelOptions options;
-        if (config::enable_tls) {
+        if (config::enable_tls &&
+            CertificateManager::is_protocol_included(CertificateManager::Protocol::brpc)) {
             options.mutable_ssl_options()->client_cert.certificate = config::tls_certificate_path;
             options.mutable_ssl_options()->client_cert.private_key = config::tls_private_key_path;
             options.mutable_ssl_options()->client_cert.private_key_passwd =
                     config::tls_private_key_password;
-            if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+            if (config::tls_verify_mode == CertificateManager::verify_fail_if_no_peer_cert) {
                 options.mutable_ssl_options()->verify.verify_depth = 2;
-            } else if (config::tls_verify_mode == "verify_peer") {
+            } else if (config::tls_verify_mode == CertificateManager::verify_peer) {
                 // nothing
-            } else if (config::tls_verify_mode == "verify_none") {
+            } else if (config::tls_verify_mode == CertificateManager::verify_none) {
                 // nothing
             } else {
                 throw Status::RuntimeError(

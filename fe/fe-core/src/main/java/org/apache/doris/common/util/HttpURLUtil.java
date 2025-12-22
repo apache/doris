@@ -50,13 +50,13 @@ public class HttpURLUtil {
     }
 
     public static HttpURLConnection getConnection(String request) throws IOException {
-        if (Config.enable_tls && request.startsWith("http://")) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http) && request.startsWith("http://")) {
             request = "https://" + request.substring(7);
         }
         try {
             SecurityChecker.getInstance().startSSRFChecking(request);
             URL url = new URL(request);
-            if (Config.enable_tls) {
+            if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http)) {
                 KeyStore keyStore;
                 KeyStore trustStore;
                 SSLContext sslContext;

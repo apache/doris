@@ -35,6 +35,7 @@
 #include "common/network_util.h"
 #include "common/stats.h"
 #include "common/string_util.h"
+#include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
@@ -4169,7 +4170,7 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
 
     static std::unordered_map<std::string, std::shared_ptr<MetaService_Stub>> stubs;
     static std::mutex mtx;
-    if (config::enable_tls) {
+    if (config::enable_tls && is_protocol_included(TlsProtocol::brpc)) {
         options.mutable_ssl_options()->client_cert.certificate = config::tls_certificate_path;
         options.mutable_ssl_options()->client_cert.private_key = config::tls_private_key_path;
         options.mutable_ssl_options()->client_cert.private_key_passwd =
