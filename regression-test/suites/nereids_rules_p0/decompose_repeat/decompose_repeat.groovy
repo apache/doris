@@ -38,6 +38,12 @@ suite("decompose_repeat") {
         ) t
         group by rollup(c1,c2,c3);
     """
+    order_qt_choose_max_group """
+    select min(a+b) from t1 group by grouping sets((a,b),(b,c),(a));
+    """
+    order_qt_only_output_grouping_id """
+    select a from t1 group by grouping sets ((),(),(),(a)) order by a;
+    """
 
     // negative case
     order_qt_grouping_func "select a,b,c,d,sum(d),grouping_id(a) from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c))"

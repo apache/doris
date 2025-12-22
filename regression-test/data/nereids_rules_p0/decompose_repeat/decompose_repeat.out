@@ -73,6 +73,20 @@
 2
 2
 
+-- !choose_max_group --
+3
+3
+3
+3
+4
+4
+
+-- !only_output_grouping_id --
+\N
+\N
+\N
+1
+
 -- !grouping_func --
 1	\N	\N	\N	10	0
 1	2	1	\N	1	0
