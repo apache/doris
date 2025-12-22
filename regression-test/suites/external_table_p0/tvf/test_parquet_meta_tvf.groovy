@@ -207,6 +207,9 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
     def localEmptyFile = "${dataFilePath}/empty.parquet"
     def localKvMetaFile = "${dataFilePath}/kvmeta.parquet"
     def localBloomMetaFile = "${dataFilePath}/bloommeta.parquet"
+    def localCompFile = "${dataFilePath}/comp.parquet"
+    def localCompArrFile = "${dataFilePath}/comp_arr.parquet"
+    def localTFile = "${dataFilePath}/t.parquet"
 
     for (List<Object> backend : backends) {
         def beHost = backend[1]
@@ -214,6 +217,9 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
         scpFiles("root", beHost, localEmptyFile, outFilePath, false)
         scpFiles("root", beHost, localKvMetaFile, outFilePath, false)
         scpFiles("root", beHost, localBloomMetaFile, outFilePath, false)
+        scpFiles("root", beHost, localCompFile, outFilePath, false)
+        scpFiles("root", beHost, localCompArrFile, outFilePath, false)
+        scpFiles("root", beHost, localTFile, outFilePath, false)
     }
 
     order_qt_parquet_metadata_local """
@@ -285,6 +291,127 @@ suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
         from parquet_meta(
             "file_path" = "${outFilePath}/meta.parquet",
             "mode" = "parquet_metadata"
+        );
+    """
+
+    // complex types: schema validation
+    order_qt_parquet_schema_local_comp """
+        select
+            sum(if(name = 'm1', 1, 0)) as m1_nodes,
+            sum(if(name = 'm2', 1, 0)) as m2_nodes,
+            max(case
+                when logical_type in ('MAP', 'LIST') or converted_type in ('MAP', 'LIST') then 1
+                else 0
+            end) as has_complex
+        from parquet_meta(
+            "file_path" = "${outFilePath}/comp.parquet",
+            "mode" = "parquet_schema"
+        );
+    """
+
+    order_qt_parquet_schema_local_comp_arr """
+        select
+            sum(if(name = 'aa', 1, 0)) as aa_nodes,
+            sum(if(name = 'am', 1, 0)) as am_nodes,
+            max(case
+                when logical_type in ('MAP', 'LIST') or converted_type in ('MAP', 'LIST') then 1
+                else 0
+            end) as has_complex
+        from parquet_meta(
+            "file_path" = "${outFilePath}/comp_arr.parquet",
+            "mode" = "parquet_schema"
+        );
+    """
+
+    order_qt_parquet_schema_local_t """
+        select
+            sum(if(name = 'arr_arr', 1, 0)) as arr_arr_nodes,
+            sum(if(name = 'arr_map', 1, 0)) as arr_map_nodes,
+            sum(if(name = 'arr_struct', 1, 0)) as arr_struct_nodes,
+            sum(if(name = 'map_map', 1, 0)) as map_map_nodes,
+            sum(if(name = 'map_arr', 1, 0)) as map_arr_nodes,
+            sum(if(name = 'map_struct', 1, 0)) as map_struct_nodes,
+            sum(if(name = 'struct_arr_map', 1, 0)) as struct_arr_map_nodes,
+            max(case
+                when logical_type in ('MAP', 'LIST') or converted_type in ('MAP', 'LIST') then 1
+                else 0
+            end) as has_complex
+        from parquet_meta(
+            "file_path" = "${outFilePath}/t.parquet",
+            "mode" = "parquet_schema"
+        );
+    """
+
+    // complex types: metadata/kv/file modes
+    order_qt_parquet_metadata_local_comp """
+        select row_group_id, column_id, path_in_schema, type, num_values
+        from parquet_meta(
+            "file_path" = "${outFilePath}/comp.parquet",
+            "mode" = "parquet_metadata"
+        )
+        order by row_group_id, column_id;
+    """
+
+    order_qt_parquet_kv_metadata_local_comp """
+        select * from parquet_meta(
+            "file_path" = "${outFilePath}/comp.parquet",
+            "mode" = "parquet_kv_metadata"
+        );
+    """
+
+    order_qt_parquet_file_metadata_local_comp """
+        select file_name, created_by, num_rows, num_row_groups
+        from parquet_meta(
+            "file_path" = "${outFilePath}/comp.parquet",
+            "mode" = "parquet_file_metadata"
+        );
+    """
+
+    order_qt_parquet_metadata_local_comp_arr """
+        select row_group_id, column_id, path_in_schema, type, num_values
+        from parquet_meta(
+            "file_path" = "${outFilePath}/comp_arr.parquet",
+            "mode" = "parquet_metadata"
+        )
+        order by row_group_id, column_id;
+    """
+
+    order_qt_parquet_kv_metadata_local_comp_arr """
+        select * from parquet_meta(
+            "file_path" = "${outFilePath}/comp_arr.parquet",
+            "mode" = "parquet_kv_metadata"
+        );
+    """
+
+    order_qt_parquet_file_metadata_local_comp_arr """
+        select file_name, created_by, num_rows, num_row_groups
+        from parquet_meta(
+            "file_path" = "${outFilePath}/comp_arr.parquet",
+            "mode" = "parquet_file_metadata"
+        );
+    """
+
+    order_qt_parquet_metadata_local_t """
+        select row_group_id, column_id, path_in_schema, type, num_values
+        from parquet_meta(
+            "file_path" = "${outFilePath}/t.parquet",
+            "mode" = "parquet_metadata"
+        )
+        order by row_group_id, column_id;
+    """
+
+    order_qt_parquet_kv_metadata_local_t """
+        select * from parquet_meta(
+            "file_path" = "${outFilePath}/t.parquet",
+            "mode" = "parquet_kv_metadata"
+        );
+    """
+
+    order_qt_parquet_file_metadata_local_t """
+        select file_name, created_by, num_rows, num_row_groups
+        from parquet_meta(
+            "file_path" = "${outFilePath}/t.parquet",
+            "mode" = "parquet_file_metadata"
         );
     """
 

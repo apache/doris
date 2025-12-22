@@ -94,3 +94,64 @@ s3://doris-regression-hk/regression/datalake/pipeline_data/meta.parquet	0	-1
 0	5	4	236	2	130	5	date_col	INT32	2023-01-01	2023-01-05	1	\N	2023-01-01
 0	5	4	236	3	191	5	decimal_col	FIXED_LEN_BYTE_ARRAY	10.00	50.00	1	\N	10.00
 
+-- !parquet_schema_local_comp --
+0	0	0
+
+-- !parquet_schema_local_comp_arr --
+0	0	0
+
+-- !parquet_schema_local_t --
+0	0	0	0	0	0	0	0
+
+-- !parquet_metadata_local_comp --
+0	0	id	INT32	25
+0	1	m1.key_value.key	INT32	94
+0	2	m1.key_value.value.list.element	DOUBLE	444
+0	3	m2.key_value.key	BYTE_ARRAY	25
+0	4	m2.key_value.value.key_value.key	BYTE_ARRAY	147
+0	5	m2.key_value.value.key_value.value	DOUBLE	147
+
+-- !parquet_kv_metadata_local_comp --
+//comp.parquet	org.apache.spark.sql.parquet.row.metadata	{"type":"struct","fields":[{"name":"id","type":"integer","nullable":true,"metadata":{}},{"name":"m1","type":{"type":"map","keyType":"integer","valueType":{"type":"array","elementType":"double","containsNull":true},"valueContainsNull":true},"nullable":true,"metadata":{}},{"name":"m2","type":{"type":"map","keyType":"string","valueType":{"type":"map","keyType":"string","valueType":"double","valueContainsNull":true},"valueContainsNull":true},"nullable":true,"metadata":{}}]}
+
+-- !parquet_file_metadata_local_comp --
+//comp.parquet	parquet-mr version 1.10.0 (build 031a6654009e3b82020012a18434c582bd74c73a)	25	1
+
+-- !parquet_metadata_local_comp_arr --
+0	0	id	INT32	25
+0	1	aa.list.element.list.element	DOUBLE	4770
+0	2	am.list.element.key_value.key	BYTE_ARRAY	1998
+0	3	am.list.element.key_value.value	INT32	1998
+
+-- !parquet_kv_metadata_local_comp_arr --
+//comp_arr.parquet	org.apache.spark.sql.parquet.row.metadata	{"type":"struct","fields":[{"name":"id","type":"integer","nullable":true,"metadata":{}},{"name":"aa","type":{"type":"array","elementType":{"type":"array","elementType":"double","containsNull":true},"containsNull":true},"nullable":true,"metadata":{}},{"name":"am","type":{"type":"array","elementType":{"type":"map","keyType":"string","valueType":"integer","valueContainsNull":true},"containsNull":true},"nullable":true,"metadata":{}}]}
+
+-- !parquet_file_metadata_local_comp_arr --
+//comp_arr.parquet	parquet-mr version 1.10.0 (build 031a6654009e3b82020012a18434c582bd74c73a)	25	1
+
+-- !parquet_metadata_local_t --
+0	0	id	INT32	25
+0	1	arr_arr.list.element.list.element	BYTE_ARRAY	341
+0	10	map_arr.key_value.value.list.element	DOUBLE	473
+0	11	map_struct.key_value.key	INT96	118
+0	12	map_struct.key_value.value.vin	BYTE_ARRAY	118
+0	13	map_struct.key_value.value.charge_id	INT32	118
+0	14	map_struct.key_value.value.start_time	DOUBLE	118
+0	15	struct_arr_map.aa.list.element	BYTE_ARRAY	106
+0	16	struct_arr_map.mm.key_value.key	INT32	25
+0	17	struct_arr_map.mm.key_value.value	BYTE_ARRAY	25
+0	2	arr_map.list.element.key_value.key	BYTE_ARRAY	127
+0	3	arr_map.list.element.key_value.value	INT32	127
+0	4	arr_struct.list.element.vin	BYTE_ARRAY	137
+0	5	arr_struct.list.element.charge_id	INT32	137
+0	6	map_map.key_value.key	BYTE_ARRAY	25
+0	7	map_map.key_value.value.key_value.key	BYTE_ARRAY	139
+0	8	map_map.key_value.value.key_value.value	DOUBLE	139
+0	9	map_arr.key_value.key	INT32	102
+
+-- !parquet_kv_metadata_local_t --
+//t.parquet	org.apache.spark.sql.parquet.row.metadata	{"type":"struct","fields":[{"name":"id","type":"integer","nullable":true,"metadata":{}},{"name":"arr_arr","type":{"type":"array","elementType":{"type":"array","elementType":"string","containsNull":true},"containsNull":true},"nullable":true,"metadata":{}},{"name":"arr_map","type":{"type":"array","elementType":{"type":"map","keyType":"string","valueType":"date","valueContainsNull":true},"containsNull":true},"nullable":true,"metadata":{}},{"name":"arr_struct","type":{"type":"array","elementType":{"type":"struct","fields":[{"name":"vin","type":"string","nullable":true,"metadata":{}},{"name":"charge_id","type":"integer","nullable":true,"metadata":{}}]},"containsNull":true},"nullable":true,"metadata":{}},{"name":"map_map","type":{"type":"map","keyType":"string","valueType":{"type":"map","keyType":"string","valueType":"double","valueContainsNull":true},"valueContainsNull":true},"nullable":true,"metadata":{}},{"name":"map_arr","type":{"type":"map","keyType":"integer","valueType":{"type":"array","elementType":"double","containsNull":true},"valueContainsNull":true},"nullable":true,"metadata":{}},{"name":"map_struct","type":{"type":"map","keyType":"timestamp","valueType":{"type":"struct","fields":[{"name":"vin","type":"string","nullable":true,"metadata":{}},{"name":"charge_id","type":"integer","nullable":true,"metadata":{}},{"name":"start_time","type":"double","nullable":true,"metadata":{}}]},"valueContainsNull":true},"nullable":true,"metadata":{}},{"name":"struct_arr_map","type":{"type":"struct","fields":[{"name":"aa","type":{"type":"array","elementType":"string","containsNull":true},"nullable":true,"metadata":{}},{"name":"mm","type":{"type":"map","keyType":"date","valueType":"string","valueContainsNull":true},"nullable":true,"metadata":{}}]},"nullable":true,"metadata":{}}]}
+
+-- !parquet_file_metadata_local_t --
+//t.parquet	parquet-mr version 1.10.0 (build 031a6654009e3b82020012a18434c582bd74c73a)	25	1
+
