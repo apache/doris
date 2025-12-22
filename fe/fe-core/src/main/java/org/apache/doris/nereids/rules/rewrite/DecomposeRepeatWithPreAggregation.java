@@ -183,8 +183,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
     }
 
     private LogicalProject<Plan> constructProjectAggregate(LogicalAggregate<? extends Plan> aggregate,
-            Map<Slot, Slot> originToConsumerMap,
-            LogicalRepeat<Plan> repeat, LogicalRepeat<Plan> newRepeat, Set<Expression> needRemovedExprSet) {
+            Map<Slot, Slot> originToConsumerMap, LogicalRepeat<Plan> repeat,
+            LogicalRepeat<Plan> newRepeat, Set<Expression> needRemovedExprSet) {
         Map<AggregateFunction, Slot> aggFuncSlotMap = getAggFuncSlotMap(aggregate.getOutputExpressions(),
                 originToConsumerMap);
         List<NamedExpression> topAggOutput = new ArrayList<>();
