@@ -57,7 +57,6 @@ import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
@@ -1356,22 +1355,6 @@ public class BindExpression implements AnalysisRuleFactory {
         List<NamedExpression> nullableOutput = PlanUtils.adjustNullableForRepeat(boundGroupingSets, boundRepeatOutput);
         for (List<Expression> groupingSet : boundGroupingSets) {
             checkIfOutputAliasNameDuplicatedForGroupBy(groupingSet, nullableOutput);
-        }
-
-        // check all GroupingScalarFunction inputSlots must be from groupingExprs
-        Set<Expression> groupingExprs = boundGroupingSets.stream()
-                .flatMap(Collection::stream).collect(Collectors.toSet());
-        Set<GroupingScalarFunction> groupingScalarFunctions = ExpressionUtils
-                .collect(nullableOutput, GroupingScalarFunction.class::isInstance);
-        for (GroupingScalarFunction function : groupingScalarFunctions) {
-            for (Expression child : function.children()) {
-                if (!groupingExprs.contains(child)) {
-                    throw new AnalysisException(repeat.getType()
-                            + " 's GROUPING function '" + function.toSql()
-                            + "', its argument '" + child.toSql()
-                            + "' must appear in GROUP BY clause.");
-                }
-            }
         }
 
         List<NamedExpression> boundOutput
