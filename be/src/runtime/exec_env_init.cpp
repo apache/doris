@@ -295,9 +295,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _file_cache_factory = new io::FileCacheFactory();
     std::vector<doris::CachePath> cache_paths;
+    init_file_cache_factory(cache_paths);
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
-    init_file_cache_factory(cache_paths);
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     _init_runtime_filter_timer_queue();
 
