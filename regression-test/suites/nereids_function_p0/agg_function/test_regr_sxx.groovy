@@ -16,128 +16,92 @@
 // under the License.
 
 suite("test_regr_sxx") {
-    sql """ DROP TABLE IF EXISTS test_regr_sxx_int """
-    sql """ DROP TABLE IF EXISTS test_regr_sxx_double """
-    sql """ DROP TABLE IF EXISTS test_regr_sxx_nullable_col """
-
-
+    sql """ DROP TABLE IF EXISTS test_regr_sxx """
     sql """ SET enable_nereids_planner=true """
     sql """ SET enable_fallback_to_original_planner=false """
 
     sql """
-        CREATE TABLE test_regr_sxx_int (
-          `id` int,
-          `x` int,
-          `y` int,
+        CREATE TABLE test_regr_sxx (
+            id INT,
+            x  DOUBLE,
+            y  DOUBLE
         ) ENGINE=OLAP
-        Duplicate KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 4
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+            "replication_allocation" = "tag.location.default: 1"
         );
-        """
+    """
+
+    // Empty table: verify NULL
+    qt_empty "SELECT regr_sxx(y, x) FROM test_regr_sxx"
+
+    // Base dataset
     sql """
-        CREATE TABLE test_regr_sxx_double (
-          `id` int,
-          `x` double,
-          `y` double,
-        ) ENGINE=OLAP
-        Duplicate KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
-        );
-        """
-    sql """
-        CREATE TABLE test_regr_sxx_nullable_col (
-          `id` int,
-          `x` int,
-          `y` int,
-        ) ENGINE=OLAP
-        Duplicate KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
-        );
-        """
-    // no value
-    qt_sql "select regr_sxx(y,x) from test_regr_sxx_int"
-    sql """ truncate table test_regr_sxx_int """
-    
-    sql """
-        insert into test_regr_sxx_int values
-        (1, 18, 13),
-        (2, 14, 27),
-        (3, 12, 2),
-        (4, 5, 6),
-        (5, 10, 20);
-        """
+        INSERT INTO test_regr_sxx VALUES
+            -- id=1: one row, sxx should be 0
+            (1, 10, 20),
 
-    sql """
-        insert into test_regr_sxx_double values
-        (1, 18.27123456, 13.27123456),
-        (2, 14.65890846, 27.65890846),
-        (3, 12.25345846, 2.253458468),
-        (4, 5.890846835, 6.890846835),
-        (5, 10.14345678, 20.14345678);
-        """
+            -- id=2: multiple rows
+            (2, 1, 2),
+            (2, 2, 4),
+            (2, 3, 6),
 
-    sql """
-        insert into test_regr_sxx_nullable_col values
-        (1, 18, 13),
-        (2, 14, 27),
-        (3, 5, 7),
-        (4, 10, 20);
-        """
+            -- id=3: contains NULL, will be filtered out
+            (3, 1, NULL),
+            (3, NULL, 2),
+            (3, 2, 5),
+            (3, 3, 7),
 
-    // value is null
-    sql """select regr_sxx(NULL, NULL);"""
+            -- id=4: all rows contain NULL, sxx should be NULL
+            (4, NULL, 1),
+            (4, 2, NULL),
 
-    // parameter is literal and columns
-    qt_sql "select regr_sxx(10,x) from test_regr_sxx_int"
+            -- id=5: constant x
+            (5, 5, 1),
+            (5, 5, 2),
+            (5, 5, 3)
+    """
 
-    // literal and column
-    qt_sql "select regr_sxx(4,x) from test_regr_sxx_int"
+    // SXX(x) = sum(x*x) - sum(x)*sum(x)/n
+    qt_sxx_ref """
+        SELECT
+            id,
+            regr_sxx(y, x) AS sxx,
+            sum(x*x) - sum(x)*sum(x)/count(*) AS ref
+        FROM test_regr_sxx
+        WHERE x IS NOT NULL AND y IS NOT NULL
+        GROUP BY id
+        ORDER BY id
+    """
 
-    // int value
-    qt_sql "select regr_sxx(y,x) from test_regr_sxx_int"
-    sql """ truncate table test_regr_sxx_int """
+    // Single row
+    qt_single_row "SELECT regr_sxx(y, x) FROM test_regr_sxx WHERE id = 1"
 
-    // double value
-    qt_sql "select regr_sxx(y,x) from test_regr_sxx_double"
-    sql """ truncate table test_regr_sxx_double """
+    // All rows invalid (no valid x/y pairs): verify NULL
+    qt_all_filtered "SELECT regr_sxx(y, x) FROM test_regr_sxx WHERE id = 4"
 
-    // nullable and non_nullable
-    qt_sql "select regr_sxx(y,non_nullable(x)) from test_regr_sxx_nullable_col"
+    // Mix non_nullable
+    qt_non_nullable_y "SELECT regr_sxx(non_nullable(y), x) FROM test_regr_sxx WHERE id = 2"
+    qt_non_nullable_x "SELECT regr_sxx(y, non_nullable(x)) FROM test_regr_sxx WHERE id = 2"
+    qt_non_nullable_xy "SELECT regr_sxx(non_nullable(y), non_nullable(x)) FROM test_regr_sxx WHERE id = 2"
 
-    // non_nullable and nullable
-    qt_sql "select regr_sxx(non_nullable(y),x) from test_regr_sxx_nullable_col"
-    
-    // non_nullable and non_nullable
-    qt_sql "select regr_sxx(non_nullable(y),non_nullable(x)) from test_regr_sxx_nullable_col"
-    sql """ truncate table test_regr_sxx_nullable_col """
+    // Literal
+    qt_literal_1 "SELECT regr_sxx(1, 2)"
+    qt_literal_2 "SELECT regr_sxx(10, x) FROM test_regr_sxx WHERE id = 2"
+    qt_literal_3 "SELECT regr_sxx(y, 3) FROM test_regr_sxx WHERE id = 2"
 
-
-
-    // exception test
-    test{
-      sql """select regr_sxx('range', 1);"""
-      exception "regr_sxx requires numeric for first parameter"
+    // exception
+    test {
+        sql "select regr_sxx('y', 1)"
+        exception "regr_sxx requires numeric for first parameter"
     }
-
-      test{
-      sql """select regr_sxx(1, 'hello');"""
-      exception "regr_sxx requires numeric for second parameter"
+    test {
+        sql "select regr_sxx(1, 'x')"
+        exception "regr_sxx requires numeric for second parameter"
     }
-      
-      test{
-      sql """select regr_sxx(y, 'hello') from test_regr_sxx_int;"""
-      exception "regr_sxx requires numeric for second parameter"
+    test {
+        sql "select regr_sxx(1, CAST([1, 2, 3] AS ARRAY<INT>))"
+        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
     }
-
-      test{
-      sql """select regr_sxx(1, true);"""
-      exception "regr_sxx requires numeric for second parameter"
-    }
-
 }

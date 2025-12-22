@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -35,7 +35,7 @@ import java.util.List;
 
 /** regr_sxy agg function. */
 public class RegrSxy extends AggregateFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable, SupportWindowAnalytic {
+        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE));
@@ -54,14 +54,16 @@ public class RegrSxy extends AggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType regrSxyTypeFirst = left().getDataType();
-        DataType regrSxyTypeSecond = right().getDataType();
-        if ((!regrSxyTypeFirst.isNumericType() && !regrSxyTypeFirst.isNullType())
-                || regrSxyTypeFirst.isOnlyMetricType()) {
-            throw new AnalysisException("regr_sxy requires numeric for first parameter");
-        } else if ((!regrSxyTypeSecond.isNumericType() && !regrSxyTypeSecond.isNullType())
-                || regrSxyTypeSecond.isOnlyMetricType()) {
-            throw new AnalysisException("regr_sxy requires numeric for second parameter");
+        DataType yType = left().getDataType();
+        DataType xType = right().getDataType();
+        if (yType.isOnlyMetricType() || xType.isOnlyMetricType()) {
+            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+        }
+        if (!yType.isNumericType() && !yType.isNullType()) {
+            throw new AnalysisException("regr_sxy requires numeric for first parameter: " + toSql());
+        }
+        if (!xType.isNumericType() && !xType.isNullType()) {
+            throw new AnalysisException("regr_sxy requires numeric for second parameter: " + toSql());
         }
     }
 

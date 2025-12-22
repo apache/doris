@@ -16,116 +16,92 @@
 // under the License.
 
 suite("test_regr_syy") {
-    sql """ DROP TABLE IF EXISTS test_regr_syy_int """
-    sql """ DROP TABLE IF EXISTS test_regr_syy_double """
-    sql """ DROP TABLE IF EXISTS test_regr_syy_nullable_col """
-
-
+    sql """ DROP TABLE IF EXISTS test_regr_syy """
     sql """ SET enable_nereids_planner=true """
     sql """ SET enable_fallback_to_original_planner=false """
 
     sql """
-        CREATE TABLE test_regr_syy_int (
-          `id` int,
-          `x` int,
-          `y` int,
+        CREATE TABLE test_regr_syy (
+            id INT,
+            x  DOUBLE,
+            y  DOUBLE
         ) ENGINE=OLAP
-        Duplicate KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 4
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+            "replication_allocation" = "tag.location.default: 1"
         );
-        """
+    """
+
+    // Empty table: verify NULL
+    qt_empty "SELECT regr_syy(y, x) FROM test_regr_syy"
+
+    // Base dataset
     sql """
-        CREATE TABLE test_regr_syy_double (
-          `id` int,
-          `x` double,
-          `y` double,
-        ) ENGINE=OLAP
-        Duplicate KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
-        );
-        """
-    sql """
-        CREATE TABLE test_regr_syy_nullable_col (
-          `id` int NULL,
-          `x` int NULL,
-          `y` int NULL,
-        ) ENGINE=OLAP
-        Duplicate KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
-        );
-        """
-    // no value
-    qt_sql "select regr_syy(y,x) from test_regr_syy_int"
-    sql """ truncate table test_regr_syy_int """
-    
-    sql """
-        insert into test_regr_syy_int values
-        (1, 18, 13),
-        (2, 14, 27),
-        (3, 12, 2),
-        (4, 5, 6),
-        (5, 10, 20)
-        """
+        INSERT INTO test_regr_syy VALUES
+            -- id=1: one row, syy should be 0
+            (1, 10, 20),
 
-    sql """
-        insert into test_regr_syy_double values
-        (1, 18.27123456, 13.27123456),
-        (2, 14.65890846, 27.65890846),
-        (3, 12.25345846, 2.253458468),
-        (4, 5.890846835, 6.890846835),
-        (5, 10.14345678, 20.14345678)
-        """
+            -- id=2: multiple rows
+            (2, 1, 2),
+            (2, 2, 4),
+            (2, 3, 6),
 
-    sql """
-        insert into test_regr_syy_nullable_col values
-        (1, 18, 13),
-        (2, 14, 27),
-        (3, 5, 7),
-        (4, 10, 20);
-        """
+            -- id=3: contains NULL, will be filtered out
+            (3, 1, NULL),
+            (3, NULL, 2),
+            (3, 2, 5),
+            (3, 3, 7),
 
-    // value is null
-    sql """select regr_syy(NULL, NULL);"""
+            -- id=4: all rows contain NULL, syy should be NULL
+            (4, NULL, 1),
+            (4, 2, NULL),
 
-    // literal and column
-    qt_sql "select regr_syy(y,4) from test_regr_syy_int"
+            -- id=5: constant y
+            (5, 1, 5),
+            (5, 2, 5),
+            (5, 3, 5)
+    """
 
-    // value is literal and columns
-    qt_sql "select regr_syy(y,20) from test_regr_syy_int"
-    sql """ truncate table test_regr_syy_int """
+    // SYY(y) = sum(y*y) - sum(y)*sum(y)/n
+    qt_syy_ref """
+        SELECT
+            id,
+            regr_syy(y, x) AS syy,
+            sum(y*y) - sum(y)*sum(y)/count(*) AS ref
+        FROM test_regr_syy
+        WHERE x IS NOT NULL AND y IS NOT NULL
+        GROUP BY id
+        ORDER BY id
+    """
 
-    // int value
-    qt_sql "select regr_syy(y,x) from test_regr_syy_int"
-    sql """ truncate table test_regr_syy_int """
+    // Single row
+    qt_single_row "SELECT regr_syy(y, x) FROM test_regr_syy WHERE id = 1"
 
-    // double value
-    qt_sql "select regr_syy(y,x) from test_regr_syy_double"
-    sql """ truncate table test_regr_syy_double """
+    // All rows invalid (no valid x/y pairs): verify NULL
+    qt_all_filtered "SELECT regr_syy(y, x) FROM test_regr_syy WHERE id = 4"
 
-    // nullable and non_nullable
-    qt_sql "select regr_syy(y,non_nullable(x)) from test_regr_syy_nullable_col"
+    // Mix non_nullable
+    qt_non_nullable_y "SELECT regr_syy(non_nullable(y), x) FROM test_regr_syy WHERE id = 2"
+    qt_non_nullable_x "SELECT regr_syy(y, non_nullable(x)) FROM test_regr_syy WHERE id = 2"
+    qt_non_nullable_xy "SELECT regr_syy(non_nullable(y), non_nullable(x)) FROM test_regr_syy WHERE id = 2"
 
-    // non_nullable and nullable
-    qt_sql "select regr_syy(non_nullable(y),x) from test_regr_syy_nullable_col"
-    
-    // non_nullable and non_nullable
-    qt_sql "select regr_syy(non_nullable(y),non_nullable(x)) from test_regr_syy_nullable_col"
-    sql """ truncate table test_regr_syy_nullable_col """
+    // Literal
+    qt_literal_1 "SELECT regr_syy(1, 2)"
+    qt_literal_2 "SELECT regr_syy(10, x) FROM test_regr_syy WHERE id = 2"
+    qt_literal_3 "SELECT regr_syy(y, 3) FROM test_regr_syy WHERE id = 2"
 
-    // exception test
-	test{
-		sql """select regr_syy('range', 1);"""
-		exception "regr_syy requires numeric for first parameter"
-	}
-    test{
-		sql """select regr_syy(1, 'hello');"""
-		exception "regr_syy requires numeric for second parameter"
-	}
-
+    // exception
+    test {
+        sql "select regr_syy('y', 1)"
+        exception "regr_syy requires numeric for first parameter"
+    }
+    test {
+        sql "select regr_syy(1, 'x')"
+        exception "regr_syy requires numeric for second parameter"
+    }
+    test {
+        sql "select regr_syy(1, CAST([1, 2, 3] AS ARRAY<INT>))"
+        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
+    }
 }
