@@ -55,14 +55,9 @@ under the License.
         </dependency>
         <!-- For BE Paimon OSS/S3 Access -->
         <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-oss</artifactId>
-            <version>${paimon.version}</version>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aliyun</artifactId>
+            <version>${hadoop.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.paimon</groupId>
