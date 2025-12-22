@@ -20,7 +20,7 @@ suite("test_pruned_columns") {
     sql """
         CREATE TABLE `tbl_test_pruned_columns` (
             `id` int NULL,
-            `s` struct<city:text,data:array<map<int,struct<a:int,b:double>>>> NULL
+            `s` struct<city:text,data:array<map<int,struct<a:int,b:double>>>, value:int> NULL
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
         DISTRIBUTED BY RANDOM BUCKETS AUTO
@@ -31,8 +31,19 @@ suite("test_pruned_columns") {
 
     sql """
         insert into `tbl_test_pruned_columns` values
-            (1, named_struct('city', 'beijing', 'data', array(map(1, named_struct('a', 10, 'b', 20.0), 2, named_struct('a', 30, 'b', 40))))),
-            (2, named_struct('city', 'shanghai', 'data', array(map(2, named_struct('a', 50, 'b', 40.0), 1, named_struct('a', 70, 'b', 80)))));
+            (1, named_struct('city', 'beijing', 'data', array(map(1, named_struct('a', 10, 'b', 20.0), 2, named_struct('a', 30, 'b', 40))), 'value', 1)),
+            (2, named_struct('city', 'shanghai', 'data', array(map(2, named_struct('a', 50, 'b', 40.0), 1, named_struct('a', 70, 'b', 80))), 'value', 2)),
+            (3, named_struct('city', 'guangzhou', 'data', array(map(1, named_struct('a', 90, 'b', 60.0), 2, named_struct('a', 110, 'b', 40))), 'value', 3)),
+            (4, named_struct('city', 'shenzhen', 'data', array(map(2, named_struct('a', 130, 'b', 20.0), 1, named_struct('a', 150, 'b', 40))), 'value', 4)),
+            (5, named_struct('city', 'hangzhou', 'data', array(map(1, named_struct('a', 170, 'b', 80.0), 2, named_struct('a', 190, 'b', 40))), 'value', 5)),
+            (6, named_struct('city', 'nanjing', 'data', array(map(2, named_struct('a', 210, 'b', 60.0), 1, named_struct('a', 230, 'b', 40))), 'value', 6)),
+            (7, named_struct('city', 'tianjin', 'data', array(map(1, named_struct('a', 250, 'b', 20.0), 2, named_struct('a', 270, 'b', 40))), 'value', 7)),
+            (8, named_struct('city', 'chongqing', 'data', array(map(2, named_struct('a', 290, 'b', 80.0), 1, named_struct('a', 310, 'b', 40))), 'value', 8)),
+            (9, named_struct('city', 'wuhan', 'data', array(map(1, named_struct('a', 330, 'b', 60.0), 2, named_struct('a', 350, 'b', 40))), 'value', 9)),
+            (10, named_struct('city', 'xian', 'data', array(map(2, named_struct('a', 370, 'b', 20.0), 1, named_struct('a', 390, 'b', 40))), 'value', 10)),
+            (11, named_struct('city', 'changsha', 'data', array(map(1, named_struct('a', 410, 'b', 80.0), 2, named_struct('a', 430, 'b', 40))), 'value', 11)),
+            (12, named_struct('city', 'qingdao', 'data', array(map(2, named_struct('a', 450, 'b', 60.0), 1, named_struct('a', 470, 'b', 40))), 'value', 12)),
+            (13, named_struct('city', 'dalian', 'data', array(map(1, named_struct('a', 490, 'b', 20.0), 2, named_struct('a', 510, 'b', 40))), 'value', 13));
     """
 
     qt_sql """
@@ -57,6 +68,14 @@ suite("test_pruned_columns") {
 
     qt_sql5 """
         select id, struct_element(s, 'city') from `tbl_test_pruned_columns` where struct_element(struct_element(s, 'data')[1][2], 'b') = 40 order by 1;
+    """
+
+    qt_sql5_1 """
+        select /*+ set enable_prune_nested_column = 1; */ sum(s.value) from `tbl_test_pruned_columns` where id in(1,2,3,4,8,9,10,11,13);
+    """
+
+    qt_sql5_2 """
+        select /*+ set enable_prune_nested_column = 0; */ sum(s.value) from `tbl_test_pruned_columns` where id in(1,2,3,4,8,9,10,11,13);
     """
 
     sql """DROP TABLE IF EXISTS `tbl_test_pruned_columns_map`"""

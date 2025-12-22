@@ -29,7 +29,6 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
-import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
 
@@ -46,9 +45,7 @@ public class CastExpr extends Expr {
 
     }
 
-    public CastExpr(Type targetType, Expr e, Void v) {
-        Preconditions.checkArgument(targetType.isValid());
-        Preconditions.checkNotNull(e, "cast child is null");
+    public CastExpr(Type targetType, Expr e, boolean nullable) {
         opcode = TExprOpcode.CAST;
         type = targetType;
         isImplicit = true;
@@ -67,7 +64,7 @@ public class CastExpr extends Expr {
                 getChild(0).setType(type);
             }
         }
-        analysisDone();
+        this.nullable = nullable;
     }
 
     protected CastExpr(CastExpr other) {
@@ -144,13 +141,6 @@ public class CastExpr extends Expr {
             return true;
         }
         return false;
-    }
-
-    @Override
-    public boolean isNullable() {
-        return children.get(0).isNullable()
-                || (children.get(0).getType().isStringType() && !getType().isStringType())
-                || (!children.get(0).getType().isDateType() && getType().isDateType());
     }
 
     @Override

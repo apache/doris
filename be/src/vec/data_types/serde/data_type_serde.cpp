@@ -120,36 +120,40 @@ Status DataTypeSerDe::deserialize_column_from_jsonb_vector(ColumnNullable& colum
     return Status::OK();
 }
 
-void DataTypeSerDe::to_string_batch(const IColumn& column, ColumnString& column_to) const {
+void DataTypeSerDe::to_string_batch(const IColumn& column, ColumnString& column_to,
+                                    const FormatOptions& options) const {
     const auto size = column.size();
     column_to.reserve(size);
     VectorBufferWriter write_buffer(column_to);
     for (size_t i = 0; i < size; ++i) {
-        to_string(column, i, write_buffer);
+        to_string(column, i, write_buffer, options);
         write_buffer.commit();
     }
 }
 
-void DataTypeSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const {
+void DataTypeSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                              const FormatOptions& options) const {
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                            "Data type {} to_string_batch not implement.", get_name());
 }
 
 bool DataTypeSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
-                                               int64_t row_idx) const {
-    to_string(column, row_idx, bw);
+                                               int64_t row_idx,
+                                               const FormatOptions& options) const {
+    to_string(column, row_idx, bw, options);
     return true;
 }
 
 bool DataTypeSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                                int64_t row_idx) const {
-    to_string(column, row_idx, bw);
+                                                int64_t row_idx,
+                                                const FormatOptions& options) const {
+    to_string(column, row_idx, bw, options);
     return true;
 }
 
 bool DataTypeSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                              int64_t row_idx) const {
-    to_string(column, row_idx, bw);
+                                              int64_t row_idx, const FormatOptions& options) const {
+    to_string(column, row_idx, bw, options);
     return true;
 }
 
@@ -203,6 +207,7 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TIMESTAMPTZ, TYPE_TIMESTAMPTZ)
 
     case FieldType::OLAP_FIELD_TYPE_NONE: {
         end = data;
@@ -264,6 +269,7 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TIMESTAMPTZ, TYPE_TIMESTAMPTZ)
 
     case FieldType::OLAP_FIELD_TYPE_NONE: {
         end = data;

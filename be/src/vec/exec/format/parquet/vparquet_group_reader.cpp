@@ -129,17 +129,11 @@ Status RowGroupReader::init(
             std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_table_columns.size());
     for (const auto& read_table_col : _read_table_columns) {
         auto read_file_col = _table_info_node_ptr->children_file_column_name(read_table_col);
-
         auto* field = schema.get_column(read_file_col);
-        auto physical_index = field->physical_column_index;
         std::unique_ptr<ParquetColumnReader> reader;
-        // TODO : support rested column types
-        const tparquet::OffsetIndex* offset_index =
-                col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
-                                                                      : nullptr;
         RETURN_IF_ERROR(ParquetColumnReader::create(
                 _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
-                max_buf_size, offset_index, _column_ids, _filter_column_ids));
+                max_buf_size, col_offsets, false, _column_ids, _filter_column_ids));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -1131,10 +1125,10 @@ void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
     }
 }
 
-ParquetColumnReader::Statistics RowGroupReader::statistics() {
-    ParquetColumnReader::Statistics st;
+ParquetColumnReader::ColumnStatistics RowGroupReader::merged_column_statistics() {
+    ParquetColumnReader::ColumnStatistics st;
     for (auto& reader : _column_readers) {
-        auto ost = reader.second->statistics();
+        auto ost = reader.second->column_statistics();
         st.merge(ost);
     }
     return st;

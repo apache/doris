@@ -735,7 +735,7 @@ public class IcebergUtils {
     public static Table getIcebergTable(ExternalTable dorisTable) {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
-                .getIcebergMetadataCache().getIcebergTable(dorisTable);
+                .getIcebergMetadataCache((IcebergExternalCatalog) dorisTable.getCatalog()).getIcebergTable(dorisTable);
     }
 
     public static org.apache.iceberg.types.Type dorisTypeToIcebergType(Type type) {
@@ -989,7 +989,7 @@ public class IcebergUtils {
         // Meanwhile, it will trigger iceberg metadata cache to load the table, so we can get it next time.
         Table icebergTable = Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
-                .getIcebergMetadataCache()
+                .getIcebergMetadataCache((IcebergExternalCatalog) tbl.getCatalog())
                 .getIcebergTable(tbl);
         Snapshot snapshot = icebergTable.currentSnapshot();
         if (snapshot == null) {
@@ -1385,7 +1385,7 @@ public class IcebergUtils {
         }
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         Column c = partitionColumns.get(0);
-        Preconditions.checkState(c.getDataType().isDateType(), "Only support date type partition column");
+        Preconditions.checkState(c.getDataType().isDateLikeType(), "Only support date type partition column");
         if (c.getType().isDate() || c.getType().isDateV2()) {
             formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         }
@@ -1496,7 +1496,8 @@ public class IcebergUtils {
                     new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()));
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
-            return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+            return Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .getIcebergMetadataCache((IcebergExternalCatalog) dorisTable.getCatalog())
                     .getSnapshotCache(dorisTable);
         }
     }
@@ -1520,7 +1521,8 @@ public class IcebergUtils {
     }
 
     public static View getIcebergView(ExternalTable dorisTable) {
-        IcebergMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
+        IcebergMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getIcebergMetadataCache((IcebergExternalCatalog) dorisTable.getCatalog());
         return metadataCache.getIcebergView(dorisTable);
     }
 

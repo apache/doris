@@ -226,22 +226,31 @@ Status IndexFileWriter::close() {
     }
     LOG_INFO("IndexFileWriter closing, enable_write_index_searcher_cache: {}",
              config::enable_write_index_searcher_cache);
+    Status st = Status::OK();
     if (config::enable_write_index_searcher_cache) {
-        return add_into_searcher_cache();
+        st = add_into_searcher_cache();
     }
-    return Status::OK();
+    _indices_dirs.clear();
+    return st;
 }
 
 std::vector<std::string> IndexFileWriter::get_index_file_names() const {
     std::vector<std::string> file_names;
-    if (_storage_format == InvertedIndexStorageFormatPB::V2) {
+    if (_storage_format == InvertedIndexStorageFormatPB::V1) {
+        if (_closed && _file_info.index_info_size() > 0) {
+            for (const auto& index_info : _file_info.index_info()) {
+                file_names.emplace_back(InvertedIndexDescriptor::get_index_file_name_v1(
+                        _rowset_id, _seg_id, index_info.index_id(), index_info.index_suffix()));
+            }
+        } else {
+            for (const auto& [index_info, _] : _indices_dirs) {
+                file_names.emplace_back(InvertedIndexDescriptor::get_index_file_name_v1(
+                        _rowset_id, _seg_id, index_info.first, index_info.second));
+            }
+        }
+    } else {
         file_names.emplace_back(
                 InvertedIndexDescriptor::get_index_file_name_v2(_rowset_id, _seg_id));
-    } else {
-        for (const auto& [index_info, _] : _indices_dirs) {
-            file_names.emplace_back(InvertedIndexDescriptor::get_index_file_name_v1(
-                    _rowset_id, _seg_id, index_info.first, index_info.second));
-        }
     }
     return file_names;
 }

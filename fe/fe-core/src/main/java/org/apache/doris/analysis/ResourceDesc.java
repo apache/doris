@@ -48,8 +48,6 @@ public class ResourceDesc {
      */
     protected EtlJobType etlJobType;
 
-    protected LoadType loadType;
-
     // Only used for recovery
     public ResourceDesc() {
     }

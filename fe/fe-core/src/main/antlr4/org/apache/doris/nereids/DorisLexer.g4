@@ -540,6 +540,7 @@ THAN: 'THAN';
 THEN: 'THEN';
 TIME: 'TIME';
 TIMESTAMP: 'TIMESTAMP';
+TIMESTAMPTZ: 'TIMESTAMPTZ';
 TINYINT: 'TINYINT';
 TO: 'TO';
 TOKENIZER: 'TOKENIZER';
@@ -714,9 +715,6 @@ BRACKETED_COMMENT
     : COMMENT_START ( BRACKETED_COMMENT | . )*? '*/' -> channel(2)
     ;
 
-
-FROM_DUAL
-    : 'FROM' WS+ 'DUAL' -> channel(HIDDEN);
 
 WS
     : [ \r\n\t]+ -> channel(HIDDEN)

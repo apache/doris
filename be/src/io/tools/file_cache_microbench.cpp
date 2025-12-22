@@ -1074,7 +1074,7 @@ private:
                     DataGenerator data_generator(config.size_bytes_perfile);
                     doris::io::FileWriterOptions options;
                     if (config.cache_type == "TTL") {
-                        options.file_cache_expiration = config.expiration;
+                        options.file_cache_expiration_time = config.expiration;
                     }
                     options.write_file_cache = config.write_file_cache;
                     auto writer = std::make_unique<MicrobenchS3FileWriter>(
@@ -1088,13 +1088,17 @@ private:
 
                     std::vector<doris::Slice> slices;
                     slices.reserve(4);
+                    std::vector<std::string> slice_buffers;
+                    slice_buffers.reserve(4);
                     size_t accumulated_size = 0;
 
                     // Stream data writing
                     while (data_generator.has_more()) {
                         doris::Slice chunk = data_generator.next_chunk(key);
-                        slices.push_back(chunk);
-                        accumulated_size += chunk.size;
+                        slice_buffers.emplace_back(chunk.data, chunk.size);
+                        const std::string& stored_chunk = slice_buffers.back();
+                        slices.emplace_back(stored_chunk.data(), stored_chunk.size());
+                        accumulated_size += stored_chunk.size();
 
                         if (accumulated_size >= config.write_batch_size ||
                             !data_generator.has_more()) {
@@ -1105,6 +1109,7 @@ private:
                                                          status.to_string());
                             }
                             slices.clear();
+                            slice_buffers.clear();
                             accumulated_size = 0;
                         }
                     }
@@ -1319,15 +1324,12 @@ private:
                                 file_size = exist_job_perfile_size;
                             }
 
-// TODO(dengxin): fix verify
-#if 0
-        // Verify read data
+                            // Verify read data
                             if (!DataVerifier::verify_data(key, file_size, read_offset, read_buffer,
                                                            read_length)) {
                                 throw std::runtime_error("Data verification failed for key: " +
                                                          key);
                             }
-#endif
 
                             LOG(INFO)
                                     << "read_offset=" << read_offset

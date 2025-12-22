@@ -71,6 +71,7 @@
 #include "pipeline/dependency.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/primitive_type.h"
 #include "runtime/types.h"
 #include "util/string_util.h"
 #include "util/types.h"
@@ -383,6 +384,12 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         case TYPE_DATETIMEV2: {
             uint64_t num = *reinterpret_cast<uint64_t*>(data);
             assert_cast<vectorized::ColumnDateTimeV2*>(col_ptr)->insert_value(num);
+            break;
+        }
+
+        case TYPE_TIMESTAMPTZ: {
+            uint64_t num = *reinterpret_cast<uint64_t*>(data);
+            assert_cast<vectorized::ColumnTimeStampTz*>(col_ptr)->insert_value(num);
             break;
         }
 

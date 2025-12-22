@@ -34,8 +34,10 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h"  // for OwnedSlice
+#include "vec/columns/column_variant.h"
 
 namespace doris {
 
@@ -78,6 +80,9 @@ struct ColumnWriterOptions {
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
     const TabletIndex* ann_index = nullptr;
+
+    EncodingPreference encoding_preference {};
+
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
@@ -605,7 +610,7 @@ private:
     bool _is_finalized = false;
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
-    vectorized::MutableColumnPtr _column;
+    vectorized::ColumnVariant::MutablePtr _column;
     const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;

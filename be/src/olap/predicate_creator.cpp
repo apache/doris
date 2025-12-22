@@ -84,6 +84,9 @@ std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
     case TYPE_DATETIMEV2: {
         return BloomFilterColumnPredicate<TYPE_DATETIMEV2>::create_shared(cid, filter_olap);
     }
+    case TYPE_TIMESTAMPTZ: {
+        return BloomFilterColumnPredicate<TYPE_TIMESTAMPTZ>::create_shared(cid, filter_olap);
+    }
     case TYPE_BOOLEAN: {
         return BloomFilterColumnPredicate<TYPE_BOOLEAN>::create_shared(cid, filter_olap);
     }
@@ -94,6 +97,9 @@ std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
         return BloomFilterColumnPredicate<TYPE_IPV6>::create_shared(cid, filter_olap);
     }
     default:
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        fmt::format("Cannot use bloom filter for type: {}",
+                                    type_to_string(data_type->get_primitive_type())));
         return nullptr;
     }
 }

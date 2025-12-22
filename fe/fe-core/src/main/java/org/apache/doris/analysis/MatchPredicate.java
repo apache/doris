@@ -92,7 +92,7 @@ public class MatchPredicate extends Predicate {
      * use for Nereids ONLY
      */
     public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType,
-            NullableMode nullableMode, Index invertedIndex) {
+            NullableMode nullableMode, Index invertedIndex, boolean nullable) {
         super();
         this.op = op;
         children.add(e1);
@@ -109,6 +109,7 @@ public class MatchPredicate extends Predicate {
         }
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);
+        this.nullable = nullable;
     }
 
     protected MatchPredicate(MatchPredicate other) {

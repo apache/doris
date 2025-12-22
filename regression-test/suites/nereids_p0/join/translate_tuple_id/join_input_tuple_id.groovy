@@ -38,7 +38,7 @@ suite("join_input_tuple_id") {
                 join t3 on u.k+1 = t3.k
         """
         // verify that join's input tuple is union's output tuple id (5) not input tuple (4)
-        contains "tuple ids: 5 1N"
+        contains "tuple ids: 5 1"
 
 //   7:VHASH JOIN(293)
 //   |  join op: INNER JOIN(BROADCAST)[]
@@ -53,12 +53,12 @@ suite("join_input_tuple_id") {
 //   |  final project output tuple id: 7
 //   |  distribute expr lists: 
 //   |  distribute expr lists: 
-//   |  tuple ids: 5 1N 
+//   |  tuple ids: 5 1
 //   |  
 //   |----1:VEXCHANGE
 //   |       offset: 0
 //   |       distribute expr lists: 
-//   |       tuple ids: 1N 
+//   |       tuple ids: 1
 //   |    
 //   6:VUNION(276)
 //   |  child exprs: 

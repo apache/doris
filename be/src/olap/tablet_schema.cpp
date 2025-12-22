@@ -107,6 +107,8 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_DATEV2;
     case PrimitiveType::TYPE_DATETIMEV2:
         return FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
     case PrimitiveType::TYPE_TIMEV2:
         return FieldType::OLAP_FIELD_TYPE_TIMEV2;
     case PrimitiveType::TYPE_DECIMAL32:
@@ -176,6 +178,7 @@ PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
             /* 37 OLAP_FIELD_TYPE_DECIMAL256        */ PrimitiveType::TYPE_DECIMAL256,
             /* 38 OLAP_FIELD_TYPE_IPV4              */ PrimitiveType::TYPE_IPV4,
             /* 39 OLAP_FIELD_TYPE_IPV6              */ PrimitiveType::TYPE_IPV6,
+            /* 40 OLAP_FIELD_TYPE_TIMESTAMPTZ       */ PrimitiveType::TYPE_TIMESTAMPTZ,
     };
 
     int idx = static_cast<int>(type);
@@ -226,6 +229,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIME;
+    } else if (0 == upper_type_str.compare("TIMESTAMPTZ")) {
+        type = FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
     } else if (0 == upper_type_str.compare("DECIMAL32")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL32;
     } else if (0 == upper_type_str.compare("DECIMAL64")) {
@@ -364,6 +369,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return "DATETIMEV2";
 
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+        return "TIMESTAMPTZ";
+
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
         return "DECIMAL";
 
@@ -475,6 +483,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DATETIME:
         return 8;
     case TPrimitiveType::DATETIMEV2:
+    case TPrimitiveType::TIMESTAMPTZ:
         return 8;
     case TPrimitiveType::FLOAT:
         return 4;
@@ -1173,6 +1182,12 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     } else {
         _is_external_segment_column_meta_used = false;
     }
+    if (schema.has_integer_type_default_use_plain_encoding()) {
+        _integer_type_default_use_plain_encoding = schema.integer_type_default_use_plain_encoding();
+    }
+    if (schema.has_binary_plain_encoding_default_impl()) {
+        _binary_plain_encoding_default_impl = schema.binary_plain_encoding_default_impl();
+    }
     update_metadata_size();
 }
 
@@ -1445,6 +1460,9 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
     tablet_schema_pb->set_is_external_segment_column_meta_used(
             _is_external_segment_column_meta_used);
+    tablet_schema_pb->set_integer_type_default_use_plain_encoding(
+            _integer_type_default_use_plain_encoding);
+    tablet_schema_pb->set_binary_plain_encoding_default_impl(_binary_plain_encoding_default_impl);
 }
 
 size_t TabletSchema::row_size() const {
@@ -1826,6 +1844,10 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
     if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
+        return false;
+    if (a._integer_type_default_use_plain_encoding != b._integer_type_default_use_plain_encoding)
+        return false;
+    if (a._binary_plain_encoding_default_impl != b._binary_plain_encoding_default_impl)
         return false;
     return true;
 }

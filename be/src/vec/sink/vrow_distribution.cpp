@@ -343,6 +343,9 @@ Status VRowDistribution::_deal_missing_map(vectorized::Block* block,
     col_strs.resize(part_col_num);
     col_null_maps.reserve(part_col_num);
 
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    format_options.timezone = &_state->timezone_obj();
+
     for (int i = 0; i < part_col_num; ++i) {
         auto return_type = part_exprs[i]->data_type();
         // expose the data column. the return type would be nullable
@@ -355,8 +358,8 @@ Status VRowDistribution::_deal_missing_map(vectorized::Block* block,
             col_null_maps.push_back(nullptr);
         }
         for (auto row : _missing_map) {
-            col_strs[i].push_back(
-                    return_type->to_string(*range_left_col, index_check_const(row, col_const)));
+            col_strs[i].push_back(return_type->to_string(
+                    *range_left_col, index_check_const(row, col_const), format_options));
         }
     }
 

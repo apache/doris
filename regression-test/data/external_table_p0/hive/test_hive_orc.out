@@ -1005,6 +1005,54 @@ tablets	tinyint_col	179	182	182	187	183	181	177	183	177	187	183	202	202	186	528	
 4	71	986333570	88457348565826264	true	3.851428E7	5.177242499015833e+17	Football stumble result taste pleased midst. Mirror loyal divide. Ultimately injury chip lawyer. Leadership teacher belong.	\N	2022-08-26T19:19:31	140717.2626	phones	smallint_col	2022-08-22	[]	["PWCCGPfT"]	phones	smallint_col
 3	21	986131998	683875991736989008	\N	6.0774349E8	\N	Weird period none. Assertion coincide college. Subscriber fridge craft. Poisonous donation ordinary. Explode village debt.	split terrify	2022-08-27T01:05:20	390407.1015	tablets	tinyint_col	2015-11-04	[6.630172173849485e+17]	[null, "lSQFYzUG", "vMVMwfZzpl", "QRFiYUUefBc", "VdtTHy", "YrPtPPzynqXCCzm", "LfIgQvGimBBzlgn"]	tablets	tinyint_col
 
+-- !sql_topn_binary_col1 --
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+
+-- !sql_topn_binary_col2 --
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+
+-- !sql_topn_binary_col3 --
+0x79656C6C6F772070756E6368	yellow punch
+0x79657374657264617920736574746C656D656E7420756E636F6E7363696F75732062696F6C6F6779	yesterday settlement unconscious biology
+0x796574207265696E666F726365	yet reinforce
+0x7965742072656C6178	yet relax
+0x796F756E67206372656174697665207072657365727665	young creative preserve
+0x796F757220617070726F7072696174656C7920736574746C657220646F6D696E616E6365	your appropriately settler dominance
+0x796F75727320696E766164652070726976616379	yours invade privacy
+0x796F7572732073657373696F6E20636F756E63696C	yours session council
+0x796F75746820626563617573652065787065646974696F6E	youth because expedition
+0x7A65726F207765617220736561736F6E	zero wear season
+
+-- !sql_topn_binary_col4 --
+0x79656C6C6F772070756E6368	yellow punch
+0x79657374657264617920736574746C656D656E7420756E636F6E7363696F75732062696F6C6F6779	yesterday settlement unconscious biology
+0x796574207265696E666F726365	yet reinforce
+0x7965742072656C6178	yet relax
+0x796F756E67206372656174697665207072657365727665	young creative preserve
+0x796F757220617070726F7072696174656C7920736574746C657220646F6D696E616E6365	your appropriately settler dominance
+0x796F75727320696E766164652070726976616379	yours invade privacy
+0x796F7572732073657373696F6E20636F756E63696C	yours session council
+0x796F75746820626563617573652065787065646974696F6E	youth because expedition
+0x7A65726F207765617220736561736F6E	zero wear season
+
 -- !select_top50 --
 4	55	999742610	400899305488827731	false	6.5976813E8	7.87233046169374e+17	\N	base tennis pit vertical friday	2022-08-19T07:29:58	\N	tablets	smallint_col	2019-02-07	[7.53124931825377e+17]	["NbSSBtwzpxNSkkwga"]	tablets	smallint_col
 2	49	999613702	105493714032727452	\N	6.3322381E8	9.864232441024018e+17	Unveil bright recruit participate. Suspect impression camera mathematical revelation. Fault live2 elbow debt west hydrogen current.	how literary	2022-09-03T17:20:21	481707.1065	tablets	boolean_col	2020-01-12	[]	["HoMrAnn", "wteEFvIwoZsVpVQdscMb", null, "zcGFmv", "kGEBBckbMtX", "hrEtCGFdPWZK"]	tablets	boolean_col
@@ -2010,4 +2058,52 @@ tablets	tinyint_col	179	182	182	187	183	181	177	183	177	187	183	202	202	186	528	
 5	72	986349337	86980633188107783	true	6.3851021E8	7.554840024610899e+17	Relation ninety know cloud hate terminal egg. Extreme ticket detail domain acknowledge complain live1. Dedicated hair escape.	email senator speculate anything swim	2022-08-07T19:11:47	760440.5681	tablets	int_col	2015-06-26	[]	["RJGkpBfoNE", "jpQoLfYrI", "gOgkBQUg", "QBs", "IrHb", "AazarmoPsX", "AAxTPdvLHpP", "JPx"]	tablets	int_col
 4	71	986333570	88457348565826264	true	3.851428E7	5.177242499015833e+17	Football stumble result taste pleased midst. Mirror loyal divide. Ultimately injury chip lawyer. Leadership teacher belong.	\N	2022-08-26T19:19:31	140717.2626	phones	smallint_col	2022-08-22	[]	["PWCCGPfT"]	phones	smallint_col
 3	21	986131998	683875991736989008	\N	6.0774349E8	\N	Weird period none. Assertion coincide college. Subscriber fridge craft. Poisonous donation ordinary. Explode village debt.	split terrify	2022-08-27T01:05:20	390407.1015	tablets	tinyint_col	2015-11-04	[6.630172173849485e+17]	[null, "lSQFYzUG", "vMVMwfZzpl", "QRFiYUUefBc", "VdtTHy", "YrPtPPzynqXCCzm", "LfIgQvGimBBzlgn"]	tablets	tinyint_col
+
+-- !sql_topn_binary_col1 --
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+
+-- !sql_topn_binary_col2 --
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+
+-- !sql_topn_binary_col3 --
+0x79656C6C6F772070756E6368	yellow punch
+0x79657374657264617920736574746C656D656E7420756E636F6E7363696F75732062696F6C6F6779	yesterday settlement unconscious biology
+0x796574207265696E666F726365	yet reinforce
+0x7965742072656C6178	yet relax
+0x796F756E67206372656174697665207072657365727665	young creative preserve
+0x796F757220617070726F7072696174656C7920736574746C657220646F6D696E616E6365	your appropriately settler dominance
+0x796F75727320696E766164652070726976616379	yours invade privacy
+0x796F7572732073657373696F6E20636F756E63696C	yours session council
+0x796F75746820626563617573652065787065646974696F6E	youth because expedition
+0x7A65726F207765617220736561736F6E	zero wear season
+
+-- !sql_topn_binary_col4 --
+0x79656C6C6F772070756E6368	yellow punch
+0x79657374657264617920736574746C656D656E7420756E636F6E7363696F75732062696F6C6F6779	yesterday settlement unconscious biology
+0x796574207265696E666F726365	yet reinforce
+0x7965742072656C6178	yet relax
+0x796F756E67206372656174697665207072657365727665	young creative preserve
+0x796F757220617070726F7072696174656C7920736574746C657220646F6D696E616E6365	your appropriately settler dominance
+0x796F75727320696E766164652070726976616379	yours invade privacy
+0x796F7572732073657373696F6E20636F756E63696C	yours session council
+0x796F75746820626563617573652065787065646974696F6E	youth because expedition
+0x7A65726F207765617220736561736F6E	zero wear season
 

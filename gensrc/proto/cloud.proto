@@ -1139,6 +1139,9 @@ message GetVersionRequest {
     optional bool is_table_version = 9;
 
     optional string request_ip = 10;
+
+    // Wait the pending txn to be finished before getting version
+    optional bool wait_for_pending_txn = 11;
 };
 
 message GetVersionResponse {
@@ -2155,6 +2158,12 @@ message PackedFileInfoPB {
     optional PackedFileState state = 7 [default = NORMAL];
     repeated PackedSlicePB slices = 8;
     optional string resource_id = 9;
+}
+
+// Wrapper for packed file footer information. It keeps PackedFileInfoPB extensible for tools
+// reading packed file trailers.
+message PackedFileFooterPB {
+    optional PackedFileInfoPB packed_file_info = 1;
 }
 
 message UpdatePackedFileInfoRequest {

@@ -131,7 +131,6 @@ public:
     }
     TPlanNodeBuilder& append_row_tuples(TTupleId tuple_id, bool nullable) {
         _plan_node.row_tuples.emplace_back(tuple_id);
-        _plan_node.nullable_tuples.emplace_back(nullable);
         return *this;
     }
 

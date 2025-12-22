@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "resource-manager/resource_manager.h"
 #if defined(USE_LIBCPP) && _LIBCPP_ABI_VERSION <= 1
 #define _LIBCPP_ABI_INCOMPLETE_TYPES_IN_DEQUE
 #endif
@@ -141,6 +142,8 @@ public:
 
     StorageVaultAccessor* get_accessor(const std::string& id);
 
+    ResourceManager* resource_mgr() const { return resource_mgr_.get(); }
+
     void get_all_accessor(std::vector<StorageVaultAccessor*>* accessors);
 
     std::string_view instance_id() const { return instance_id_; }
@@ -248,6 +251,7 @@ private:
     // id -> accessor
     std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
     std::shared_ptr<SnapshotManager> snapshot_manager_;
+    std::shared_ptr<ResourceManager> resource_mgr_;
 };
 
 } // namespace doris::cloud

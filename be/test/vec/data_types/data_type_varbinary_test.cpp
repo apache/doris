@@ -89,7 +89,7 @@ TEST_F(DataTypeVarbinaryTest, CreateColumnAndCheckColumn) {
 TEST_F(DataTypeVarbinaryTest, GetDefaultField) {
     DataTypeVarbinary dt;
     Field def = dt.get_default();
-    const auto& sv = get<const doris::StringView&>(def);
+    const auto& sv = get<const StringViewField&>(def);
     EXPECT_EQ(sv.size(), 0U);
 }
 
@@ -110,9 +110,10 @@ TEST_F(DataTypeVarbinaryTest, ToStringAndToStringBufferWritable) {
     }
 
     auto out_col = ColumnString::create();
+    auto format_options = DataTypeSerDe::FormatOptions();
     for (size_t i = 0; i < vals.size(); ++i) {
         BufferWritable bw(*out_col);
-        dt.get_serde()->to_string(*col, i, bw);
+        dt.get_serde()->to_string(*col, i, bw, format_options);
         bw.commit();
     }
     ASSERT_EQ(out_col->size(), vals.size());
@@ -177,7 +178,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldWithDataType) {
 
     auto fwd = dt.get_field_with_data_type(*col, 0);
     EXPECT_EQ(fwd.base_scalar_type_id, PrimitiveType::TYPE_VARBINARY);
-    const auto& sv = get<const doris::StringView&>(fwd.field);
+    const auto& sv = get<const StringViewField&>(fwd.field);
     ASSERT_EQ(sv.size(), v.size());
     ASSERT_EQ(memcmp(sv.data(), v.data(), sv.size()), 0);
 }
@@ -190,7 +191,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldFromTExprNode) {
     node.__isset.varbinary_literal = true;
 
     Field f = dt.get_field(node);
-    const auto& sv = get<const doris::StringView&>(f);
+    const auto& sv = get<const StringViewField&>(f);
     ASSERT_EQ(sv.size(), 5U);
     ASSERT_EQ(memcmp(sv.data(), "hello", 5), 0);
 }
@@ -256,8 +257,9 @@ TEST_F(DataTypeVarbinaryTest, SerDeWriteColumnToMysql) {
     auto serde = dt.get_serde();
     // binary protocol
     doris::MysqlRowBinaryBuffer rb_bin;
-    auto st2 =
-            serde->write_column_to_mysql_binary(*col, rb_bin, /*row_idx=*/0, /*col_const=*/false);
+    auto format_options = DataTypeSerDe::FormatOptions();
+    auto st2 = serde->write_column_to_mysql_binary(*col, rb_bin, /*row_idx=*/0, /*col_const=*/false,
+                                                   format_options);
     EXPECT_TRUE(st2.ok());
     EXPECT_GT(rb_bin.length(), 0);
 }
@@ -276,7 +278,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldFromTExprNodeWithEmbeddedNull) {
     node.__isset.varbinary_literal = true;
 
     Field f = dt.get_field(node);
-    const auto& sv = get<const doris::StringView&>(f);
+    const auto& sv = get<const StringViewField&>(f);
     ASSERT_EQ(sv.size(), raw.size());
     ASSERT_EQ(memcmp(sv.data(), raw.data(), sv.size()), 0);
 }
@@ -299,7 +301,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldWithDataTypeNonInline) {
 
     auto fwd = dt.get_field_with_data_type(*col, 0);
     EXPECT_EQ(fwd.base_scalar_type_id, PrimitiveType::TYPE_VARBINARY);
-    const auto& sv = get<const doris::StringView&>(fwd.field);
+    const auto& sv = get<const StringViewField&>(fwd.field);
     ASSERT_EQ(sv.size(), big.size());
     ASSERT_EQ(memcmp(sv.data(), big.data(), sv.size()), 0);
 }

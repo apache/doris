@@ -117,10 +117,7 @@ suite("test_mtmv") {
     """
     sql "set enable_decimal256=true;"
     qt_test_normalizeagg "select  /*+use_mv(mv_pre_mv_rewrite)*/ col_sum from v_test_agg_distinct_reverse_rewrite  order by 1;"
-    explain {
-        sql "select /*+use_mv(mv_pre_mv_rewrite)*/  col_sum from v_test_agg_distinct_reverse_rewrite;"
-        contains "mv_pre_mv_rewrite chose"
-    }
+    mv_rewrite_success_without_check_chosen("select /*+use_mv(mv_pre_mv_rewrite)*/  col_sum from v_test_agg_distinct_reverse_rewrite;", "mv_pre_mv_rewrite")
     sql "drop materialized view  if exists mv_pre_mv_rewrite;"
 
 

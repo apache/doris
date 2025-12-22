@@ -77,6 +77,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
 namespace doris::segment_v2 {
@@ -296,6 +297,61 @@ int64_t ColumnReader::get_metadata_size() const {
     return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
 }
 
+#ifdef BE_TEST
+/// This function is only used in UT to verify the correctness of data read from zone map
+/// See UT case 'SegCompactionMoWTest.SegCompactionInterleaveWithBig_ooooOOoOooooooooO'
+/// be/test/olap/segcompaction_mow_test.cpp
+void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColumnPtr& dst) const {
+    if (!_segment_zone_map) {
+        return;
+    }
+
+    const auto rows = dst->size();
+    if (rows == 0) {
+        return;
+    }
+
+    FieldType type = _type_info->type();
+
+    if (type != FieldType::OLAP_FIELD_TYPE_INT) {
+        return;
+    }
+
+    auto* non_nullable_column = dst->is_nullable()
+                                        ? assert_cast<vectorized::ColumnNullable*>(dst.get())
+                                                  ->get_nested_column_ptr()
+                                                  .get()
+                                        : dst.get();
+
+    /// `PredicateColumnType<TYPE_INT>` does not support `void get(size_t n, Field& res)`,
+    /// So here only check `CoumnVector<TYPE_INT>`
+    if (vectorized::check_and_get_column<vectorized::ColumnVector<TYPE_INT>>(non_nullable_column) ==
+        nullptr) {
+        return;
+    }
+
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+    THROW_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
+
+    if (min_value->is_null() || max_value->is_null()) {
+        return;
+    }
+
+    int32_t min_v = *reinterpret_cast<int32_t*>(min_value->cell_ptr());
+    int32_t max_v = *reinterpret_cast<int32_t*>(max_value->cell_ptr());
+
+    for (size_t i = 0; i != rows; ++i) {
+        vectorized::Field field;
+        dst->get(i, field);
+        DCHECK(!field.is_null());
+        const auto v = field.get<int32_t>();
+        DCHECK_GE(v, min_v);
+        DCHECK_LE(v, max_v);
+    }
+}
+#endif
+
 Status ColumnReader::init(const ColumnMetaPB* meta) {
     _type_info = get_type_info(meta);
 
@@ -306,7 +362,7 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
     if (_type_info == nullptr) {
         return Status::NotSupported("unsupported typeinfo, type={}", meta->type());
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info->type(), meta->encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type_info->type(), meta->encoding(), {}, &_encoding_info));
 
     for (int i = 0; i < meta->indexes_size(); i++) {
         const auto& index_meta = meta->indexes(i);
@@ -966,7 +1022,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
         return Status::OK();
     }
 
-    auto& column_map = assert_cast<vectorized::ColumnMap&>(
+    auto& column_map = assert_cast<vectorized::ColumnMap&, TypeCheckOnRelease::DISABLE>(
             dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
                                : *dst);
     auto column_offsets_ptr = column_map.get_offsets_column().assume_mutable();
@@ -1010,7 +1066,8 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
             RETURN_IF_ERROR(
                     _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+            auto& null_map = assert_cast<vectorized::ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                    *null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1095,7 +1152,8 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
             ordinal_t ns = 0;
             RETURN_IF_ERROR(_offsets_iterator->_peek_one_offset(&ns));
             // overwrite with sentinel
-            assert_cast<vectorized::ColumnOffset64&>(*next_starts_col).get_data()[i] = ns;
+            assert_cast<vectorized::ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*next_starts_col)
+                    .get_data()[i] = ns;
         }
     }
 
@@ -1104,6 +1162,7 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     auto& next_starts_data = assert_cast<vectorized::ColumnOffset64&>(*next_starts_col).get_data();
     std::vector<size_t> sizes(count, 0);
     size_t acc = base;
+    const auto original_size = offsets.get_data().back();
     offsets.get_data().reserve(offsets.get_data().size() + count);
     for (size_t i = 0; i < count; ++i) {
         size_t sz = static_cast<size_t>(next_starts_data[i] - starts_data[i]);
@@ -1119,21 +1178,65 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     auto keys_ptr = column_map->get_keys().assume_mutable();
     auto vals_ptr = column_map->get_values().assume_mutable();
 
-    for (size_t i = 0; i < count; ++i) {
+    size_t this_run = sizes[0];
+    auto start_idx = starts_data[0];
+    auto last_idx = starts_data[0] + this_run;
+    for (size_t i = 1; i < count; ++i) {
         size_t sz = sizes[i];
         if (sz == 0) {
             continue;
         }
-        ordinal_t start = static_cast<ordinal_t>(starts_data[i]);
-        RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start));
-        RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start));
-        size_t n = sz;
-        bool dummy_has_null = false;
-        RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
-        DCHECK(n == sz);
-        n = sz;
-        RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
-        DCHECK(n == sz);
+        auto start = static_cast<ordinal_t>(starts_data[i]);
+        if (start != last_idx) {
+            size_t n = this_run;
+            bool dummy_has_null = false;
+
+            if (this_run != 0) {
+                if (_key_iterator->reading_flag() != ReadingFlag::SKIP_READING) {
+                    RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start_idx));
+                    RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
+                    DCHECK(n == this_run);
+                }
+
+                if (_val_iterator->reading_flag() != ReadingFlag::SKIP_READING) {
+                    n = this_run;
+                    RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start_idx));
+                    RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
+                    DCHECK(n == this_run);
+                }
+            }
+            start_idx = start;
+            this_run = sz;
+            last_idx = start + sz;
+            continue;
+        }
+
+        this_run += sz;
+        last_idx += sz;
+    }
+
+    size_t n = this_run;
+    const size_t total_count = offsets.get_data().back() - original_size;
+    bool dummy_has_null = false;
+    if (_key_iterator->reading_flag() != ReadingFlag::SKIP_READING) {
+        if (this_run != 0) {
+            RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start_idx));
+            RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
+            DCHECK(n == this_run);
+        }
+    } else {
+        keys_ptr->insert_many_defaults(total_count);
+    }
+
+    if (_val_iterator->reading_flag() != ReadingFlag::SKIP_READING) {
+        if (this_run != 0) {
+            n = this_run;
+            RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start_idx));
+            RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
+            DCHECK(n == this_run);
+        }
+    } else {
+        vals_ptr->insert_many_defaults(total_count);
     }
 
     return Status::OK();
@@ -1260,7 +1363,7 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
         return Status::OK();
     }
 
-    auto& column_struct = assert_cast<vectorized::ColumnStruct&>(
+    auto& column_struct = assert_cast<vectorized::ColumnStruct&, TypeCheckOnRelease::DISABLE>(
             dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
                                : *dst);
     for (size_t i = 0; i < column_struct.tuple_size(); i++) {
@@ -1286,7 +1389,8 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
             RETURN_IF_ERROR(
                     _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+            auto& null_map = assert_cast<vectorized::ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                    *null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1318,12 +1422,33 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
         return Status::OK();
     }
 
-    for (size_t i = 0; i < count; ++i) {
-        RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
-        size_t num_read = 1;
-        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
-        DCHECK(num_read == 1);
+    if (count == 0) {
+        return Status::OK();
     }
+
+    size_t this_run = 1;
+    auto start_idx = rowids[0];
+    auto last_idx = rowids[0];
+    for (size_t i = 1; i < count; ++i) {
+        if (last_idx == rowids[i] - 1) {
+            last_idx = rowids[i];
+            this_run++;
+            continue;
+        }
+        RETURN_IF_ERROR(seek_to_ordinal(start_idx));
+        size_t num_read = this_run;
+        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+        DCHECK_EQ(num_read, this_run);
+
+        start_idx = rowids[i];
+        last_idx = rowids[i];
+        this_run = 1;
+    }
+
+    RETURN_IF_ERROR(seek_to_ordinal(start_idx));
+    size_t num_read = this_run;
+    RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+    DCHECK_EQ(num_read, this_run);
     return Status::OK();
 }
 
@@ -1425,8 +1550,9 @@ Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
         _peek_tmp_col->clear();
         RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, _peek_tmp_col)); // not null
         DCHECK(_peek_tmp_col->size() == 1);
-        *offset =
-                assert_cast<const vectorized::ColumnOffset64*>(_peek_tmp_col.get())->get_element(0);
+        *offset = assert_cast<const vectorized::ColumnOffset64*, TypeCheckOnRelease::DISABLE>(
+                          _peek_tmp_col.get())
+                          ->get_element(0);
     } else {
         *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
     }
@@ -1557,7 +1683,8 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
             RETURN_IF_ERROR(
                     _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+            auto& null_map = assert_cast<vectorized::ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                    *null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1788,6 +1915,10 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
     }
     *n -= remaining;
     _opts.stats->bytes_read += (dst->byte_size() - curr_size) + BitmapSize(*n);
+
+#ifdef BE_TEST
+    _reader->check_data_by_zone_map_for_test(dst);
+#endif
     return Status::OK();
 }
 
@@ -1931,7 +2062,8 @@ Status FileColumnIterator::_read_dict_data() {
                                        &dict_data, &dict_footer, _compress_codec, true));
     const EncodingInfo* encoding_info;
     RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                      dict_footer.dict_page_footer().encoding(), &encoding_info));
+                                      dict_footer.dict_page_footer().encoding(), {},
+                                      &encoding_info));
     RETURN_IF_ERROR(encoding_info->create_page_decoder(dict_data, {}, _dict_decoder));
     RETURN_IF_ERROR(_dict_decoder->init());
 
@@ -2137,7 +2269,8 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
 
 Status RowIdColumnIteratorV2::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                          bool* has_null) {
-    auto* string_column = assert_cast<vectorized::ColumnString*>(dst.get());
+    auto* string_column =
+            assert_cast<vectorized::ColumnString*, TypeCheckOnRelease::DISABLE>(dst.get());
 
     for (uint32_t i = 0; i < *n; ++i) {
         uint32_t row_id = _current_rowid + i;
