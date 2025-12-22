@@ -290,11 +290,12 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         int maxGroupIndex = 0;
         for (int i = 1; i < groupingSets.size(); ++i) {
             List<Expression> groupingSet = groupingSets.get(i);
-            if (groupingSet.size() < maxGroup.size()) {
-                continue;
-            }
             if (maxGroup.containsAll(groupingSet)) {
                 continue;
+            }
+            if (groupingSet.size() <= maxGroup.size()) {
+                maxGroupIndex = -1;
+                break;
             }
             ImmutableSet<Expression> currentSet = ImmutableSet.copyOf(groupingSet);
             if (currentSet.containsAll(maxGroup)) {
