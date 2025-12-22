@@ -17,6 +17,8 @@
 
 #include "olap/wal/wal_reader.h"
 
+#include <crc32c/crc32c.h>
+
 #include <string_view>
 #include <utility>
 
@@ -25,7 +27,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/string_util.h"
 #include "wal_writer.h"
 
@@ -145,7 +146,7 @@ Status WalReader::read_header(uint32_t& version, std::string& col_ids) {
 }
 
 Status WalReader::_check_checksum(const char* binary, size_t size, uint32_t checksum) {
-    uint32_t computed_checksum = crc32c::Value(binary, size);
+    uint32_t computed_checksum = crc32c::Crc32c(binary, size);
     if (LIKELY(computed_checksum == checksum)) {
         return Status::OK();
     }

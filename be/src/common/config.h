@@ -100,6 +100,9 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// port for cdc client scan oltp cdc data
+DECLARE_Int32(cdc_client_port);
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:
@@ -666,6 +669,9 @@ DECLARE_mInt64(clean_stream_load_record_interval_secs);
 DECLARE_mBool(enable_stream_load_commit_txn_on_be);
 // The buffer size to store stream table function schema info
 DECLARE_Int64(stream_tvf_buffer_size);
+
+// request cdc client timeout
+DECLARE_mInt32(request_cdc_client_timeout_ms);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.

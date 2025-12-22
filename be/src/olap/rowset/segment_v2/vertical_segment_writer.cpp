@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/vertical_segment_writer.h"
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
@@ -63,7 +64,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
@@ -1375,7 +1375,7 @@ Status VerticalSegmentWriter::_write_footer() {
     // footer's size
     put_fixed32_le(&fixed_buf, cast_set<uint32_t>(footer_buf.size()));
     // footer's checksum
-    uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
     // Append magic number. we don't write magic number in the header because
     // that will need an extra seek when reading
