@@ -59,6 +59,14 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(left().toDigest());
+        sb.append(" ").append(symbol).append(" ");
+        sb.append(right().toDigest());
+        return sb.toString();
+    }
+
     public String shapeInfo() {
         return "(" + left().shapeInfo() + " " + symbol + " " + right().shapeInfo() + ")";
     }

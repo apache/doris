@@ -683,4 +683,9 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         // different environment
         return new VarcharLiteral(new String(bytes, StandardCharsets.UTF_8));
     }
+
+    @Override
+    public String toDigest() {
+        return "?";
+    }
 }

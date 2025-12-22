@@ -154,6 +154,18 @@ public class Lambda extends Expression {
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        if (argumentNames.size() == 1) {
+            sb.append(argumentNames.get(0));
+        } else {
+            sb.append(argumentNames.stream().collect(Collectors.joining(", ", "(", ")")));
+        }
+        sb.append(" -> ").append(getLambdaFunction().toDigest());
+        return sb.toString();
+    }
+
+    @Override
     public Lambda withChildren(List<Expression> children) {
         return new Lambda(argumentNames, children);
     }

@@ -36,6 +36,7 @@ import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * select col1 from t1 join t2 using(col1);
@@ -176,5 +177,24 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     @Override
     public boolean hasDistributeHint() {
         return hint != null;
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(left().toDigest());
+        sb.append(" ").append(joinType).append(" ");
+        sb.append(right().toDigest());
+        sb.append(" USING (");
+        sb.append(
+                hashJoinConjuncts.stream().map(Expression::toDigest)
+                        .collect(Collectors.joining(", "))
+        );
+        sb.append(
+                otherJoinConjuncts.stream().map(Expression::toDigest)
+                        .collect(Collectors.joining(", "))
+        );
+        sb.append(")");
+        return sb.toString();
     }
 }
