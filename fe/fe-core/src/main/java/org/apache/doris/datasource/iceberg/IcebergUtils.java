@@ -1601,7 +1601,7 @@ public class IcebergUtils {
                     texpr.setMinIntValue((Integer) minValue);
                     texpr.setMaxIntValue((Integer) maxValue);
                     break;
-                case DATE:
+                case DATEV2:
                     texpr.setType(TPrimitiveType.DATEV2);
                     texpr.setMinIntValue((Integer) minValue);
                     texpr.setMaxIntValue((Integer) maxValue);

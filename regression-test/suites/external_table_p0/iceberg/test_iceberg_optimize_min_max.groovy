@@ -205,9 +205,32 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
         }
         qt_q10 """${sqlstr5}""" 
 
+        sql """set num_files_in_batch_mode=100000"""
         sql """ set enable_iceberg_min_max_optimization=true; """
         // "col_timestamp", "col_timestamp_ntz","col_decimal" is not supported, but show pushdown agg=MINMAX
         // need to fix it later in explain
+        for (String val: [ "col_timestamp", "col_timestamp_ntz","col_decimal"]) {
+            explain {
+                sql """select min(${val}),max(${val}) from ${catalog_name}.format_v2.sample_cow_orc;"""
+                contains """pushdown agg=MINMAX"""
+                contains """opt/total_splits(0/32)"""
+            }
+            explain {
+                sql """select min(${val}),max(${val}) from ${catalog_name}.format_v2.sample_cow_parquet;"""
+                contains """pushdown agg=MINMAX"""
+                contains """opt/total_splits(0/32)"""
+            }
+            explain {
+                sql """select min(${val}),max(${val}) from ${catalog_name}.format_v2.sample_mor_orc;"""
+                contains """pushdown agg=MINMAX"""
+                contains """opt/total_splits(0/32)"""
+            }
+            explain {
+                sql """select min(${val}),max(${val}) from ${catalog_name}.format_v2.sample_mor_parquet;"""
+                contains """pushdown agg=MINMAX"""
+                contains """opt/total_splits(0/41)"""
+            }
+        }
         for (String val: [ "col_char", "col_varchar", "col_string", "col_binary","city"]) {
             explain {
                 sql """select min(${val}),max(${val}) from ${catalog_name}.format_v2.sample_cow_orc;"""
@@ -226,7 +249,6 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
                 contains """pushdown agg=NONE"""
             }
         }
-
 
     } finally {
         // sql """drop catalog if exists ${catalog_name}"""

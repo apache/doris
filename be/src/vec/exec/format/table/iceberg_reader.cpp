@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -206,17 +207,25 @@ Status IcebergTableReader::_insert_value_to_column(MutableColumnPtr& column,
                                 sizeof(int64_t));
             break;
         }
-        case TPrimitiveType::DOUBLE:
-        case TPrimitiveType::FLOAT: {
+        case TPrimitiveType::DOUBLE: {
             column->insert_data(reinterpret_cast<const char*>(&value.min_float_value),
                                 sizeof(double));
             column->insert_data(reinterpret_cast<const char*>(&value.max_float_value),
                                 sizeof(double));
             break;
         }
+        case TPrimitiveType::FLOAT: {
+            auto min_float = static_cast<float>(value.min_float_value);
+            auto max_float = static_cast<float>(value.max_float_value);
+            column->insert_data(reinterpret_cast<const char*>(&min_float), sizeof(float));
+            column->insert_data(reinterpret_cast<const char*>(&max_float), sizeof(float));
+            break;
+        }
         case TPrimitiveType::DATEV2: {
-            auto min_date = static_cast<uint32_t>(value.min_int_value);
-            auto max_date = static_cast<uint32_t>(value.max_int_value);
+            auto min_date = DateV2Value<DateV2ValueType>::DEFAULT_VALUE;
+            auto max_date = DateV2Value<DateV2ValueType>::DEFAULT_VALUE;
+            min_date += value.min_int_value;
+            max_date += value.max_int_value;
             column->insert_data(reinterpret_cast<const char*>(&min_date), sizeof(uint32_t));
             column->insert_data(reinterpret_cast<const char*>(&max_date), sizeof(uint32_t));
             break;
