@@ -1196,6 +1196,8 @@ DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
+DECLARE_mInt64(file_cache_background_ttl_info_update_interval_ms);
+DECLARE_mInt64(file_cache_background_tablet_id_flush_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
 DECLARE_Int32(file_cache_downloader_thread_num_min);
 DECLARE_Int32(file_cache_downloader_thread_num_max);
@@ -1691,12 +1693,6 @@ DECLARE_mBool(print_stack_when_cache_miss);
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
-
-DECLARE_mString(binary_plain_encoding_default_impl);
-
-DECLARE_mBool(integer_type_default_use_plain_encoding);
-
-DECLARE_mBool(enable_fuzzy_storage_encoding);
 
 #ifdef BE_TEST
 // test s3

@@ -60,6 +60,10 @@ public class PrimaryKeyConstraint extends Constraint {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    public void removeForeignTable(TableIdentifier tableIdentifier) {
+        foreignTables.remove(tableIdentifier);
+    }
+
     @Override
     public String toString() {
         return "PRIMARY KEY (" + String.join(", ", columns) + ")";

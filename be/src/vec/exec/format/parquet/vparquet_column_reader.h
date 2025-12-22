@@ -53,12 +53,9 @@ using ColumnString = ColumnStr<UInt32>;
 
 class ParquetColumnReader {
 public:
-    struct Statistics {
-        Statistics()
-                : read_time(0),
-                  read_calls(0),
-                  page_index_read_calls(0),
-                  read_bytes(0),
+    struct ColumnStatistics {
+        ColumnStatistics()
+                : page_index_read_calls(0),
                   decompress_time(0),
                   decompress_cnt(0),
                   decode_header_time(0),
@@ -67,14 +64,11 @@ public:
                   decode_level_time(0),
                   decode_null_map_time(0),
                   skip_page_header_num(0),
-                  parse_page_header_num(0) {}
+                  parse_page_header_num(0),
+                  read_page_header_time(0) {}
 
-        Statistics(io::BufferedStreamReader::Statistics& fs, ColumnChunkReaderStatistics& cs,
-                   int64_t null_map_time)
-                : read_time(fs.read_time),
-                  read_calls(fs.read_calls),
-                  page_index_read_calls(0),
-                  read_bytes(fs.read_bytes),
+        ColumnStatistics(ColumnChunkReaderStatistics& cs, int64_t null_map_time)
+                : page_index_read_calls(0),
                   decompress_time(cs.decompress_time),
                   decompress_cnt(cs.decompress_cnt),
                   decode_header_time(cs.decode_header_time),
@@ -83,12 +77,10 @@ public:
                   decode_level_time(cs.decode_level_time),
                   decode_null_map_time(null_map_time),
                   skip_page_header_num(cs.skip_page_header_num),
-                  parse_page_header_num(cs.parse_page_header_num) {}
+                  parse_page_header_num(cs.parse_page_header_num),
+                  read_page_header_time(cs.read_page_header_time) {}
 
-        int64_t read_time;
-        int64_t read_calls;
         int64_t page_index_read_calls;
-        int64_t read_bytes;
         int64_t decompress_time;
         int64_t decompress_cnt;
         int64_t decode_header_time;
@@ -98,21 +90,20 @@ public:
         int64_t decode_null_map_time;
         int64_t skip_page_header_num;
         int64_t parse_page_header_num;
+        int64_t read_page_header_time;
 
-        void merge(Statistics& statistics) {
-            read_time += statistics.read_time;
-            read_calls += statistics.read_calls;
-            read_bytes += statistics.read_bytes;
-            page_index_read_calls += statistics.page_index_read_calls;
-            decompress_time += statistics.decompress_time;
-            decompress_cnt += statistics.decompress_cnt;
-            decode_header_time += statistics.decode_header_time;
-            decode_value_time += statistics.decode_value_time;
-            decode_dict_time += statistics.decode_dict_time;
-            decode_level_time += statistics.decode_level_time;
-            decode_null_map_time += statistics.decode_null_map_time;
-            skip_page_header_num += statistics.skip_page_header_num;
-            parse_page_header_num += statistics.parse_page_header_num;
+        void merge(ColumnStatistics& col_statistics) {
+            page_index_read_calls += col_statistics.page_index_read_calls;
+            decompress_time += col_statistics.decompress_time;
+            decompress_cnt += col_statistics.decompress_cnt;
+            decode_header_time += col_statistics.decode_header_time;
+            decode_value_time += col_statistics.decode_value_time;
+            decode_dict_time += col_statistics.decode_dict_time;
+            decode_level_time += col_statistics.decode_level_time;
+            decode_null_map_time += col_statistics.decode_null_map_time;
+            skip_page_header_num += col_statistics.skip_page_header_num;
+            parse_page_header_num += col_statistics.parse_page_header_num;
+            read_page_header_time += col_statistics.read_page_header_time;
         }
     };
 
@@ -144,7 +135,7 @@ public:
                          const std::set<uint64_t>& filter_column_ids = {});
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
-    virtual Statistics statistics() = 0;
+    virtual ColumnStatistics column_statistics() = 0;
     virtual void close() = 0;
 
     virtual void reset_filter_map_index() = 0;
@@ -187,9 +178,8 @@ public:
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
-    Statistics statistics() override {
-        return Statistics(_stream_reader->statistics(), _chunk_reader->statistics(),
-                          _decode_null_map_time);
+    ColumnStatistics column_statistics() override {
+        return ColumnStatistics(_chunk_reader->chunk_statistics(), _decode_null_map_time);
     }
     void close() override {}
 
@@ -303,7 +293,7 @@ public:
     const std::vector<level_t>& get_def_level() const override {
         return _element_reader->get_def_level();
     }
-    Statistics statistics() override { return _element_reader->statistics(); }
+    ColumnStatistics column_statistics() override { return _element_reader->column_statistics(); }
     void close() override {}
 
     void reset_filter_map_index() override { _element_reader->reset_filter_map_index(); }
@@ -334,9 +324,9 @@ public:
         return _key_reader->get_def_level();
     }
 
-    Statistics statistics() override {
-        Statistics kst = _key_reader->statistics();
-        Statistics vst = _value_reader->statistics();
+    ColumnStatistics column_statistics() override {
+        ColumnStatistics kst = _key_reader->column_statistics();
+        ColumnStatistics vst = _value_reader->column_statistics();
         kst.merge(vst);
         return kst;
     }
@@ -391,12 +381,12 @@ public:
         return _child_readers.begin()->second->get_def_level();
     }
 
-    Statistics statistics() override {
-        Statistics st;
+    ColumnStatistics column_statistics() override {
+        ColumnStatistics st;
         for (const auto& column_name : _read_column_names) {
             auto reader = _child_readers.find(column_name);
             if (reader != _child_readers.end()) {
-                Statistics cst = reader->second->statistics();
+                ColumnStatistics cst = reader->second->column_statistics();
                 st.merge(cst);
             }
         }
@@ -489,8 +479,8 @@ public:
     }
 
     // Implement required pure virtual methods from base class
-    Statistics statistics() override {
-        return Statistics(); // Return empty statistics
+    ColumnStatistics column_statistics() override {
+        return ColumnStatistics(); // Return empty statistics
     }
 
     void close() override {

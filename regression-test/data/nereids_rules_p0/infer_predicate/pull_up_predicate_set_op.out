@@ -139,8 +139,8 @@ PhysicalResultSink
 
 -- !union_all_const_empty_relation --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
-----PhysicalOneRowRelation
+--NestedLoopJoin[INNER_JOIN]
+----PhysicalUnion
 ----filter((t3.a = 2) and (t3.b = 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 

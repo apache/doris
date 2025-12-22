@@ -93,6 +93,11 @@ private:
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
         }
+        if (!olap_scan_node().__isset.columns_desc || olap_scan_node().columns_desc.empty() ||
+            olap_scan_node().columns_desc[0].col_unique_id < 0) {
+            // Disable topN filter if there is no schema info
+            return false;
+        }
         return _is_key_column(predicate.get_col_name(_parent->node_id()));
     }
 
@@ -298,10 +303,19 @@ public:
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
 
+    int get_column_id(const std::string& col_name) const override {
+        if (!_tablet_schema) {
+            return -1;
+        }
+        const auto& column = *DORIS_TRY(_tablet_schema->column(col_name));
+        return _tablet_schema->field_index(column.unique_id());
+    }
+
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
     TQueryCacheParam _cache_param;
+    TabletSchemaSPtr _tablet_schema;
 };
 
 #include "common/compile_check_end.h"

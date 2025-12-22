@@ -43,7 +43,7 @@ protected:
 TEST_F(IntersectionTest, test_create_with_empty_docsets) {
     std::vector<MockDocSetPtr> docsets;
 
-    EXPECT_THROW((Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets)), Exception);
+    EXPECT_THROW((Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000)), Exception);
 }
 
 // Test creating intersection with only 1 docset (should throw exception)
@@ -51,7 +51,7 @@ TEST_F(IntersectionTest, test_create_with_single_docset) {
     std::vector<MockDocSetPtr> docsets;
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 2, 3}));
 
-    EXPECT_THROW((Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets)), Exception);
+    EXPECT_THROW((Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000)), Exception);
 }
 
 // Test creating intersection with exactly 2 docsets
@@ -60,11 +60,11 @@ TEST_F(IntersectionTest, test_create_with_two_docsets) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 2, 3, 4, 5}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 4, 6, 7}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     // Should start at first matching document
-    EXPECT_EQ(2u, intersection->doc());
+    EXPECT_EQ(2U, intersection->doc());
 }
 
 // Test intersection advance with two docsets
@@ -73,7 +73,7 @@ TEST_F(IntersectionTest, test_advance_two_docsets) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 3, 5, 7, 9}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {3, 5, 9, 11}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     std::vector<uint32_t> results;
@@ -94,7 +94,7 @@ TEST_F(IntersectionTest, test_three_docsets) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 4, 6, 8}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 4, 6, 7}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     std::vector<uint32_t> results;
@@ -116,7 +116,7 @@ TEST_F(IntersectionTest, test_four_docsets) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 5, 10, 11}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {5, 10, 15}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     std::vector<uint32_t> results;
@@ -136,7 +136,7 @@ TEST_F(IntersectionTest, test_no_intersection) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 3, 5}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 4, 6}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     // Should be terminated immediately
@@ -151,10 +151,10 @@ TEST_F(IntersectionTest, test_single_common_document) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 5, 8}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {5, 7, 9}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
-    EXPECT_EQ(5u, intersection->doc());
+    EXPECT_EQ(5U, intersection->doc());
     EXPECT_EQ(TERMINATED, intersection->advance());
 }
 
@@ -164,16 +164,16 @@ TEST_F(IntersectionTest, test_seek) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 5, 10, 15, 20}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {5, 10, 15, 20, 25}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     // Seek to doc 10
-    EXPECT_EQ(10u, intersection->seek(8));
-    EXPECT_EQ(10u, intersection->doc());
+    EXPECT_EQ(10U, intersection->seek(8));
+    EXPECT_EQ(10U, intersection->doc());
 
     // Seek to doc 20
-    EXPECT_EQ(20u, intersection->seek(18));
-    EXPECT_EQ(20u, intersection->doc());
+    EXPECT_EQ(20U, intersection->seek(18));
+    EXPECT_EQ(20U, intersection->doc());
 
     // Seek beyond all docs
     EXPECT_EQ(TERMINATED, intersection->seek(30));
@@ -185,17 +185,17 @@ TEST_F(IntersectionTest, test_seek_current_position) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {5, 10, 15}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {5, 10, 15, 20}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
-    EXPECT_EQ(5u, intersection->doc());
+    EXPECT_EQ(5U, intersection->doc());
 
     // Seek to current position or before should stay at current
-    EXPECT_EQ(5u, intersection->seek(5));
-    EXPECT_EQ(5u, intersection->doc());
+    EXPECT_EQ(5U, intersection->seek(5));
+    EXPECT_EQ(5U, intersection->doc());
 
-    EXPECT_EQ(5u, intersection->seek(3));
-    EXPECT_EQ(5u, intersection->doc());
+    EXPECT_EQ(5U, intersection->seek(3));
+    EXPECT_EQ(5U, intersection->doc());
 }
 
 // Test size_hint - should return smallest docset's size hint
@@ -205,11 +205,11 @@ TEST_F(IntersectionTest, test_size_hint) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 4}, 50));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 4, 5, 6}, 75));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
-    // Should return the smallest size hint (from the smallest docset after sorting)
-    EXPECT_EQ(50u, intersection->size_hint());
+    // Should return the estimated size hint (using estimate_intersection algorithm)
+    EXPECT_EQ(0U, intersection->size_hint());
 }
 
 // Test norm - should return left docset's norm
@@ -218,7 +218,7 @@ TEST_F(IntersectionTest, test_norm) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 2, 3}, 0, 10));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 4}, 0, 20));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     // After creation, docsets are sorted by size_hint, and smallest becomes left
@@ -234,13 +234,13 @@ TEST_F(IntersectionTest, test_docset_mut_specialized) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 4}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 5}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     // Access left (ord 0)
     auto& docset0 = intersection->docset_mut_specialized<MockDocSetPtr>(0);
     EXPECT_NE(nullptr, docset0);
-    EXPECT_EQ(2u, docset0->doc());
+    EXPECT_EQ(2U, docset0->doc());
 
     // Access right (ord 1)
     auto& docset1 = intersection->docset_mut_specialized<MockDocSetPtr>(1);
@@ -260,7 +260,7 @@ TEST_F(IntersectionTest, test_all_identical_docsets) {
     docsets.push_back(std::make_shared<MockDocSet>(common_docs));
     docsets.push_back(std::make_shared<MockDocSet>(common_docs));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     std::vector<uint32_t> results;
@@ -279,7 +279,7 @@ TEST_F(IntersectionTest, test_one_empty_docset) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 2, 3}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     // Should be terminated immediately
@@ -292,10 +292,10 @@ TEST_F(IntersectionTest, test_advance_after_termination) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
-    EXPECT_EQ(1u, intersection->doc());
+    EXPECT_EQ(1U, intersection->doc());
     EXPECT_EQ(TERMINATED, intersection->advance());
     EXPECT_EQ(TERMINATED, intersection->advance());
     EXPECT_EQ(TERMINATED, intersection->advance());
@@ -309,7 +309,7 @@ TEST_F(IntersectionTest, test_large_document_ids) {
     docsets.push_back(
             std::make_shared<MockDocSet>(std::vector<uint32_t> {500, 10000, 50000, 1000000}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     std::vector<uint32_t> results;
@@ -330,7 +330,7 @@ TEST_F(IntersectionTest, test_sparse_docsets) {
     docsets.push_back(
             std::make_shared<MockDocSet>(std::vector<uint32_t> {50, 100, 150, 200, 250, 300}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     std::vector<uint32_t> results;
@@ -352,20 +352,20 @@ TEST_F(IntersectionTest, test_seek_after_advance) {
     docsets.push_back(
             std::make_shared<MockDocSet>(std::vector<uint32_t> {5, 10, 15, 20, 25, 30, 35}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
     // Start at doc 5
-    EXPECT_EQ(5u, intersection->doc());
+    EXPECT_EQ(5U, intersection->doc());
 
     // Advance to doc 10
-    EXPECT_EQ(10u, intersection->advance());
+    EXPECT_EQ(10U, intersection->advance());
 
     // Seek to doc 25
-    EXPECT_EQ(25u, intersection->seek(22));
+    EXPECT_EQ(25U, intersection->seek(22));
 
     // Continue advancing
-    EXPECT_EQ(30u, intersection->advance());
+    EXPECT_EQ(30U, intersection->advance());
     EXPECT_EQ(TERMINATED, intersection->advance());
 }
 
@@ -375,22 +375,22 @@ TEST_F(IntersectionTest, test_multiple_seeks) {
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {10, 20, 30, 40, 50}));
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {10, 20, 30, 40, 50, 60}));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
-    EXPECT_EQ(10u, intersection->doc());
+    EXPECT_EQ(10U, intersection->doc());
 
     // Seek to 25
-    EXPECT_EQ(30u, intersection->seek(25));
+    EXPECT_EQ(30U, intersection->seek(25));
 
     // Seek to 35
-    EXPECT_EQ(40u, intersection->seek(35));
+    EXPECT_EQ(40U, intersection->seek(35));
 
     // Seek to same position
-    EXPECT_EQ(40u, intersection->seek(40));
+    EXPECT_EQ(40U, intersection->seek(40));
 
     // Seek backwards (should stay at current)
-    EXPECT_EQ(40u, intersection->seek(35));
+    EXPECT_EQ(40U, intersection->seek(35));
 }
 
 // Test docsets with different sizes are sorted correctly
@@ -405,11 +405,11 @@ TEST_F(IntersectionTest, test_docsets_sorted_by_size) {
     // Medium
     docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 4, 5, 6}, 500));
 
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets);
+    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
     ASSERT_NE(nullptr, intersection);
 
-    // size_hint should be from smallest docset
-    EXPECT_EQ(100u, intersection->size_hint());
+    // size_hint should be from estimated intersection
+    EXPECT_EQ(1U, intersection->size_hint());
 
     std::vector<uint32_t> results;
     uint32_t doc = intersection->doc();

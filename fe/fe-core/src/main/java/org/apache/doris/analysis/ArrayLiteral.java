@@ -44,7 +44,6 @@ public class ArrayLiteral extends LiteralExpr {
         this.type = type;
         children = new ArrayList<>(Arrays.asList(exprs));
         this.nullable = false;
-        analysisDone();
     }
 
     protected ArrayLiteral(ArrayLiteral other) {

@@ -138,6 +138,6 @@ void SimpleUnion<TDocSet>::append_positions_with_offset(uint32_t offset,
 
 template class SimpleUnion<MockDocSetPtr>;
 template class SimpleUnion<PostingsPtr>;
-template class SimpleUnion<PositionPostingsPtr>;
+template class SimpleUnion<SegmentPostingsPtr>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

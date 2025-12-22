@@ -60,9 +60,9 @@ Status ExprPushDownHelper::_extract_predicates(const VExprSPtr& expr, int& cid,
     return Status::OK();
 }
 
-Status ExprPushDownHelper::convert_predicates(
-        const VExprSPtrs& exprs, std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-        std::unique_ptr<MutilColumnBlockPredicate>& root, Arena& arena) {
+Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
+                                              std::unique_ptr<MutilColumnBlockPredicate>& root,
+                                              Arena& arena) {
     if (exprs.empty()) {
         return Status::OK();
     }
@@ -79,29 +79,29 @@ Status ExprPushDownHelper::convert_predicates(
         case TExprNodeType::BINARY_PRED: {
             RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, false, parsed));
             if (parsed) {
+                std::shared_ptr<ColumnPredicate> predicate;
                 if (expr->op() == TExprOpcode::EQ) {
-                    predicates.push_back(create_comparison_predicate0<PredicateType::EQ>(
-                            cid, data_type, values[0], false, arena));
+                    predicate = create_comparison_predicate0<PredicateType::EQ>(
+                            cid, data_type, values[0], false, arena);
                 } else if (expr->op() == TExprOpcode::NE) {
-                    predicates.push_back(create_comparison_predicate0<PredicateType::NE>(
-                            cid, data_type, values[0], false, arena));
+                    predicate = create_comparison_predicate0<PredicateType::NE>(
+                            cid, data_type, values[0], false, arena);
                 } else if (expr->op() == TExprOpcode::LT) {
-                    predicates.push_back(create_comparison_predicate0<PredicateType::LT>(
-                            cid, data_type, values[0], false, arena));
+                    predicate = create_comparison_predicate0<PredicateType::LT>(
+                            cid, data_type, values[0], false, arena);
                 } else if (expr->op() == TExprOpcode::LE) {
-                    predicates.push_back(create_comparison_predicate0<PredicateType::LE>(
-                            cid, data_type, values[0], false, arena));
+                    predicate = create_comparison_predicate0<PredicateType::LE>(
+                            cid, data_type, values[0], false, arena);
                 } else if (expr->op() == TExprOpcode::GT) {
-                    predicates.push_back(create_comparison_predicate0<PredicateType::GT>(
-                            cid, data_type, values[0], false, arena));
+                    predicate = create_comparison_predicate0<PredicateType::GT>(
+                            cid, data_type, values[0], false, arena);
                 } else if (expr->op() == TExprOpcode::GE) {
-                    predicates.push_back(create_comparison_predicate0<PredicateType::GE>(
-                            cid, data_type, values[0], false, arena));
+                    predicate = create_comparison_predicate0<PredicateType::GE>(
+                            cid, data_type, values[0], false, arena);
                 } else {
                     break;
                 }
-                root->add_column_predicate(
-                        SingleColumnBlockPredicate::create_unique(predicates.back()));
+                root->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
             }
             break;
         }
@@ -157,10 +157,9 @@ Status ExprPushDownHelper::convert_predicates(
                             set->insert(reinterpret_cast<const void*>(values[i].data));
                         }
                     }
-                    predicates.push_back(create_in_list_predicate<PredicateType::IN_LIST>(
-                            cid, data_type, set, false));
-                    root->add_column_predicate(
-                            SingleColumnBlockPredicate::create_unique(predicates.back()));
+                    root->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+                            create_in_list_predicate<PredicateType::IN_LIST>(cid, data_type, set,
+                                                                             false)));
                 }
                 break;
             }
@@ -174,7 +173,7 @@ Status ExprPushDownHelper::convert_predicates(
             switch (expr->op()) {
             case TExprOpcode::COMPOUND_AND: {
                 for (const auto& child : expr->children()) {
-                    RETURN_IF_ERROR(convert_predicates({child}, predicates, root, arena));
+                    RETURN_IF_ERROR(convert_predicates({child}, root, arena));
                 }
                 break;
             }
@@ -182,7 +181,7 @@ Status ExprPushDownHelper::convert_predicates(
                 std::unique_ptr<MutilColumnBlockPredicate> new_root =
                         OrBlockColumnPredicate::create_unique();
                 for (const auto& child : expr->children()) {
-                    RETURN_IF_ERROR(convert_predicates({child}, predicates, new_root, arena));
+                    RETURN_IF_ERROR(convert_predicates({child}, new_root, arena));
                 }
                 root->add_column_predicate(std::move(new_root));
                 break;
@@ -199,11 +198,9 @@ Status ExprPushDownHelper::convert_predicates(
             if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
                 RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, true, parsed));
                 if (parsed) {
-                    predicates.push_back(
+                    root->add_column_predicate(SingleColumnBlockPredicate::create_unique(
                             NullPredicate::create_shared(cid, true, data_type->get_primitive_type(),
-                                                         fn_name == "is_not_null_pred"));
-                    root->add_column_predicate(
-                            SingleColumnBlockPredicate::create_unique(predicates.back()));
+                                                         fn_name == "is_not_null_pred")));
                 }
             }
             break;

@@ -345,7 +345,8 @@ public:
                 if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                     len = strnlen(sv.data, sv.size);
                 }
-                uint32_t hash_val = HashUtil::crc32c_hash(sv.data, static_cast<uint32_t>(len), 0);
+                uint32_t hash_val =
+                        crc32c::Extend(0, (const uint8_t*)sv.data, static_cast<uint32_t>(len));
                 _hash_values[code] = hash_val;
                 _compute_hash_value_flags[code] = 1;
                 return _hash_values[code];

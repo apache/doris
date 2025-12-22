@@ -17,20 +17,8 @@
 
 #pragma once
 
-#include <vector>
+namespace doris::segment_v2::inverted_index::query_v2 {
 
-#include "util/slice.h"
+enum class Occur { MUST = 0, SHOULD = 1, MUST_NOT = 2 };
 
-namespace doris {
-namespace crc32c {
-
-uint32_t Extend(uint32_t crc, const char* data, size_t n);
-
-// Return the crc32c of data[0,n-1]
-uint32_t Value(const char* data, size_t n);
-
-// Return the crc32c of data content in all slices
-uint32_t Value(const std::vector<Slice>& slices);
-
-} // namespace crc32c
-} // namespace doris
+} // namespace doris::segment_v2::inverted_index::query_v2

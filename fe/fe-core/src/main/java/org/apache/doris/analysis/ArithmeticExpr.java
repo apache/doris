@@ -95,7 +95,6 @@ public class ArithmeticExpr extends Expr {
         fn = new Function(new FunctionName(op.getName()), argTypes, returnType, false, true, nullableMode);
         type = returnType;
         this.nullable = nullable;
-        analysisDone();
     }
 
     /**

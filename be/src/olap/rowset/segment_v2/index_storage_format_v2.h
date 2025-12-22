@@ -43,9 +43,10 @@ public:
 private:
     int64_t header_length();
     std::vector<FileMetadata> prepare_file_metadata(int64_t& current_offset);
-    virtual std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                      std::unique_ptr<lucene::store::IndexOutput>>
-    create_output_stream();
+    // Creates the output stream for writing the compound file.
+    // For V2 format, we directly create FSIndexOutputV2 using the file writer,
+    // avoiding unnecessary directory operations (important for cloud storage like S3).
+    virtual std::unique_ptr<lucene::store::IndexOutput> create_output_stream();
     void write_version_and_indices_count(lucene::store::IndexOutput* output);
     virtual void write_index_headers_and_metadata(lucene::store::IndexOutput* output,
                                                   const std::vector<FileMetadata>& file_metadata);

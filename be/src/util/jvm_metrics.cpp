@@ -137,12 +137,22 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) {
     INT_GAUGE_METRIC_REGISTER(_server_entity, jvm_gc_g1_old_generation_time_ms);
 }
 
+JvmMetrics::~JvmMetrics() {
+    if (_jvm_stats.init_complete()) {
+        _server_entity->deregister_hook(_s_hook_name);
+    }
+}
+
 void JvmMetrics::update() {
     // If enable_jvm_monitor is false, the jvm stats object is not initialized. call jvm_stats.refresh() may core.
     if (!doris::config::enable_jvm_monitor) {
         return;
     }
     static long fail_count = 0;
+    if (fail_count >= 30) {
+        return;
+    }
+
     try {
         Status st = _jvm_stats.refresh(this);
         if (!st) {
@@ -159,9 +169,6 @@ void JvmMetrics::update() {
     //When 30 consecutive exceptions occur, turn off jvm information collection.
     if (fail_count >= 30) {
         LOG(WARNING) << "Jvm Stats CLOSE!";
-        _jvm_stats.set_complete(false);
-        _server_entity->deregister_hook(_s_hook_name);
-
         jvm_heap_size_bytes_max->set_value(0);
         jvm_heap_size_bytes_committed->set_value(0);
         jvm_heap_size_bytes_used->set_value(0);

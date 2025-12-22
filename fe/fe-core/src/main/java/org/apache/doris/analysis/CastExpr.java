@@ -65,7 +65,6 @@ public class CastExpr extends Expr {
             }
         }
         this.nullable = nullable;
-        analysisDone();
     }
 
     protected CastExpr(CastExpr other) {

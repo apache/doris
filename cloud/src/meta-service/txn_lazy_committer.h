@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <gen_cpp/cloud.pb.h>
-
-#include <atomic>
 
 #include "common/simple_thread_pool.h"
 #include "meta-store/txn_kv.h"
@@ -37,14 +37,16 @@ public:
 
     std::pair<MetaServiceCode, std::string> wait();
 
+    int64_t txn_id() const { return txn_id_; }
+
 private:
     friend class TxnLazyCommitter;
 
     std::string instance_id_;
     int64_t txn_id_;
     std::shared_ptr<TxnKv> txn_kv_;
-    std::mutex mutex_;
-    std::condition_variable cond_;
+    bthread::Mutex mutex_;
+    bthread::ConditionVariable cond_;
     bool finished_ = false;
     MetaServiceCode code_ = MetaServiceCode::OK;
     std::string msg_;

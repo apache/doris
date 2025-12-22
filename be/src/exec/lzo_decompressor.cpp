@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <crc32c/crc32c.h>
+
 #include "common/cast_set.h"
 #include "common/logging.h"
 #include "exec/decompressor.h"
 #include "olap/utils.h"
 #include "orc/Exceptions.hh"
-#include "util/crc32c.h"
 
 namespace orc {
 /**
@@ -317,7 +318,7 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
     uint32_t computed_checksum;
     if (_header_info.header_checksum_type == CHECK_CRC32) {
         computed_checksum = CRC32_INIT_VALUE;
-        computed_checksum = crc32c::Extend(computed_checksum, (const char*)header, cur - header);
+        computed_checksum = crc32c::Extend(computed_checksum, (const uint8_t*)header, cur - header);
     } else {
         computed_checksum = ADLER32_INIT_VALUE;
         computed_checksum = olap_adler32(computed_checksum, (const char*)header, cur - header);
@@ -366,7 +367,7 @@ Status LzopDecompressor::checksum(LzoChecksum type, const std::string& source, u
     case CHECK_NONE:
         return Status::OK();
     case CHECK_CRC32:
-        computed_checksum = crc32c::Extend(CRC32_INIT_VALUE, (const char*)ptr, len);
+        computed_checksum = crc32c::Extend(CRC32_INIT_VALUE, (const uint8_t*)ptr, len);
         break;
     case CHECK_ADLER:
         computed_checksum = olap_adler32(ADLER32_INIT_VALUE, (const char*)ptr, len);

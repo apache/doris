@@ -108,7 +108,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     context3.stats = &rstats;
     context3.cache_type = io::FileCacheType::TTL;
     context3.query_id = query_id;
-    context3.expiration_time = UnixSeconds() + 120;
+    context3.expiration_time = 120;
     auto key3 = io::BlockFileCache::hash("key3");
 
     offset = 0;

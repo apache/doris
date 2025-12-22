@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.ColumnRange;
@@ -54,10 +55,8 @@ public class IcebergApiSource implements IcebergSource {
             throw new UnsupportedOperationException("IcebergApiSource does not support view");
         }
         this.icebergExtTable = table;
-
-        this.originTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
-                icebergExtTable);
-
+        this.originTable = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getIcebergMetadataCache((IcebergExternalCatalog) table.getCatalog()).getIcebergTable(icebergExtTable);
         this.desc = desc;
     }
 

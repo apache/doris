@@ -246,6 +246,11 @@ public:
     ~FSIndexOutputV2() override;
     void close() override;
     int64_t length() const override;
+
+    // Static factory method to create FSIndexOutputV2 directly without Directory object.
+    // This is useful for compound file creation where we already have a FileWriter
+    // and don't need directory operations (especially for cloud storage like S3).
+    static std::unique_ptr<lucene::store::IndexOutput> create(io::FileWriter* file_writer);
 };
 
 /**

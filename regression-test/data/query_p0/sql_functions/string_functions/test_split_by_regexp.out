@@ -94,3 +94,15 @@ a	["a"]
 ,	[","]
 ,	[","]
 
+-- !select_alias1 --
+["a", "b", "c", "d", "e"]
+
+-- !select_alias2 --
+["a", "bc", "de", "f"]
+
+-- !select_alias3 --
+\N
+
+-- !select_alias4 --
+\N
+

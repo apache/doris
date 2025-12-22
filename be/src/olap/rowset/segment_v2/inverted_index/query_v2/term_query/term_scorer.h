@@ -30,7 +30,6 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-template <typename SegmentPostingsPtr>
 class TermScorer final : public Scorer {
 public:
     TermScorer(SegmentPostingsPtr segment_postings, SimilarityPtr similarity,
@@ -84,8 +83,6 @@ private:
     std::optional<roaring::Roaring> _null_bitmap;
 };
 
-using TS_Base = std::shared_ptr<TermScorer<std::shared_ptr<SegmentPostings<TermDocsPtr>>>>;
-using TS_NoScore = std::shared_ptr<TermScorer<std::shared_ptr<NoScoreSegmentPosting<TermDocsPtr>>>>;
-using TS_Empty = std::shared_ptr<TermScorer<std::shared_ptr<EmptySegmentPosting<TermDocsPtr>>>>;
+using TermScorerPtr = std::shared_ptr<TermScorer>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

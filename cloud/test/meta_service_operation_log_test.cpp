@@ -425,6 +425,7 @@ TEST(MetaServiceOperationLogTest, CommitIndexLog) {
     constexpr int64_t db_id = 123;
     constexpr int64_t table_id = 10001;
     constexpr int64_t index_id = 10002;
+    constexpr int64_t part_id = 10003;
 
     {
         // write instance
@@ -461,12 +462,17 @@ TEST(MetaServiceOperationLogTest, CommitIndexLog) {
         req.set_table_id(table_id);
         req.add_index_ids(index_id);
         req.set_is_new_table(true);
+        for (size_t i = 0; i < 5; i++) {
+            req.add_partition_ids(part_id + i);
+        }
         meta_service->commit_index(&ctrl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
     }
 
     auto txn_kv = meta_service->txn_kv();
     Versionstamp version1;
+    Versionstamp version2;
+
     {
         // Verify index meta/index/inverted indexes are exists
         std::string index_meta_key = versioned::meta_index_key({instance_id, index_id});
@@ -488,7 +494,35 @@ TEST(MetaServiceOperationLogTest, CommitIndexLog) {
         ASSERT_EQ(index_index.table_id(), table_id);
     }
 
-    Versionstamp version2;
+    {
+        // Verify table version exists
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        ASSERT_EQ(meta_reader.get_table_version(table_id, &version2), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        for (size_t i = 0; i < 5; i++) {
+            std::string part_index_key = versioned::partition_index_key({instance_id, part_id + i});
+            std::string part_meta_key = versioned::meta_partition_key({instance_id, part_id + i});
+            std::string part_inverted_index_key = versioned::partition_inverted_index_key(
+                    {instance_id, db_id, table_id, part_id + i});
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string value;
+            ASSERT_EQ(versioned_get(txn.get(), part_meta_key, &version1, &value),
+                      TxnErrorCode::TXN_OK);
+
+            ASSERT_EQ(txn->get(part_index_key, &value), TxnErrorCode::TXN_OK);
+
+            PartitionIndexPB part_index;
+            ASSERT_TRUE(part_index.ParseFromString(value));
+            ASSERT_EQ(part_index.db_id(), db_id);
+            ASSERT_EQ(part_index.table_id(), table_id);
+
+            ASSERT_EQ(txn->get(part_inverted_index_key, &value), TxnErrorCode::TXN_OK);
+        }
+    }
+
     {
         // Verify table version exists
         MetaReader meta_reader(instance_id, txn_kv.get());

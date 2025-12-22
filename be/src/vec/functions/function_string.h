@@ -4601,7 +4601,7 @@ private:
 
     uint32_t sub_str_hash(const char* data, int32_t length) const {
         constexpr static uint32_t seed = 0;
-        return HashUtil::crc32c_hash(data, length, seed);
+        return crc32c::Extend(seed, (const uint8_t*)data, length);
     }
 
     template <bool column_const>

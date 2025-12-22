@@ -85,24 +85,24 @@ Status append_packed_info_trailer(FileWriter* writer, const std::string& packed_
                                      packed_file_path);
     }
 
-    cloud::PackedFileDebugInfoPB debug_pb;
-    debug_pb.mutable_packed_file_info()->CopyFrom(packed_file_info);
+    cloud::PackedFileFooterPB footer_pb;
+    footer_pb.mutable_packed_file_info()->CopyFrom(packed_file_info);
 
-    std::string serialized_debug_info;
-    if (!debug_pb.SerializeToString(&serialized_debug_info)) {
-        return Status::InternalError("Failed to serialize packed file debug info for {}",
+    std::string serialized_footer;
+    if (!footer_pb.SerializeToString(&serialized_footer)) {
+        return Status::InternalError("Failed to serialize packed file footer info for {}",
                                      packed_file_path);
     }
 
-    if (serialized_debug_info.size() >
+    if (serialized_footer.size() >
         std::numeric_limits<uint32_t>::max() - kPackedFileTrailerSuffixSize) {
-        return Status::InternalError("PackedFileDebugInfoPB too large for {}", packed_file_path);
+        return Status::InternalError("PackedFileFooterPB too large for {}", packed_file_path);
     }
 
     std::string trailer;
-    trailer.reserve(serialized_debug_info.size() + kPackedFileTrailerSuffixSize);
-    trailer.append(serialized_debug_info);
-    put_fixed32_le(&trailer, static_cast<uint32_t>(serialized_debug_info.size()));
+    trailer.reserve(serialized_footer.size() + kPackedFileTrailerSuffixSize);
+    trailer.append(serialized_footer);
+    put_fixed32_le(&trailer, static_cast<uint32_t>(serialized_footer.size()));
     put_fixed32_le(&trailer, kPackedFileTrailerVersion);
 
     return writer->append(Slice(trailer));

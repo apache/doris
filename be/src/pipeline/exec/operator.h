@@ -614,7 +614,7 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
-    [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
+    [[nodiscard]] virtual Status init(RuntimeState* state, ExchangeType type, const int num_buckets,
                                       const bool use_global_hash_shuffle,
                                       const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");

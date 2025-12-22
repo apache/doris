@@ -18,6 +18,7 @@
 #include "s3_file_bufferpool.h"
 
 #include <bvar/bvar.h>
+#include <crc32c/crc32c.h>
 
 #include <chrono>
 #include <memory>
@@ -100,7 +101,7 @@ Status UploadFileBuffer::append_data(const Slice& data) {
                                       data.get_size());
     std::memcpy((void*)(_inner_data->data().get_data() + _size), data.get_data(), data.get_size());
     _size += data.get_size();
-    _crc_value = crc32c::Extend(_crc_value, data.get_data(), data.get_size());
+    _crc_value = crc32c::Extend(_crc_value, (const uint8_t*)data.get_data(), data.get_size());
     return Status::OK();
 }
 
@@ -146,7 +147,7 @@ std::string_view FileBuffer::get_string_view_data() const {
 
 void UploadFileBuffer::on_upload() {
     _stream_ptr = std::make_shared<StringViewStream>(_inner_data->data().get_data(), _size);
-    if (_crc_value != crc32c::Value(_inner_data->data().get_data(), _size)) {
+    if (_crc_value != crc32c::Crc32c(_inner_data->data().get_data(), _size)) {
         DCHECK(false);
         set_status(Status::IOError("Buffer checksum not match"));
         return;

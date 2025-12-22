@@ -15,28 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/crc32c.h"
+package org.apache.doris.mysql.authenticate.ldap;
 
-#include <crc32c/crc32c.h>
+import org.junit.Assert;
+import org.junit.Test;
 
-namespace doris {
-namespace crc32c {
+public class LdapUserInfoTest {
 
-uint32_t Extend(uint32_t crc, const char* data, size_t n) {
-    return crc32c_extend(crc, (const uint8_t*)data, n);
-}
-
-uint32_t Value(const char* data, size_t n) {
-    return crc32c_value((const uint8_t*)data, n);
-}
-
-uint32_t Value(const std::vector<Slice>& slices) {
-    uint32_t crc = 0;
-    for (const auto& slice : slices) {
-        crc = crc32c_extend(crc, (const uint8_t*)slice.get_data(), slice.get_size());
+    @Test
+    public void testNonExistUserRoles() {
+        LdapUserInfo u1 = new LdapUserInfo("u1");
+        Assert.assertFalse(u1.getRoles() == null);
     }
-    return crc;
 }
-
-} // namespace crc32c
-} // namespace doris

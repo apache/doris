@@ -142,22 +142,19 @@ PhysicalResultSink
 
 -- !union_to_onerow_1_shape --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalOneRowRelation
+--PhysicalLimit[GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------PhysicalProject
+--------PhysicalUnion
 
 -- !union_to_onerow_2 --
 1	2
 
 -- !union_to_onerow_2_shape --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalOneRowRelation
+--PhysicalLimit[GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------PhysicalUnion
 
 -- !prune_partition1 --
 PhysicalResultSink

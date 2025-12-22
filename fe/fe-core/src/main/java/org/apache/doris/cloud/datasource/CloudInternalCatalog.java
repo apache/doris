@@ -325,6 +325,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         switch (storageFormat) {
             case V3:
                 schemaBuilder.setIsExternalSegmentColumnMetaUsed(true);
+                schemaBuilder.setIntegerTypeDefaultUsePlainEncoding(true);
+                schemaBuilder.setBinaryPlainEncodingDefaultImpl(
+                        OlapFile.BinaryPlainEncodingTypePB.BINARY_PLAIN_ENCODING_V2);
                 break;
             default:
                 break;
@@ -448,24 +451,39 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    /**
+     * Commit partition creation to MetaService.
+     *
+     * @param partitionIds  Partition IDs to commit
+     * @param indexIds      Index IDs to commit
+     * @param isCreateTable Whether this is part of table creation
+     * @param isBatchCommit If true, use commitMaterializedIndex (commit_index RPC)
+     *                      to batch commit all partitions
+     *                      and indexes in one MetaService call for better
+     *                      performance;
+     *                      If false, use commitPartition (commit_partition RPC) to
+     *                      commit partitions separately
+     * @throws DdlException If commit to MetaService fails
+     */
     @Override
     public void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
-                                         boolean isCreateTable)
+            boolean isCreateTable, boolean isBatchCommit)
             throws DdlException {
-        if (partitionIds == null) {
-            commitMaterializedIndex(dbId, tableId, indexIds, isCreateTable);
+        if (isBatchCommit) {
+            commitMaterializedIndex(dbId, tableId, indexIds, partitionIds, isCreateTable);
         } else {
             commitPartition(dbId, tableId, partitionIds, indexIds);
         }
         if (!Config.check_create_table_recycle_key_remained) {
             return;
         }
-        checkCreatePartitions(dbId, tableId, partitionIds, indexIds);
+        checkCreatePartitions(dbId, tableId, partitionIds, indexIds, isBatchCommit);
     }
 
-    private void checkCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+    private void checkCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+            boolean isBatchCommit)
             throws DdlException {
-        if (partitionIds == null) {
+        if (isBatchCommit) {
             checkMaterializedIndex(dbId, tableId, indexIds);
         } else {
             checkPartition(dbId, tableId, partitionIds);
@@ -527,10 +545,12 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.PartitionRequest.Builder partitionRequestBuilder = Cloud.PartitionRequest.newBuilder();
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
-        partitionRequestBuilder.addAllPartitionIds(partitionIds);
         partitionRequestBuilder.addAllIndexIds(indexIds);
         partitionRequestBuilder.setDbId(dbId);
         partitionRequestBuilder.setTableId(tableId);
+        if (partitionIds != null) {
+            partitionRequestBuilder.addAllPartitionIds(partitionIds);
+        }
         final Cloud.PartitionRequest partitionRequest = partitionRequestBuilder.build();
 
         Cloud.PartitionResponse response = null;
@@ -593,7 +613,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean isCreateTable)
+    public void commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds, List<Long> partitionIds,
+            boolean isCreateTable)
             throws DdlException {
         if (Config.enable_check_compatibility_mode) {
             LOG.info("skip committing materialized index in checking compatibility mode");
@@ -606,6 +627,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         indexRequestBuilder.setDbId(dbId);
         indexRequestBuilder.setTableId(tableId);
         indexRequestBuilder.setIsNewTable(isCreateTable);
+        if (partitionIds != null) {
+            indexRequestBuilder.addAllPartitionIds(partitionIds);
+        }
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
         Cloud.IndexResponse response = null;

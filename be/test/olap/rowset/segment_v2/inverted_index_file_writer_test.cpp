@@ -230,6 +230,7 @@ TEST_F(IndexFileWriterTest, DeleteIndexTest) {
 }
 
 TEST_F(IndexFileWriterTest, WriteV1Test) {
+    config::enable_write_index_searcher_cache = false;
     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
                            InvertedIndexStorageFormatPB::V1);
 
@@ -251,6 +252,11 @@ TEST_F(IndexFileWriterTest, WriteV1Test) {
         std::cout << "close error:" << close_status.msg() << std::endl;
     }
     ASSERT_TRUE(close_status.ok());
+
+    auto file_names = writer.get_index_file_names();
+    ASSERT_EQ(file_names.size(), 1);
+    EXPECT_EQ(file_names[0], InvertedIndexDescriptor::get_index_file_name_v1(
+                                     _rowset_id, _seg_id, index_id, index_suffix));
 
     const InvertedIndexFileInfo* file_info = writer.get_index_file_info();
     ASSERT_NE(file_info, nullptr);
@@ -686,9 +692,8 @@ public:
     IndexStorageFormatV2MockCreateOutputStream(IndexFileWriter* index_file_writer)
             : IndexStorageFormatV2(index_file_writer) {}
 
-    MOCK_METHOD((std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                           std::unique_ptr<lucene::store::IndexOutput>>),
-                create_output_stream, (), (override));
+    MOCK_METHOD((std::unique_ptr<lucene::store::IndexOutput>), create_output_stream, (),
+                (override));
 };
 
 class IndexFileWriterMockCreateOutputStreamV1 : public IndexFileWriter {
@@ -802,12 +807,9 @@ TEST_F(IndexFileWriterTest, WriteV2OutputTest) {
     EXPECT_CALL(
             *(IndexStorageFormatV2MockCreateOutputStream*)writer_mock._index_storage_format.get(),
             create_output_stream())
-            .WillOnce(::testing::Invoke(
-                    [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                                       std::unique_ptr<lucene::store::IndexOutput>> {
-                        return std::make_pair(std::move(out_dir_ptr),
-                                              std::move(compound_file_output));
-                    }));
+            .WillOnce(::testing::Invoke([&]() -> std::unique_ptr<lucene::store::IndexOutput> {
+                return std::move(compound_file_output);
+            }));
 
     int64_t index_id = 1;
     std::string index_suffix = "suffix1";
@@ -865,12 +867,9 @@ TEST_F(IndexFileWriterTest, WriteV2OutputCloseErrorTest) {
     EXPECT_CALL(
             *(IndexStorageFormatV2MockCreateOutputStream*)writer_mock._index_storage_format.get(),
             create_output_stream())
-            .WillOnce(::testing::Invoke(
-                    [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                                       std::unique_ptr<lucene::store::IndexOutput>> {
-                        return std::make_pair(std::move(out_dir_ptr),
-                                              std::move(compound_file_output));
-                    }));
+            .WillOnce(::testing::Invoke([&]() -> std::unique_ptr<lucene::store::IndexOutput> {
+                return std::move(compound_file_output);
+            }));
 
     int64_t index_id = 1;
     std::string index_suffix = "suffix1";

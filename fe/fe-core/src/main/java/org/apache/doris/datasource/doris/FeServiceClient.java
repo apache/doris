@@ -53,7 +53,6 @@ public class FeServiceClient {
     private final Random random = new Random(System.currentTimeMillis());
     private final String name;
     private final List<TNetworkAddress> addresses;
-    private volatile TNetworkAddress master;
     private final String user;
     private final String password;
     private final int retryCount;
@@ -118,79 +117,16 @@ public class FeServiceClient {
         throw new RuntimeException(errorMsg + ":" + lastException.getMessage(), lastException);
     }
 
-    private <T> T callFromMaster(ThriftCall<MasterResult<T>> call, String errorMsg, int timeout) {
-        TNetworkAddress address = master;
-        FrontendService.Client client = null;
-        Exception lastException = null;
-        if (address != null) {
-            client = getRemoteFeClient(address, timeout);
-            boolean returnObj = false;
-            try {
-                MasterResult<T> ret = call.call(client);
-                returnObj = true;
-                if (ret.isMaster) {
-                    if (ret.hasError) {
-                        throw new RuntimeException(ret.errorMsg);
-                    }
-                    return ret.result;
-                }
-            } catch (TException | IOException e) {
-                lastException = e;
-            } catch (Exception e) {
-                throw new RuntimeException(errorMsg + ":" + e.getMessage(), e);
-            } finally {
-                returnClient(address, client, returnObj);
-            }
-        }
-        master = null;
-        List<TNetworkAddress> addresses = getAddresses();
-        int retries = 0;
-        while (retries < retryCount) {
-            int index = random.nextInt(addresses.size());
-            for (int i = 0; i < addresses.size() && retries < retryCount; i++) {
-                address = addresses.get((index + i) % addresses.size());
-                client = getRemoteFeClient(address, timeout);
-                boolean returnObj = false;
-                try {
-                    MasterResult<T> ret = call.call(client);
-                    returnObj = true;
-                    if (ret.isMaster) {
-                        master = address;
-                        if (ret.hasError) {
-                            throw new RuntimeException(ret.errorMsg);
-                        }
-                        return ret.result;
-                    }
-                } catch (TException | IOException e) {
-                    lastException = e;
-                    retries++;
-                } catch (Exception e) {
-                    throw new RuntimeException(errorMsg + ":" + e.getMessage(), e);
-                } finally {
-                    returnClient(address, client, returnObj);
-                }
-            }
-        }
-        throw new RuntimeException(errorMsg + ":" + lastException.getMessage(), lastException);
-    }
-
     public List<Backend> listBackends() {
         TGetBackendMetaRequest request = new TGetBackendMetaRequest();
         request.setUser(user);
         request.setPasswd(password);
         String msg = String.format("failed to get backends from remote doris:%s", name);
-        return callFromMaster(client -> {
+        return randomCallWithRetry(client -> {
             TGetBackendMetaResult result = client.getBackendMeta(request);
-            if (result.getStatus().getStatusCode() == TStatusCode.NOT_MASTER) {
-                return MasterResult.notMaster();
-            }
-            if (result.getStatus().getStatusCode() != TStatusCode.OK) {
-                return MasterResult.masterWithError(result.getStatus().toString());
-            }
-            List<Backend> backends = result.getBackends().stream()
+            return result.getBackends().stream()
                     .map(b -> Backend.fromThrift(b))
                     .collect(Collectors.toList());
-            return MasterResult.withResult(backends);
         }, msg, timeout);
     }
 

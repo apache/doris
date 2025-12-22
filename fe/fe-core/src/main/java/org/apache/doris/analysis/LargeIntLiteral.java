@@ -47,7 +47,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
 
     public LargeIntLiteral() {
         super();
-        analysisDone();
     }
 
     public LargeIntLiteral(BigInteger v) {
@@ -75,7 +74,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
         this.value = bigInt;
         type = Type.LARGEINT;
         this.nullable = false;
-        analysisDone();
     }
 
     protected LargeIntLiteral(LargeIntLiteral other) {

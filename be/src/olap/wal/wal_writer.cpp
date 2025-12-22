@@ -17,6 +17,7 @@
 
 #include "olap/wal/wal_writer.h"
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/FrontendService_types.h>
 
@@ -29,7 +30,6 @@
 #include "io/fs/path.h"
 #include "olap/storage_engine.h"
 #include "olap/wal/wal_manager.h"
-#include "util/crc32c.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
@@ -124,7 +124,7 @@ Status WalWriter::append_blocks(const PBlockArray& blocks) {
         offset += block_length;
 
         uint8_t checksum_buf[sizeof(uint32_t)];
-        uint32_t checksum = crc32c::Value(content.data(), block_length);
+        uint32_t checksum = crc32c::Crc32c(content.data(), block_length);
         encode_fixed32_le(checksum_buf, checksum);
         RETURN_IF_ERROR(_file_writer->append({checksum_buf, sizeof(uint32_t)}));
         offset += CHECKSUM_SIZE;

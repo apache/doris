@@ -66,8 +66,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     @SerializedName("type")
     protected Type type;  // result of analysis
 
-    protected boolean isAnalyzed = false;  // true after analyze() has been called
-
     @SerializedName("opcode")
     protected TExprOpcode opcode;  // opcode for this expr
 
@@ -76,7 +74,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     protected Function fn;
 
     // Cached value of IsConstant(), set during analyze() and valid if isAnalyzed_ is true.
-    private Supplier<Boolean> isConstant = Suppliers.memoize(() -> false);
+    private Supplier<Boolean> isConstant = Suppliers.memoize(this::isConstantImpl);
 
     protected Optional<String> exprName = Optional.empty();
 
@@ -89,16 +87,11 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     protected Expr(Expr other) {
         super();
         type = other.type;
-        isAnalyzed = other.isAnalyzed;
         opcode = other.opcode;
         isConstant = other.isConstant;
         fn = other.fn;
         children = Expr.cloneList(other.children);
         nullable = other.nullable;
-    }
-
-    public boolean isAnalyzed() {
-        return isAnalyzed;
     }
 
     public void checkValueValid() throws AnalysisException {
@@ -128,17 +121,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
     public Function getFn() {
         return fn;
-    }
-
-    /**
-     * Set the expr to be analyzed and computes isConstant_.
-     */
-    protected void analysisDone() {
-        Preconditions.checkState(!isAnalyzed);
-        // We need to compute the const-ness as the last step, since analysis may change
-        // the result, e.g. by resolving function.
-        isConstant = Suppliers.memoize(this::isConstantImpl);
-        isAnalyzed = true;
     }
 
     /**
@@ -183,20 +165,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
             strings.add(Strings.nullToEmpty(expr.debugString()));
         }
         return "(" + Joiner.on(" ").join(strings) + ")";
-    }
-
-    public static <C extends Expr> HashMap<C, Integer> toCountMap(List<C> list) {
-        HashMap countMap = new HashMap<C, Integer>();
-        for (int i = 0; i < list.size(); i++) {
-            C obj = list.get(i);
-            Integer count = (Integer) countMap.get(obj);
-            if (count == null) {
-                countMap.put(obj, 1);
-            } else {
-                countMap.put(obj, count + 1);
-            }
-        }
-        return countMap;
     }
 
     /**
@@ -475,10 +443,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
      * FunctionCallExpr.isConstant()).
      */
     public final boolean isConstant() {
-        if (isAnalyzed) {
-            return isConstant.get();
-        }
-        return isConstantImpl();
+        return isConstant.get();
     }
 
     /**
@@ -592,10 +557,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
     public boolean isNullLiteral() {
         return this instanceof NullLiteral;
-    }
-
-    public void setNullable(boolean nullable) {
-        this.nullable = nullable;
     }
 
     public Set<SlotRef> getInputSlotRef() {

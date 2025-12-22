@@ -98,7 +98,8 @@ private:
                 term_postings_list.emplace_back(offset, std::move(union_posting));
             }
         }
-        return PhraseScorer<PostingsPtr>::create(term_postings_list, _similarity, 0);
+        uint32_t num_docs = ctx.segment_num_rows;
+        return PhraseScorer<PostingsPtr>::create(term_postings_list, _similarity, 0, num_docs);
     }
 
     IndexQueryContextPtr _context;

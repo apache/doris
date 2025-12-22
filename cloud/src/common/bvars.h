@@ -627,6 +627,10 @@ extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_partition_cou
 extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count;
 extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count;
 extern bvar::LatencyRecorder g_bvar_ms_scan_instance_update;
+extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_waiting_duration;
+extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_committing_duration;
+extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_submitted;
+extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_finished;
 
 // recycler's bvars
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;

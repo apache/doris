@@ -57,4 +57,9 @@ private:
     uint32_t _doc;
 };
 
+template <typename TDocSet>
+auto make_simple_union(std::vector<TDocSet> docsets) {
+    return SimpleUnion<TDocSet>::create(std::move(docsets));
+}
+
 } // namespace doris::segment_v2::inverted_index::query_v2

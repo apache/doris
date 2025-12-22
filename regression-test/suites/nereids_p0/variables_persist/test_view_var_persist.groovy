@@ -207,11 +207,11 @@ suite("test_view_var_persist") {
     qt_array_funcs "select * from v_test_array_func;"
 
     multi_sql """set enable_decimal256=true;
-    drop view if EXISTS v_test_array_product;
-    create view v_test_array_product as
+    drop view if EXISTS v_test_array_product2;
+    create view v_test_array_product2 as
     select  array_product(array(f1,f2)) from test_decimal_mul_overflow1;
     set enable_decimal256=false;"""
-    qt_array_product "select * from v_test_array_product;"
+    qt_array_product "select * from v_test_array_product2;"
 
     // compare expr
     multi_sql """

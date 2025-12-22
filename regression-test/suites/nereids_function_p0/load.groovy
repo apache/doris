@@ -225,6 +225,9 @@ suite("load") {
     }
 
     if (!isClusterKeyEnabled()) {
+    sql """
+    set debug_skip_fold_constant=true;
+    """
     // test fn_test_ip_not_nullable_rowstore table with update action
     // not null will throw exception if we has data in table
     test {
@@ -236,6 +239,9 @@ suite("load") {
         sql "update fn_test_ip_not_nullable_rowstore set ip6 = '' where id = 1;"
         exception("parse ipv6 fail")
     }
+    sql """
+    set debug_skip_fold_constant=false;
+    """
 
     sql "update fn_test_ip_not_nullable_rowstore set ip4 = '192.10.10.1' where id = 1;"
     def sql_res1 = sql "select * from fn_test_ip_not_nullable_rowstore where id = 1;"

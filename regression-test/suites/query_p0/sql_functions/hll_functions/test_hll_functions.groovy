@@ -69,4 +69,9 @@ suite("test_hll_functions") {
     qt_const_select "select hll_to_base64(hll_empty());"
     qt_const_select "select hll_to_base64(hll_hash('abc'));"
     qt_const_select "select hll_to_base64(hll_hash(''));"
+
+    test {
+        sql """SELECT hll_from_base64(CAST('AgAAAAAAAABwAAAAAAAAAA==' AS VARCHAR(100))) AS result;"""
+        exception "[RUNTIME_ERROR]hll_from_base64 decode failed";
+    }
 }

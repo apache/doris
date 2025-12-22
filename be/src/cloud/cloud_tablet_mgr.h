@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 
@@ -44,10 +45,22 @@ public:
 
     // If the tablet is in cache, return this tablet directly; otherwise will get tablet meta first,
     // sync rowsets after, and download segment data in background if `warmup_data` is true.
+    /* Parameters:
+     * - tablet_id: the id of tablet to get
+     * - warmup_data: whether warmup tablet data in background
+     * - sync_delete_bitmap: whether sync delete bitmap when getting tablet
+     * - sync_stats: the stats of sync rowset
+     * - force_use_only_cached: whether only use cached tablet meta
+     * - cache_on_miss: whether cache the tablet meta when missing in cache
+     */
     Result<std::shared_ptr<CloudTablet>> get_tablet(int64_t tablet_id, bool warmup_data = false,
                                                     bool sync_delete_bitmap = true,
                                                     SyncRowsetStats* sync_stats = nullptr,
-                                                    bool local_only = false);
+                                                    bool force_use_only_cached = false,
+                                                    bool cache_on_miss = true);
+
+    // Return true if cached tablet meta is found (without triggering RPC) and filled.
+    bool peek_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta);
 
     void erase_tablet(int64_t tablet_id);
 

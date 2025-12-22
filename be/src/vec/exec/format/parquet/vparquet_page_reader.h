@@ -53,10 +53,11 @@ namespace doris::vectorized {
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 class PageReader {
 public:
-    struct Statistics {
+    struct PageStatistics {
         int64_t decode_header_time = 0;
         int64_t skip_page_header_num = 0;
         int64_t parse_page_header_num = 0;
+        int64_t read_page_header_time = 0;
     };
 
     PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
@@ -82,7 +83,7 @@ public:
     Status parse_page_header();
 
     Status next_page() {
-        _statistics.skip_page_header_num += _state == INITIALIZED;
+        _page_statistics.skip_page_header_num += _state == INITIALIZED;
         if constexpr (OFFSET_INDEX) {
             _page_index++;
             _start_row = _offset_index->page_locations[_page_index].first_row_index;
@@ -132,7 +133,7 @@ public:
 
     Status get_page_data(Slice& slice);
 
-    Statistics& statistics() { return _statistics; }
+    PageStatistics& page_statistics() { return _page_statistics; }
 
     bool is_header_v2() { return _cur_page_header.__isset.data_page_header_v2; }
 
@@ -143,7 +144,7 @@ public:
 private:
     enum PageReaderState { INITIALIZED, HEADER_PARSED, DATA_LOADED };
     PageReaderState _state = INITIALIZED;
-    Statistics _statistics;
+    PageStatistics _page_statistics;
 
     io::BufferedStreamReader* _reader = nullptr;
     io::IOContext* _io_ctx = nullptr;

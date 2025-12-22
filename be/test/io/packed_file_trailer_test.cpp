@@ -57,21 +57,21 @@ TEST(PackedFileTrailerTest, ReadNewFormatTrailer) {
     slice->set_offset(10);
     slice->set_size(20);
 
-    cloud::PackedFileDebugInfoPB debug_pb;
-    debug_pb.mutable_packed_file_info()->CopyFrom(info);
+    cloud::PackedFileFooterPB footer_pb;
+    footer_pb.mutable_packed_file_info()->CopyFrom(info);
 
-    std::string serialized_debug;
-    ASSERT_TRUE(debug_pb.SerializeToString(&serialized_debug));
+    std::string serialized_footer;
+    ASSERT_TRUE(footer_pb.SerializeToString(&serialized_footer));
 
     std::string file_content = "data";
-    file_content.append(serialized_debug);
-    put_fixed32_le(&file_content, static_cast<uint32_t>(serialized_debug.size()));
+    file_content.append(serialized_footer);
+    put_fixed32_le(&file_content, static_cast<uint32_t>(serialized_footer.size()));
     put_fixed32_le(&file_content, kPackedFileTrailerVersion);
 
     auto path = unique_temp_file();
     write_file(path, file_content);
 
-    cloud::PackedFileDebugInfoPB parsed;
+    cloud::PackedFileFooterPB parsed;
     uint32_t version = 0;
     Status st = read_packed_file_trailer(path, &parsed, &version);
     ASSERT_TRUE(st.ok()) << st;
@@ -101,7 +101,7 @@ TEST(PackedFileTrailerTest, ReadLegacyTrailer) {
     auto path = unique_temp_file();
     write_file(path, file_content);
 
-    cloud::PackedFileDebugInfoPB parsed;
+    cloud::PackedFileFooterPB parsed;
     uint32_t version = 0;
     Status st = read_packed_file_trailer(path, &parsed, &version);
     ASSERT_TRUE(st.ok()) << st;

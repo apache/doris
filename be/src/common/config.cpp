@@ -1156,7 +1156,9 @@ DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
-DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
+DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "180000");
+DEFINE_mInt64(file_cache_background_ttl_info_update_interval_ms, "180000");
+DEFINE_mInt64(file_cache_background_tablet_id_flush_interval_ms, "1000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
@@ -1632,15 +1634,6 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
     return config == "v1" || config == "v2";
 });
 
-DEFINE_mString(binary_plain_encoding_default_impl, "v1");
-DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& config) -> bool {
-    return config == "v1" || config == "v2";
-});
-
-DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
-
-DEFINE_mBool(enable_fuzzy_storage_encoding, "false");
-
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -2094,10 +2087,6 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
-    if (config::enable_fuzzy_storage_encoding) {
-        fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
-                ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
-    }
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

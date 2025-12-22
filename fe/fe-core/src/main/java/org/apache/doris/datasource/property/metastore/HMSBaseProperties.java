@@ -30,6 +30,7 @@ import com.google.common.base.Strings;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -198,8 +199,11 @@ public class HMSBaseProperties {
         if (StringUtils.isNotBlank(hmsUserName)) {
             hiveConf.set(AuthenticationConfig.HADOOP_USER_NAME, hmsUserName);
         }
-        HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
-                String.valueOf(Config.hive_metastore_client_timeout_second));
+        if (!userOverriddenHiveConfig.containsKey(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.toString())) {
+            // use Config.hive_metastore_client_timeout_second as default timeout
+            HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
+                    String.valueOf(Config.hive_metastore_client_timeout_second));
+        }
         initHadoopAuthenticator();
     }
 

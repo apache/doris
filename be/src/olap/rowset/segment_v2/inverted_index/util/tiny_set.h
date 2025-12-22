@@ -17,43 +17,43 @@
 
 #pragma once
 
+#include <bit>
 #include <cstdint>
-#include <optional>
 
 namespace doris::segment_v2::inverted_index {
 
 class TinySet {
 public:
+    TinySet() = default;
     explicit TinySet(uint64_t value) : _bits(value) {}
     ~TinySet() = default;
 
-    bool is_empty() const { return _bits == 0; }
+    TinySet(const TinySet&) = default;
+    TinySet& operator=(const TinySet&) = default;
+    TinySet(TinySet&&) = default;
+    TinySet& operator=(TinySet&&) = default;
 
+    static TinySet empty() { return TinySet(0); }
+    static TinySet singleton(uint32_t el) { return TinySet(uint64_t(1) << el); }
+
+    bool is_empty() const { return _bits == 0; }
+    uint32_t len() const { return static_cast<uint32_t>(std::popcount(_bits)); }
     void clear() { _bits = 0; }
 
     bool insert_mut(uint32_t el) {
-        if (el >= 64) {
-            return false;
-        }
-        uint64_t old_bits = _bits;
-        _bits |= (1ULL << el);
-        return old_bits != _bits;
+        uint64_t old = _bits;
+        _bits |= (uint64_t(1) << el);
+        return old != _bits;
     }
 
-    std::optional<uint32_t> pop_lowest() {
-        if (is_empty()) {
-            return std::nullopt;
-        }
-        uint32_t lowest = std::countr_zero(_bits);
-        _bits ^= (1ULL << lowest);
+    uint32_t pop_lowest_unchecked() {
+        auto lowest = static_cast<uint32_t>(std::countr_zero(_bits));
+        _bits ^= (uint64_t(1) << lowest);
         return lowest;
     }
-
-    uint32_t len() const { return std::popcount(_bits); }
 
 private:
     uint64_t _bits = 0;
 };
-using TinySetPtr = std::shared_ptr<TinySet>;
 
 } // namespace doris::segment_v2::inverted_index

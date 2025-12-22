@@ -225,7 +225,6 @@ public:
         int64_t merged_io = 0;
         int64_t request_bytes = 0;
         int64_t merged_bytes = 0;
-        int64_t apply_bytes = 0;
     };
 
     struct RangeCachedData {
@@ -299,9 +298,6 @@ public:
             _merged_read_slice_size = READ_SLICE_SIZE;
         }
 
-        for (const PrefetchRange& range : _random_access_ranges) {
-            _statistics.apply_bytes += range.end_offset - range.start_offset;
-        }
         if (_profile != nullptr) {
             const char* random_profile = "MergedSmallIO";
             ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
@@ -315,8 +311,6 @@ public:
                                                           random_profile, 1);
             _merged_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
                                                          random_profile, 1);
-            _apply_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ApplyBytes", TUnit::BYTES,
-                                                        random_profile, 1);
         }
     }
 
@@ -359,7 +353,6 @@ protected:
             COUNTER_UPDATE(_merged_io, _statistics.merged_io);
             COUNTER_UPDATE(_request_bytes, _statistics.request_bytes);
             COUNTER_UPDATE(_merged_bytes, _statistics.merged_bytes);
-            COUNTER_UPDATE(_apply_bytes, _statistics.apply_bytes);
             if (_reader != nullptr) {
                 _reader->collect_profile_before_close();
             }
@@ -373,7 +366,6 @@ private:
     RuntimeProfile::Counter* _merged_io = nullptr;
     RuntimeProfile::Counter* _request_bytes = nullptr;
     RuntimeProfile::Counter* _merged_bytes = nullptr;
-    RuntimeProfile::Counter* _apply_bytes = nullptr;
 
     int _search_read_range(size_t start_offset, size_t end_offset);
     void _clean_cached_data(RangeCachedData& cached_data);
@@ -619,12 +611,6 @@ private:
  */
 class BufferedStreamReader {
 public:
-    struct Statistics {
-        int64_t read_time = 0;
-        int64_t read_calls = 0;
-        int64_t read_bytes = 0;
-    };
-
     /**
      * Return the address of underlying buffer that locates the start of data between [offset, offset + bytes_to_read)
      * @param buf the buffer address to save the start address of data
@@ -637,13 +623,9 @@ public:
      * Save the data address to slice.data, and the slice.size is the bytes to read.
      */
     virtual Status read_bytes(Slice& slice, uint64_t offset, const IOContext* io_ctx) = 0;
-    Statistics& statistics() { return _statistics; }
     virtual ~BufferedStreamReader() = default;
     // return the file path
     virtual std::string path() = 0;
-
-protected:
-    Statistics _statistics;
 };
 
 class BufferedFileStreamReader : public BufferedStreamReader, public ProfileCollector {

@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <crc32c/crc32c.h>
+
 #include "vec/common/string_ref.h"
 #ifdef __AVX2__
 #include <immintrin.h>
@@ -28,7 +30,6 @@
 #endif
 
 #include "common/status.h"
-#include "util/hash_util.hpp"
 #include "util/slice.h"
 
 namespace butil {
@@ -76,7 +77,7 @@ public:
     // Same as above with convenience of hashing the key.
     void insert(const StringRef& key) noexcept {
         if (key.data) {
-            insert(HashUtil::crc32c_hash(key.data, uint32_t(key.size), _hash_seed));
+            insert(crc32c::Extend(_hash_seed, (const uint8_t*)key.data, uint32_t(key.size)));
         }
     }
 
@@ -105,7 +106,7 @@ public:
     // Same as above with convenience of hashing the key.
     bool find(const StringRef& key) const noexcept {
         if (key.data) {
-            return find(HashUtil::crc32c_hash(key.data, uint32_t(key.size), _hash_seed));
+            return find(crc32c::Extend(_hash_seed, (const uint8_t*)key.data, uint32_t(key.size)));
         }
         return false;
     }

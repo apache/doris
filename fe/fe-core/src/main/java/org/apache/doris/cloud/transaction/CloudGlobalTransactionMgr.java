@@ -961,12 +961,34 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private Map<Long, Long> getPartitionVersions(Map<Long, Partition> partitionMap) {
+        if (!Config.calc_delete_bitmap_get_versions_in_batch) {
+            Map<Long, Long> partitionToVersions = Maps.newHashMap();
+            partitionMap.forEach((key, value) -> {
+                long visibleVersion = value.getVisibleVersion();
+                long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
+                partitionToVersions.put(key, newVersion);
+            });
+            return partitionToVersions;
+        }
+
+        List<CloudPartition> partitions = partitionMap.values().stream()
+                .map(p -> (CloudPartition) p)
+                .collect(Collectors.toList());
+        List<Long> partitionVersions;
+        try {
+            partitionVersions = CloudPartition.getSnapshotVisibleVersionFromMs(
+                    partitions, Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns);
+        } catch (RpcException e) {
+            LOG.warn("get partition versions from ms failed, partitions: {}", partitions, e);
+            throw new RuntimeException("get partition versions from ms failed", e);
+        }
         Map<Long, Long> partitionToVersions = Maps.newHashMap();
-        partitionMap.forEach((key, value) -> {
-            long visibleVersion = value.getVisibleVersion();
-            long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
-            partitionToVersions.put(key, newVersion);
-        });
+        for (int i = 0; i < partitions.size(); i++) {
+            CloudPartition partition = partitions.get(i);
+            long visibleVersion = partitionVersions.get(i);
+            long newVersion = visibleVersion + 1;
+            partitionToVersions.put(partition.getId(), newVersion);
+        }
         return partitionToVersions;
     }
 

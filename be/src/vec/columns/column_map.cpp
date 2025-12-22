@@ -398,6 +398,50 @@ void ColumnMap::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType 
     }
 }
 
+void ColumnMap::update_crc32c_batch(uint32_t* __restrict hashes,
+                                    const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                update_crc32c_single(i, i + 1, hashes[i], nullptr);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            update_crc32c_single(i, i + 1, hashes[i], nullptr);
+        }
+    }
+}
+
+void ColumnMap::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                     const uint8_t* __restrict null_map) const {
+    const auto& offsets = get_offsets();
+    if (null_map) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_map[i] == 0) {
+                size_t kv_size = offsets[i] - offsets[i - 1];
+                if (kv_size == 0) {
+                    hash = HashUtil::crc32c_null(hash);
+                } else {
+                    get_keys().update_crc32c_single(offsets[i - 1], offsets[i], hash, nullptr);
+                    get_values().update_crc32c_single(offsets[i - 1], offsets[i], hash, nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t kv_size = offsets[i] - offsets[i - 1];
+            if (kv_size == 0) {
+                hash = HashUtil::crc32c_null(hash);
+            } else {
+                get_keys().update_crc32c_single(offsets[i - 1], offsets[i], hash, nullptr);
+                get_values().update_crc32c_single(offsets[i - 1], offsets[i], hash, nullptr);
+            }
+        }
+    }
+}
+
 void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) {
         return;

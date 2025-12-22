@@ -54,7 +54,6 @@ public class JsonLiteral extends LiteralExpr {
         this.value = value;
         type = Type.JSONB;
         this.nullable = false;
-        analysisDone();
     }
 
     protected JsonLiteral(JsonLiteral other) {

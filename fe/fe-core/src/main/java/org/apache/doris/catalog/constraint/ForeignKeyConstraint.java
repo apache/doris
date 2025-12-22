@@ -29,6 +29,7 @@ import com.google.gson.annotations.SerializedName;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 public class ForeignKeyConstraint extends Constraint {
@@ -88,6 +89,16 @@ public class ForeignKeyConstraint extends Constraint {
 
     public TableIf getReferencedTable() {
         return referencedTable.toTableIf();
+    }
+
+    public Optional<TableIf> getReferencedTableOrNull() {
+        TableIf res = null;
+        try {
+            res = referencedTable.toTableIf();
+        } catch (Exception ignored) {
+            // do nothing
+        }
+        return Optional.ofNullable(res);
     }
 
     public Boolean isReferringPK(TableIf table, PrimaryKeyConstraint constraint) {

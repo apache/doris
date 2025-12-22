@@ -38,33 +38,20 @@ public:
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         auto reader = lookup_reader(_field, ctx, binding_key);
         auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
-        auto make_scorer = [&](auto segment_postings) -> ScorerPtr {
-            using PostingsT = decltype(segment_postings);
-            return std::make_shared<TermScorer<PostingsT>>(std::move(segment_postings), _similarity,
-                                                           logical_field);
-        };
 
         if (!reader) {
-            auto segment_postings = std::make_shared<EmptySegmentPosting<TermDocsPtr>>();
-            return make_scorer(std::move(segment_postings));
+            return std::make_shared<EmptyScorer>();
         }
 
         auto t = make_term_ptr(_field.c_str(), _term.c_str());
         auto iter = make_term_doc_ptr(reader.get(), t.get(), _enable_scoring, _context->io_ctx);
-
         if (iter) {
-            if (_enable_scoring) {
-                auto segment_postings =
-                        std::make_shared<SegmentPostings<TermDocsPtr>>(std::move(iter));
-                return make_scorer(std::move(segment_postings));
-            }
-            auto segment_postings =
-                    std::make_shared<NoScoreSegmentPosting<TermDocsPtr>>(std::move(iter));
-            return make_scorer(std::move(segment_postings));
+            return std::make_shared<TermScorer>(
+                    make_segment_postings(std::move(iter), _enable_scoring), _similarity,
+                    logical_field);
         }
 
-        auto segment_postings = std::make_shared<EmptySegmentPosting<TermDocsPtr>>();
-        return make_scorer(std::move(segment_postings));
+        return std::make_shared<EmptyScorer>();
     }
 
 private:

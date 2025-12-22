@@ -23,7 +23,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.Assert;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 public class AuthTest extends TestWithFeService {
     @Override
@@ -40,9 +43,25 @@ public class AuthTest extends TestWithFeService {
         grantPriv("GRANT GRANT_PRIV ON internal.test.* TO ROLE 'role2';");
 
         grantRole("GRANT 'role1','role2' TO 'u1'@'%'");
-        Env.getCurrentEnv().getAuth().checkDbPriv(UserIdentity.createAnalyzedUserIdentWithIp("u1", "%"),
-                InternalCatalog.INTERNAL_CATALOG_NAME, "test",
-                PrivPredicate.of(PrivBitSet.of(Privilege.GRANT_PRIV, Privilege.LOAD_PRIV), Operator.AND));
+        boolean hasPriv = Env.getCurrentEnv().getAuth()
+                .checkDbPriv(UserIdentity.createAnalyzedUserIdentWithIp("u1", "%"),
+                        InternalCatalog.INTERNAL_CATALOG_NAME, "test",
+                        PrivPredicate.of(PrivBitSet.of(Privilege.GRANT_PRIV, Privilege.LOAD_PRIV), Operator.AND));
+        Assert.assertTrue(hasPriv);
+    }
+
+    @Test
+    public void testGetRoleNamesByUserWithLdap() throws Exception {
+        addUser("u2", true);
+        createRole("role3");
+        createRole("role4");
+
+        grantRole("GRANT 'role3','role4' TO 'u2'@'%'");
+        Set<String> roleNames = Env.getCurrentEnv().getAuth()
+                .getRoleNamesByUserWithLdap(new UserIdentity("u2", "%"), true);
+        Assert.assertEquals(3, roleNames.size());
+        roleNames = Env.getCurrentEnv().getAuth().getRoleNamesByUserWithLdap(new UserIdentity("u2", "%"), false);
+        Assert.assertEquals(2, roleNames.size());
     }
 
 }

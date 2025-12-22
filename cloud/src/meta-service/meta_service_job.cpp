@@ -1121,10 +1121,9 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         } else {
             auto recycle_val = recycle_rowset.SerializeAsString();
             txn->put(recycle_key, recycle_val);
+            INSTANCE_LOG(INFO) << "put recycle rowset, tablet_id=" << tablet_id
+                               << " key=" << hex(recycle_key);
         }
-
-        INSTANCE_LOG(INFO) << "put recycle rowset, tablet_id=" << tablet_id
-                           << " key=" << hex(recycle_key);
     };
     if (!is_versioned_read) {
         std::tie(code, msg) =
