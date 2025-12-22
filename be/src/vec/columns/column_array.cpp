@@ -428,6 +428,50 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
     }
 }
 
+void ColumnArray::update_crc32c_batch(uint32_t* __restrict hashes,
+                                      const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                update_crc32c_single(i, i + 1, hashes[i], nullptr);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            update_crc32c_single(i, i + 1, hashes[i], nullptr);
+        }
+    }
+}
+
+void ColumnArray::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                       const uint8_t* __restrict null_map) const {
+    const auto& offsets_column = get_offsets();
+    if (null_map) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_map[i] == 0) {
+                size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+                if (elem_size == 0) {
+                    hash = HashUtil::crc32c_null(hash);
+                } else {
+                    get_data().update_crc32c_single(offsets_column[i - 1], offsets_column[i], hash,
+                                                    nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+            if (elem_size == 0) {
+                hash = HashUtil::crc32c_null(hash);
+            } else {
+                get_data().update_crc32c_single(offsets_column[i - 1], offsets_column[i], hash,
+                                                nullptr);
+            }
+        }
+    }
+}
+
 void ColumnArray::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_ARRAY);
     if (x.is_null()) {
