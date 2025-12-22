@@ -343,9 +343,10 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     };
 
     using namespace vectorized;
-    vectorized::MutableBlock mutable_block =
-            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                       *_output_row_descriptor);
+
+    local_state->_mutable_output_block->clear_column_data();
+
+    vectorized::MutableBlock& mutable_block = *(local_state->_mutable_output_block);
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         const size_t origin_columns_count = input_block.columns();
@@ -361,7 +362,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
-        output_block->set_columns(std::move(mutable_columns));
+        output_block->set_columns_not_add_refcount(mutable_columns);
     }
 
     local_state->_estimate_memory_usage += bytes_usage;
@@ -583,6 +584,13 @@ Status PipelineXLocalState<SharedStateArg>::open(RuntimeState* state) {
                     state, _intermediate_projections[i][j]));
         }
     }
+
+    if (_parent->has_output_row_desc()) {
+        _mutable_output_block = vectorized::MutableBlock::create_unique(
+                vectorized::VectorizedUtils::create_columns_with_type_and_name(
+                        *(_parent->_output_row_descriptor)));
+    }
+
     return Status::OK();
 }
 

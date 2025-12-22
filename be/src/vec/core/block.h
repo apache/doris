@@ -217,6 +217,8 @@ public:
 
     /** Replace columns in a block */
     void set_columns(MutableColumns&& columns);
+
+    void set_columns_not_add_refcount(MutableColumns& columns);
     Block clone_with_columns(MutableColumns&& columns) const;
 
     void clear();

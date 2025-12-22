@@ -290,6 +290,8 @@ protected:
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
+    std::unique_ptr<vectorized::MutableBlock> _mutable_output_block;
+
     bool _closed = false;
     std::atomic<bool> _terminated = false;
     vectorized::Block _origin_block;

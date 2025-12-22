@@ -620,6 +620,17 @@ void Block::set_columns(MutableColumns&& columns) {
     }
 }
 
+void Block::set_columns_not_add_refcount(MutableColumns& columns) {
+    DCHECK_GE(columns.size(), data.size())
+            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
+                           columns.size(), data.size());
+
+    size_t num_columns = data.size();
+    for (size_t i = 0; i < num_columns; ++i) {
+        data[i].column = columns[i]->assume_mutable();
+    }
+}
+
 Block Block::clone_with_columns(MutableColumns&& columns) const {
     Block res;
 
