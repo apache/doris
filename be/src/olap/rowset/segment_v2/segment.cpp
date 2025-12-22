@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -65,7 +66,6 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/slice.h" // Slice
 #include "vec/columns/column.h"
 #include "vec/common/schema_util.h"
@@ -466,7 +466,7 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
 
     // validate footer PB's checksum
     uint32_t expect_checksum = decode_fixed32_le(fixed_buf + 4);
-    uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t actual_checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         Status st = _write_error_file(file_size, file_size - 12 - footer_length, bytes_read,
                                       footer_buf.data(), io_ctx);

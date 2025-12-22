@@ -757,8 +757,9 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         data_distribution.distribution_type = ExchangeType::HASH_SHUFFLE;
     }
     RETURN_IF_ERROR(new_pip->set_sink(sink));
-    RETURN_IF_ERROR(new_pip->sink()->init(data_distribution.distribution_type, num_buckets,
-                                          use_global_hash_shuffle, shuffle_idx_to_instance_idx));
+    RETURN_IF_ERROR(new_pip->sink()->init(_runtime_state.get(), data_distribution.distribution_type,
+                                          num_buckets, use_global_hash_shuffle,
+                                          shuffle_idx_to_instance_idx));
 
     // 2. Create and initialize LocalExchangeSharedState.
     std::shared_ptr<LocalExchangeSharedState> shared_state =

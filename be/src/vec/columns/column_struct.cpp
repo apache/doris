@@ -257,6 +257,20 @@ void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTy
     }
 }
 
+void ColumnStruct::update_crc32c_batch(uint32_t* __restrict hashes,
+                                       const uint8_t* __restrict null_map) const {
+    for (const auto& column : columns) {
+        column->update_crc32c_batch(hashes, nullptr);
+    }
+}
+
+void ColumnStruct::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                        const uint8_t* __restrict null_map) const {
+    for (const auto& column : columns) {
+        column->update_crc32c_single(start, end, hash, nullptr);
+    }
+}
+
 void ColumnStruct::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
     const auto& src_concrete = assert_cast<const ColumnStruct&>(src);
