@@ -22,6 +22,7 @@
 
 #include "pipeline/exec/operator.h"
 #include "util/simd/bits.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/exprs/table_function/table_function_factory.h"
@@ -254,8 +255,8 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
         }
     }
 
-    std::vector<int64_t> child_row_to_output_rows_indices;
-    std::vector<size_t> handled_row_indices;
+    DorisVector<int64_t> child_row_to_output_rows_indices;
+    DorisVector<int64_t> handled_row_indices;
     bool child_block_empty = _child_block->empty();
     if (!child_block_empty) {
         child_row_to_output_rows_indices.push_back(0);
@@ -404,25 +405,30 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
 
         if (-1 == _cur_child_offset) {
             // Finished handling current child block,
-            vectorized::MutableBlock m_block2 =
-                    vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                               p._output_slots);
-            vectorized::MutableColumns& columns2 = m_block2.mutable_columns();
             auto child_block_row_count = _child_block->rows();
-            for (size_t i = 0; i != child_block_row_count; i++) {
+            DorisVector<uint32_t> null_row_indices;
+            for (uint32_t i = 0; i != child_block_row_count; i++) {
                 if (!_child_rows_has_output[i]) {
-                    // insert one row with NULL for this child row
-                    for (auto index : p._output_slot_indexs) {
-                        auto src_column = _child_block->get_by_position(index).column;
-                        columns2[index]->insert_from(*src_column, i);
-                    }
-                    for (auto index : p._useless_slot_indexs) {
-                        columns2[index]->insert_default();
-                    }
-                    columns2[child_slot_count]->insert_default();
+                    null_row_indices.push_back(i);
                 }
             }
-            output_block->set_columns(std::move(columns2));
+            if (!null_row_indices.empty()) {
+                vectorized::MutableBlock m_block2 =
+                        vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+                                                                                   p._output_slots);
+                vectorized::MutableColumns& columns2 = m_block2.mutable_columns();
+                for (auto index : p._output_slot_indexs) {
+                    auto src_column = _child_block->get_by_position(index).column;
+                    columns2[index]->insert_indices_from(
+                            *src_column, null_row_indices.data(),
+                            null_row_indices.data() + null_row_indices.size());
+                }
+                for (auto index : p._useless_slot_indexs) {
+                    columns2[index]->insert_many_defaults(null_row_indices.size());
+                }
+                columns2[child_slot_count]->insert_many_defaults(null_row_indices.size());
+                output_block->set_columns(std::move(columns2));
+            }
             _child_rows_has_output.clear();
             _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
                                                     ._child->row_desc()
