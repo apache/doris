@@ -1359,15 +1359,18 @@ public class BindExpression implements AnalysisRuleFactory {
         }
 
         // check all GroupingScalarFunction inputSlots must be from groupingExprs
-        Set<Slot> groupingExprs = boundGroupingSets.stream()
-                .flatMap(Collection::stream).map(Expression::getInputSlots)
+        Set<Expression> groupingExprs = boundGroupingSets.stream()
                 .flatMap(Collection::stream).collect(Collectors.toSet());
         Set<GroupingScalarFunction> groupingScalarFunctions = ExpressionUtils
                 .collect(nullableOutput, GroupingScalarFunction.class::isInstance);
         for (GroupingScalarFunction function : groupingScalarFunctions) {
-            if (!groupingExprs.containsAll(function.getInputSlots())) {
-                throw new AnalysisException("Column in " + function.getName()
-                        + " does not exist in GROUP BY clause.");
+            for (Expression child : function.children()) {
+                if (!groupingExprs.contains(child)) {
+                    throw new AnalysisException(repeat.getType()
+                            + " 's GROUPING function '" + function.toSql()
+                            + "', its argument '" + child.toSql()
+                            + "' must appear in GROUP BY clause.");
+                }
             }
         }
 
