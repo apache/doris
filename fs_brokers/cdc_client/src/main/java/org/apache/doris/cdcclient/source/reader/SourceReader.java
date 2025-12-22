@@ -34,6 +34,8 @@ import java.util.Map;
 
 /** Source Reader Interface */
 public interface SourceReader {
+    String SPLIT_ID = "splitId";
+
     /** Initialization, called when the program starts */
     void initialize(Map<String, String> config);
 

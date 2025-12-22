@@ -28,6 +28,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.jdbc.client.JdbcMySQLClient;
+import org.apache.doris.datasource.jdbc.client.JdbcPostgreSQLClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
@@ -210,8 +211,9 @@ public class StreamingJobUtils {
         config.setJdbcUrl(properties.get(DataSourceConfigKeys.JDBC_URL));
         switch (sourceType) {
             case MYSQL:
-                JdbcClient client = JdbcMySQLClient.createJdbcClient(config);
-                return client;
+                return JdbcMySQLClient.createJdbcClient(config);
+            case POSTGRES:
+                return JdbcPostgreSQLClient.createJdbcClient(config);
             default:
                 throw new JobException("Unsupported source type " + sourceType);
         }

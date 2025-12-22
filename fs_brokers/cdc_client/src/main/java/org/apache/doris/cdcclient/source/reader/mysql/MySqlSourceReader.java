@@ -35,6 +35,8 @@ import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -46,7 +48,9 @@ import org.apache.flink.cdc.connectors.mysql.debezium.reader.SnapshotSplitReader
 import org.apache.flink.cdc.connectors.mysql.debezium.task.context.StatefulTaskContext;
 import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlSnapshotSplitAssigner;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
+import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
+import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetUtils;
 import org.apache.flink.cdc.connectors.mysql.source.split.FinishedSnapshotSplitInfo;
 import org.apache.flink.cdc.connectors.mysql.source.split.MySqlBinlogSplit;
 import org.apache.flink.cdc.connectors.mysql.source.split.MySqlBinlogSplitState;
@@ -59,6 +63,7 @@ import org.apache.flink.cdc.connectors.mysql.source.utils.ChunkUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.TableDiscoveryUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
+import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
 import org.apache.flink.cdc.debezium.history.FlinkJsonTableChangeSerializer;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
@@ -66,6 +71,7 @@ import org.apache.kafka.connect.source.SourceRecord;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -73,13 +79,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
+import static org.apache.doris.cdcclient.utils.ConfigUtil.is13Timestamp;
+import static org.apache.doris.cdcclient.utils.ConfigUtil.isJson;
+import static org.apache.doris.cdcclient.utils.ConfigUtil.toStringMap;
 import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
+import com.mysql.cj.conf.ConnectionUrl;
 import io.debezium.connector.mysql.MySqlConnection;
 import io.debezium.connector.mysql.MySqlPartition;
 import io.debezium.document.Array;
@@ -95,7 +107,6 @@ import org.slf4j.LoggerFactory;
 public class MySqlSourceReader implements SourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(MySqlSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
-    private static final String SPLIT_ID = "splitId";
     private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
             new FlinkJsonTableChangeSerializer();
     private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
@@ -507,7 +518,7 @@ public class MySqlSourceReader implements SourceReader {
         if (currentReader instanceof SnapshotSplitReader) {
             closeSnapshotReader();
         }
-        return dataIt == null ? null : new SplitRecords(currentSplitId, dataIt.next());
+        return dataIt == null ? null : new SplitRecords(currentSplitId, dataIt.next().iterator());
     }
 
     private SplitRecords pollSplitRecordsWithCurrentReader(
@@ -515,7 +526,9 @@ public class MySqlSourceReader implements SourceReader {
         Iterator<SourceRecords> dataIt = null;
         if (currentReader instanceof BinlogSplitReader) {
             dataIt = currentReader.pollSplitRecords();
-            return dataIt == null ? null : new SplitRecords(BINLOG_SPLIT_ID, dataIt.next());
+            return dataIt == null
+                    ? null
+                    : new SplitRecords(BINLOG_SPLIT_ID, dataIt.next().iterator());
         } else {
             throw new IllegalStateException("Unsupported reader type.");
         }
@@ -581,7 +594,109 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     private MySqlSourceConfig getSourceConfig(JobBaseConfig config) {
-        return ConfigUtil.generateMySqlConfig(config);
+        return generateMySqlConfig(config);
+    }
+
+    /** Generate MySQL source config from JobBaseConfig */
+    private MySqlSourceConfig generateMySqlConfig(JobBaseConfig config) {
+        return generateMySqlConfig(config.getConfig(), ConfigUtil.getServerId(config.getJobId()));
+    }
+
+    /** Generate MySQL source config from Map config */
+    private MySqlSourceConfig generateMySqlConfig(Map<String, String> cdcConfig, String serverId) {
+        MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
+        ConnectionUrl cu =
+                ConnectionUrl.getConnectionUrlInstance(
+                        cdcConfig.get(DataSourceConfigKeys.JDBC_URL), null);
+        configFactory.hostname(cu.getMainHost().getHost());
+        configFactory.port(cu.getMainHost().getPort());
+        configFactory.username(cdcConfig.get(DataSourceConfigKeys.USER));
+        configFactory.password(cdcConfig.get(DataSourceConfigKeys.PASSWORD));
+        String databaseName = cdcConfig.get(DataSourceConfigKeys.DATABASE);
+        configFactory.databaseList(databaseName);
+        configFactory.serverId(serverId);
+        configFactory.serverTimeZone(
+                ConfigUtil.getTimeZoneFromProps(cu.getOriginalProperties()).toString());
+
+        configFactory.includeSchemaChanges(false);
+
+        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
+        String[] includingTbls =
+                Arrays.stream(includingTables.split(","))
+                        .map(t -> databaseName + "." + t.trim())
+                        .toArray(String[]::new);
+        configFactory.tableList(includingTbls);
+
+        String excludingTables = cdcConfig.get(DataSourceConfigKeys.EXCLUDE_TABLES);
+        if (StringUtils.isNotEmpty(excludingTables)) {
+            String excludingTbls =
+                    Arrays.stream(excludingTables.split(","))
+                            .map(t -> databaseName + "." + t.trim())
+                            .collect(Collectors.joining(","));
+            configFactory.excludeTableList(excludingTbls);
+        }
+
+        // setting startMode
+        String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
+        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
+            // do not need set offset when initial
+            // configFactory.startupOptions(StartupOptions.initial());
+        } else if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
+            configFactory.startupOptions(StartupOptions.earliest());
+            BinlogOffset binlogOffset =
+                    initializeEffectiveOffset(
+                            configFactory, StartupOptions.earliest().binlogOffset);
+            configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
+        } else if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
+            configFactory.startupOptions(StartupOptions.latest());
+            BinlogOffset binlogOffset =
+                    initializeEffectiveOffset(configFactory, StartupOptions.latest().binlogOffset);
+            configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
+        } else if (isJson(startupMode)) {
+            // start from specific offset
+            Map<String, String> offsetMap = toStringMap(startupMode);
+            if (MapUtils.isEmpty(offsetMap)) {
+                throw new RuntimeException("Incorrect offset " + startupMode);
+            }
+            if (offsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
+                    && offsetMap.containsKey(BinlogOffset.BINLOG_POSITION_OFFSET_KEY)) {
+                BinlogOffset binlogOffset = new BinlogOffset(offsetMap);
+                configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
+            } else {
+                throw new RuntimeException("Incorrect offset " + startupMode);
+            }
+        } else if (is13Timestamp(startupMode)) {
+            // start from timestamp
+            Long ts = Long.parseLong(startupMode);
+            BinlogOffset binlogOffset =
+                    initializeEffectiveOffset(
+                            configFactory, StartupOptions.timestamp(ts).binlogOffset);
+            configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
+        } else {
+            throw new RuntimeException("Unknown offset " + startupMode);
+        }
+
+        Properties jdbcProperteis = new Properties();
+        jdbcProperteis.putAll(cu.getOriginalProperties());
+        configFactory.jdbcProperties(jdbcProperteis);
+
+        // configFactory.heartbeatInterval(Duration.ofMillis(1));
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SPLIT_SIZE)) {
+            configFactory.splitSize(
+                    Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
+        }
+
+        return configFactory.createConfig(0);
+    }
+
+    private BinlogOffset initializeEffectiveOffset(
+            MySqlSourceConfigFactory configFactory, BinlogOffset binlogOffset) {
+        MySqlSourceConfig config = configFactory.createConfig(0);
+        try (MySqlConnection connection = DebeziumUtils.createMySqlConnection(config)) {
+            return BinlogOffsetUtils.initializeEffectiveOffset(binlogOffset, connection, config);
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
