@@ -34,7 +34,8 @@ suite('test_clean_stale_rs_file_cache', 'docker') {
         'cumulative_compaction_min_deltas=5',
         'tablet_rowset_stale_sweep_by_size=false',
         'tablet_rowset_stale_sweep_time_sec=60',
-        'vacuum_stale_rowsets_interval_s=10'
+        'vacuum_stale_rowsets_interval_s=10',
+        'enable_packed_file=false',
     ]
     options.setFeNum(1)
     options.setBeNum(1)

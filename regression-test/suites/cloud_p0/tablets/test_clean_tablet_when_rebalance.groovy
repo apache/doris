@@ -34,7 +34,8 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
     options.beConfigs += [
         'report_tablet_interval_seconds=1',
         'write_buffer_size=10240',
-        'write_buffer_size_for_agg=10240'
+        'write_buffer_size_for_agg=10240',
+        'enable_packed_file=false',
     ]
     options.setFeNum(3)
     options.setBeNum(3)
