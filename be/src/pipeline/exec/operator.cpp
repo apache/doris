@@ -322,46 +322,28 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     }
 
     DCHECK_EQ(rows, input_block.rows());
-    auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
-        if (to->is_nullable() && !from->is_nullable()) {
-            if (_keep_origin || !from->is_exclusive()) {
-                auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
-                null_column.get_nested_column().insert_range_from(*from, 0, rows);
-                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
-                bytes_usage += null_column.allocated_bytes();
-            } else {
-                to = make_nullable(from, false)->assume_mutable();
-            }
-        } else {
-            if (_keep_origin || !from->is_exclusive()) {
-                to->insert_range_from(*from, 0, rows);
-                bytes_usage += from->allocated_bytes();
-            } else {
-                to = from->assume_mutable();
-            }
-        }
-    };
 
-    using namespace vectorized;
-    vectorized::MutableBlock mutable_block =
-            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                       *_output_row_descriptor);
     if (rows != 0) {
+        using namespace vectorized;
+        MutableBlock mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
+                output_block, *_output_row_descriptor);
         auto& mutable_columns = mutable_block.mutable_columns();
-        const size_t origin_columns_count = input_block.columns();
-        DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         for (int i = 0; i < mutable_columns.size(); ++i) {
-            auto result_column_id = -1;
             ColumnPtr column_ptr;
-            RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
+            RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
             column_ptr = column_ptr->convert_to_full_column_if_const();
-            if (result_column_id >= origin_columns_count) {
-                bytes_usage += column_ptr->allocated_bytes();
+            if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
             }
-            insert_column_datas(mutable_columns[i], column_ptr, rows);
+            mutable_columns[i] = column_ptr->assume_mutable();
         }
-        DCHECK(mutable_block.rows() == rows);
+
         output_block->set_columns(std::move(mutable_columns));
+
+        // origin columns was moved into output_block, so we need to set origin_block to empty columns
+        auto empty_columns = origin_block->clone_empty_columns();
+        origin_block->set_columns(std::move(empty_columns));
+        DCHECK_EQ(output_block->rows(), rows);
     }
 
     local_state->_estimate_memory_usage += bytes_usage;
