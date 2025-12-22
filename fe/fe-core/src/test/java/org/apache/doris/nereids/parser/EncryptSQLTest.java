@@ -62,7 +62,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " \"s3.endpoint\" = \"abc\","
                 + " \"s3.region\" = \"ap-beijing\","
                 + " \"s3.secret_key\" = \"*XXX\","
-                + " \"s3.access_key\" = \"abc\""
+                + " \"s3.access_key\" = \"*XXX\""
                 + ")";
         parseAndCheck(sql, res);
 
@@ -83,7 +83,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " \"s3.endpoint\" = \"abc\","
                 + " \"s3.region\" = \"ap-beijing\","
                 + " \"s3.secret_key\" = \"*XXX\","
-                + " \"s3.access_key\" = \"abc\""
+                + " \"s3.access_key\" = \"*XXX\""
                 + ")";
         parseAndCheck(sql, res);
 
@@ -196,7 +196,7 @@ public class EncryptSQLTest extends ParserTestBase {
             + " \"provider\" = \"OSS\","
             + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
             + " \"s3.region\" = \"oss-cn-hangzhou\","
-            + " \"s3.access_key\" = \"abc\","
+            + " \"s3.access_key\" = \"*XXX\","
             + " \"s3.secret_key\" = \"*XXX\","
             + " \"column_separator\" = \",\","
             + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
@@ -221,7 +221,7 @@ public class EncryptSQLTest extends ParserTestBase {
             + " \"provider\" = \"OSS\","
             + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
             + " \"s3.region\" = \"oss-cn-hangzhou\","
-            + " \"s3.access_key\" = \"abc\","
+            + " \"s3.access_key\" = \"*XXX\","
             + " \"s3.secret_key\" = \"*XXX\","
             + " \"column_separator\" = \",\","
             + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
