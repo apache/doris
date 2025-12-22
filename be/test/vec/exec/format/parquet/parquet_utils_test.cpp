@@ -76,7 +76,8 @@ TEST(ParquetUtilsTest, InsertIntoNullable) {
         insert_int32(ptr, 7);
         insert_null(ptr);
         ASSERT_EQ(2, ptr->size());
-        const auto& nested_data = assert_cast<ColumnInt32&>(nullable->get_nested_column()).get_data();
+        const auto& nested_data =
+                assert_cast<ColumnInt32&>(nullable->get_nested_column()).get_data();
         EXPECT_EQ(7, nested_data[0]);
         EXPECT_EQ(0, nested_data[1]);
         EXPECT_EQ(0, nullable->get_null_map_data()[0]);
@@ -101,12 +102,10 @@ TEST(ParquetUtilsTest, TypeToString) {
     EXPECT_EQ("UNKNOWN", physical_type_to_string(static_cast<tparquet::Type::type>(-1)));
 
     EXPECT_EQ("SNAPPY", compression_to_string(tparquet::CompressionCodec::SNAPPY));
-    EXPECT_EQ("UNKNOWN",
-              compression_to_string(static_cast<tparquet::CompressionCodec::type>(-1)));
+    EXPECT_EQ("UNKNOWN", compression_to_string(static_cast<tparquet::CompressionCodec::type>(-1)));
 
     EXPECT_EQ("UINT_32", converted_type_to_string(tparquet::ConvertedType::UINT_32));
-    EXPECT_EQ("UNKNOWN",
-              converted_type_to_string(static_cast<tparquet::ConvertedType::type>(-1)));
+    EXPECT_EQ("UNKNOWN", converted_type_to_string(static_cast<tparquet::ConvertedType::type>(-1)));
 }
 
 TEST(ParquetUtilsTest, LogicalTypeToString) {
@@ -194,8 +193,7 @@ TEST(ParquetUtilsTest, DecodeStatisticsValue) {
     Int32 value = 12345;
     std::string encoded(sizeof(Int32), '\0');
     memcpy(encoded.data(), &value, sizeof(Int32));
-    EXPECT_EQ("12345",
-              decode_statistics_value(&field, tparquet::Type::INT32, encoded, tz));
+    EXPECT_EQ("12345", decode_statistics_value(&field, tparquet::Type::INT32, encoded, tz));
 }
 
 TEST(ParquetUtilsTest, BuildPathMap) {
