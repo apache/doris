@@ -178,14 +178,14 @@ public:
 
                 if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
                     for (int j = 0; j < key_number; j++) {
-                        finalized_block.get_by_position(j).column->assume_mutable()->insert_from(
+                        finalized_block.get_by_position(j).column->assert_mutable_ref().insert_from(
                                 *row_ref.get_column(j), row_ref.position);
                     }
 
                     for (int j = key_number; j < columns; j++) {
                         agg_functions[j - key_number]->insert_result_into(
                                 agg_places[j - key_number],
-                                finalized_block.get_by_position(j).column->assume_mutable_ref());
+                                finalized_block.get_by_position(j).column->assert_mutable_ref());
                         agg_functions[j - key_number]->reset(agg_places[j - key_number]);
                     }
 
@@ -231,7 +231,7 @@ public:
                 int limit = std::min(ALTER_TABLE_BATCH_SIZE, rows - i);
 
                 for (int idx = 0; idx < columns; idx++) {
-                    auto column = finalized_block.get_by_position(idx).column->assume_mutable();
+                    auto column = finalized_block.get_by_position(idx).column->assert_mutable();
 
                     for (int j = 0; j < limit; j++) {
                         auto row_ref = pushed_row_refs[i + j];
