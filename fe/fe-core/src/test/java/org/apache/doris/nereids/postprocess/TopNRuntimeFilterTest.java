@@ -91,6 +91,10 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
 
     @Test
     public void testProbeExprNullableThroughRightOuterJoin() {
+        // topn node push down filter value to scan node.
+        // the filter value is nullable.
+        // but c_name in scan node is not nullable. so we use
+        // substring(nullable(c_name), 1, 5) as probe expr on scan node
         String sql = "select substring(c_name, 1, 5) "
                 + "from customer c right outer join lineorder l "
                 + "on c.c_custkey = l.lo_custkey "
