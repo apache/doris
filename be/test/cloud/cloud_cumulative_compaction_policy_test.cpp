@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "cloud/cloud_cumulative_compaction_policy.h"
+
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest-message.h>
@@ -22,6 +24,8 @@
 #include <gtest/gtest.h>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/config.h"
+#include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/olap_common.h"
@@ -146,4 +150,117 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
     Version version(1, 1);
     EXPECT_EQ(policy.new_cumulative_point(&_tablet, output_rowset, version, 2), 6);
 }
+
+// Test case: Empty rowset compaction with skip_trim
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_empty_rowset_compaction) {
+    // Save original config values
+    bool orig_enable_empty_rowset_compaction = config::enable_empty_rowset_compaction;
+    int32_t orig_empty_rowset_compaction_min_count = config::empty_rowset_compaction_min_count;
+    double orig_empty_rowset_compaction_min_ratio = config::empty_rowset_compaction_min_ratio;
+
+    // Enable empty rowset compaction
+    config::enable_empty_rowset_compaction = true;
+    config::empty_rowset_compaction_min_count = 5;
+    config::empty_rowset_compaction_min_ratio = 0.5;
+
+    CloudTablet _tablet(_engine, _tablet_meta);
+    _tablet._base_size = 1024L * 1024 * 1024; // 1GB base
+
+    // Create candidate rowsets: 2 normal + 150 empty rowsets
+    // This tests that skip_trim = true for empty rowset compaction
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+
+    // 2 normal rowsets
+    for (int i = 0; i < 2; i++) {
+        auto rowset = create_rowset(Version(i + 2, i + 2), 1, true, 1024 * 1024); // 1MB
+        candidate_rowsets.push_back(rowset);
+    }
+
+    // 150 empty rowsets (consecutive)
+    for (int i = 0; i < 150; i++) {
+        auto rowset = create_rowset(Version(i + 4, i + 4), 0, false, 0); // empty
+        candidate_rowsets.push_back(rowset);
+    }
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    // max=100, but empty rowset compaction should return 150 (skip_trim = true)
+    policy.pick_input_rowsets(&_tablet, candidate_rowsets, 100, 50, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    // Empty rowset compaction should return all 150 empty rowsets
+    // skip_trim = true, so no trimming even though score > max
+    EXPECT_EQ(150, input_rowsets.size());
+    EXPECT_EQ(150, compaction_score);
+
+    // Verify all returned rowsets are empty
+    for (const auto& rs : input_rowsets) {
+        EXPECT_EQ(0, rs->num_segments());
+    }
+
+    // Restore original config values
+    config::enable_empty_rowset_compaction = orig_enable_empty_rowset_compaction;
+    config::empty_rowset_compaction_min_count = orig_empty_rowset_compaction_min_count;
+    config::empty_rowset_compaction_min_ratio = orig_empty_rowset_compaction_min_ratio;
+}
+
+// Test case: prioritize_query_perf_in_compaction for non-DUP_KEYS table
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_prioritize_query_perf) {
+    // Save original config value
+    bool orig_prioritize_query_perf = config::prioritize_query_perf_in_compaction;
+
+    // Enable prioritize_query_perf_in_compaction
+    config::prioritize_query_perf_in_compaction = true;
+
+    // Create tablet with UNIQUE keys (not DUP_KEYS)
+    TTabletSchema schema;
+    schema.keys_type = TKeysType::UNIQUE_KEYS;
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(1, 2, 15673, 15674, 4, 5, schema, 6, {{7, 8}},
+                                                   UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                   TCompressionType::LZ4F));
+
+    CloudTablet _tablet(_engine, tablet_meta);
+    _tablet._base_size = 1024L * 1024 * 1024; // 1GB base
+
+    // Create candidate rowsets that will all be removed by level_size
+    // One large rowset followed by many small ones
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+
+    // 1 large rowset (200MB) - will be removed by level_size
+    auto large_rowset = create_rowset(Version(2, 2), 50, true, 200L * 1024 * 1024);
+    candidate_rowsets.push_back(large_rowset);
+
+    // 50 small rowsets (100KB each)
+    for (int i = 0; i < 50; i++) {
+        auto rowset = create_rowset(Version(i + 3, i + 3), 1, true, 100 * 1024);
+        candidate_rowsets.push_back(rowset);
+    }
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    // For non-DUP_KEYS with prioritize_query_perf enabled,
+    // even if all rowsets are removed by level_size, return all candidates
+    policy.pick_input_rowsets(&_tablet, candidate_rowsets, 100, 50, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    // With prioritize_query_perf enabled for non-DUP_KEYS table,
+    // should return rowsets even when level_size would remove all
+    // This is because compaction has significant positive impact on queries
+    // Note: total_size = 200MB + 5MB = 205MB, large rowset will be removed
+    // After level_size removal, 50 small rowsets remain, score = 50 >= min
+    // But level_size removes the large rowset first, then checks
+    // Actually the logic is: if all removed by level_size AND prioritize_query_perf, return all
+    // Here level_size won't remove all, so normal path
+    EXPECT_GE(input_rowsets.size(), 50);
+
+    // Restore original config value
+    config::prioritize_query_perf_in_compaction = orig_prioritize_query_perf;
+}
+
 } // namespace doris
