@@ -144,7 +144,17 @@ suite("oss_hdfs_catalog_test", "p2,external,new_catalog_property") {
               'oss.hdfs.endpoint' = '${oss_hdfs_endpoint}',
               'oss.hdfs.region'='${oss_hdfs_region}'
     """
+    //**************** Paimon DLF ON OSS_HDFS *******************/
 
+    String query_table_paimon_dlf = context.config.otherConfigs.get("paimonDlfWarehouseOnOssHdfsQueryTable")
+    String query_count_paimon_dlf = context.config.otherConfigs.get("paimonDlfWarehouseOnOssHdfsQueryCount")
+    String paimon_dlf_old_catalog_properties = contxt.config.otherConfigs.get("paimonDlfOnOssHdfsCatalogOldProperties")
+    String paimon_dlf_new_catalog_properties = contxt.config.otherConfigs.get("paimonDlfOnOssHdfsCatalogNewProperties")
+
+    testQuery("paimon_dlf_oss_hdfs_old_catalog",paimon_dlf_old_catalog_properties ,query_table_paimon_dlf,query_count_paimon_dlf,true)
+    testQuery("paimon_dlf_oss_hdfs_old_catalog",paimon_dlf_old_catalog_properties ,query_table_paimon_dlf,query_count_paimon_dlf,false)
+    testQuery("paimon_dlf_oss_hdfs_new_catalog",paimon_dlf_new_catalog_properties ,query_table_paimon_dlf,query_count_paimon_dlf,true)
+    testQuery("paimon_dlf_oss_hdfs_new_catalog",paimon_dlf_new_catalog_properties ,query_table_paimon_dlf,query_count_paimon_dlf,false)
 
     //**************** Paimon FILESYSTEM ON OSS_HDFS *******************/
     String paimon_fs_warehouse = context.config.otherConfigs.get("paimonFsWarehouseOnOssHdfs")
