@@ -180,6 +180,11 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_deleted(
 BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num(
         "recycler", "packed_file_rowset_scanned_num");
 
+BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count(
+        "recycler", "batch_delete_rowset_plan_count");
+BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures(
+        "recycler", "batch_delete_failures");
+
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
 bvar::LatencyRecorder g_bvar_txn_kv_range_get("txn_kv", "range_get");
