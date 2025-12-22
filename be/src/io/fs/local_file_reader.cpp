@@ -46,7 +46,7 @@
 namespace doris {
 namespace io {
 
-std::atomic_bool be_config_data_dir_list_inited = false;
+std::atomic_bool BeConfDataDirReader::be_config_data_dir_list_inited = false;
 
 std::vector<doris::DataDirInfo> BeConfDataDirReader::be_config_data_dir_list;
 
