@@ -41,7 +41,7 @@ struct FieldSchema;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-Status PageIndex::create_skipped_row_range(tparquet::OffsetIndex& offset_index,
+Status PageIndex::create_skipped_row_range(const tparquet::OffsetIndex& offset_index,
                                            int64_t total_rows_of_group, int page_idx,
                                            RowRange* row_range) {
     const auto& page_locations = offset_index.page_locations;
