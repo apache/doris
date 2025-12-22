@@ -70,6 +70,7 @@
 #include "pipeline/task_scheduler.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/cache/result_cache.h"
+#include "runtime/cdc_client_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
@@ -335,6 +336,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     RETURN_IF_ERROR(_routine_load_task_executor->init(MemInfo::mem_limit()));
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _group_commit_mgr = new GroupCommitMgr(this);
+    _cdc_client_mgr = new CdcClientMgr();
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
@@ -830,6 +832,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_result_mgr);
     SAFE_DELETE(_file_meta_cache);
     SAFE_DELETE(_group_commit_mgr);
+    SAFE_DELETE(_cdc_client_mgr);
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_stream_load_recorder_manager);
     // _stream_load_executor
