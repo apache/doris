@@ -1113,6 +1113,40 @@ bool decode_meta_tablet_key(std::string_view* in, int64_t* tablet_id, Versionsta
     return true;
 }
 
+// Decode tablet inverted index key
+// Return true if decode successfully, otherwise false
+bool decode_tablet_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
+                                      int64_t* index_id, int64_t* partition_id,
+                                      int64_t* tablet_id) {
+    // 0x03 "index" ${instance_id} "tablet_inverted" ${db_id} ${table_id} ${index_id} ${partition} ${tablet}
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_VERSIONED_KEY_SPACE03) {
+        return false;
+    }
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    auto res = decode_key(in, &out);
+    if (res != 0 || out.size() != 8) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != INDEX_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != TABLET_INVERTED_INDEX_KEY_INFIX) {
+            return false;
+        }
+        *db_id = std::get<int64_t>(std::get<0>(out[3]));
+        *table_id = std::get<int64_t>(std::get<0>(out[4]));
+        *index_id = std::get<int64_t>(std::get<0>(out[5]));
+        *partition_id = std::get<int64_t>(std::get<0>(out[6]));
+        *tablet_id = std::get<int64_t>(std::get<0>(out[7]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
 bool decode_snapshot_ref_key(std::string_view* in, std::string* instance_id,
                              Versionstamp* timestamp, std::string* ref_instance_id) {
     // Key format: 0x03 + encode_bytes("snapshot") + encode_bytes(instance_id) +

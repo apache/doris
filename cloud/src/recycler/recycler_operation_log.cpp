@@ -82,7 +82,8 @@ int OperationLogRecycleChecker::init() {
     snapshots_.clear();
     snapshot_indexes_.clear();
     MetaReader reader(instance_id_);
-    err = reader.get_snapshots(txn.get(), &snapshots_);
+    std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots;
+    err = reader.get_snapshots(txn.get(), &snapshots);
     if (err != TxnErrorCode::TXN_OK) {
         LOG_WARNING("failed to get snapshots").tag("err", err);
         return -1;
@@ -96,16 +97,22 @@ int OperationLogRecycleChecker::init() {
     }
 
     max_versionstamp_ = Versionstamp(read_version, 0);
-    for (size_t i = 0; i < snapshots_.size(); ++i) {
-        auto&& [snapshot, versionstamp] = snapshots_[i];
-        snapshot_indexes_.insert(std::make_pair(versionstamp, i));
+    for (size_t i = 0; i < snapshots.size(); ++i) {
+        auto&& [snapshot, versionstamp] = snapshots[i];
+        if (snapshot.status() == SnapshotStatus::SNAPSHOT_ABORTED ||
+            snapshot.status() == SnapshotStatus::SNAPSHOT_RECYCLED) {
+            continue;
+        }
+        snapshot_indexes_.insert(std::make_pair(versionstamp, snapshots_.size()));
+        snapshots_.push_back(std::make_pair(std::move(snapshot), versionstamp));
     }
 
     return 0;
 }
 
 bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstamp,
-                                             int64_t log_min_timestamp) const {
+                                             int64_t log_min_timestamp,
+                                             OperationLogReferenceInfo* reference_info) const {
     Versionstamp log_min_read_timestamp(log_min_timestamp, 0);
     if (log_versionstamp > max_versionstamp_) {
         // Not recycleable.
@@ -114,12 +121,15 @@ bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstam
 
     // Do not recycle operation logs referenced by active snapshots.
     if (log_min_read_timestamp < source_snapshot_versionstamp_) {
+        reference_info->referenced_by_instance = true;
         return false;
     }
 
     auto it = snapshot_indexes_.lower_bound(log_min_read_timestamp);
     if (it != snapshot_indexes_.end() && snapshots_[it->second].second < log_versionstamp) {
         // in [log_min_read_timestmap, log_versionstamp)
+        reference_info->referenced_by_snapshot = true;
+        reference_info->referenced_snapshot_timestamp = snapshots_[it->second].second;
         return false;
     }
 
@@ -677,6 +687,8 @@ int InstanceRecycler::recycle_operation_logs() {
         LOG_WARNING("failed to initialize recycle checker").tag("error_code", init_res);
         return init_res;
     }
+    SnapshotDataSizeCalculator calculator(instance_id_, txn_kv_);
+    calculator.init(recycle_checker.get_snapshots());
 
     auto scan_and_recycle_operation_log = [&](const std::string_view& key,
                                               const std::vector<std::string>& raw_keys,
@@ -690,7 +702,9 @@ int InstanceRecycler::recycle_operation_logs() {
         }
 
         size_t value_size = operation_log.ByteSizeLong();
-        if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp())) {
+        OperationLogReferenceInfo reference_info;
+        if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp(),
+                                        &reference_info)) {
             AnnotateTag tag("log_key", hex(key));
             int res = recycle_operation_log(log_versionstamp, raw_keys, std::move(operation_log));
             if (res != 0) {
@@ -700,6 +714,13 @@ int InstanceRecycler::recycle_operation_logs() {
 
             recycled_operation_logs++;
             recycled_operation_log_data_size += value_size;
+        } else {
+            int res = calculator.calculate_operation_log_data_size(key, operation_log,
+                                                                   reference_info);
+            if (res != 0) {
+                LOG_WARNING("failed to calculate operation log data size").tag("error_code", res);
+                return res;
+            }
         }
 
         total_operation_logs++;
@@ -768,6 +789,11 @@ int InstanceRecycler::recycle_operation_logs() {
         LOG_WARNING("error occurred during scanning operation logs")
                 .tag("error_code", iter->error_code());
         return -1;
+    }
+    int res = calculator.save_snapshot_data_size_with_retry();
+    if (res != 0) {
+        LOG_WARNING("failed to save snapshot data size").tag("error_code", res);
+        return res;
     }
     return 0;
 }
