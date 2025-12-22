@@ -670,6 +670,7 @@ void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
 }
 
 void FragmentMgr::remove_query_context(const TUniqueId& key) {
+    _query_ctx_map_delay_delete.erase(key);
 #ifndef BE_TEST
     _query_ctx_map.erase(key);
 #endif
@@ -768,6 +769,9 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
                                 query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                                         info.runtime_filter_params);
+                                if (!handler->empty()) {
+                                    _query_ctx_map_delay_delete.insert(query_id, query_ctx);
+                                }
                             }
                             if (info.__isset.topn_filter_descs) {
                                 query_ctx->init_runtime_predicates(info.topn_filter_descs);
