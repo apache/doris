@@ -162,6 +162,11 @@ mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource("recycler
 // represents the bytes of resources that can be recycled per ms
 mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms("recycler_instance_recycle_bytes_per_ms", {"instance_id", "resource_type"});
 
+BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count(
+        "recycler", "batch_delete_rowset_plan_count");
+BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures(
+        "recycler", "batch_delete_failures");
+
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
 bvar::LatencyRecorder g_bvar_txn_kv_range_get("txn_kv", "range_get");

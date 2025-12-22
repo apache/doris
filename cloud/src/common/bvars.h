@@ -659,6 +659,9 @@ extern mBvarIntAdder g_bvar_recycler_instance_recycle_round;
 extern mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource;
 extern mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms;
 
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures;
+
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;
 extern bvar::LatencyRecorder g_bvar_txn_kv_range_get;
