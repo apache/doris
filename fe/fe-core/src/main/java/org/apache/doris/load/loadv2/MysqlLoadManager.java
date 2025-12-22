@@ -456,7 +456,11 @@ public class MysqlLoadManager {
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append("http://");
+        if (Config.enable_tls) {
+            sb.append("https://");
+        } else {
+            sb.append("http://");
+        }
         sb.append(backend.getHost());
         sb.append(":");
         sb.append(backend.getHttpPort());
