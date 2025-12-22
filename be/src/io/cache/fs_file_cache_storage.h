@@ -19,9 +19,13 @@
 
 #include <bvar/bvar.h>
 
+#include <atomic>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <thread>
+#include <vector>
 
 #include "io/cache/cache_block_meta_store.h"
 #include "io/cache/file_cache_common.h"
@@ -116,8 +120,16 @@ private:
                                      std::lock_guard<std::mutex>& cache_lock) const;
 
 private:
-    // Helper function to count files in cache directory using statfs
-    size_t estimate_file_count_from_statfs() const;
+    // Helper function to count files in cache directory using inode stats
+    size_t estimate_file_count_from_inode() const;
+    size_t snapshot_metadata_block_count(BlockFileCache* mgr) const;
+    std::vector<size_t> snapshot_metadata_for_hash_offsets(BlockFileCache* mgr,
+                                                           const UInt128Wrapper& hash) const;
+    void start_leak_cleaner(BlockFileCache* mgr);
+    void stop_leak_cleaner();
+    void leak_cleaner_loop();
+    void run_leak_cleanup(BlockFileCache* mgr);
+    void cleanup_leaked_files(BlockFileCache* mgr, size_t metadata_block_count);
     void load_cache_info_into_memory_from_fs(BlockFileCache* _mgr) const;
     void load_cache_info_into_memory_from_db(BlockFileCache* _mgr) const;
 
@@ -125,7 +137,12 @@ private:
                                 std::lock_guard<std::mutex>& cache_lock) const override;
 
     std::string _cache_base_path;
+    BlockFileCache* _mgr {nullptr};
     std::thread _cache_background_load_thread;
+    std::thread _cache_leak_cleaner_thread;
+    std::atomic<bool> _stop_leak_cleaner {false};
+    std::condition_variable _leak_cleaner_cv;
+    std::mutex _leak_cleaner_mutex;
     const std::shared_ptr<LocalFileSystem>& fs = global_local_filesystem();
     // TODO(Lchangliang): use a more efficient data structure
     std::mutex _mtx;
