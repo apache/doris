@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.doris.source;
+package org.apache.doris.datasource.source;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
@@ -30,60 +30,54 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.arrowflight.FlightSqlClientLoadBalancer;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.thrift.TArrowFlightFileDesc;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TRemoteDorisFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-import org.apache.arrow.flight.CallOptions;
-import org.apache.arrow.flight.FlightClient;
+import org.apache.arrow.flight.CallOption;
 import org.apache.arrow.flight.FlightEndpoint;
 import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.Location;
-import org.apache.arrow.flight.grpc.CredentialCallOption;
 import org.apache.arrow.flight.sql.FlightSqlClient;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.memory.RootAllocator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-public class RemoteDorisScanNode extends FileQueryScanNode {
-    private static final Logger LOG = LogManager.getLogger(RemoteDorisScanNode.class);
+public class ArrowFlightScanNode extends FileQueryScanNode {
+    private static final Logger LOG = LogManager.getLogger(ArrowFlightScanNode.class);
 
     public static final String BOOLEAN_TRUE_REPRESENTATION = "1";
 
-    private final List<String> columns = new ArrayList<String>();
-    private final List<String> filters = new ArrayList<String>();
+    private final List<String> columns = new ArrayList<>();
+    private final List<String> filters = new ArrayList<>();
 
-    private RemoteDorisSource source;
+    private final ArrowFlightSource source;
 
-    public RemoteDorisScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
-                               SessionVariable sv) {
-        super(id, desc, "REMOTE_DORIS_SCAN_NODE", needCheckColumnPriv, sv);
+    public ArrowFlightScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
+                               SessionVariable sv, ArrowFlightSource source) {
+        super(id, desc, "ARROW_FLIGHT_SCAN_NODE", needCheckColumnPriv, sv);
+        this.source = source;
     }
 
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();
-        source = new RemoteDorisSource(desc);
     }
 
     @Override
@@ -91,26 +85,24 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
         List<Pair<String, ByteBuffer>> locationAndTicketList = executeQuery();
 
         return locationAndTicketList.stream()
-            .map(locationAndTicket -> new RemoteDorisSplit(locationAndTicket.first, locationAndTicket.second))
+            .map(locationAndTicket -> new ArrowFlightSplit(locationAndTicket.first, locationAndTicket.second))
             .collect(Collectors.toList());
     }
 
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
-        if (split instanceof RemoteDorisSplit) {
-            RemoteDorisSplit dorisArrowSplit = (RemoteDorisSplit) split;
-            TRemoteDorisFileDesc fileDesc = new TRemoteDorisFileDesc();
-            fileDesc.setIp(source.getHostAndArrowPort().key());
-            fileDesc.setArrowPort(source.getHostAndArrowPort().value().toString());
+        if (split instanceof ArrowFlightSplit) {
+            ArrowFlightSplit dorisArrowSplit = (ArrowFlightSplit) split;
+            TArrowFlightFileDesc fileDesc = new TArrowFlightFileDesc();
             fileDesc.setTicket(dorisArrowSplit.getTicket());
             fileDesc.setLocationUri(dorisArrowSplit.getLocation());
-            fileDesc.setUser(source.getCatalog().getUsername());
-            fileDesc.setPassword(source.getCatalog().getPassword());
+            fileDesc.setUser(source.getUsername());
+            fileDesc.setPassword(source.getPassword());
 
             // set TTableFormatFileDesc
             TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-            tableFormatFileDesc.setRemoteDorisParams(fileDesc);
-            tableFormatFileDesc.setTableFormatType(((RemoteDorisSplit) split).getTableFormatType().value());
+            tableFormatFileDesc.setArrowFlightParams(fileDesc);
+            tableFormatFileDesc.setTableFormatType(((ArrowFlightSplit) split).getTableFormatType().value());
 
             // set TFileRangeDesc
             rangeDesc.setTableFormatParams(tableFormatFileDesc);
@@ -121,7 +113,7 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
 
-        output.append(prefix).append("TABLE: ").append(source.getTargetTable().getExternalTableName()).append("\n");
+        output.append(prefix).append("TABLE: ").append(source.getTargetTableName()).append("\n");
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();
         }
@@ -151,7 +143,7 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() throws UserException {
-        return source.getCatalog().getProperties();
+        return source.getProperties();
     }
 
     // Executes a SQL query using the Apache Arrow Flight SQL protocol with the provided credentials.
@@ -166,36 +158,23 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
         String queryStr = getQueryStr();
         Exception lastException = null;
 
-        for (int i = 0; i < source.getCatalog().getQueryRetryCount(); i++) {
+        for (int i = 0; i < source.getQueryRetryCount(); i++) {
             try {
-                return executeFlightSqlQuery(
-                    source.nextHostAndArrowPort(),
-                    source.getCatalog().getUsername(),
-                    source.getCatalog().getPassword(),
-                    queryStr
-                );
+                FlightSqlClientLoadBalancer.FlightSqlClientWithOptions clientWithOptions =
+                        source.getSqlClientLoadBalancer().randomClient();
+                FlightSqlClient flightSqlClient = clientWithOptions.getFlightSqlClient();
+                CallOption[] callOptions = clientWithOptions.getCallOptions();
+
+                FlightInfo info = flightSqlClient.execute(queryStr, callOptions);
+
+                return processFlightEndpoints(info.getEndpoints());
             } catch (Exception e) {
-                LOG.warn("arrow request node [{}] failures {}, try next nodes",
-                        source.getHostAndArrowPort().toString(), e);
+                LOG.warn("arrow request failures, try next node", e);
                 lastException = new RuntimeException(e.getMessage());
             }
         }
 
         throw new RuntimeException("Failed to execute query: " + queryStr, lastException);
-    }
-
-    private List<Pair<String, ByteBuffer>> executeFlightSqlQuery(Pair<String, Integer> hostAndPort,
-                     String user, String psw, String sql) throws Exception {
-        try (
-                BufferAllocator allocatorFE = new RootAllocator();
-                FlightClient clientFE = createFlightClient(allocatorFE, hostAndPort);
-                FlightSqlClient sqlClientFE = new FlightSqlClient(clientFE)
-        ) {
-            CredentialCallOption credentialCallOption = authenticate(clientFE, user, psw);
-            FlightInfo info = executeSqlWithTimeout(sqlClientFE, sql, credentialCallOption);
-
-            return processFlightEndpoints(info.getEndpoints());
-        }
     }
 
     private void createColumns() {
@@ -212,15 +191,9 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     private String getQueryStr() {
         StringBuilder sql = new StringBuilder("SELECT ");
 
-        if (source.getCatalog().enableParallelResultSink()) {
-            sql.append("/*+ SET_VAR(enable_parallel_result_sink=true) */ ");
-        } else {
-            sql.append("/*+ SET_VAR(enable_parallel_result_sink=false) */ ");
-        }
-
         sql.append(Joiner.on(", ").join(columns));
 
-        sql.append(" FROM ").append(source.getTargetTable().getExternalTableName());
+        sql.append(" FROM ").append(source.getTargetTableName());
 
         if (!filters.isEmpty()) {
             sql.append(" WHERE (");
@@ -281,27 +254,6 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     private boolean isExplainStatement() {
         return ConnectContext.get().getStatementContext().getOriginStatement().originStmt
             .trim().toLowerCase().startsWith("explain");
-    }
-
-    private FlightClient createFlightClient(BufferAllocator allocator,
-                                            Pair<String, Integer> hostAndPort) throws Exception {
-        URI uri = new URI("grpc", null, hostAndPort.first, hostAndPort.second, null, null, null);
-        return FlightClient.builder(allocator, new Location(uri)).build();
-    }
-
-    private CredentialCallOption authenticate(FlightClient client, String user, String psw) throws UserException {
-        Optional<CredentialCallOption> credentialCallOption = client.authenticateBasicToken(user, psw);
-        if (!credentialCallOption.isPresent()) {
-            throw new UserException("Authenticates with a username and password failure");
-        }
-        return credentialCallOption.get();
-    }
-
-    private FlightInfo executeSqlWithTimeout(FlightSqlClient sqlClient, String sql,
-                                             CredentialCallOption credentialCallOption) {
-        int timeoutSec = source.getCatalog().getQueryTimeoutSec();
-        return sqlClient.execute(sql, credentialCallOption,
-            CallOptions.timeout(timeoutSec, TimeUnit.SECONDS));
     }
 
     private List<Pair<String, ByteBuffer>> processFlightEndpoints(List<FlightEndpoint> endpoints) {

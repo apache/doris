@@ -15,27 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.source;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector"),
-    TVF("tvf"),
-    ARROW_FLIGHT("arrow_flight");
-
-    private final String tableFormatType;
-
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
-    }
-
-    public String value() {
-        return tableFormatType;
-    }
+public interface ExternalSource {
 }

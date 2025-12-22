@@ -38,7 +38,7 @@ public class RemoteDorisProperties {
      **/
     public static final String QUERY_RETRY_COUNT = "query_retry_count";
     // Query execution is asynchronous on the server; the client does not wait for completion.
-    public static final String QUERY_TIMEOUT_SEC = "query_timeout_sec";
+    public static final String QUERY_TIMEOUT_MS = "query_timeout_ms";
 
     /**
      * For metadata HTTP synchronization.

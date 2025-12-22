@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "remote_doris_reader.h"
+#include "arrow_flight_reader.h"
 
 #include <iostream>
 #include <map>
@@ -49,20 +49,20 @@ class Block;
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-RemoteDorisReader::RemoteDorisReader(const std::vector<SlotDescriptor*>& file_slot_descs,
+ArrowFlightReader::ArrowFlightReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                                      RuntimeState* state, RuntimeProfile* profile,
                                      const TFileRangeDesc& range)
         : _range(range), _file_slot_descs(file_slot_descs) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz);
 }
 
-Status RemoteDorisReader::init_reader() {
+Status ArrowFlightReader::init_reader() {
     RETURN_DORIS_STATUS_IF_ERROR(init_stream());
     DCHECK(_stream != nullptr);
     return Status::OK();
 }
 
-Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status ArrowFlightReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     arrow::flight::FlightStreamChunk chunk;
     RETURN_DORIS_STATUS_IF_ERROR(_stream->Next().Value(&chunk));
 
@@ -103,7 +103,7 @@ Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* 
     return Status::OK();
 }
 
-Status RemoteDorisReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
+Status ArrowFlightReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                       std::unordered_set<std::string>* missing_cols) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
@@ -111,18 +111,18 @@ Status RemoteDorisReader::get_columns(std::unordered_map<std::string, DataTypePt
     return Status::OK();
 }
 
-Status RemoteDorisReader::close() {
+Status ArrowFlightReader::close() {
     RETURN_DORIS_STATUS_IF_ERROR(_flight_client->Close());
     return Status::OK();
 }
 
-arrow::Status RemoteDorisReader::init_stream() {
+arrow::Status ArrowFlightReader::init_stream() {
     ARROW_ASSIGN_OR_RAISE(auto location,
                           arrow::flight::Location::Parse(
-                                  _range.table_format_params.remote_doris_params.location_uri));
+                                  _range.table_format_params.arrow_flight_params.location_uri));
     ARROW_ASSIGN_OR_RAISE(auto ticket,
                           arrow::flight::Ticket::Deserialize(
-                                  _range.table_format_params.remote_doris_params.ticket));
+                                  _range.table_format_params.arrow_flight_params.ticket));
     ARROW_ASSIGN_OR_RAISE(_flight_client, arrow::flight::FlightClient::Connect(location));
     ARROW_ASSIGN_OR_RAISE(_stream, _flight_client->DoGet(ticket));
 

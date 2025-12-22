@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateType;
@@ -38,10 +39,14 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
+import org.apache.doris.datasource.arrowflight.ArrowFlightExternalCatalog;
+import org.apache.doris.datasource.arrowflight.ArrowFlightExternalTable;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.source.ArrowFlightSource;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -101,6 +106,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections4.CollectionUtils;
@@ -476,6 +482,26 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot(),
                             Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
+                case ARROW_FLIGHT_TABLE:
+                    ArrowFlightExternalTable arrowFlightExternalTable = (ArrowFlightExternalTable) table;
+                    ArrowFlightExternalCatalog arrowCatalog =
+                            (ArrowFlightExternalCatalog) arrowFlightExternalTable.getCatalog();
+                    ArrowFlightSource arrowFlightSource = new ArrowFlightSource(
+                            arrowFlightExternalTable, arrowCatalog.getUsername(),
+                            arrowCatalog.getPassword(), arrowCatalog.getProperties(),
+                            arrowCatalog.getQueryRetryCount(), false,
+                            arrowCatalog.getFlightSqlClientLoadBalancer()
+                    );
+                    TableScanParams scanParams = unboundRelation.getScanParams();
+                    if (scanParams == null) {
+                        scanParams = new TableScanParams(TableScanParams.SOURCE, ImmutableMap.of(), ImmutableList.of());
+                    }
+                    scanParams.setSource(arrowFlightSource);
+                    return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
+                        qualifierWithoutTableName, ImmutableList.of(),
+                        unboundRelation.getTableSample(),
+                        unboundRelation.getTableSnapshot(),
+                        Optional.of(scanParams), Optional.empty());
                 case DORIS_EXTERNAL_TABLE:
                     ConnectContext ctx = cascadesContext.getConnectContext();
                     RemoteDorisExternalTable externalTable = (RemoteDorisExternalTable) table;
@@ -489,11 +515,22 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         OlapTable olapTable = externalTable.getOlapTable();
                         return makeOlapScan(olapTable, unboundRelation, qualifierWithoutTableName, cascadesContext);
                     }
+                    RemoteDorisExternalCatalog catalog = (RemoteDorisExternalCatalog) externalTable.getCatalog();
+                    ArrowFlightSource source = new ArrowFlightSource(
+                            externalTable, catalog.getUsername(), catalog.getPassword(), catalog.getProperties(),
+                            catalog.getQueryRetryCount(), catalog.enableParallelResultSink(),
+                            catalog.getSqlClientLoadBalancer()
+                    );
+                    TableScanParams params = unboundRelation.getScanParams();
+                    if (params == null) {
+                        params = new TableScanParams(TableScanParams.SOURCE, ImmutableMap.of(), ImmutableList.of());
+                    }
+                    params.setSource(source);
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot(),
-                            Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
+                            Optional.of(params), Optional.empty());
                 case SCHEMA:
                     LogicalSchemaScan schemaScan = new LogicalSchemaScan(unboundRelation.getRelationId(), table,
                             qualifierWithoutTableName);

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.arrowflight.ArrowFlightExternalCatalog;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -111,6 +112,9 @@ public class CatalogFactory {
                 throw new DdlException("Lakesoul catalog is no longer supported");
             case "doris":
                 catalog = new RemoteDorisExternalCatalog(catalogId, name, resource, props, comment);
+                break;
+            case "arrow":
+                catalog = new ArrowFlightExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "test":
                 if (!FeConstants.runningUnitTest) {

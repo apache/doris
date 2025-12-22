@@ -15,27 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.property.constants;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector"),
-    TVF("tvf"),
-    ARROW_FLIGHT("arrow_flight");
+public class ArrowFlightProperties {
+    public static final String HOSTS = "hosts";
+    public static final String USER = "user";
+    public static final String PASSWORD = "password";
+    public static final String FLIGHT_SQL_CATALOG_NAME = "flight_sql_catalog_name";
+    public static final String FLIGHT_SQL_SESSION_PRE = "session.";
 
-    private final String tableFormatType;
-
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
-    }
-
-    public String value() {
-        return tableFormatType;
-    }
+    /**
+     * For Arrow Flight query.
+     **/
+    public static final String QUERY_RETRY_COUNT = "query_retry_count";
+    // Query execution is asynchronous on the server; the client does not wait for completion.
+    public static final String QUERY_TIMEOUT_MS = "query_timeout_ms";
 }

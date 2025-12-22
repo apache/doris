@@ -62,6 +62,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/table/arrow_flight_reader.h"
 #include "vec/exec/format/table/hive_reader.h"
 #include "vec/exec/format/table/hudi_jni_reader.h"
 #include "vec/exec/format/table/hudi_reader.h"
@@ -70,7 +71,6 @@
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
-#include "vec/exec/format/table/remote_doris_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/text/text_reader.h"
@@ -1119,10 +1119,10 @@ Status FileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_ARROW: {
             if (range.__isset.table_format_params &&
-                range.table_format_params.table_format_type == "remote_doris") {
+                range.table_format_params.table_format_type == "arrow_flight") {
                 _cur_reader =
-                        RemoteDorisReader::create_unique(_file_slot_descs, _state, _profile, range);
-                init_status = ((RemoteDorisReader*)(_cur_reader.get()))->init_reader();
+                        ArrowFlightReader::create_unique(_file_slot_descs, _state, _profile, range);
+                init_status = ((ArrowFlightReader*)(_cur_reader.get()))->init_reader();
             } else {
                 _cur_reader =
                         ArrowStreamReader::create_unique(_state, _profile, &_counter, *_params,

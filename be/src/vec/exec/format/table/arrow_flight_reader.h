@@ -40,14 +40,14 @@ class Block;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-class RemoteDorisReader : public GenericReader {
-    ENABLE_FACTORY_CREATOR(RemoteDorisReader);
+class ArrowFlightReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(ArrowFlightReader);
 
 public:
-    RemoteDorisReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
+    ArrowFlightReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
                       RuntimeProfile* profile, const TFileRangeDesc& range);
 
-    ~RemoteDorisReader() override = default;
+    ~ArrowFlightReader() override = default;
 
     Status init_reader();
 

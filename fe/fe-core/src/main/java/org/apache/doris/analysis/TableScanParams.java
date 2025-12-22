@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.datasource.source.ExternalSource;
+
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.bouncycastle.util.Strings;
@@ -29,10 +31,12 @@ public class TableScanParams {
     public static final String INCREMENTAL_READ = "incr";
     public static final String BRANCH = "branch";
     public static final String TAG = "tag";
+    public static final String SOURCE = "source";
     private static final ImmutableSet<String> VALID_PARAM_TYPES = ImmutableSet.of(
             INCREMENTAL_READ,
             BRANCH,
-            TAG);
+            TAG,
+            SOURCE);
 
     private final String paramType;
     // There are two ways to pass parameters to a function.
@@ -42,6 +46,8 @@ public class TableScanParams {
     //   such as: `listParams` is used for @func_name('value1', 'value2', 'value3')
     private final Map<String, String> mapParams;
     private final List<String> listParams;
+    // TODO Should it be moved to the constructor parameters of LogicalFileScan?
+    private ExternalSource source;
 
     private void validate() {
         if (!VALID_PARAM_TYPES.contains(paramType)) {
@@ -79,5 +85,13 @@ public class TableScanParams {
 
     public boolean isTag() {
         return TAG.equals(paramType);
+    }
+
+    public void setSource(ExternalSource source) {
+        this.source = source;
+    }
+
+    public ExternalSource getSource() {
+        return source;
     }
 }

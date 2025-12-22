@@ -389,13 +389,11 @@ struct TTransactionalHiveDesc {
     2: optional list<TTransactionalHiveDeleteDeltaDesc> delete_deltas
 }
 
-struct TRemoteDorisFileDesc {
-    1: optional string ip
-    2: optional string arrow_port
-    3: optional binary ticket
-    4: optional string location_uri
-    5: optional string user
-    6: optional string password
+struct TArrowFlightFileDesc {
+    1: optional binary ticket
+    2: optional string location_uri
+    3: optional string user
+    4: optional string password
 }
 
 struct TTableFormatFileDesc {
@@ -408,7 +406,7 @@ struct TTableFormatFileDesc {
     7: optional TTrinoConnectorFileDesc trino_connector_params
     8: optional TLakeSoulFileDesc lakesoul_params
     9: optional i64 table_level_row_count = -1
-    10: optional TRemoteDorisFileDesc remote_doris_params
+    10: optional TArrowFlightFileDesc arrow_flight_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type

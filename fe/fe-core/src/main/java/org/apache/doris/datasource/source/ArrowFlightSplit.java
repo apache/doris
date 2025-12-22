@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.doris.source;
+package org.apache.doris.datasource.source;
 
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
@@ -23,16 +23,16 @@ import org.apache.doris.datasource.TableFormatType;
 
 import java.nio.ByteBuffer;
 
-public class RemoteDorisSplit extends FileSplit {
+public class ArrowFlightSplit extends FileSplit {
     private static final LocationPath DUMMY_PATH = LocationPath.of("/dummyPath");
     private final String location;
     private final ByteBuffer ticket;
 
-    public RemoteDorisSplit(String location, ByteBuffer ticket) {
+    public ArrowFlightSplit(String location, ByteBuffer ticket) {
         super(DUMMY_PATH, 0, 0, 0, 0, null, null);
         this.location = location;
         this.ticket = ticket;
-        this.tableFormatType = TableFormatType.REMOTE_DORIS;
+        this.tableFormatType = TableFormatType.ARROW_FLIGHT;
     }
 
     public ByteBuffer getTicket() {

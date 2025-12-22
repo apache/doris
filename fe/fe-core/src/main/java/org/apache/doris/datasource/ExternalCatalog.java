@@ -36,6 +36,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.datasource.arrowflight.ArrowFlightExternalDatabase;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalDatabase;
@@ -853,6 +854,8 @@ public abstract class ExternalCatalog
                 return new TrinoConnectorExternalDatabase(this, dbId, localDbName, remoteDbName);
             case REMOTE_DORIS:
                 return new RemoteDorisExternalDatabase(this, dbId, localDbName, remoteDbName);
+            case ARROW_FLIGHT:
+                return new ArrowFlightExternalDatabase(this, dbId, localDbName, remoteDbName);
             default:
                 break;
         }

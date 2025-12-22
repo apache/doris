@@ -131,6 +131,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.arrowflight.ArrowFlightExternalCatalog;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsExternalDatabase;
@@ -422,7 +423,8 @@ public class GsonUtils {
                 .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
                 .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonDLFExternalCatalog.class, PaimonDLFExternalCatalog.class.getSimpleName())
-                .registerSubtype(RemoteDorisExternalCatalog.class, RemoteDorisExternalCatalog.class.getSimpleName());
+                .registerSubtype(RemoteDorisExternalCatalog.class, RemoteDorisExternalCatalog.class.getSimpleName())
+                .registerSubtype(ArrowFlightExternalCatalog.class, ArrowFlightExternalCatalog.class.getSimpleName());
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());

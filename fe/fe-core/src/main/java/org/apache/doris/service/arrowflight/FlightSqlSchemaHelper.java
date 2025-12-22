@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TTableStatus;
 
+import com.google.common.base.Preconditions;
 import org.apache.arrow.adapter.jdbc.JdbcToArrowUtils;
 import org.apache.arrow.flight.sql.FlightSqlColumnMetadata;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetDbSchemas;
@@ -40,9 +41,6 @@ import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetTables;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.ZeroVector;
-import org.apache.arrow.vector.complex.BaseRepeatedValueVector;
-import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.DateUnit;
@@ -68,6 +66,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class FlightSqlSchemaHelper {
     private static final Logger LOG = LogManager.getLogger(FlightSqlSchemaHelper.class);
@@ -278,38 +277,55 @@ public class FlightSqlSchemaHelper {
             for (; columnIndex < tableOffset; columnIndex++) {
                 TColumnDef columnDef = describeTablesResult.getColumns().get(columnIndex);
                 TColumnDesc columnDesc = columnDef.getColumnDesc();
-                final ArrowType columnArrowType = columnDescToArrowType(columnDesc);
 
-                List<Field> columnArrowTypeChildren;
-                // Arrow complex types may require children fields for parsing the schema on C++
-                switch (columnArrowType.getTypeID()) {
-                    case List:
-                    case LargeList:
-                    case FixedSizeList:
-                        columnArrowTypeChildren = Collections.singletonList(
-                                Field.notNullable(BaseRepeatedValueVector.DATA_VECTOR_NAME,
-                                        ZeroVector.INSTANCE.getField().getType()));
-                        break;
-                    case Map:
-                        columnArrowTypeChildren = Collections.singletonList(
-                                Field.notNullable(MapVector.DATA_VECTOR_NAME, new ArrowType.List()));
-                        break;
-                    case Struct:
-                        columnArrowTypeChildren = Collections.emptyList();
-                        break;
-                    default:
-                        columnArrowTypeChildren = null;
-                        break;
-                }
-
-                final Field field = new Field(columnDesc.getColumnName(),
-                        new FieldType(columnDesc.isIsAllowNull(), columnArrowType, null,
-                                createFlightSqlColumnMetadata(dbName, tableName, columnDesc)), columnArrowTypeChildren);
+                Field field = buildTableToFields(columnDesc, dbName, tableName);
                 fields.add(field);
             }
             tableToFields.put(tableName, fields);
         }
         return tableToFields;
+    }
+
+    private Field buildTableToFields(TColumnDesc columnDesc, String dbName, String tableName) {
+        final ArrowType columnArrowType = columnDescToArrowType(columnDesc);
+
+        List<Field> columnArrowTypeChildren;
+        // Arrow complex types may require children fields for parsing the schema on C++
+        switch (columnArrowType.getTypeID()) {
+            case List:
+            case LargeList:
+            case FixedSizeList:
+                Preconditions.checkArgument(columnDesc.getChildren().size() == 1,
+                        "Lists have one child Field. Found: %s",
+                        columnDesc.getChildren().isEmpty() ? "none" : columnDesc.getChildren());
+                columnArrowTypeChildren = Collections.singletonList(
+                    buildTableToFields(columnDesc.getChildren().get(0), dbName, tableName)
+                );
+                break;
+            case Map:
+                Preconditions.checkArgument(columnDesc.getChildren().size() == 2,
+                        "Map have Two child Field. Found: %s",
+                        columnDesc.getChildren().isEmpty() ? "none" : columnDesc.getChildren());
+                columnArrowTypeChildren = Arrays.asList(
+                    buildTableToFields(columnDesc.getChildren().get(0), dbName, tableName),
+                    buildTableToFields(columnDesc.getChildren().get(1), dbName, tableName)
+                );
+                break;
+            case Struct:
+                Preconditions.checkArgument(!columnDesc.getChildren().isEmpty(),
+                        "Struct child Field is none");
+                columnArrowTypeChildren = columnDesc.getChildren().stream()
+                    .map(f -> buildTableToFields(f, dbName, tableName))
+                    .collect(Collectors.toList());
+                break;
+            default:
+                columnArrowTypeChildren = null;
+                break;
+        }
+
+        return new Field(columnDesc.getColumnName(),
+                new FieldType(columnDesc.isIsAllowNull(), columnArrowType, null,
+                createFlightSqlColumnMetadata(dbName, tableName, columnDesc)), columnArrowTypeChildren);
     }
 
     /**

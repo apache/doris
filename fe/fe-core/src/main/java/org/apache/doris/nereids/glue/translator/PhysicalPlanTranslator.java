@@ -47,8 +47,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
-import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
 import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.es.source.EsScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -67,6 +65,8 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.odbc.source.OdbcScanNode;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
+import org.apache.doris.datasource.source.ArrowFlightScanNode;
+import org.apache.doris.datasource.source.ArrowFlightSource;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
 import org.apache.doris.fs.DirectoryLister;
@@ -678,8 +678,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     fileScan.getSelectedPartitions(), false, sv);
         } else if (table instanceof LakeSoulExternalTable) {
             scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
-        } else if (table instanceof RemoteDorisExternalTable) {
-            scanNode = new RemoteDorisScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
+        } else if (fileScan.getScanParams().isPresent()
+                && fileScan.getScanParams().get().getSource() != null
+                && fileScan.getScanParams().get().getSource() instanceof ArrowFlightSource) {
+            scanNode = new ArrowFlightScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
+                (ArrowFlightSource) fileScan.getScanParams().get().getSource());
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
