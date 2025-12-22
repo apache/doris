@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/vertical_segment_writer.h"
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
@@ -63,7 +64,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
@@ -310,9 +310,8 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
-    _column_writers.push_back(std::move(writer));
-
-    _olap_data_convertor->add_column_data_convertor(column);
+    _column_writers[cid] = std::move(writer);
+    _olap_data_convertor->add_column_data_convertor_at(column, cid);
     return Status::OK();
 };
 
@@ -322,8 +321,8 @@ Status VerticalSegmentWriter::init() {
         _opts.compression_type = _tablet_schema->compression_type();
     }
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
-    _olap_data_convertor->reserve(_tablet_schema->num_columns());
-    _column_writers.reserve(_tablet_schema->columns().size());
+    _olap_data_convertor->resize(_tablet_schema->num_columns());
+    _column_writers.resize(_tablet_schema->num_columns());
     // we don't need the short key index for unique key merge on write table.
     if (_is_mow()) {
         size_t seq_col_length = 0;
@@ -535,6 +534,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     uint32_t segment_start_pos = 0;
     for (auto cid : including_cids) {
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
                 &full_block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
         // here we get segment column row num before append data.
@@ -639,6 +639,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     // convert missing columns and send to column writer
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     for (auto cid : missing_cids) {
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
                 &full_block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
@@ -697,7 +698,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // create full block and fill with sort key columns
     full_block = _tablet_schema->create_block();
 
-    uint32_t segment_start_pos = cast_set<uint32_t>(_column_writers.front()->get_next_rowid());
+    // Use _num_rows_written instead of creating column writer 0, since all column writers
+    // should have the same row count, which equals _num_rows_written.
+    uint32_t segment_start_pos = cast_set<uint32_t>(_num_rows_written);
 
     DCHECK(_tablet_schema->has_skip_bitmap_col());
     auto skip_bitmap_col_idx = _tablet_schema->skip_bitmap_col_idx();
@@ -713,6 +716,17 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                     { sleep(60); })
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+
+    // Ensure all primary key column writers and sequence column writer are created before
+    // aggregate_for_flexible_partial_update, because it internally calls convert_pk_columns
+    // and convert_seq_column which need the convertors in _olap_data_convertor
+    for (uint32_t cid = 0; cid < _tablet_schema->num_key_columns(); ++cid) {
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+    }
+    if (schema_has_sequence_col) {
+        uint32_t cid = _tablet_schema->sequence_col_idx();
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+    }
 
     // 1. aggregate duplicate rows in block
     RETURN_IF_ERROR(_block_aggregator.aggregate_for_flexible_partial_update(
@@ -788,6 +802,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
 
     // 8. encode and write all non-primary key columns(including sequence column if exists)
     for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
+        if (cid != _tablet_schema->sequence_col_idx()) {
+            RETURN_IF_ERROR(_create_column_writer(cast_set<uint32_t>(cid),
+                                                  _tablet_schema->column(cid), _tablet_schema));
+        }
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
                 full_block.get_by_position(cid), data.row_pos, data.num_rows,
                 cast_set<uint32_t>(cid)));
@@ -953,10 +971,6 @@ Status VerticalSegmentWriter::write_batch() {
         !_opts.rowset_ctx->is_transient_rowset_writer) {
         bool is_flexible_partial_update =
                 _opts.rowset_ctx->partial_update_info->is_flexible_partial_update();
-        for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
-            RETURN_IF_ERROR(
-                    _create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
-        }
         vectorized::Block full_block;
         for (auto& data : _batched_blocks) {
             if (is_flexible_partial_update) {
@@ -1375,7 +1389,7 @@ Status VerticalSegmentWriter::_write_footer() {
     // footer's size
     put_fixed32_le(&fixed_buf, cast_set<uint32_t>(footer_buf.size()));
     // footer's checksum
-    uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
     // Append magic number. we don't write magic number in the header because
     // that will need an extra seek when reading

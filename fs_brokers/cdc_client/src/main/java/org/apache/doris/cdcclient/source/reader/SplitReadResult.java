@@ -15,22 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.cdcclient.source.reader;
 
-#include <vector>
+import org.apache.flink.api.connector.source.SourceSplit;
+import org.apache.kafka.connect.source.SourceRecord;
 
-#include "util/slice.h"
+import java.util.Iterator;
 
-namespace doris {
-namespace crc32c {
+import lombok.Data;
 
-uint32_t Extend(uint32_t crc, const char* data, size_t n);
-
-// Return the crc32c of data[0,n-1]
-uint32_t Value(const char* data, size_t n);
-
-// Return the crc32c of data content in all slices
-uint32_t Value(const std::vector<Slice>& slices);
-
-} // namespace crc32c
-} // namespace doris
+/** The result of reading a split with iterator. */
+@Data
+public class SplitReadResult {
+    private Iterator<SourceRecord> recordIterator;
+    // MySqlSplitState, SourceSplitState
+    private Object splitState;
+    // MySqlSplit SourceSplitBase
+    private SourceSplit split;
+}
