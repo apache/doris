@@ -78,7 +78,7 @@ private:
     std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
     bool _child_eos = false;
-    std::vector<bool> _child_rows_has_output;
+    DorisVector<bool> _child_rows_has_output;
 
     RuntimeProfile::Counter* _init_function_timer = nullptr;
     RuntimeProfile::Counter* _process_rows_timer = nullptr;
