@@ -229,7 +229,7 @@ PhysicalResultSink
 
 -- !pushdown_left_outer_join_subquery_outer --
 PhysicalResultSink
---NestedLoopJoin[INNER_JOIN]OR[(t1.id = t2.id),AND[id IS NULL,(id > 1)]]
+--NestedLoopJoin[INNER_JOIN]OR[(t1.id = t2.id),AND[(id > 1),id IS NULL]]
 ----PhysicalOlapScan[t1]
 ----PhysicalAssertNumRows
 ------PhysicalOlapScan[t2]

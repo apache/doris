@@ -254,7 +254,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         * if it's semi join with non-null mark slot
                         * we can safely change the mark conjunct to hash conjunct
                         */
-                        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
+                        ExpressionRewriteContext rewriteContext
+                                = new ExpressionRewriteContext(join, ctx.cascadesContext);
                         boolean isMarkSlotNotNull = conjunct.containsType(MarkJoinSlotReference.class)
                                 ? ExpressionUtils.canInferNotNullForMarkSlot(
                                     TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(conjunct, rewriteContext),

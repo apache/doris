@@ -21,11 +21,16 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.CompoundValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.DiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.IsNotNullValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.IsNullValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.NotDiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDescVisitor;
 import org.apache.doris.nereids.rules.rewrite.SkipSimpleExprs;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -34,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -43,10 +49,9 @@ import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 /**
  * This class implements the function to simplify expression range.
@@ -69,7 +74,7 @@ import java.util.stream.Collectors;
  * 2. for `Or` expression (similar to `And`).
  * todo: support a > 10 and (a < 10 or a > 20 ) => a > 20
  */
-public class SimplifyRange implements ExpressionPatternRuleFactory {
+public class SimplifyRange implements ExpressionPatternRuleFactory, ValueDescVisitor<Expression, Void> {
     public static final SimplifyRange INSTANCE = new SimplifyRange();
 
     @Override
@@ -83,34 +88,22 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
     }
 
     /** rewrite */
-    public static Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
+    public Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
         if (SkipSimpleExprs.isSimpleExpr(expr)) {
             return expr;
         }
         ValueDesc valueDesc = (new RangeInference()).getValue(expr, context);
-        return INSTANCE.getExpression(valueDesc);
+        return valueDesc.accept(this, null);
     }
 
-    private Expression getExpression(ValueDesc value) {
-        if (value instanceof EmptyValue) {
-            return getExpression((EmptyValue) value);
-        } else if (value instanceof DiscreteValue) {
-            return getExpression((DiscreteValue) value);
-        } else if (value instanceof RangeValue) {
-            return getExpression((RangeValue) value);
-        } else if (value instanceof UnknownValue) {
-            return getExpression((UnknownValue) value);
-        } else {
-            throw new NotImplementedException("not implements");
-        }
-    }
-
-    private Expression getExpression(EmptyValue value) {
+    @Override
+    public Expression visitEmptyValue(EmptyValue value, Void context) {
         Expression reference = value.getReference();
         return ExpressionUtils.falseOrNull(reference);
     }
 
-    private Expression getExpression(RangeValue value) {
+    @Override
+    public Expression visitRangeValue(RangeValue value, Void context) {
         Expression reference = value.getReference();
         Range<ComparableLiteral> range = value.getRange();
         List<Expression> result = Lists.newArrayList();
@@ -135,27 +128,51 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         }
     }
 
-    private Expression getExpression(DiscreteValue value) {
-        return ExpressionUtils.toInPredicateOrEqualTo(value.getReference(),
-                value.getValues().stream().map(Literal.class::cast).collect(Collectors.toList()));
+    @Override
+    public Expression visitDiscreteValue(DiscreteValue value, Void context) {
+        return getDiscreteExpression(value.getReference(), value.values);
     }
 
-    private Expression getExpression(UnknownValue value) {
-        List<ValueDesc> sourceValues = value.getSourceValues();
-        if (sourceValues.isEmpty()) {
-            return value.getReference();
-        } else {
-            return getExpression(value.getExpressionRewriteContext(), sourceValues, value.isAnd());
+    @Override
+    public Expression visitNotDiscreteValue(NotDiscreteValue value, Void context) {
+        return new Not(getDiscreteExpression(value.getReference(), value.values));
+    }
+
+    @Override
+    public Expression visitIsNullValue(IsNullValue value, Void context) {
+        return new IsNull(value.getReference());
+    }
+
+    @Override
+    public Expression visitIsNotNullValue(IsNotNullValue value, Void context) {
+        return value.getNotExpression();
+    }
+
+    @Override
+    public Expression visitCompoundValue(CompoundValue value, Void context) {
+        return getCompoundExpression(value.getExpressionRewriteContext(), value.getSourceValues(), value.isAnd());
+    }
+
+    @Override
+    public Expression visitUnknownValue(UnknownValue value, Void context) {
+        return value.getReference();
+    }
+
+    private Expression getDiscreteExpression(Expression reference, Set<ComparableLiteral> values) {
+        ImmutableList.Builder<Expression> options = ImmutableList.builderWithExpectedSize(values.size());
+        for (ComparableLiteral value : values) {
+            options.add((Expression) value);
         }
+        return ExpressionUtils.toInPredicateOrEqualTo(reference, options.build());
     }
 
     /** getExpression */
-    public Expression getExpression(ExpressionRewriteContext context,
+    public Expression getCompoundExpression(ExpressionRewriteContext context,
             List<ValueDesc> sourceValues, boolean isAnd) {
         Preconditions.checkArgument(!sourceValues.isEmpty());
         List<Expression> sourceExprs = Lists.newArrayListWithExpectedSize(sourceValues.size());
         for (ValueDesc sourceValue : sourceValues) {
-            Expression expr = getExpression(sourceValue);
+            Expression expr = sourceValue.accept(this, null);
             if (isAnd) {
                 sourceExprs.addAll(ExpressionUtils.extractConjunction(expr));
             } else {

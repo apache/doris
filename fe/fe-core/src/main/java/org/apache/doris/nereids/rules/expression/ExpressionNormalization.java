@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicates
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyEqualBooleanLiteral;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -67,7 +68,8 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 SimplifyArithmeticComparisonRule.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
-                CheckCast.INSTANCE
+                CheckCast.INSTANCE,
+                SimplifyEqualBooleanLiteral.INSTANCE
             )
     );
 
