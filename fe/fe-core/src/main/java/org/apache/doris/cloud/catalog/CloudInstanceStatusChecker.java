@@ -58,6 +58,7 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         try {
+            long start = System.currentTimeMillis();
             Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
             if (!isResponseValid(response)) {
                 return;
@@ -67,7 +68,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             cloudSystemInfoService.setInstanceStatus(instance.getStatus());
             syncStorageVault(instance);
             processVirtualClusters(instance.getClustersList());
-
+            // Add a log message to indicate that this thread is operating normally.
+            LOG.info("finished to cloud instance checker. cost: {} ms",
+                    System.currentTimeMillis() - start);
         } catch (Exception e) {
             LOG.warn("get instance from ms exception", e);
         }
