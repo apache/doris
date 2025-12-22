@@ -323,8 +323,8 @@ struct TExprList {
 }
 
 struct TExprMinMaxValue {
-  1: required Types.TPrimitiveType type
-  2: required bool has_null
+  1: optional Types.TPrimitiveType type
+  2: optional bool has_null
   3: optional i64 min_int_value
   4: optional i64 max_int_value
   5: optional double min_float_value

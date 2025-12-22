@@ -89,7 +89,7 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
         : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx,
                             meta_cache),
           _kv_cache(kv_cache),
-          _could_use_iceberg_min_max_optimization(could_use_iceberg_min_max_optimization) {
+          _use_min_max_optimization(could_use_iceberg_min_max_optimization) {
     static const char* iceberg_profile = "IcebergProfile";
     ADD_TIMER(_profile, iceberg_profile);
     _iceberg_profile.num_delete_files =
@@ -103,7 +103,7 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
 }
 
 Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
-    if (_could_use_iceberg_min_max_optimization) {
+    if (_use_min_max_optimization) {
         RETURN_IF_ERROR(_insert_min_max_value_column(block));
         *read_rows = 3;
         *eof = true;
@@ -214,7 +214,7 @@ Status IcebergTableReader::_insert_value_to_column(MutableColumnPtr& column,
                                 sizeof(double));
             break;
         }
-        case TPrimitiveType::DATE: {
+        case TPrimitiveType::DATEV2: {
             auto min_date = static_cast<uint32_t>(value.min_int_value);
             auto max_date = static_cast<uint32_t>(value.max_int_value);
             column->insert_data(reinterpret_cast<const char*>(&min_date), sizeof(uint32_t));
@@ -223,7 +223,7 @@ Status IcebergTableReader::_insert_value_to_column(MutableColumnPtr& column,
         }
 
         default:
-            return Status::InternalError("Unsupported TExprNodeType {}", value.type);
+            return Status::InternalError("Unsupported TPrimitiveType {}", value.type);
         }
     }
     while (column->size() < 3) {

@@ -24,7 +24,7 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String catalog_name = "test_iceberg_optimize_count"
+    String catalog_name = "test_iceberg_optimize_min_max_catalog"
 
     try {
 
@@ -42,7 +42,6 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
         sql """ switch ${catalog_name} """
         sql """ use format_v2 """
 
-        sql """ set enable_iceberg_min_max_optimization=false; """
         String SQLSTR = """
                 MIN(id) AS id_min,
                 MAX(id) AS id_max,
@@ -68,14 +67,14 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
         def sqlstr3 = """ select ${SQLSTR} from sample_mor_orc; """
         def sqlstr4 = """ select ${SQLSTR} from sample_mor_parquet; """
 
-        // don't use push down count
+        // don't use push down count mix/max
         sql """ set enable_iceberg_min_max_optimization=false; """
         qt_false01 """${sqlstr1}""" 
         qt_false02 """${sqlstr2}""" 
         qt_false03 """${sqlstr3}""" 
         qt_false04 """${sqlstr4}""" 
 
-        // use push down count
+        // use push down count min/max
         sql """ set enable_iceberg_min_max_optimization=true; """
         for (String val: ["1K", "0"]) {
             sql "set file_split_size=${val}"
@@ -94,7 +93,9 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
         }
         explain {
             sql("""${sqlstr1}""")
+            notContains "approximate"
             contains """pushdown agg=MINMAX"""
+            contains """opt/total_splits(32/41)"""
         }
         explain {
             sql("""select * from sample_cow_parquet""")
@@ -102,7 +103,9 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
         }
         explain {
             sql("""${sqlstr2}""")
+            notContains "approximate"
             contains """pushdown agg=MINMAX"""
+            contains """opt/total_splits(32/32)"""
         }
         explain {
             sql("""select * from sample_mor_orc""")
@@ -110,12 +113,16 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
         }
         explain {
             sql("""${sqlstr3}""")
+            notContains "approximate"
             contains """pushdown agg=MINMAX"""
+            contains """opt/total_splits(32/32)"""
         }
         // because it has dangling delete
         explain {
             sql("""${sqlstr4}""")
+            notContains "approximate"
             contains """pushdown agg=MINMAX"""
+            contains """opt/total_splits(32/41)"""
         }
 
         // batch mode
@@ -126,7 +133,9 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
         }
         explain {
             sql("""${sqlstr1}""")
+            contains "approximate"
             contains """pushdown agg=MINMAX"""
+            contains """opt/total_splits""" //total is not accurate in batch mode
         }
         explain {
             sql("""select * from sample_cow_parquet""")
@@ -134,7 +143,9 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
         }
         explain {
             sql("""${sqlstr2}""")
+            contains "approximate"
             contains """pushdown agg=MINMAX"""
+            contains """opt/total_splits""" //total is not accurate in batch mode
         }
         explain {
             sql("""select * from sample_mor_orc""")
@@ -142,7 +153,9 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
         }
         explain {
             sql("""${sqlstr3}""")
+            contains "approximate"
             contains """pushdown agg=MINMAX"""
+            contains """opt/total_splits""" //total is not accurate in batch mode
         }
         explain {
             sql("""select * from sample_mor_parquet""")
@@ -151,11 +164,12 @@ suite("test_iceberg_optimize_min_max", "p0,external,doris,external_docker,extern
         // because it has dangling delete
         explain {
             sql("""${sqlstr4}""")
-            contains """pushdown agg=MINMAX"""
             contains "approximate"
+            contains """pushdown agg=MINMAX"""
+            contains """opt/total_splits""" //total is not accurate in batch mode
         }
 
-        // don't use push down count
+        // don't use push down min/max
         sql """ set enable_iceberg_min_max_optimization=false; """
 
         explain {

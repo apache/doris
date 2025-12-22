@@ -2175,7 +2175,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
 
-    @VariableMgr.VarAttr(name = ENABLE_ICEBERG_MIN_MAX_OPTIMIZATION, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_ICEBERG_MIN_MAX_OPTIMIZATION, description = {
+            "是否开启 Iceberg 表的 min max 下推优化，从文件统计信息中获取列的最大最小值",
+            "Whether to enable min-max pushdown optimization for Iceberg tables, retrieving the maximum and minimum"
+                    + " values of columns from file statistics." }, needForward = true)
     public boolean enableIcebergMinMaxOptimization = false;
 
     // Target file size for Iceberg write operations

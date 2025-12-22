@@ -158,7 +158,7 @@ protected:
                                          size_t read_rows, bool file_path_column_dictionary_coded);
     Status _insert_min_max_value_column(Block* block);
     Status _insert_value_to_column(MutableColumnPtr& column, const TExprMinMaxValue& value);
-    bool _could_use_iceberg_min_max_optimization = false;
+    bool _use_min_max_optimization = false;
     // equality delete
     Block _equality_delete_block;
     std::unique_ptr<EqualityDeleteBase> _equality_delete_impl;
