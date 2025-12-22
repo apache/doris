@@ -516,6 +516,12 @@ private:
     SegmentRecyclerMetricsContext segment_metrics_context_;
 };
 
+struct OperationLogReferenceInfo {
+    bool referenced_by_instance = false;
+    bool referenced_by_snapshot = false;
+    Versionstamp referenced_snapshot_timestamp;
+};
+
 // Helper class to check if operation logs can be recycled based on snapshots and versionstamps
 class OperationLogRecycleChecker {
 public:
@@ -527,9 +533,14 @@ public:
     int init();
 
     // Check if an operation log can be recycled
-    bool can_recycle(const Versionstamp& log_versionstamp, int64_t log_min_timestamp) const;
+    bool can_recycle(const Versionstamp& log_versionstamp, int64_t log_min_timestamp,
+                     OperationLogReferenceInfo* reference_info) const;
 
     Versionstamp max_versionstamp() const { return max_versionstamp_; }
+
+    const std::vector<std::pair<SnapshotPB, Versionstamp>>& get_snapshots() const {
+        return snapshots_;
+    }
 
 private:
     std::string_view instance_id_;
@@ -539,6 +550,35 @@ private:
     Versionstamp source_snapshot_versionstamp_;
     std::map<Versionstamp, size_t> snapshot_indexes_;
     std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots_;
+};
+
+class SnapshotDataSizeCalculator {
+public:
+    SnapshotDataSizeCalculator(std::string_view instance_id, std::shared_ptr<TxnKv> txn_kv)
+            : instance_id_(instance_id), txn_kv_(std::move(txn_kv)) {}
+
+    void init(const std::vector<std::pair<SnapshotPB, Versionstamp>>& snapshots);
+
+    int calculate_operation_log_data_size(const std::string_view& log_key,
+                                          OperationLogPB& operation_log,
+                                          OperationLogReferenceInfo& reference_info);
+
+    int save_snapshot_data_size_with_retry();
+
+private:
+    int get_all_index_partitions(int64_t db_id, int64_t table_id, int64_t index_id,
+                                 std::vector<int64_t>* partition_ids);
+    int get_index_partition_data_size(int64_t db_id, int64_t table_id, int64_t index_id,
+                                      int64_t partition_id, int64_t* data_size);
+    int save_operation_log(const std::string_view& log_key, OperationLogPB& operation_log);
+    int save_snapshot_data_size();
+
+    std::string_view instance_id_;
+    std::shared_ptr<TxnKv> txn_kv_;
+
+    int64_t instance_retained_data_size_ = 0;
+    std::map<Versionstamp, int64_t> retained_data_size_;
+    std::set<std::string> calculated_partitions_;
 };
 
 } // namespace doris::cloud
