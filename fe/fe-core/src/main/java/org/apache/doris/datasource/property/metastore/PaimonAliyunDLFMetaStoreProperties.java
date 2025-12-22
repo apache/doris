@@ -92,7 +92,7 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
                         || sp.getType() == StorageProperties.Type.OSS_HDFS)
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("Paimon DLF metastore requires OSS storage properties."));
-        hiveConf.addResource(ossProps.getHadoopStorageConfig());
+        ossProps.getHadoopStorageConfig().forEach(entry -> hiveConf.set(entry.getKey(), entry.getValue()));
         appendUserHadoopConfig(hiveConf);
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, hiveConf);
         return CatalogFactory.createCatalog(catalogContext);
