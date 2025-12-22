@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -34,12 +33,10 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
@@ -85,13 +82,20 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     }).toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
             // after BuildAggForUnion rule, union may have more than 2 children.
             logicalUnion(multi()).then(union -> {
-                if (union.children().isEmpty()) {
-                    // example: select * from (select 1,2 union select 3, 4) T;
-                    // the children size is 0. (1,2) and (3,4) are stored in union.constantExprsList
+                boolean needProcess = union.arity() == 1;
+                for (int i = 0; i < union.arity(); i++) {
+                    if (union.child(i) instanceof EmptyRelation) {
+                        needProcess = true;
+                        break;
+                    }
+                }
+                if (!needProcess) {
                     return null;
                 }
-                ImmutableList.Builder<Plan> nonEmptyChildrenBuilder = ImmutableList.builder();
-                ImmutableList.Builder<List<SlotReference>> nonEmptyOutputsBuilder = ImmutableList.builder();
+                ImmutableList.Builder<Plan> nonEmptyChildrenBuilder
+                        = ImmutableList.builderWithExpectedSize(union.arity());
+                ImmutableList.Builder<List<SlotReference>> nonEmptyOutputsBuilder
+                        = ImmutableList.builderWithExpectedSize(union.arity());
                 for (int i = 0; i < union.arity(); i++) {
                     if (!(union.child(i) instanceof EmptyRelation)) {
                         nonEmptyChildrenBuilder.add(union.child(i));
@@ -99,54 +103,30 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     }
                 }
                 List<Plan> nonEmptyChildren = nonEmptyChildrenBuilder.build();
+                List<List<SlotReference>> nonEmptyOutputs = nonEmptyOutputsBuilder.build();
                 if (nonEmptyChildren.isEmpty()) {
                     if (union.getConstantExprsList().isEmpty()) {
                         return new LogicalEmptyRelation(
                                 ConnectContext.get().getStatementContext().getNextRelationId(),
                                 union.getOutput());
-                    } else if (union.getConstantExprsList().size() == 1) {
-                        List<NamedExpression> constantExprs = union.getConstantExprsList().get(0);
-                        ImmutableList.Builder<NamedExpression> newOneRowRelationOutput
-                                = ImmutableList.builderWithExpectedSize(constantExprs.size());
-                        for (int i = 0; i < constantExprs.size(); i++) {
-                            NamedExpression setOutput = union.getOutput().get(i);
-                            NamedExpression constantExpr = constantExprs.get(i);
-                            Expression realConstantExpr = constantExpr instanceof Alias
-                                    ? ((Alias) constantExpr).child() : constantExpr;
-                            Alias oneRowRelationOutput = new Alias(
-                                    setOutput.getExprId(), realConstantExpr, setOutput.getName());
-                            newOneRowRelationOutput.add(oneRowRelationOutput);
-                        }
-                        return new LogicalOneRowRelation(
-                                ConnectContext.get().getStatementContext().getNextRelationId(),
-                                newOneRowRelationOutput.build());
                     } else {
                         return union.withChildrenAndTheirOutputs(ImmutableList.of(), ImmutableList.of());
                     }
                 } else if (nonEmptyChildren.size() == 1) {
                     if (union.getConstantExprsList().isEmpty()) {
-                        Plan child = nonEmptyChildren.get(0);
+                        ImmutableList.Builder<NamedExpression> projectsBuilder = ImmutableList.builder();
                         List<Slot> unionOutput = union.getOutput();
-                        int childIdx = union.children().indexOf(nonEmptyChildren.get(0));
-                        if (childIdx >= 0) {
-                            List<SlotReference> childOutput = union.getRegularChildOutput(childIdx);
-                            List<NamedExpression> projects = Lists.newArrayList();
-                            for (int i = 0; i < unionOutput.size(); i++) {
-                                ExprId id = unionOutput.get(i).getExprId();
-                                Alias alias = new Alias(id, childOutput.get(i), unionOutput.get(i).getName());
-                                projects.add(alias);
-                            }
-
-                            return new LogicalProject<>(projects, child);
-                        } else {
-                            // should not hit here.
-                            return null;
+                        for (int i = 0; i < unionOutput.size(); i++) {
+                            ExprId id = unionOutput.get(i).getExprId();
+                            Alias alias = new Alias(id, nonEmptyOutputs.get(0).get(i), unionOutput.get(i).getName());
+                            projectsBuilder.add(alias);
                         }
+                        return new LogicalProject<>(projectsBuilder.build(), nonEmptyChildren.get(0));
                     }
                 }
 
                 if (union.children().size() != nonEmptyChildren.size()) {
-                    return union.withChildrenAndTheirOutputs(nonEmptyChildren, nonEmptyOutputsBuilder.build());
+                    return union.withChildrenAndTheirOutputs(nonEmptyChildren, nonEmptyOutputs);
                 } else {
                     // no empty relation child, do not change union
                     return null;
@@ -192,8 +172,20 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                             ConnectContext.get().getStatementContext().getNextRelationId(),
                             except.getOutput());
                 } else {
-                    ImmutableList.Builder<Plan> nonEmptyChildrenBuilder = ImmutableList.builder();
-                    ImmutableList.Builder<List<SlotReference>> nonEmptyOutputsBuilder = ImmutableList.builder();
+                    boolean needProcess = false;
+                    for (int i = 1; i < except.arity(); i++) {
+                        if (except.child(i) instanceof EmptyRelation) {
+                            needProcess = true;
+                            break;
+                        }
+                    }
+                    if (!needProcess) {
+                        return null;
+                    }
+                    ImmutableList.Builder<Plan> nonEmptyChildrenBuilder
+                            = ImmutableList.builderWithExpectedSize(except.arity());
+                    ImmutableList.Builder<List<SlotReference>> nonEmptyOutputsBuilder
+                            = ImmutableList.builderWithExpectedSize(except.arity());
                     for (int i = 0; i < except.arity(); i++) {
                         if (!(except.child(i) instanceof EmptyRelation)) {
                             nonEmptyChildrenBuilder.add(except.child(i));
@@ -201,31 +193,27 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                         }
                     }
                     List<Plan> nonEmptyChildren = nonEmptyChildrenBuilder.build();
+                    List<List<SlotReference>> nonEmptyOutputs = nonEmptyOutputsBuilder.build();
                     if (nonEmptyChildren.size() == 1) {
                         // the first child is not empty, others are all empty
                         // case 1. FIRST except(distinct) empty = > project(AGG(FIRST))
                         // case 2. FIRST except(all) empty = > project(FIRST)
                         Plan projectChild;
                         if (except.getQualifier() == SetOperation.Qualifier.DISTINCT) {
-                            List<NamedExpression> firstOutputNamedExpressions = first.getOutput()
-                                    .stream().map(slot -> (NamedExpression) slot)
-                                    .collect(ImmutableList.toImmutableList());
-                            projectChild = new LogicalAggregate<>(ImmutableList.copyOf(firstOutputNamedExpressions),
-                                    firstOutputNamedExpressions, true, Optional.empty(), first);
+                            projectChild = new LogicalAggregate<>((List) nonEmptyOutputs.get(0),
+                                    (List) nonEmptyOutputs.get(0), true, Optional.empty(), first);
                         } else {
                             projectChild = first;
                         }
                         List<Slot> exceptOutput = except.getOutput();
-                        List<Slot> projectInputSlots = projectChild.getOutput();
-                        List<NamedExpression> projects = Lists.newArrayList();
+                        List<SlotReference> projectInputSlots = nonEmptyOutputs.get(0);
+                        ImmutableList.Builder<NamedExpression> projectsBuilder = ImmutableList.builder();
                         for (int i = 0; i < exceptOutput.size(); i++) {
                             ExprId id = exceptOutput.get(i).getExprId();
                             Alias alias = new Alias(id, projectInputSlots.get(i), exceptOutput.get(i).getName());
-                            projects.add(alias);
+                            projectsBuilder.add(alias);
                         }
-                        return new LogicalProject<>(projects, projectChild);
-                    } else if (nonEmptyChildren.size() == except.children().size()) {
-                        return null;
+                        return new LogicalProject<>(projectsBuilder.build(), projectChild);
                     } else {
                         return except.withChildrenAndTheirOutputs(nonEmptyChildren, nonEmptyOutputsBuilder.build());
                     }

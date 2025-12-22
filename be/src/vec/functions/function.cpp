@@ -49,7 +49,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     ColumnPtr src_not_nullable = src;
     MutableColumnPtr mutable_result_null_map_column;
 
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*src)) {
+    if (auto nullable = check_and_get_column_ptr<ColumnNullable>(src)) {
         src_not_nullable = nullable->get_nested_column_ptr();
         result_null_map_column = nullable->get_null_map_column_ptr();
     }
@@ -60,8 +60,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
             continue;
         }
 
-        if (const auto* nullable = assert_cast<const ColumnNullable*>(elem.column.get());
-            nullable->has_null()) {
+        if (auto nullable = cast_to_column<ColumnNullable>(elem.column); nullable->has_null()) {
             const ColumnPtr& null_map_column = nullable->get_null_map_column_ptr();
             if (!result_null_map_column) { // NOLINT(bugprone-use-after-move)
                 result_null_map_column = null_map_column->clone_resized(input_rows_count);

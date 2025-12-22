@@ -38,6 +38,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
@@ -327,7 +328,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             return icebergTableScan;
         }
 
-        TableScan scan = icebergTable.newScan();
+        TableScan scan = icebergTable.newScan().metricsReporter(new IcebergMetricsReporter());
 
         // set snapshot
         IcebergTableQueryInfo info = getSpecifiedSnapshot();
@@ -584,15 +585,24 @@ public class IcebergScanNode extends FileQueryScanNode {
             return 0;
         }
 
-        // `TOTAL_POSITION_DELETES` is need to 0,
-        // because prevent 'dangling delete' problem after `rewrite_data_files`
-        // ref: https://iceberg.apache.org/docs/nightly/spark-procedures/#rewrite_position_delete_files
         Map<String, String> summary = snapshot.summary();
-        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")
-                || !summary.get(IcebergUtils.TOTAL_POSITION_DELETES).equals("0")) {
+        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
+            // has equality delete files, can not push down count
             return -1;
         }
-        return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
+
+        long deleteCount = Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
+        if (deleteCount == 0) {
+            // no delete files, can push down count directly
+            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
+        }
+        if (sessionVariable.ignoreIcebergDanglingDelete) {
+            // has position delete files, if we ignore dangling delete, can push down count
+            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS)) - deleteCount;
+        } else {
+            // otherwise, can not push down count
+            return -1;
+        }
     }
 
     @Override
@@ -667,4 +677,3 @@ public class IcebergScanNode extends FileQueryScanNode {
         return Optional.empty();
     }
 }
-

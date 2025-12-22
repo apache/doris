@@ -17,8 +17,9 @@
 
 #include "cloud/delete_bitmap_file_writer.h"
 
+#include <crc32c/crc32c.h>
+
 #include "io/fs/file_writer.h"
-#include "util/crc32c.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -86,7 +87,7 @@ Status DeleteBitmapFileWriter::write(const DeleteBitmapPB& delete_bitmap) {
 
     // 3. write checksum
     uint8_t checksum_buf[CHECKSUM_SIZE];
-    uint32_t checksum = crc32c::Value(content.data(), delete_bitmap_len);
+    uint32_t checksum = crc32c::Crc32c(content.data(), delete_bitmap_len);
     encode_fixed32_le(checksum_buf, checksum);
     RETURN_IF_ERROR(_file_writer->append({checksum_buf, CHECKSUM_SIZE}));
     return Status::OK();

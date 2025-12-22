@@ -862,9 +862,6 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
-        if (parsedStmt != null && statementContext.getParsedStatement() == null) {
-            statementContext.setParsedStatement(parsedStmt);
-        }
     }
 
     public void finalizeQuery() {

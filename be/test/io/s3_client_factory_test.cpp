@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <gtest/gtest.h>
 
@@ -58,9 +59,10 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 
     {
         auto provider_v2 = factory.get_aws_credentials_provider(role_conf1);
-        auto custom_chain_v2 =
-                std::dynamic_pointer_cast<CustomAwsCredentialsProviderChain>(provider_v2);
-        ASSERT_NE(custom_chain_v2, nullptr);
+        auto instance_profile_v2 =
+                std::dynamic_pointer_cast<Aws::Auth::InstanceProfileCredentialsProvider>(
+                        provider_v2);
+        ASSERT_NE(instance_profile_v2, nullptr);
     }
 
     {

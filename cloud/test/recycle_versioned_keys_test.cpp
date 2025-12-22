@@ -101,6 +101,14 @@ void create_and_refresh_instance(
     InstanceInfoPB instance_info;
     instance_info.set_instance_id(instance_id);
     instance_info.set_multi_version_status(multi_version_status);
+    auto* obj_info = instance_info.mutable_obj_info()->Add();
+    obj_info->set_id(std::string(RESOURCE_ID));
+    obj_info->set_ak("mock_ak");
+    obj_info->set_sk("mock_sk");
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("");
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->put(instance_key(instance_id), instance_info.SerializeAsString());
@@ -300,7 +308,8 @@ void commit_rowset(MetaServiceProxy* meta_service, const std::string& cloud_uniq
 
 void insert_rowset(MetaServiceProxy* meta_service, const std::string& cloud_unique_id,
                    int64_t db_id, const std::string& label, int64_t table_id, int64_t partition_id,
-                   int64_t tablet_id, std::string* rowset_id = nullptr) {
+                   int64_t tablet_id, std::string* rowset_id = nullptr,
+                   StorageVaultAccessor* accessor = nullptr) {
     int64_t txn_id = 0;
     ASSERT_NO_FATAL_FAILURE(
             begin_txn(meta_service, cloud_unique_id, db_id, label, table_id, txn_id));
@@ -311,6 +320,12 @@ void insert_rowset(MetaServiceProxy* meta_service, const std::string& cloud_uniq
     ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service, cloud_unique_id, rowset));
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service, cloud_unique_id, rowset));
     ASSERT_NO_FATAL_FAILURE(commit_txn(meta_service, cloud_unique_id, db_id, txn_id, label));
+    if (accessor) {
+        for (int i = 0; i < 1; ++i) {
+            auto path = doris::cloud::segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i);
+            accessor->put_file(path, "");
+        }
+    }
 }
 
 void insert_rowsets(MetaServiceProxy* meta_service, const std::string& cloud_unique_id,
@@ -1800,13 +1815,37 @@ TEST(RecycleVersionedKeysTest, RecycleDeletedInstance) {
                                               index_id, partition_id, tablet_id));
     }
 
+    InstanceInfoPB instance_info;
+    get_instance(meta_service.get(), cloud_unique_id, instance_info);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    std::shared_ptr<StorageVaultAccessor> accessor = nullptr;
+    {
+        ASSERT_EQ(recycler.init(), 0);
+        ASSERT_EQ(recycler.accessor_map_.size(), 1);
+        accessor = recycler.accessor_map_.begin()->second;
+        ASSERT_TRUE(accessor != nullptr);
+    }
     size_t num_rowsets = 4;
     {
         // insert some rowsets
         for (size_t i = 0; i < num_rowsets; ++i) {
-            ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), cloud_unique_id, db_id,
-                                                  fmt::format("label_{}", i), table_id,
-                                                  partition_id, tablet_id));
+            ASSERT_NO_FATAL_FAILURE(insert_rowset(
+                    meta_service.get(), cloud_unique_id, db_id, fmt::format("label_{}", i),
+                    table_id, partition_id, tablet_id, nullptr, accessor.get()));
+        }
+    }
+
+    std::vector<doris::RowsetMetaCloudPB> rowsets;
+    {
+        get_rowsets(meta_service.get(), cloud_unique_id, tablet_id, 0, 4, rowsets);
+        ASSERT_EQ(rowsets.size(), 4);
+        for (int i = 1; i < rowsets.size(); ++i) {
+            std::unique_ptr<ListIterator> list_iter;
+            ASSERT_EQ(0, accessor->list_directory(
+                                 rowset_path_prefix(tablet_id, rowsets[i].rowset_id_v2()),
+                                 &list_iter));
+            ASSERT_EQ(list_iter->has_next(), true);
         }
     }
 
@@ -1817,10 +1856,7 @@ TEST(RecycleVersionedKeysTest, RecycleDeletedInstance) {
 
     {
         // Recycle deleted instance
-        InstanceInfoPB instance_info;
-        ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
-        auto recycler = get_instance_recycler(meta_service.get(), instance_info);
-        ASSERT_EQ(recycler->recycle_deleted_instance(), 0);
+        ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
     }
 
     {
@@ -1851,5 +1887,13 @@ TEST(RecycleVersionedKeysTest, RecycleDeletedInstance) {
         std::string log_key = versioned::log_key_prefix(instance_id);
         std::string log_key_end = versioned::log_key_prefix(instance_id + '\x00');
         ASSERT_EQ(count_range(txn_kv.get(), log_key, log_key_end), 0) << dump_range(txn_kv.get());
+
+        for (int i = 1; i < rowsets.size(); ++i) {
+            std::unique_ptr<ListIterator> list_iter;
+            ASSERT_EQ(0, accessor->list_directory(
+                                 rowset_path_prefix(tablet_id, rowsets[i].rowset_id_v2()),
+                                 &list_iter));
+            ASSERT_EQ(list_iter->has_next(), false);
+        }
     }
 }

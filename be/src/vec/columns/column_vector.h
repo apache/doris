@@ -52,6 +52,11 @@
 
 class SipHash;
 
+namespace doris::pipeline {
+template <int JoinOpType>
+struct ProcessHashTableProbe;
+}
+
 namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
@@ -72,6 +77,9 @@ private:
     using Self = ColumnVector;
     friend class COWHelper<IColumn, Self>;
 
+    template <int JoinOpType>
+    friend struct doris::pipeline::ProcessHashTableProbe;
+
     struct less;
     struct greater;
 
@@ -79,6 +87,7 @@ public:
     using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
     using Container = PaddedPODArray<value_type>;
 
+private:
     ColumnVector() = default;
     explicit ColumnVector(const size_t n) : data(n) {}
     explicit ColumnVector(const size_t n, const value_type x) : data(n, x) {}
@@ -87,6 +96,7 @@ public:
     /// Sugar constructor.
     ColumnVector(std::initializer_list<value_type> il) : data {il} {}
 
+public:
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
@@ -234,11 +244,18 @@ public:
             }
         }
     }
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
+
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
+
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
@@ -327,6 +344,8 @@ public:
 
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
+    bool support_replace_column_null_data() const override { return true; }
+
     void replace_float_special_values() override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
@@ -351,6 +370,7 @@ public:
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
 
 protected:
+    uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
     // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
     // raise errors for null cell.
     static value_type default_value() {

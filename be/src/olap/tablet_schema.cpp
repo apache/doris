@@ -1182,6 +1182,12 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     } else {
         _is_external_segment_column_meta_used = false;
     }
+    if (schema.has_integer_type_default_use_plain_encoding()) {
+        _integer_type_default_use_plain_encoding = schema.integer_type_default_use_plain_encoding();
+    }
+    if (schema.has_binary_plain_encoding_default_impl()) {
+        _binary_plain_encoding_default_impl = schema.binary_plain_encoding_default_impl();
+    }
     update_metadata_size();
 }
 
@@ -1454,6 +1460,9 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
     tablet_schema_pb->set_is_external_segment_column_meta_used(
             _is_external_segment_column_meta_used);
+    tablet_schema_pb->set_integer_type_default_use_plain_encoding(
+            _integer_type_default_use_plain_encoding);
+    tablet_schema_pb->set_binary_plain_encoding_default_impl(_binary_plain_encoding_default_impl);
 }
 
 size_t TabletSchema::row_size() const {
@@ -1835,6 +1844,10 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
     if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
+        return false;
+    if (a._integer_type_default_use_plain_encoding != b._integer_type_default_use_plain_encoding)
+        return false;
+    if (a._binary_plain_encoding_default_impl != b._binary_plain_encoding_default_impl)
         return false;
     return true;
 }

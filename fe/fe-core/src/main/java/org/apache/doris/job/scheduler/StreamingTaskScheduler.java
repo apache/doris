@@ -25,8 +25,8 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
-import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
 
 import lombok.extern.log4j.Log4j2;
 
@@ -74,16 +74,16 @@ public class StreamingTaskScheduler extends MasterDaemon {
     }
 
     private void process() throws InterruptedException {
-        List<StreamingInsertTask> tasks = new ArrayList<>();
-        LinkedBlockingDeque<StreamingInsertTask> needScheduleTasksQueue =
+        List<AbstractStreamingTask> tasks = new ArrayList<>();
+        LinkedBlockingDeque<AbstractStreamingTask> needScheduleTasksQueue =
                 Env.getCurrentEnv().getJobManager().getStreamingTaskManager().getNeedScheduleTasksQueue();
         tasks.add(needScheduleTasksQueue.take());
         needScheduleTasksQueue.drainTo(tasks);
         scheduleTasks(tasks);
     }
 
-    private void scheduleTasks(List<StreamingInsertTask> tasks) {
-        for (StreamingInsertTask task : tasks) {
+    private void scheduleTasks(List<AbstractStreamingTask> tasks) {
+        for (AbstractStreamingTask task : tasks) {
             threadPool.execute(() -> {
                 try {
                     scheduleOneTask(task);
@@ -104,7 +104,7 @@ public class StreamingTaskScheduler extends MasterDaemon {
         }
     }
 
-    private void scheduleOneTask(StreamingInsertTask task) {
+    private void scheduleOneTask(AbstractStreamingTask task) {
         if (DebugPointUtil.isEnable("StreamingJob.scheduleTask.exception")) {
             throw new RuntimeException("debug point StreamingJob.scheduleTask.exception");
         }
@@ -143,7 +143,7 @@ public class StreamingTaskScheduler extends MasterDaemon {
         }
     }
 
-    private void scheduleTaskWithDelay(StreamingInsertTask task, long delayMs) {
+    private void scheduleTaskWithDelay(AbstractStreamingTask task, long delayMs) {
         delayScheduler.schedule(() -> {
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(task);
         }, delayMs, TimeUnit.MILLISECONDS);

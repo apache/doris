@@ -24,7 +24,7 @@
 
 namespace doris {
 
-CloudRowsetWriter::CloudRowsetWriter() = default;
+CloudRowsetWriter::CloudRowsetWriter(CloudStorageEngine& engine) : _engine(engine) {}
 
 CloudRowsetWriter::~CloudRowsetWriter() = default;
 
@@ -63,6 +63,9 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
+    if (_context.mow_context != nullptr) {
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
+    }
     return Status::OK();
 }
 
@@ -75,6 +78,9 @@ Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check
 }
 
 Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
+    if (_calc_delete_bitmap_token != nullptr) {
+        RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
+    }
     RETURN_IF_ERROR(_close_file_writers());
 
     // TODO(plat1ko): check_segment_footer
