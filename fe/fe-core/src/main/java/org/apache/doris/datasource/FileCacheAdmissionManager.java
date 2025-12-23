@@ -19,16 +19,18 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.common.Config;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,15 +38,30 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class FileCacheAdmissionManager {
     private static final Logger LOG = LogManager.getLogger(FileCacheAdmissionManager.class);
 
     public enum RuleType {
-        EXCLUDE,     // 0
-        INCLUDE      // 1
+        EXCLUDE(0),
+        INCLUDE(1);
+
+        private final int value;
+
+        RuleType(int value) {
+            this.value = value;
+        }
+
+        public static RuleType fromValue(int value) {
+            if (value == 0) {
+                return EXCLUDE;
+            } else if (value == 1) {
+                return INCLUDE;
+            }
+            throw new IllegalArgumentException("Invalid RuleType Value: " + value);
+        }
     }
 
     public enum RuleLevel {
@@ -115,44 +132,74 @@ public class FileCacheAdmissionManager {
         }
     }
 
-
     public static class AdmissionRule {
-        private final RulePattern rulePattern;
+        private final long id;
+        private final String userIdentity;
+        private final String catalog;
+        private final String database;
+        private final String table;
+        private final String partitionPattern;
+        private final RuleType ruleType;
         private final boolean enabled;
+        private final long createdTime;
         private final long updatedTime;
 
-        public AdmissionRule(long id, String userIdentity, String catalog,
-                             String database, String table, String partitionPattern,
-                             RuleType ruleType, boolean enabled, long updatedTime) {
-            this.rulePattern = new RulePattern(id, userIdentity, catalog, database, table, partitionPattern,
-                    ruleType);
+        @JsonCreator
+        public AdmissionRule(
+                @JsonProperty("id") long id,
+                @JsonProperty("user_identity") String userIdentity,
+                @JsonProperty("catalog_name") String catalog,
+                @JsonProperty("database_name") String database,
+                @JsonProperty("table_name") String table,
+                @JsonProperty("partition_pattern") String partitionPattern,
+                @JsonProperty("rule_type") int ruleType,
+                @JsonProperty("enabled") boolean enabled,
+                @JsonProperty("created_time") long createdTime,
+                @JsonProperty("updated_time") long updatedTime) {
+            this.id = id;
+            this.userIdentity = userIdentity;
+            this.catalog = catalog != null ? catalog : "";
+            this.database = database != null ? database : "";
+            this.table = table != null ? table : "";
+            this.partitionPattern = partitionPattern != null ? partitionPattern : "";
+            this.ruleType = RuleType.fromValue(ruleType);
             this.enabled = enabled;
+            this.createdTime = createdTime;
             this.updatedTime = updatedTime;
         }
 
-        public RulePattern getRulePattern() {
-            return rulePattern;
+        public RulePattern toRulePattern() {
+            return new RulePattern(id, userIdentity, catalog, database, table, partitionPattern, ruleType);
         }
 
         public boolean isEnabled() {
             return enabled;
         }
+    }
 
-        public long getUpdatedTime() {
-            return updatedTime;
+    public static class RuleLoader {
+        private static final ObjectMapper MAPPER = new ObjectMapper();
+
+        public static List<AdmissionRule> loadRulesFromFile(String filePath) throws Exception {
+            File file = new File(filePath);
+            if (!file.exists()) {
+                throw new IllegalArgumentException("File cache admission JSON file does not exist: " + filePath);
+            }
+
+            return MAPPER.readValue(file, new TypeReference<List<AdmissionRule>>() {});
         }
     }
 
     public static class ConcurrentRuleCollection {
-        private AtomicBoolean excludeGlobal = new AtomicBoolean(false);
-        private final Set<String> excludeCatalogRules = ConcurrentHashMap.newKeySet();
-        private final Map<String, Set<String>> excludeDatabaseRules = new ConcurrentHashMap<>();
-        private final Map<String, Set<String>> excludeTableRules = new ConcurrentHashMap<>();
+        private Boolean excludeGlobal = false;
+        private final Set<String> excludeCatalogRules = new HashSet<>();
+        private final Map<String, Set<String>> excludeDatabaseRules = new HashMap<>();
+        private final Map<String, Set<String>> excludeTableRules = new HashMap<>();
 
-        private AtomicBoolean includeGlobal = new AtomicBoolean(false);
-        private final Set<String> includeCatalogRules = ConcurrentHashMap.newKeySet();
-        private final Map<String, Set<String>> includeDatabaseRules = new ConcurrentHashMap<>();
-        private final Map<String, Set<String>> includeTableRules = new ConcurrentHashMap<>();
+        private Boolean includeGlobal = false;
+        private final Set<String> includeCatalogRules = new HashSet<>();
+        private final Map<String, Set<String>> includeDatabaseRules = new HashMap<>();
+        private final Map<String, Set<String>> includeTableRules = new HashMap<>();
 
         static List<String> reasons = new ArrayList<>(Arrays.asList(
                 "common catalog-level blacklist rule",      // 0
@@ -281,12 +328,12 @@ public class FileCacheAdmissionManager {
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
-            if (userCollection.excludeGlobal.get()) {
+            if (userCollection.excludeGlobal) {
                 reason.set(reasons.get(6));
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
-            if (userCollection.includeGlobal.get()) {
+            if (userCollection.includeGlobal) {
                 reason.set(reasons.get(7));
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
@@ -371,9 +418,9 @@ public class FileCacheAdmissionManager {
             switch (ruleLevel) {
                 case GLOBAL:
                     if (rulePattern.getRuleType() == RuleType.EXCLUDE) {
-                        excludeGlobal.set(true);
+                        excludeGlobal = true;
                     } else {
-                        includeGlobal.set(true);
+                        includeGlobal = true;
                     }
                     break;
                 case CATALOG:
@@ -409,13 +456,12 @@ public class FileCacheAdmissionManager {
             Map<String, Set<String>> tableRules = (rulePattern.getRuleType() == RuleType.EXCLUDE)
                     ? excludeTableRules : includeTableRules;
 
-
             switch (ruleLevel) {
                 case GLOBAL:
                     if (rulePattern.getRuleType() == RuleType.EXCLUDE) {
-                        excludeGlobal.set(false);
+                        excludeGlobal = false;
                     } else {
-                        includeGlobal.set(false);
+                        includeGlobal = false;
                     }
                     break;
                 case CATALOG:
@@ -453,7 +499,6 @@ public class FileCacheAdmissionManager {
         private static final int PARTITION_COUNT = 58; // A-Z + a-z + 其他字符
         private final List<Map<String, ConcurrentRuleCollection>> maps;
         private final ConcurrentRuleCollection commonCollection;
-        private final Map<Long, RulePattern> idToRulePattern = new ConcurrentHashMap<>();
 
         static List<String> otherReasons = new ArrayList<>(Arrays.asList(
                 "empty user_identity",
@@ -479,21 +524,21 @@ public class FileCacheAdmissionManager {
                     continue;
                 }
 
-                if (rule.getRulePattern().getUserIdentity().isEmpty()) {
-                    commonCollection.add(rule.getRulePattern());
-                    idToRulePattern.put(rule.getRulePattern().getId(), new RulePattern(rule.getRulePattern()));
+                RulePattern rulePattern = rule.toRulePattern();
+
+                if (rulePattern.getUserIdentity().isEmpty()) {
+                    commonCollection.add(rulePattern);
                     continue;
                 }
 
-                char firstChar = rule.getRulePattern().getUserIdentity().charAt(0);
+                char firstChar = rulePattern.getUserIdentity().charAt(0);
                 if (!Character.isAlphabetic(firstChar)) {
                     continue;
                 }
 
                 int index = getIndex(firstChar);
-                maps.get(index).computeIfAbsent(rule.getRulePattern().getUserIdentity(),
-                        k -> new ConcurrentRuleCollection()).add(rule.getRulePattern());
-                idToRulePattern.put(rule.getRulePattern().getId(), new RulePattern(rule.getRulePattern()));
+                maps.get(index).computeIfAbsent(rulePattern.getUserIdentity(),
+                        k -> new ConcurrentRuleCollection()).add(rulePattern);
             }
         }
 
@@ -501,7 +546,6 @@ public class FileCacheAdmissionManager {
             String userIdentity = rulePattern.getUserIdentity();
             if (userIdentity.isEmpty()) {
                 commonCollection.remove(rulePattern);
-                idToRulePattern.remove(rulePattern.getId());
                 return;
             }
 
@@ -512,14 +556,12 @@ public class FileCacheAdmissionManager {
 
             int index = getIndex(firstChar);
             maps.get(index).get(userIdentity).remove(rulePattern);
-            idToRulePattern.remove(rulePattern.getId());
         }
 
         public void add(RulePattern rulePattern) {
             String userIdentity = rulePattern.getUserIdentity();
             if (userIdentity.isEmpty()) {
                 commonCollection.add(rulePattern);
-                idToRulePattern.put(rulePattern.getId(), new RulePattern(rulePattern));
                 return;
             }
 
@@ -531,7 +573,6 @@ public class FileCacheAdmissionManager {
             int index = getIndex(firstChar);
             maps.get(index).computeIfAbsent(rulePattern.getUserIdentity(),
                     k -> new ConcurrentRuleCollection()).add(rulePattern);
-            idToRulePattern.put(rulePattern.getId(), new RulePattern(rulePattern));
         }
 
         public boolean isAllowed(String userIdentity, String catalog, String database, String table,
@@ -572,51 +613,43 @@ public class FileCacheAdmissionManager {
         }
     }
 
-    private final ConcurrentRuleManager ruleManager;
+    private ConcurrentRuleManager ruleManager;
 
-    private volatile long maxUpdatedTime;
+    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock.ReadLock readLock = rwLock.readLock();
+    private final ReentrantReadWriteLock.WriteLock writeLock = rwLock.writeLock();
+
     private static final FileCacheAdmissionManager INSTANCE = new FileCacheAdmissionManager();
 
     private ScheduledExecutorService executorService;
 
     public FileCacheAdmissionManager() {
         this.ruleManager = new ConcurrentRuleManager();
-        this.maxUpdatedTime = 0;
     }
 
     public static FileCacheAdmissionManager getInstance() {
         return INSTANCE;
     }
 
-    public void initialize(List<AdmissionRule> rules, long maxUpdatedTime) {
+    public void initialize(List<AdmissionRule> rules) {
         ruleManager.initialize(rules);
-        this.maxUpdatedTime = Math.max(this.maxUpdatedTime, maxUpdatedTime);
-    }
-
-    public void update(List<AdmissionRule> rules, long maxUpdatedTime) {
-        for (AdmissionRule rule : rules) {
-            RulePattern oldRulePattern = ruleManager.idToRulePattern.get(rule.getRulePattern().getId());
-            if (oldRulePattern != null) {
-                ruleManager.remove(oldRulePattern);
-            }
-            if (rule.isEnabled()) {
-                ruleManager.add(rule.getRulePattern());
-            }
-        }
-        this.maxUpdatedTime = Math.max(this.maxUpdatedTime, maxUpdatedTime);
     }
 
     public boolean isAllowed(String userIdentity, String catalog, String database, String table,
                              AtomicReference<String> reason) {
-        return ruleManager.isAllowed(userIdentity, catalog, database, table, reason);
+        readLock.lock();
+        try {
+            return ruleManager.isAllowed(userIdentity, catalog, database, table, reason);
+        } finally {
+            readLock.unlock();
+        }
     }
 
     public void loadOnStartup() {
         try {
             LOG.info("Loading file cache admission policy...");
 
-            loadRules(false);
-
+            loadRules();
             if (Config.file_cache_admission_control_fresh_interval_s > 0) {
                 startRefreshTask();
             }
@@ -627,63 +660,31 @@ public class FileCacheAdmissionManager {
         }
     }
 
-    private void loadRules(boolean isUpdate) throws SQLException {
-        String sql = "SELECT id, user_identity, catalog_name, database_name, "
-                + "table_name, partition_pattern, rule_type, enabled, "
-                + "UNIX_TIMESTAMP(updated_time) FROM admission_policy";
-
-        if (isUpdate && maxUpdatedTime > 0) {
-            sql += " WHERE updated_time > FROM_UNIXTIME(" + maxUpdatedTime + ")";
+    public void loadRules() {
+        if (Config.file_cache_admission_control_json_file_path == null
+                || Config.file_cache_admission_control_json_file_path.isEmpty()) {
+            LOG.warn("File cache admission JSON file path is not configured, admission control will be disabled.");
+            return;
         }
 
-        LOG.info("Loading rules with SQL: {}", sql);
+        try {
+            List<AdmissionRule> loadedRules = RuleLoader.loadRulesFromFile(
+                    Config.file_cache_admission_control_json_file_path);
+            LOG.info(loadedRules.size() + " rules loaded successfully");
 
-        try (Connection conn = getConnection();
-                Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery(sql)) {
+            ConcurrentRuleManager newRuleManager = new ConcurrentRuleManager();
+            newRuleManager.initialize(loadedRules);
 
-            List<AdmissionRule> rules = new ArrayList<>();
-            long maxUpdatedTime = 0;
+            writeLock.lock();
+            ruleManager = newRuleManager;
 
-            while (rs.next()) {
-                long id = rs.getLong(1);
-                String userIdentity = rs.getString(2);
-                String catalog = rs.getString(3);
-                String database = rs.getString(4);
-                String table = rs.getString(5);
-                String partitionPattern = rs.getString(6);
-                int ruleTypeValue = rs.getInt(7);
-                RuleType ruleType = RuleType.values()[Math.max(0, Math.min(ruleTypeValue, 1))];
-                boolean enabled = rs.getBoolean(8);
-                long updatedTime = rs.getLong(9);
-                maxUpdatedTime = Math.max(maxUpdatedTime, updatedTime);
-
-                AdmissionRule rule = new AdmissionRule(
-                        id, userIdentity, catalog, database, table,
-                        partitionPattern, ruleType, enabled, updatedTime
-                );
-                rules.add(rule);
-            }
-
-            if (isUpdate) {
-                LOG.info(rules.size() + " rules updated successfully");
-                update(rules, maxUpdatedTime);
-            } else {
-                LOG.info(rules.size() + " rules loaded successfully");
-                initialize(rules, maxUpdatedTime);
-            }
+        }  catch (Exception e) {
+            LOG.error("Failed to refresh file cache admission policy from file: {}",
+                    Config.file_cache_admission_control_json_file_path, e);
+        } finally {
+            LOG.error("File cache admission policy updated successfully");
+            writeLock.unlock();
         }
-    }
-
-    private Connection getConnection() throws SQLException {
-        String url = String.format("jdbc:mysql://%s:%d/%s",
-                Config.file_cache_admission_control_mysql_host,
-                Config.file_cache_admission_control_mysql_port,
-                Config.file_cache_admission_control_mysql_database);
-
-        return DriverManager.getConnection(url,
-                Config.file_cache_admission_control_mysql_user,
-                Config.file_cache_admission_control_mysql_password);
     }
 
     private void startRefreshTask() {
@@ -699,12 +700,8 @@ public class FileCacheAdmissionManager {
         });
 
         executorService.scheduleAtFixedRate(() -> {
-            try {
-                LOG.info("Refreshing file cache admission policy...");
-                loadRules(true);
-            } catch (Exception e) {
-                LOG.warn("Failed to refresh file cache admission policy", e);
-            }
+            LOG.info("Refreshing file cache admission policy...");
+            loadRules();
         }, interval, interval, TimeUnit.SECONDS);
 
         LOG.info("Started refreshing task, interval: {} seconds", interval);
