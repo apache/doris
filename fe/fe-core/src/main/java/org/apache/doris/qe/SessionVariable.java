@@ -496,6 +496,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
+    public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
+    // public static final String PARQUET_PAGE_CACHE_DECOMPRESS_THRESHOLD = "parquet_page_cache_decompress_threshold";
+    // public static final String ENABLE_PARQUET_CACHE_COMPRESSED_PAGES = "enable_parquet_cache_compressed_pages";
 
     public static final String MINIDUMP_PATH = "minidump_path";
 
@@ -2153,6 +2156,27 @@ public class SessionVariable implements Serializable, Writable {
                     + "The default value is true."},
             needForward = true)
     public boolean enablePageCache = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_FILE_PAGE_CACHE,
+            description = {"控制是否启用 Parquet file page cache。默认为 true。",
+                    "Controls whether to use Parquet file page cache. The default is true."},
+            needForward = true)
+    public boolean enableParquetFilePageCache = true;
+
+    // @VariableMgr.VarAttr(
+    //         name = PARQUET_PAGE_CACHE_DECOMPRESS_THRESHOLD,
+    //         description = {"决定是否缓存解压后 page 的阈值，默认 1.5。",
+    //                 "Threshold ratio to decide caching decompressed parquet page, default 1.5."},
+    //         needForward = true)
+    // public double parquetPageCacheDecompressThreshold = 1.5;
+
+    // @VariableMgr.VarAttr(
+    //         name = ENABLE_PARQUET_CACHE_COMPRESSED_PAGES,
+    //         description = {"控制是否缓存压缩的 Parquet 页面，默认为 false",
+    //                 "Controls whether to cache compressed parquet pages. Default false."},
+    //         needForward = true)
+    // public boolean enableParquetCacheCompressedPages = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
@@ -4876,6 +4900,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnablePageCache(enablePageCache);
 
+        tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
+
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
@@ -4889,6 +4915,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
+        tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
