@@ -199,6 +199,14 @@ private:
         RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
+        RuntimeProfile::Counter* page_read_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_write_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_compressed_write_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_decompressed_write_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_hit_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_missing_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_compressed_hit_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_decompressed_hit_counter = nullptr;
         RuntimeProfile::Counter* decode_header_time = nullptr;
         RuntimeProfile::Counter* read_page_header_time = nullptr;
         RuntimeProfile::Counter* decode_value_time = nullptr;
