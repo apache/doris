@@ -118,15 +118,15 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     // Cached values for LocationPath creation optimization
     // These are lazily initialized on first use to avoid parsing overhead for each file
-    private volatile StorageProperties cachedStorageProperties;
-    private volatile String cachedSchema;
-    private volatile String cachedFsIdPrefix;
-    private volatile boolean locationPathCacheInitialized = false;
+    private StorageProperties cachedStorageProperties;
+    private String cachedSchema;
+    private String cachedFsIdPrefix;
+    private boolean locationPathCacheInitialized = false;
     // Cache for path prefix transformation to avoid repeated S3URI parsing
     // Maps original path prefix (e.g., "https://bucket.s3.amazonaws.com/") to normalized prefix (e.g., "s3://bucket/")
-    private volatile String cachedOriginalPathPrefix;
-    private volatile String cachedNormalizedPathPrefix;
-    private volatile String cachedFsIdentifier;
+    private String cachedOriginalPathPrefix;
+    private String cachedNormalizedPathPrefix;
+    private String cachedFsIdentifier;
 
     // for test
     @VisibleForTesting
@@ -380,45 +380,36 @@ public class IcebergScanNode extends FileQueryScanNode {
      * This avoids repeated StorageProperties lookup, scheme parsing, and S3URI regex parsing for each file.
      */
     private void initLocationPathCache(String samplePath) {
-        if (locationPathCacheInitialized) {
-            return;
-        }
-        synchronized (this) {
-            if (locationPathCacheInitialized) {
-                return;
+        try {
+            // Create a LocationPath using the full method to get all cached values
+            LocationPath sampleLocationPath = LocationPath.of(samplePath, storagePropertiesMap);
+            cachedStorageProperties = sampleLocationPath.getStorageProperties();
+            cachedSchema = sampleLocationPath.getSchema();
+            cachedFsIdentifier = sampleLocationPath.getFsIdentifier();
+
+            // Extract fsIdPrefix like "s3://" from fsIdentifier like "s3://bucket"
+            int schemeEnd = cachedFsIdentifier.indexOf("://");
+            if (schemeEnd > 0) {
+                cachedFsIdPrefix = cachedFsIdentifier.substring(0, schemeEnd + 3);
             }
-            try {
-                // Create a LocationPath using the full method to get all cached values
-                LocationPath sampleLocationPath = LocationPath.of(samplePath, storagePropertiesMap);
-                cachedStorageProperties = sampleLocationPath.getStorageProperties();
-                cachedSchema = sampleLocationPath.getSchema();
-                cachedFsIdentifier = sampleLocationPath.getFsIdentifier();
 
-                // Extract fsIdPrefix like "s3://" from fsIdentifier like "s3://bucket"
-                int schemeEnd = cachedFsIdentifier.indexOf("://");
-                if (schemeEnd > 0) {
-                    cachedFsIdPrefix = cachedFsIdentifier.substring(0, schemeEnd + 3);
-                }
+            // Cache path prefix mapping for fast transformation
+            // This allows subsequent files to skip S3URI regex parsing entirely
+            String normalizedPath = sampleLocationPath.getNormalizedLocation();
 
-                // Cache path prefix mapping for fast transformation
-                // This allows subsequent files to skip S3URI regex parsing entirely
-                String normalizedPath = sampleLocationPath.getNormalizedLocation();
+            // Find the common prefix by looking for the last '/' before the filename
+            int lastSlashInOriginal = samplePath.lastIndexOf('/');
+            int lastSlashInNormalized = normalizedPath.lastIndexOf('/');
 
-                // Find the common prefix by looking for the last '/' before the filename
-                int lastSlashInOriginal = samplePath.lastIndexOf('/');
-                int lastSlashInNormalized = normalizedPath.lastIndexOf('/');
-
-                if (lastSlashInOriginal > 0 && lastSlashInNormalized > 0) {
-                    cachedOriginalPathPrefix = samplePath.substring(0, lastSlashInOriginal + 1);
-                    cachedNormalizedPathPrefix = normalizedPath.substring(0, lastSlashInNormalized + 1);
-                }
-
-                locationPathCacheInitialized = true;
-            } catch (Exception e) {
-                // If caching fails, we'll fall back to the full method each time
-                LOG.warn("Failed to initialize LocationPath cache, will use full parsing", e);
-                locationPathCacheInitialized = true;
+            if (lastSlashInOriginal > 0 && lastSlashInNormalized > 0) {
+                cachedOriginalPathPrefix = samplePath.substring(0, lastSlashInOriginal + 1);
+                cachedNormalizedPathPrefix = normalizedPath.substring(0, lastSlashInNormalized + 1);
             }
+
+            locationPathCacheInitialized = true;
+        } catch (Exception e) {
+            // If caching fails, try to initialize again on next use
+            LOG.warn("Failed to initialize LocationPath cache, will use full parsing", e);
         }
     }
 
