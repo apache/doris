@@ -1255,7 +1255,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private void removeDeleteBitmapUpdateLock(List<OlapTable> tableList, long transactionId) {
         for (OlapTable table : tableList) {
             RemoveDeleteBitmapUpdateLockRequest.Builder builder =
-                    RemoveDeleteBitmapUpdateLockRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
+                    RemoveDeleteBitmapUpdateLockRequest.newBuilder()
+                            .setRequestIp(FrontendOptions.getLocalHostAddressCached());
             builder.setTableId(table.getId())
                     .setLockId(transactionId)
                     .setInitiator(-1);

@@ -37,8 +37,6 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 
-import com.google.common.base.Strings;
-
 import java.util.List;
 import java.util.stream.Collectors;
 

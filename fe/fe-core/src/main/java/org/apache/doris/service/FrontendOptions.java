@@ -42,6 +42,7 @@ public class FrontendOptions {
     private static List<CIDR> priorityCidrs = Lists.newArrayList();
     private static InetAddress localAddr = InetAddress.getLoopbackAddress();
     private static boolean useFqdn = false;
+    private static String cachedAddr;
 
     public static void init() throws UnknownHostException {
         localAddr = null;
@@ -56,6 +57,7 @@ public class FrontendOptions {
         } else {
             initAddrUseIp(hosts);
         }
+        cachedAddr = getLocalHostAddress();
     }
 
     // 1. If priority_networks is configured . Obtain the IP that complies with the rules,
@@ -170,8 +172,7 @@ public class FrontendOptions {
     }
 
     public static String getLocalHostAddressCached() {
-        static String addrString = getLocalHostAddress();
-        return addrString;
+        return cachedAddr;
     }
 
     public static String getLocalHostAddress() {

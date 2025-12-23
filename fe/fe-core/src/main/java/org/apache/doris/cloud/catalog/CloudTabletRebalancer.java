@@ -607,7 +607,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 }
                 LOG.info("prepare to notify meta service be {} decommissioned", backend.getAddress());
                 Cloud.AlterClusterRequest.Builder builder =
-                        Cloud.AlterClusterRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
+                        Cloud.AlterClusterRequest.newBuilder()
+                                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 builder.setCloudUniqueId(Config.cloud_unique_id);
                 builder.setOp(Cloud.AlterClusterRequest.Operation.NOTIFY_DECOMMISSIONED);
 

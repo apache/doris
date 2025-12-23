@@ -299,7 +299,8 @@ public class StorageVaultMgr {
     public StorageVaultType getStorageVaultTypeByName(String vaultName) throws DdlException {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
-                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached()).build());
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder()
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached()).build());
 
             for (Cloud.StorageVaultPB vault : resp.getStorageVaultList()) {
                 if (vault.getName().equals(vaultName)) {

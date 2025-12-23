@@ -49,7 +49,6 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Lists;
 import lombok.Getter;
