@@ -152,10 +152,14 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         });
         cascadesContext.addPlanProcesses(innerAnchorCascadesCtx.getPlanProcesses());
         LogicalPlan analyzedAnchorChild = (LogicalPlan) innerAnchorCascadesCtx.getRewritePlan();
-        if (!analyzedAnchorChild.collect(LogicalRecursiveCteScan.class::isInstance).isEmpty()) {
-            throw new AnalysisException(
-                    String.format("recursive reference to query %s must not appear within its non-recursive term",
-                    aliasQuery.getAlias()));
+        Set<LogicalRecursiveCteScan> recursiveCteScans = analyzedAnchorChild
+                .collect(LogicalRecursiveCteScan.class::isInstance);
+        for (LogicalRecursiveCteScan cteScan : recursiveCteScans) {
+            if (cteScan.getTable().getName().equalsIgnoreCase(aliasQuery.getAlias())) {
+                throw new AnalysisException(
+                        String.format("recursive reference to query %s must not appear within its non-recursive term",
+                                aliasQuery.getAlias()));
+            }
         }
         checkColumnAlias(aliasQuery, analyzedAnchorChild.getOutput());
         // make all output nullable

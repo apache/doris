@@ -636,19 +636,14 @@ public class ThriftPlansBuilder {
 
             List<RecursiveCteNode> recursiveCteNodes = planFragment.getPlanRoot()
                     .collectInCurrentFragment(RecursiveCteNode.class::isInstance);
-            if (!recursiveCteNodes.isEmpty()) {
-                if (recursiveCteNodes.size() != 1) {
-                    throw new IllegalStateException(
-                            String.format("one fragment can only have 1 recursive cte node, but there is %d",
-                                    recursiveCteNodes.size()));
-                }
-
+            for (RecursiveCteNode recursiveCteNode : recursiveCteNodes) {
                 List<TRecCTETarget> targets = new ArrayList<>();
                 List<TRecCTEResetInfo> fragmentsToReset = new ArrayList<>();
-                // PhysicalPlanTranslator will swap recursiveCteNode's child fragment,
-                // so we get recursive one by 1st child and collect all child fragment of recursive side
+                // recursiveCteNode's right child is recursive part (exchange node)
+                // so we get collect all child fragment from exchange node's child node
                 List<PlanFragment> childFragments = new ArrayList<>();
-                planFragment.getChild(0).collectAll(PlanFragment.class::isInstance, childFragments);
+                recursiveCteNode.getChild(1).getChild(0).getFragment().collectAll(PlanFragment.class::isInstance,
+                        childFragments);
                 for (PlanFragment child : childFragments) {
                     PlanFragmentId childFragmentId = child.getFragmentId();
                     // the fragment need to be notified to close
@@ -676,7 +671,6 @@ public class ThriftPlansBuilder {
                     }
                 }
 
-                RecursiveCteNode recursiveCteNode = recursiveCteNodes.get(0);
                 List<List<Expr>> materializedResultExprLists = recursiveCteNode.getMaterializedResultExprLists();
                 List<List<TExpr>> texprLists = new ArrayList<>(materializedResultExprLists.size());
                 for (List<Expr> exprList : materializedResultExprLists) {
