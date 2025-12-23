@@ -1554,11 +1554,19 @@ public class IcebergUtils {
                 icebergExternalTable.getViewText();
     }
 
-    public static IcebergManifestCache getManifestCache() {
+    public static IcebergManifestCache getManifestCache(ExternalCatalog catalog) {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
-                .getIcebergManifestCacheMgr()
+                .getIcebergMetadataCache((IcebergExternalCatalog) catalog)
                 .getManifestCache();
+    }
+
+    public static boolean isManifestCacheEnabled(ExternalCatalog catalog) {
+        String enabled = catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE);
+        if (enabled == null) {
+            return IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE;
+        }
+        return Boolean.parseBoolean(enabled);
     }
 
 }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.iceberg.cache;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CacheException;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
@@ -39,8 +38,8 @@ public class IcebergManifestCache {
 
     private final LoadingCache<ManifestCacheKey, ManifestCacheValue> cache;
 
-    public IcebergManifestCache() {
-        long capacityInBytes = Config.iceberg_manifest_cache_capacity_mb * 1024L * 1024L;
+    public IcebergManifestCache(long capacityMb, long ttlSec) {
+        long capacityInBytes = capacityMb * 1024L * 1024L;
         Weigher<ManifestCacheKey, ManifestCacheValue> weigher = (key, value) -> {
             long weight = Optional.ofNullable(value).map(ManifestCacheValue::getWeightBytes).orElse(0L);
             if (weight > Integer.MAX_VALUE) {
@@ -50,10 +49,8 @@ public class IcebergManifestCache {
         };
         Caffeine<ManifestCacheKey, ManifestCacheValue> builder = Caffeine.newBuilder()
                 .maximumWeight(capacityInBytes)
-                .weigher(weigher);
-        if (Config.iceberg_manifest_cache_ttl_sec > 0) {
-            builder = builder.expireAfterAccess(Duration.ofSeconds(Config.iceberg_manifest_cache_ttl_sec));
-        }
+                .weigher(weigher)
+                .expireAfterAccess(Duration.ofSeconds(ttlSec));
         cache = builder.build(new CacheLoader<ManifestCacheKey, ManifestCacheValue>() {
             @Override
             public ManifestCacheValue load(ManifestCacheKey key) {

@@ -375,7 +375,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
-        if (!Config.iceberg_manifest_cache_enable) {
+        if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
             long targetSplitSize = getRealFileSplitSize(0);
             return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
         }
@@ -396,7 +396,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         // Initialize manifest cache for efficient manifest file access
-        IcebergManifestCache cache = IcebergUtils.getManifestCache();
+        IcebergManifestCache cache = IcebergUtils.getManifestCache(source.getCatalog());
 
         // Convert query conjuncts to Iceberg filter expression
         // This combines all predicates with AND logic for partition/file pruning
