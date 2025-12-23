@@ -1323,14 +1323,13 @@ struct HammingDistanceImpl {
             StringRef rstr = StringRef(reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]),
                                        roffsets[i] - roffsets[i - 1]);
 
-            // Return NULL if strings have different lengths
+            // Throw an error if strings have different lengths (enforce contract).
             if (lstr.size != rstr.size) {
-                null_map_data[i] = 1;
-                res[i] = 0;
-            } else {
-                null_map_data[i] = 0;
-                res[i] = calculate_hamming_distance(lstr, rstr);
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "hamming_distance: input strings must have equal length, got {} and {}",
+                                       lstr.size, rstr.size);
             }
+            res[i] = calculate_hamming_distance(lstr, rstr);
         }
     }
 
@@ -1345,14 +1344,13 @@ struct HammingDistanceImpl {
             StringRef lstr = StringRef(reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]),
                                        loffsets[i] - loffsets[i - 1]);
 
-            // Return NULL if strings have different lengths
+            // Throw an error if strings have different lengths (enforce contract).
             if (lstr.size != rstr.size) {
-                null_map_data[i] = 1;
-                res[i] = 0;
-            } else {
-                null_map_data[i] = 0;
-                res[i] = calculate_hamming_distance(lstr, rstr);
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "hamming_distance: input strings must have equal length, got {} and {}",
+                                       lstr.size, rstr.size);
             }
+            res[i] = calculate_hamming_distance(lstr, rstr);
         }
     }
 
@@ -1367,14 +1365,13 @@ struct HammingDistanceImpl {
             StringRef rstr = StringRef(reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]),
                                        roffsets[i] - roffsets[i - 1]);
 
-            // Return NULL if strings have different lengths
+            // Throw an error if strings have different lengths (enforce contract).
             if (lstr.size != rstr.size) {
-                null_map_data[i] = 1;
-                res[i] = 0;
-            } else {
-                null_map_data[i] = 0;
-                res[i] = calculate_hamming_distance(lstr, rstr);
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "hamming_distance: input strings must have equal length, got {} and {}",
+                                       lstr.size, rstr.size);
             }
+            res[i] = calculate_hamming_distance(lstr, rstr);
         }
     }
 };
