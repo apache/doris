@@ -2137,7 +2137,18 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit) {
-        // do nothing in cloud mode
+        AbortTxnWithCoordinatorRequest.Builder builder = AbortTxnWithCoordinatorRequest.newBuilder();
+        builder.setIp(coordinateHost);
+        builder.setId(coordinateBeId);
+        final AbortTxnWithCoordinatorRequest request = builder.build();
+        AbortTxnWithCoordinatorResponse response = null;
+        try {
+            response = MetaServiceProxy
+                .getInstance().abortTxnWithCoordinator(request);
+            LOG.info("AbortTxnWithCoordinatorResponse: {}", response);
+        } catch (RpcException e) {
+            LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+        }
     }
 
     @Override
