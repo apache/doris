@@ -462,7 +462,7 @@ start_iceberg() {
             cd "${ICEBERG_DIR}" \
             && rm -f iceberg_1_10_0*.jars.tar.gz\
             && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_1_10_0.jars.tar.gz \
-            && sudo tar xzvf iceberg_1_10_0.jars.tar.gz -C "data/input/jars"
+            && sudo tar xzvf iceberg_1_10_0.jars.tar.gz -C "data/input/jars" \
             && sudo rm -rf iceberg_1_10_0.jars.tar.gz
             cd -
         else 
