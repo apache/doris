@@ -971,30 +971,21 @@ public class StmtExecutorTest {
         List<String> paramLabels = Lists.newArrayList("param1");
         executor.sendStmtPrepareOK(1, paramLabels);
 
-        // Print packet contents instead of assertions
-        System.out.println("testSendStmtPrepareOKWithResultColumns - Number of sent packets: " + sentPackets.size());
+
         if (!sentPackets.isEmpty()) {
             ByteBuffer firstPacket = sentPackets.get(0);
             byte[] firstPacketBytes = firstPacket.array();
-            System.out.println("testSendStmtPrepareOKWithResultColumns - First packet bytes: " + java.util.Arrays.toString(firstPacketBytes));
-            System.out.println("testSendStmtPrepareOKWithResultColumns - First packet length: " + firstPacketBytes.length);
-            
-            // Print specific values that were being tested
-            System.out.println("testSendStmtPrepareOKWithResultColumns - First byte (OK status): " + firstPacketBytes[0]);
+
             int stmtId = (firstPacketBytes[1] & 0xFF)
                        | ((firstPacketBytes[2] & 0xFF) << 8)
                        | ((firstPacketBytes[3] & 0xFF) << 16)
                        | ((firstPacketBytes[4] & 0xFF) << 24);
-            System.out.println("testSendStmtPrepareOKWithResultColumns - Statement ID: " + stmtId);
             
             int numColumns = (firstPacketBytes[5] & 0xFF) | ((firstPacketBytes[6] & 0xFF) << 8);
-            System.out.println("testSendStmtPrepareOKWithResultColumns - Number of result columns: " + numColumns);
             Assert.assertEquals(3,numColumns);
             
             int numParams = (firstPacketBytes[7] & 0xFF) | ((firstPacketBytes[8] & 0xFF) << 8);
-            System.out.println("testSendStmtPrepareOKWithResultColumns - Number of parameters: " + numParams);
         }
-        log.info("Successfully tested sendStmtPrepareOK method, verified correct sending of result column metadata");
     }
     @Test
     public void testSendStmtPrepareOKWithLogicalPlanAdapterNullColLabels() throws Exception {
@@ -1051,30 +1042,20 @@ public class StmtExecutorTest {
         // Call sendStmtPrepareOK method
         executor.sendStmtPrepareOK(1, paramLabels);
 
-        // Print packet contents instead of assertions
-        System.out.println("testSendStmtPrepareOKWithLogicalPlanAdapterNullColLabels - Number of sent packets: " + sentPackets.size());
         if (!sentPackets.isEmpty()) {
             ByteBuffer firstPacket = sentPackets.get(0);
             byte[] firstPacketBytes = firstPacket.array();
-            System.out.println("testSendStmtPrepareOKWithLogicalPlanAdapterNullColLabels - First packet bytes: " + java.util.Arrays.toString(firstPacketBytes));
-            System.out.println("testSendStmtPrepareOKWithLogicalPlanAdapterNullColLabels - First packet length: " + firstPacketBytes.length);
-            
-            // Print specific values that were being tested
-            System.out.println("testSendStmtPrepareOKWithLogicalPlanAdapterNullColLabels - First byte (OK status): " + firstPacketBytes[0]);
+
             int stmtId = (firstPacketBytes[1] & 0xFF)
                        | ((firstPacketBytes[2] & 0xFF) << 8)
                        | ((firstPacketBytes[3] & 0xFF) << 16)
                        | ((firstPacketBytes[4] & 0xFF) << 24);
-            System.out.println("testSendStmtPrepareOKWithLogicalPlanAdapterNullColLabels - Statement ID: " + stmtId);
             
             int numColumns = (firstPacketBytes[5] & 0xFF) | ((firstPacketBytes[6] & 0xFF) << 8);
-            System.out.println("testSendStmtPrepareOKWithLogicalPlanAdapterNullColLabels - Number of result columns: " + numColumns);
             Assert.assertEquals(3,numColumns);
             
             int numParams = (firstPacketBytes[7] & 0xFF) | ((firstPacketBytes[8] & 0xFF) << 8);
-            System.out.println("testSendStmtPrepareOKWithLogicalPlanAdapterNullColLabels - Number of parameters: " + numParams);
         }
-        log.info("Successfully tested sendStmtPrepareOK method with LogicalPlanAdapter and null colLabels");
     }
     @Test
     public void testSendStmtPrepareOKWithShowStmtAndNullMetadata() throws Exception {
@@ -1122,29 +1103,20 @@ public class StmtExecutorTest {
         List<String> paramLabels = Lists.newArrayList();
         executor.sendStmtPrepareOK(1, paramLabels);
 
-        // Print packet contents instead of assertions
-        System.out.println("testSendStmtPrepareOKWithShowStmtAndNullMetadata - Number of sent packets: " + sentPackets.size());
         if (!sentPackets.isEmpty()) {
             ByteBuffer firstPacket = sentPackets.get(0);
             byte[] firstPacketBytes = firstPacket.array();
-            System.out.println("testSendStmtPrepareOKWithShowStmtAndNullMetadata - First packet bytes: " + java.util.Arrays.toString(firstPacketBytes));
-            System.out.println("testSendStmtPrepareOKWithShowStmtAndNullMetadata - First packet length: " + firstPacketBytes.length);
-            
-            // Print specific values that were being tested
-            System.out.println("testSendStmtPrepareOKWithShowStmtAndNullMetadata - First byte (OK status): " + firstPacketBytes[0]);
+
+
             int stmtId = (firstPacketBytes[1] & 0xFF)
                 | ((firstPacketBytes[2] & 0xFF) << 8)
                 | ((firstPacketBytes[3] & 0xFF) << 16)
                 | ((firstPacketBytes[4] & 0xFF) << 24);
-            System.out.println("testSendStmtPrepareOKWithShowStmtAndNullMetadata - Statement ID: " + stmtId);
-            
+
             int numColumns = (firstPacketBytes[5] & 0xFF) | ((firstPacketBytes[6] & 0xFF) << 8);
-            System.out.println("testSendStmtPrepareOKWithShowStmtAndNullMetadata - Number of result columns: " + numColumns);
             Assert.assertEquals(0,numColumns);
             
             int numParams = (firstPacketBytes[7] & 0xFF) | ((firstPacketBytes[8] & 0xFF) << 8);
-            System.out.println("testSendStmtPrepareOKWithShowStmtAndNullMetadata - Number of parameters: " + numParams);
         }
-        log.info("Successfully tested sendStmtPrepareOK method with ShowStmt and null metadata, verified correct handling of null metadata");
     }
 }
