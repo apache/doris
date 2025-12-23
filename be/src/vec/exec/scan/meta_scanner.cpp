@@ -44,6 +44,7 @@
 #include "vec/core/types.h"
 #include "vec/exec/format/table/iceberg_sys_table_jni_reader.h"
 #include "vec/exec/format/table/paimon_sys_table_jni_reader.h"
+#include "vec/exec/format/table/parquet_metadata_reader.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -83,6 +84,11 @@ Status MetaScanner::open(RuntimeState* state) {
         RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
         static_cast<PaimonSysTableJniReader*>(reader.get())
                 ->set_col_name_to_block_idx(&_src_block_name_to_idx);
+        _reader = std::move(reader);
+    } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PARQUET) {
+        auto reader = ParquetMetadataReader::create_unique(_tuple_desc->slots(), state, _profile,
+                                                           _scan_range.meta_scan_range);
+        RETURN_IF_ERROR(reader->init_reader());
         _reader = std::move(reader);
     } else {
         RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
