@@ -368,7 +368,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 _index_file_writers.emplace(seg_ptr->id(), std::move(index_file_writer));
             }
             for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
-                auto st = index_file_writer->close_async();
+                auto st = index_file_writer->begin_close();
                 if (!st.ok()) {
                     LOG(ERROR) << "close index_file_writer error:" << st;
                     return st;
@@ -376,7 +376,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 inverted_index_size += index_file_writer->get_index_file_total_size();
             }
             for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
-                auto st = index_file_writer->wait_close();
+                auto st = index_file_writer->finish_close();
                 if (!st.ok()) {
                     LOG(ERROR) << "wait close index_file_writer error:" << st;
                     return st;
@@ -617,7 +617,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             _olap_data_convertor->reset();
         }
         for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
-            auto st = index_file_writer->close_async();
+            auto st = index_file_writer->begin_close();
             DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_file_writer_close_error", {
                 st = Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "debug point: handle_single_rowset_file_writer_close_error");
@@ -629,7 +629,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             inverted_index_size += index_file_writer->get_index_file_total_size();
         }
         for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
-            auto st = index_file_writer->wait_close();
+            auto st = index_file_writer->finish_close();
             if (!st.ok()) {
                 LOG(ERROR) << "wait close index_file_writer error:" << st;
                 return st;

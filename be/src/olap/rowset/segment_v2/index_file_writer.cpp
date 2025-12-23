@@ -184,7 +184,7 @@ Result<std::unique_ptr<IndexSearcherBuilder>> IndexFileWriter::_construct_index_
     return IndexSearcherBuilder::create_index_searcher_builder(reader_type);
 }
 
-Status IndexFileWriter::close_async() {
+Status IndexFileWriter::begin_close() {
     DCHECK(!_closed) << debug_string();
     _closed = true;
     if (_indices_dirs.empty()) {
@@ -227,7 +227,7 @@ Status IndexFileWriter::close_async() {
     return Status::OK();
 }
 
-Status IndexFileWriter::wait_close() {
+Status IndexFileWriter::finish_close() {
     DCHECK(_closed) << debug_string();
     if (_indices_dirs.empty()) {
         // An empty file must still be created even if there are no indexes to write
@@ -241,7 +241,7 @@ Status IndexFileWriter::wait_close() {
     if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_idx_v2_writer->close(false));
     }
-    LOG_INFO("IndexFileWriter wait_close, enable_write_index_searcher_cache: {}",
+    LOG_INFO("IndexFileWriter finish_close, enable_write_index_searcher_cache: {}",
              config::enable_write_index_searcher_cache);
     Status st = Status::OK();
     if (config::enable_write_index_searcher_cache) {

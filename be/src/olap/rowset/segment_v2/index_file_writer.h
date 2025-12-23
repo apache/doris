@@ -57,8 +57,13 @@ public:
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     Status add_into_searcher_cache();
-    Status close_async();
-    Status wait_close();
+    // Begin the close process. This mainly triggers the asynchronous close operation of
+    // _idx_v2_writer by calling close(true), which starts the close process but returns
+    // immediately without waiting for completion.
+    Status begin_close();
+    // Finish the close process. This waits for the close operation to complete by calling
+    // _idx_v2_writer->close(false), which blocks until the close is fully done.
+    Status finish_close();
     const InvertedIndexFileInfo* get_index_file_info() const {
         DCHECK(_closed) << debug_string();
         return &_file_info;

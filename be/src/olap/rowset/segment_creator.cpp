@@ -112,7 +112,7 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
 
 Status SegmentFlusher::close() {
     RETURN_IF_ERROR(_seg_files.close());
-    RETURN_IF_ERROR(_idx_files.wait_close());
+    RETURN_IF_ERROR(_idx_files.finish_close());
     return Status::OK();
 }
 

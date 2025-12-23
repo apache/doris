@@ -206,20 +206,20 @@ Status InvertedIndexFileCollection::add(int seg_id, IndexFileWriterPtr&& index_w
     return Status::OK();
 }
 
-Status InvertedIndexFileCollection::close_async() {
+Status InvertedIndexFileCollection::begin_close() {
     std::lock_guard lock(_lock);
     for (auto&& [id, writer] : _inverted_index_file_writers) {
-        RETURN_IF_ERROR(writer->close_async());
+        RETURN_IF_ERROR(writer->begin_close());
         _total_size += writer->get_index_file_total_size();
     }
 
     return Status::OK();
 }
 
-Status InvertedIndexFileCollection::wait_close() {
+Status InvertedIndexFileCollection::finish_close() {
     std::lock_guard lock(_lock);
     for (auto&& [id, writer] : _inverted_index_file_writers) {
-        RETURN_IF_ERROR(writer->wait_close());
+        RETURN_IF_ERROR(writer->finish_close());
     }
     return Status::OK();
 }
@@ -1105,7 +1105,8 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     _segcompaction_worker->get_file_writer().reset(file_writer.release());
     if (auto& idx_file_writer = _segcompaction_worker->get_inverted_index_file_writer();
         idx_file_writer != nullptr) {
-        RETURN_IF_ERROR(idx_file_writer->close_async());
+        RETURN_IF_ERROR(idx_file_writer->begin_close());
+        RETURN_IF_ERROR(idx_file_writer->finish_close());
     }
     _segcompaction_worker->get_inverted_index_file_writer().reset(index_file_writer.release());
     return Status::OK();
