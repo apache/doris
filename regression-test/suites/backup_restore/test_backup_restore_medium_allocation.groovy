@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_backup_restore_medium_allocation", "backup_restore") {
-    String suiteName = "test_backup_restore_medium_allocation"
+    String suiteName = "test_br_medium_alloc"
     String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
@@ -81,9 +81,10 @@ suite("test_backup_restore_medium_allocation", "backup_restore") {
     result = sql "SELECT * FROM ${dbName}.${tableName}_strict"
     assertEquals(result.size(), values.size())
 
-    // Verify the table was restored
+    // Verify the table was restored with medium_allocation_mode
     def show_result = sql "SHOW CREATE TABLE ${dbName}.${tableName}_strict"
-    assertTrue(show_result.size() > 0)
+    def createTableStr = show_result[0][1]
+    assertTrue(createTableStr.contains("medium_allocation_mode"))
 
     sql "DROP TABLE ${dbName}.${tableName}_strict FORCE"
 

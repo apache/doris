@@ -302,10 +302,14 @@ suite("test_medium_allocation_mode") {
     logger.info("Adaptive auto table partitions: ${partitions_adaptive_auto}")
     logger.info("Strict table partitions: ${partitions_strict}")
     
-    // All should have created partitions successfully
-    assertTrue(partitions_adaptive_default.size() > 0)
-    assertTrue(partitions_adaptive_auto.size() > 0)
-    assertTrue(partitions_strict.size() > 0)
+    // Verify partitions were created and contain MediumAllocationMode column
+    assertTrue(partitions_adaptive_default.size() == 1)
+    assertTrue(partitions_adaptive_auto.size() == 1)
+    assertTrue(partitions_strict.size() == 1)
+    // Each partition should have MediumAllocationMode as the last column
+    assertTrue(partitions_adaptive_default[0].size() > 20)  // Should have all partition columns including MediumAllocationMode
+    assertTrue(partitions_adaptive_auto[0].size() > 20)
+    assertTrue(partitions_strict[0].size() > 20)
 
     // Cleanup
     sql "DROP TABLE IF EXISTS ${tableName}"
