@@ -627,6 +627,7 @@ extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet
 extern bvar::LatencyRecorder g_bvar_ms_scan_instance_update;
 extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_waiting_duration;
 extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_committing_duration;
+extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_commit_partition_duration;
 extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_submitted;
 extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_finished;
 
