@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
@@ -34,8 +35,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.Map;
 
 /**
@@ -100,7 +99,7 @@ public class CreateCatalogStmt extends DdlStmt implements NotFallbackInParser {
                     + " to enable it temporarily.");
         }
 
-        String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
+        String currentDateTime = TimeUtils.longToTimeString(System.currentTimeMillis());
         properties.put(ExternalCatalog.CREATE_TIME, currentDateTime);
         PropertyAnalyzer.checkCatalogProperties(properties, false);
     }
