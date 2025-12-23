@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+
+
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
@@ -2642,7 +2644,6 @@ public class StmtExecutor {
         return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
     }
 
-
      public void sendStmtPrepareOK(int stmtId, List<String> labels) throws IOException {
          Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
          // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
@@ -2651,19 +2652,45 @@ public class StmtExecutor {
          serializer.writeInt1(0);
          // statement_id
          serializer.writeInt4(stmtId);
-         // num_columns: Refer to the 4.0 version code and MySQL metadata protocol,
+         //num_columns: Refer to the 4.0 version code and MySQL metadata protocol,
          // set numColumns to the actual value to fix the null metadata issue #59037
          int numColumns = 0;
          if (parsedStmt instanceof SelectStmt) {
              List<String> colLabels = ((SelectStmt) parsedStmt).getColLabels();
              numColumns = colLabels != null ? colLabels.size() : 0;
+             LOG.info("Processing SelectStmt, colLabels: {}, numColumns: {}", colLabels, numColumns);
          } else if (parsedStmt instanceof LogicalPlanAdapter) {
-             List<String> colLabels = ((LogicalPlanAdapter) parsedStmt).getColLabels();
-             numColumns = colLabels != null ? colLabels.size() : 0;
+             LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
+             List<String> colLabels = logicalPlanAdapter.getColLabels();
+             if (colLabels != null) {
+                 numColumns = colLabels.size();
+                 LOG.info("Processing LogicalPlanAdapter with colLabels, numColumns: {}", numColumns);
+             } else {
+                 // 尝试从fieldInfos获取列数信息
+                 LOG.info("Processing LogicalPlanAdapter with colLabels is null, try to get numColumns from fieldInfos");
+                 List<FieldInfo> fieldInfos = logicalPlanAdapter.getFieldInfos();
+                 numColumns = fieldInfos != null ? fieldInfos.size() : 0;
+                 LOG.info("Processing LogicalPlanAdapter with fieldInfos, fieldInfos: {}, numColumns: {}", fieldInfos, numColumns);
+
+                 // 如果fieldInfos仍然为0，尝试从resultExprs获取列数信息
+                 if (numColumns == 0) {
+                     List<Expr> resultExprs = logicalPlanAdapter.getResultExprs();
+                     if (resultExprs != null) {
+                         numColumns = resultExprs.size();
+                         LOG.info("Processing LogicalPlanAdapter with resultExprs, resultExprs size: {}, numColumns: {}", resultExprs.size(), numColumns);
+                     }
+                 }
+             }
          } else if (parsedStmt instanceof ShowStmt) {
              ShowResultSetMetaData metaData = ((ShowStmt) parsedStmt).getMetaData();
              numColumns = metaData != null ? metaData.getColumnCount() : 0;
+             LOG.info("Processing ShowStmt, metaData: {}, numColumns: {}", metaData, numColumns);
+         } else {
+             LOG.info("Processing unknown statement type: {}", parsedStmt.getClass().getName());
          }
+         LOG.info("Final numColumns value before writing to serializer: {}", numColumns);
+
+
          serializer.writeInt2(numColumns);
          // num_params
          int numParams = labels.size();
