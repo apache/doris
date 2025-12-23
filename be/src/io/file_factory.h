@@ -126,6 +126,12 @@ public:
 
 private:
     static std::string _get_fs_name(const io::FileDescription& file_description);
+
+    /// Create FileReader without FS
+    static Result<io::FileReaderSPtr> _create_file_reader_internal(
+            const io::FileSystemProperties& system_properties,
+            const io::FileDescription& file_description,
+            const io::FileReaderOptions& reader_options, RuntimeProfile* profile = nullptr);
 };
 
 } // namespace doris

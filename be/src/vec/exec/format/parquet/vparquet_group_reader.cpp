@@ -85,7 +85,8 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const PositionDeleteContext& position_delete_ctx,
                                const LazyReadContext& lazy_read_ctx, RuntimeState* state,
                                const std::set<uint64_t>& column_ids,
-                               const std::set<uint64_t>& filter_column_ids)
+                               const std::set<uint64_t>& filter_column_ids,
+                               const std::string& created_by)
         : _file_reader(file_reader),
           _read_table_columns(read_columns),
           _row_group_id(row_group_id),
@@ -98,7 +99,8 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _state(state),
           _obj_pool(new ObjectPool()),
           _column_ids(column_ids),
-          _filter_column_ids(filter_column_ids) {}
+          _filter_column_ids(filter_column_ids),
+          _created_by(created_by) {}
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
@@ -131,9 +133,10 @@ Status RowGroupReader::init(
         auto read_file_col = _table_info_node_ptr->children_file_column_name(read_table_col);
         auto* field = schema.get_column(read_file_col);
         std::unique_ptr<ParquetColumnReader> reader;
-        RETURN_IF_ERROR(ParquetColumnReader::create(
-                _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
-                max_buf_size, col_offsets, false, _column_ids, _filter_column_ids));
+        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
+                                                    _read_ranges, _ctz, _io_ctx, reader,
+                                                    max_buf_size, col_offsets, false, _column_ids,
+                                                    _filter_column_ids, _state, _created_by));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
