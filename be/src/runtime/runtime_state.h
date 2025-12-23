@@ -528,6 +528,11 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
+    bool enable_streaming_agg_force_passthrough() const {
+        return _query_options.__isset.enable_streaming_agg_force_passthrough &&
+               _query_options.enable_streaming_agg_force_passthrough;
+    }
+
     int rpc_verbose_profile_max_instance_count() const {
         return _query_options.__isset.rpc_verbose_profile_max_instance_count
                        ? _query_options.rpc_verbose_profile_max_instance_count
