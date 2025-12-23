@@ -25,6 +25,10 @@ done
 
 set -ex
 
+# remove /opt/spark/jars/iceberg-aws-bundle-1.5.0.jar\:/opt/spark/jars/iceberg-spark-runtime-3.5_2.12-1.5.0.jar
+rm /opt/spark/jars/iceberg-aws-bundle-1.5.0.jar
+rm /opt/spark/jars/iceberg-spark-runtime-3.5_2.12-1.5.0.jar
+
 start-master.sh -p 7077
 start-worker.sh spark://doris--spark-iceberg:7077
 start-history-server.sh

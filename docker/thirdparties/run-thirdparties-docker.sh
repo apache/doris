@@ -457,6 +457,18 @@ start_iceberg() {
             echo "${ICEBERG_DIR}/data exist, continue !"
         fi
 
+        if [[ ! -f "${ICEBERG_DIR}/data/input/jars/iceberg-aws-bundle-1.10.0.jar" ]]; then 
+            echo "iceberg 1.10.0 jars does not exist"
+            cd "${ICEBERG_DIR}" \
+            && rm -f iceberg_1_10_0*.jars.tar.gz\
+            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_1_10_0.jars.tar.gz \
+            && sudo tar xzvf iceberg_1_10_0.jars.tar.gz -C "data/input/jars"
+            && sudo rm -rf iceberg_1_10_0.jars.tar.gz
+            cd -
+        else 
+            echo "iceberg 1.10.0 jars exist, continue !"
+        fi        
+
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d --wait
     fi
 }
