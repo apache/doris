@@ -1325,9 +1325,10 @@ struct HammingDistanceImpl {
 
             // Throw an error if strings have different lengths (enforce contract).
             if (lstr.size != rstr.size) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "hamming_distance: input strings must have equal length, got {} and {}",
-                                       lstr.size, rstr.size);
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "hamming_distance: input strings must have equal length, got {} and {}",
+                        lstr.size, rstr.size);
             }
             res[i] = calculate_hamming_distance(lstr, rstr);
         }
@@ -1346,9 +1347,10 @@ struct HammingDistanceImpl {
 
             // Throw an error if strings have different lengths (enforce contract).
             if (lstr.size != rstr.size) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "hamming_distance: input strings must have equal length, got {} and {}",
-                                       lstr.size, rstr.size);
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "hamming_distance: input strings must have equal length, got {} and {}",
+                        lstr.size, rstr.size);
             }
             res[i] = calculate_hamming_distance(lstr, rstr);
         }
@@ -1367,9 +1369,10 @@ struct HammingDistanceImpl {
 
             // Throw an error if strings have different lengths (enforce contract).
             if (lstr.size != rstr.size) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "hamming_distance: input strings must have equal length, got {} and {}",
-                                       lstr.size, rstr.size);
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "hamming_distance: input strings must have equal length, got {} and {}",
+                        lstr.size, rstr.size);
             }
             res[i] = calculate_hamming_distance(lstr, rstr);
         }
@@ -1428,7 +1431,6 @@ using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =
         FunctionBinaryStringOperateToNullType<StringAppendTrailingCharIfAbsent>;
-
 
 using FunctionHammingDistance = FunctionBinaryStringOperateToNullType<HammingDistanceImpl>;
 using FunctionStringLPad = FunctionStringPad<StringLPad>;
