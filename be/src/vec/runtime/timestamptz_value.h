@@ -112,16 +112,6 @@ private:
 inline const TimestampTzValue TimestampTzValue::DEFAULT_VALUE =
         TimestampTzValue(DateV2Value<DateTimeV2ValueType>::DEFAULT_VALUE.to_date_int_val());
 
-// for ut test
-#ifdef BE_TEST
-inline auto make_datetime(int year, int month, int day, int hour, int minute, int second,
-                          int microsecond) {
-    DateV2Value<DateTimeV2ValueType> dt;
-    dt.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
-    return dt.to_date_int_val();
-}
-#endif
-
 } // namespace doris
 
 template <>

@@ -65,6 +65,8 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
+DEFINE_Int32(cdc_client_port, "9096");
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:
@@ -629,6 +631,9 @@ DEFINE_mBool(enable_stream_load_commit_txn_on_be, "false");
 // The buffer size to store stream table function schema info
 DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
+// request cdc client timeout
+DEFINE_mInt32(request_cdc_client_timeout_ms, "60000");
+
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
 DEFINE_mInt32(olap_table_sink_send_interval_microseconds, "1000");
@@ -1074,8 +1079,6 @@ DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
 // Global segcompaction thread pool size.
 DEFINE_mInt32(segcompaction_num_threads, "5");
 
-DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
-
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
@@ -1153,7 +1156,9 @@ DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
-DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
+DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "180000");
+DEFINE_mInt64(file_cache_background_ttl_info_update_interval_ms, "180000");
+DEFINE_mInt64(file_cache_background_tablet_id_flush_interval_ms, "1000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
@@ -1629,15 +1634,6 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
     return config == "v1" || config == "v2";
 });
 
-DEFINE_mString(binary_plain_encoding_default_impl, "v1");
-DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& config) -> bool {
-    return config == "v1" || config == "v2";
-});
-
-DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
-
-DEFINE_mBool(enable_fuzzy_storage_encoding, "false");
-
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -2091,10 +2087,6 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
-    if (config::enable_fuzzy_storage_encoding) {
-        fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
-                ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
-    }
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

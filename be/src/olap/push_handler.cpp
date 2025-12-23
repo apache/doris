@@ -584,8 +584,7 @@ Status PushBrokerReader::_init_expr_ctxes() {
         _src_slot_descs.emplace_back(it->second);
     }
     _row_desc.reset(new RowDescriptor(_runtime_state->desc_tbl(),
-                                      std::vector<TupleId>({_params.src_tuple_id}),
-                                      std::vector<bool>({false})));
+                                      std::vector<TupleId>({_params.src_tuple_id})));
 
     if (!_pre_filter_texprs.empty()) {
         DCHECK(_pre_filter_texprs.size() == 1);

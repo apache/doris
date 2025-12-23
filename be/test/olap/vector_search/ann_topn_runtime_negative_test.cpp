@@ -85,7 +85,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimePrepare_NoFunctionCall) {
 
     doris::DescriptorTbl* desc_tbl_local = nullptr;
     ASSERT_TRUE(DescriptorTbl::create(&obj_pool_local, thrift_tbl, &desc_tbl_local).ok());
-    RowDescriptor row_desc_local(*desc_tbl_local, {2000}, {false});
+    RowDescriptor row_desc_local(*desc_tbl_local, {2000});
 
     // Create a VirtualSlotRef root expr that points to the local descriptor's slot id (3000)
     doris::TExpr local_virtual_slot_ref_expr = _virtual_slot_ref_expr;

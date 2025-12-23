@@ -56,7 +56,6 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -178,7 +177,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(If.class, this::visitIf),
                 matches(InPredicate.class, this::visitInPredicate),
                 matches(IsNull.class, this::visitIsNull),
-                matches(TimestampArithmetic.class, this::visitTimestampArithmetic),
                 matches(Password.class, this::visitPassword),
                 matches(Array.class, this::visitArray),
                 matches(Date.class, this::visitDate),
@@ -669,16 +667,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             return checkedExpr.get();
         }
         return Literal.of(isNull.child().nullable());
-    }
-
-    @Override
-    public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, ExpressionRewriteContext context) {
-        arithmetic = rewriteChildren(arithmetic, context);
-        Optional<Expression> checkedExpr = preProcess(arithmetic);
-        if (checkedExpr.isPresent()) {
-            return checkedExpr.get();
-        }
-        return ExpressionEvaluator.INSTANCE.eval(arithmetic);
     }
 
     @Override

@@ -286,6 +286,37 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         }
     }
 
+    // Save the partition meta keys
+    if (is_versioned_write) {
+        for (auto partition_id : request->partition_ids()) {
+            int64_t db_id = request->db_id();
+            int64_t table_id = request->table_id();
+            std::string part_meta_key = versioned::meta_partition_key({instance_id, partition_id});
+            std::string part_index_key =
+                    versioned::partition_index_key({instance_id, partition_id});
+            std::string part_inverted_index_key = versioned::partition_inverted_index_key(
+                    {instance_id, db_id, table_id, partition_id});
+            PartitionIndexPB part_index_pb;
+            part_index_pb.set_db_id(db_id);
+            part_index_pb.set_table_id(table_id);
+            std::string part_index_value;
+            if (!part_index_pb.SerializeToString(&part_index_value)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = fmt::format("failed to serialize PartitionIndexPB");
+                LOG_WARNING(msg).tag("part_id", partition_id);
+                return;
+            }
+            versioned_put(txn.get(), part_meta_key, "");
+            txn->put(part_inverted_index_key, "");
+            txn->put(part_index_key, part_index_value);
+
+            LOG(INFO) << "xxx put versioned partition index key=" << hex(part_index_key)
+                      << " partition_id=" << partition_id;
+
+            commit_index_log.add_partition_ids(partition_id);
+        }
+    }
+
     if (request->has_is_new_table() && request->is_new_table()) {
         if (is_versioned_read) {
             // Read the table version, to build the operation log visible version range.

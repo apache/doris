@@ -118,13 +118,18 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     if (_part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();
-        _partitioner =
-                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
-                        channels.size());
+        if (_state->query_options().__isset.enable_new_shuffle_hash_method &&
+            _state->query_options().enable_new_shuffle_hash_method) {
+            _partitioner = std::make_unique<vectorized::Crc32CHashPartitioner>(channels.size());
+        } else {
+            _partitioner = std::make_unique<
+                    vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                    channels.size());
+        }
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         custom_profile()->add_info_string(
-                "Partitioner", fmt::format("Crc32HashPartitioner({})", _partition_count));
+                "Partitioner", fmt::format("Crc32CHashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channels.size();
         _partitioner =
@@ -330,7 +335,7 @@ Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
                     vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
         } else {
             auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-            auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc, false));
+            auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc));
             RETURN_IF_ERROR(
                     vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, *output_row_desc));
         }

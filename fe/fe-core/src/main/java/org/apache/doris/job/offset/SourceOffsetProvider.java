@@ -17,6 +17,8 @@
 
 package org.apache.doris.job.offset;
 
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 
@@ -29,30 +31,35 @@ public interface SourceOffsetProvider {
 
     /**
      * Get source type, e.g. s3, kafka
+     *
      * @return
      */
     String getSourceType();
 
     /**
      * Get next offset to consume
+     *
      * @return
      */
     Offset getNextOffset(StreamingJobProperties jobProps, Map<String, String> properties);
 
     /**
      * Get current offset to show
+     *
      * @return
      */
     String getShowCurrentOffset();
 
     /**
      * Get remote datasource max offset to show
+     *
      * @return
      */
     String getShowMaxOffset();
 
     /**
      * Rewrite the TVF parameters in the SQL based on the current offset.
+     *
      * @param nextOffset
      * @return rewritten InsertIntoTableCommand
      */
@@ -60,6 +67,7 @@ public interface SourceOffsetProvider {
 
     /**
      * Update the offset of the source.
+     *
      * @param offset
      */
     void updateOffset(Offset offset);
@@ -71,21 +79,36 @@ public interface SourceOffsetProvider {
 
     /**
      * Whether there is more data to consume
+     *
      * @return
      */
     boolean hasMoreDataToConsume();
 
     /**
      * Deserialize string offset to Offset
+     *
      * @return
      */
     Offset deserializeOffset(String offset);
 
     /**
      * Deserialize offset property to Offset
+     *
      * @return
      */
     Offset deserializeOffsetProperty(String offset);
+
+    /**
+     * Replaying OffsetProvider is currently only required by JDBC.
+     *
+     * @return
+     */
+    default void replayIfNeed(StreamingInsertJob job)  throws JobException {
+    }
+
+    default String getPersistInfo() {
+        return null;
+    }
 
 }
 

@@ -225,21 +225,18 @@ public class DateLiteral extends LiteralExpr {
         }
         this.type = type;
         this.nullable = false;
-        analysisDone();
     }
 
     public DateLiteral(String s, Type type) throws AnalysisException {
         super();
         init(s, type);
         this.nullable = false;
-        analysisDone();
     }
 
     public DateLiteral(String s) throws AnalysisException {
         super();
         init(s, null);
         this.nullable = false;
-        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day) {
@@ -251,7 +248,6 @@ public class DateLiteral extends LiteralExpr {
         this.day = day;
         this.type = ScalarType.getDefaultDateType(Type.DATE);
         this.nullable = false;
-        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, Type type) {
@@ -262,7 +258,6 @@ public class DateLiteral extends LiteralExpr {
                 || type.getPrimitiveType().equals(Type.DATEV2.getPrimitiveType()));
         this.type = type;
         this.nullable = false;
-        analysisDone();
     }
 
     private DateLiteral(long year, long month, long day, long hour, long minute, long second) {
@@ -274,7 +269,6 @@ public class DateLiteral extends LiteralExpr {
         this.day = day;
         this.type = ScalarType.getDefaultDateType(Type.DATETIME);
         this.nullable = false;
-        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second, long microsecond,
@@ -289,7 +283,6 @@ public class DateLiteral extends LiteralExpr {
         Preconditions.checkArgument(type.isDatetimeV2() || type.isTimeStampTz());
         this.type = type;
         this.nullable = false;
-        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second, Type type) {
@@ -304,7 +297,6 @@ public class DateLiteral extends LiteralExpr {
                 || type.getPrimitiveType().equals(Type.TIMESTAMPTZ.getPrimitiveType()));
         this.type = type;
         this.nullable = false;
-        analysisDone();
     }
 
     public DateLiteral(LocalDateTime dateTime, Type type) {
@@ -319,7 +311,6 @@ public class DateLiteral extends LiteralExpr {
             this.microsecond = dateTime.get(ChronoField.MICRO_OF_SECOND);
         }
         this.nullable = false;
-        analysisDone();
     }
 
     public DateLiteral(DateLiteral other) {

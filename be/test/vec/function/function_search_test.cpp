@@ -498,8 +498,8 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexBasic) {
     uint32_t num_rows = 100;
     InvertedIndexResultBitmap bitmap_result;
 
-    auto status = function_search->evaluate_inverted_index(arguments, data_type_with_names,
-                                                           iterators, num_rows, bitmap_result);
+    auto status = function_search->evaluate_inverted_index(
+            arguments, data_type_with_names, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_TRUE(status.ok()); // Should return OK for legacy method
 }
 
