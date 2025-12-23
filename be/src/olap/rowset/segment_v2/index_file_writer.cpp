@@ -248,7 +248,7 @@ Status IndexFileWriter::wait_close() {
         st = add_into_searcher_cache();
     }
     _indices_dirs.clear();
-    return Status::OK();
+    return st;
 }
 
 std::vector<std::string> IndexFileWriter::get_index_file_names() const {
