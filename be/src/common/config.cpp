@@ -398,6 +398,11 @@ DEFINE_Int32(index_page_cache_percentage, "10");
 DEFINE_mBool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_mBool(disable_storage_row_cache, "true");
+// Parquet page cache: threshold ratio for caching decompressed vs compressed pages
+// If uncompressed_size / compressed_size <= threshold, cache decompressed; otherwise cache compressed
+DEFINE_Double(parquet_page_cache_decompress_threshold, "1.5");
+// Parquet page cache: whether to enable caching compressed pages (when ratio exceeds threshold)
+DEFINE_Bool(enable_parquet_cache_compressed_pages, "false");
 // whether to disable pk page cache feature in storage
 DEFINE_Bool(disable_pk_storage_page_cache, "false");
 

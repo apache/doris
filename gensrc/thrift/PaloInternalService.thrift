@@ -426,6 +426,10 @@ struct TQueryOptions {
   // runtime profiling to choose the most efficient algorithm for the data pattern
   183: optional bool enable_use_hybrid_sort = false;
 
+  // Parquet page cache session options
+  // Whether to enable parquet file page cache on BE for this query
+  184: optional bool enable_parquet_file_page_cache = true;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

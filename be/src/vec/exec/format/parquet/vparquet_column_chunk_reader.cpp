@@ -25,6 +25,8 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "io/fs/buffered_reader.h"
+#include "olap/page_cache.h"
 #include "util/bit_util.h"
 #include "util/block_compression.h"
 #include "util/runtime_profile.h"
@@ -51,7 +53,7 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ColumnChunkReader(
         io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
         FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index, size_t total_rows,
-        io::IOContext* io_ctx)
+        io::IOContext* io_ctx, const ParquetPageReadContext& ctx)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
@@ -59,7 +61,8 @@ ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ColumnChunkReader(
           _metadata(column_chunk->meta_data),
           _offset_index(offset_index),
           _total_rows(total_rows),
-          _io_ctx(io_ctx) {}
+          _io_ctx(io_ctx),
+          _ctx(ctx) {}
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::init() {
@@ -68,7 +71,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::init() {
     size_t chunk_size = _metadata.total_compressed_size;
     // create page reader
     _page_reader = create_page_reader<IN_COLLECTION, OFFSET_INDEX>(
-            _stream_reader, _io_ctx, start_offset, chunk_size, _total_rows, _offset_index);
+            _stream_reader, _io_ctx, start_offset, chunk_size, _total_rows, _metadata,
+            _offset_index, _ctx);
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     _state = INITIALIZED;
@@ -103,7 +107,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_parse_first_page_header(
     RETURN_IF_ERROR(parse_page_header());
 
     const tparquet::PageHeader* header = nullptr;
-    RETURN_IF_ERROR(_page_reader->get_page_header(header));
+    RETURN_IF_ERROR(_page_reader->get_page_header(&header));
     if (header->type == tparquet::PageType::DICTIONARY_PAGE) {
         // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
         // so we should parse the directory page in next_page()
@@ -124,8 +128,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     RETURN_IF_ERROR(_page_reader->parse_page_header());
 
     const tparquet::PageHeader* header = nullptr;
-    ;
-    RETURN_IF_ERROR(_page_reader->get_page_header(header));
+    RETURN_IF_ERROR(_page_reader->get_page_header(&header));
     int32_t page_num_values = _page_reader->is_header_v2() ? header->data_page_header_v2.num_values
                                                            : header->data_page_header.num_values;
     _remaining_rep_nums = page_num_values;
@@ -168,37 +171,151 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
     }
 
     const tparquet::PageHeader* header = nullptr;
-    RETURN_IF_ERROR(_page_reader->get_page_header(header));
+    RETURN_IF_ERROR(_page_reader->get_page_header(&header));
     int32_t uncompressed_size = header->uncompressed_page_size;
+    bool page_loaded = false;
 
-    if (_block_compress_codec != nullptr) {
-        Slice compressed_data;
-        RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
-        if (header->__isset.data_page_header_v2) {
-            const tparquet::DataPageHeaderV2& header_v2 = header->data_page_header_v2;
-            // uncompressed_size = rl + dl + uncompressed_data_size
-            // compressed_size = rl + dl + compressed_data_size
-            uncompressed_size -= header_v2.repetition_levels_byte_length +
-                                 header_v2.definition_levels_byte_length;
-            _get_uncompressed_levels(header_v2, compressed_data);
+    // First, try to reuse a cache handle previously discovered by PageReader
+    // (header-only lookup) to avoid a second lookup here. If no handle is
+    // attached, fall back to a StoragePageCache lookup for a decompressed page.
+    if (_ctx.enable_parquet_file_page_cache && !config::disable_storage_page_cache &&
+        StoragePageCache::instance() != nullptr) {
+        if (_page_reader->has_page_cache_handle()) {
+            const PageCacheHandle& handle = _page_reader->page_cache_handle();
+            Slice cached = handle.data();
+            size_t header_size = _page_reader->header_bytes().size();
+            //size_t levels_size = 0;
+            size_t levels_size = 0;
+            if (header->__isset.data_page_header_v2) {
+                const tparquet::DataPageHeaderV2& header_v2 = header->data_page_header_v2;
+                size_t rl = header_v2.repetition_levels_byte_length;
+                size_t dl = header_v2.definition_levels_byte_length;
+                levels_size = rl + dl;
+                _v2_rep_levels =
+                        Slice(reinterpret_cast<const uint8_t*>(cached.data) + header_size, rl);
+                _v2_def_levels =
+                        Slice(reinterpret_cast<const uint8_t*>(cached.data) + header_size + rl, dl);
+            }
+            // payload_slice points to the bytes after header and levels
+            Slice payload_slice(cached.data + header_size + levels_size,
+                                cached.size - header_size - levels_size);
+
+            bool cache_payload_is_decompressed = _page_reader->is_cache_payload_decompressed();
+
+            if (cache_payload_is_decompressed) {
+                // Cached payload is already uncompressed
+                _page_data = payload_slice;
+            } else {
+                CHECK(_block_compress_codec);
+                // Decompress cached payload into _decompress_buf for decoding
+                size_t uncompressed_payload_size =
+                        header->__isset.data_page_header_v2
+                                ? static_cast<size_t>(header->uncompressed_page_size) - levels_size
+                                : static_cast<size_t>(header->uncompressed_page_size);
+                _reserve_decompress_buf(uncompressed_payload_size);
+                _page_data = Slice(_decompress_buf.get(), uncompressed_payload_size);
+                SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
+                _chunk_statistics.decompress_cnt++;
+                RETURN_IF_ERROR(_block_compress_codec->decompress(payload_slice, &_page_data));
+            }
+            // page cache counters were incremented when PageReader did the header-only
+            // cache lookup. Do not increment again to avoid double-counting.
+            page_loaded = true;
         }
-        bool is_v2_compressed =
-                header->__isset.data_page_header_v2 && header->data_page_header_v2.is_compressed;
-        if (header->__isset.data_page_header || is_v2_compressed) {
-            // check decompressed buffer size
-            _reserve_decompress_buf(uncompressed_size);
-            _page_data = Slice(_decompress_buf.get(), uncompressed_size);
-            SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
-            _chunk_statistics.decompress_cnt++;
-            RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
+    }
+
+    if (!page_loaded) {
+        if (_block_compress_codec != nullptr) {
+            Slice compressed_data;
+            RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
+            std::vector<uint8_t> level_bytes;
+            if (header->__isset.data_page_header_v2) {
+                const tparquet::DataPageHeaderV2& header_v2 = header->data_page_header_v2;
+                // uncompressed_size = rl + dl + uncompressed_data_size
+                // compressed_size = rl + dl + compressed_data_size
+                uncompressed_size -= header_v2.repetition_levels_byte_length +
+                                     header_v2.definition_levels_byte_length;
+                // copy level bytes (rl + dl) so that we can cache header + levels + uncompressed payload
+                size_t rl = header_v2.repetition_levels_byte_length;
+                size_t dl = header_v2.definition_levels_byte_length;
+                size_t level_sz = rl + dl;
+                if (level_sz > 0) {
+                    level_bytes.resize(level_sz);
+                    memcpy(level_bytes.data(), compressed_data.data, level_sz);
+                }
+                // now remove levels from compressed_data for decompression
+                _get_uncompressed_levels(header_v2, compressed_data);
+            }
+            bool is_v2_compressed = header->__isset.data_page_header_v2 &&
+                                    header->data_page_header_v2.is_compressed;
+            bool page_has_compression = header->__isset.data_page_header || is_v2_compressed;
+
+            if (page_has_compression) {
+                // Decompress payload for immediate decoding
+                _reserve_decompress_buf(uncompressed_size);
+                _page_data = Slice(_decompress_buf.get(), uncompressed_size);
+                SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
+                _chunk_statistics.decompress_cnt++;
+                RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
+
+                // Decide whether to cache decompressed payload or compressed payload based on threshold
+                bool should_cache_decompressed = false;
+                if (header->compressed_page_size > 0) {
+                    should_cache_decompressed =
+                            (_metadata.codec == tparquet::CompressionCodec::UNCOMPRESSED) ||
+                            (static_cast<double>(header->uncompressed_page_size) <=
+                             static_cast<double>(config::parquet_page_cache_decompress_threshold) *
+                                     static_cast<double>(header->compressed_page_size));
+                }
+
+                if (_ctx.enable_parquet_file_page_cache && !config::disable_storage_page_cache &&
+                    StoragePageCache::instance() != nullptr &&
+                    !_page_reader->header_bytes().empty()) {
+                    if (should_cache_decompressed) {
+                        _insert_page_into_cache(level_bytes, _page_data);
+                        _chunk_statistics.page_cache_decompressed_write_counter += 1;
+                    } else {
+                        if (config::enable_parquet_cache_compressed_pages) {
+                            // cache the compressed payload as-is (header | levels | compressed_payload)
+                            _insert_page_into_cache(
+                                    level_bytes, Slice(compressed_data.data, compressed_data.size));
+                            _chunk_statistics.page_cache_compressed_write_counter += 1;
+                        }
+                    }
+                }
+            } else {
+                // no compression on this page, use the data directly
+                _page_data = Slice(compressed_data.data, compressed_data.size);
+                if (_ctx.enable_parquet_file_page_cache && !config::disable_storage_page_cache &&
+                    StoragePageCache::instance() != nullptr) {
+                    _insert_page_into_cache(level_bytes, _page_data);
+                    _chunk_statistics.page_cache_decompressed_write_counter += 1;
+                }
+            }
         } else {
-            // Don't need decompress
-            _page_data = Slice(compressed_data.data, compressed_data.size);
-        }
-    } else {
-        RETURN_IF_ERROR(_page_reader->get_page_data(_page_data));
-        if (header->__isset.data_page_header_v2) {
-            _get_uncompressed_levels(header->data_page_header_v2, _page_data);
+            // For uncompressed page, we may still need to extract v2 levels
+            std::vector<uint8_t> level_bytes;
+            Slice uncompressed_data;
+            RETURN_IF_ERROR(_page_reader->get_page_data(uncompressed_data));
+            if (header->__isset.data_page_header_v2) {
+                const tparquet::DataPageHeaderV2& header_v2 = header->data_page_header_v2;
+                size_t rl = header_v2.repetition_levels_byte_length;
+                size_t dl = header_v2.definition_levels_byte_length;
+                size_t level_sz = rl + dl;
+                if (level_sz > 0) {
+                    level_bytes.resize(level_sz);
+                    memcpy(level_bytes.data(), uncompressed_data.data, level_sz);
+                }
+                _get_uncompressed_levels(header_v2, uncompressed_data);
+            }
+            // copy page data out
+            _page_data = Slice(uncompressed_data.data, uncompressed_data.size);
+            // Optionally cache uncompressed data for uncompressed pages
+            if (_ctx.enable_parquet_file_page_cache && !config::disable_storage_page_cache &&
+                StoragePageCache::instance() != nullptr) {
+                _insert_page_into_cache(level_bytes, _page_data);
+                _chunk_statistics.page_cache_decompressed_write_counter += 1;
+            }
         }
     }
 
@@ -243,7 +360,15 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
         _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     }
-    // Reset page data for each page
+    // Reset page data for each page.
+    // If this is a v2 data page, _page_data currently contains rl+dl followed by payload.
+    // The decoder expects payload-only, so strip the level bytes into a temporary Slice
+    // that points into the same cached memory (so ownership remains with the cache handle).
+    // Slice payload_slice = _page_data;
+    // if (header->__isset.data_page_header_v2) {
+    //     const tparquet::DataPageHeaderV2& header_v2 = header->data_page_header_v2;
+    //     _get_uncompressed_levels(header_v2, payload_slice);
+    // }
     RETURN_IF_ERROR(_page_decoder->set_data(&_page_data));
 
     _state = DATA_LOADED;
@@ -253,7 +378,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
     const tparquet::PageHeader* header = nullptr;
-    RETURN_IF_ERROR(_page_reader->get_page_header(header));
+    RETURN_IF_ERROR(_page_reader->get_page_header(&header));
     DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header->type);
     SCOPED_RAW_TIMER(&_chunk_statistics.decode_dict_time);
 
@@ -270,16 +395,88 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
     // Prepare dictionary data
     int32_t uncompressed_size = header->uncompressed_page_size;
     auto dict_data = make_unique_buffer<uint8_t>(uncompressed_size);
-    if (_block_compress_codec != nullptr) {
-        Slice compressed_data;
-        RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
-        Slice dict_slice(dict_data.get(), uncompressed_size);
-        RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &dict_slice));
-    } else {
-        Slice dict_slice;
-        RETURN_IF_ERROR(_page_reader->get_page_data(dict_slice));
-        // The data is stored by BufferedStreamReader, we should copy it out
-        memcpy(dict_data.get(), dict_slice.data, dict_slice.size);
+    bool dict_loaded = false;
+
+    // Try to load dictionary page from cache
+    if (_ctx.enable_parquet_file_page_cache && !config::disable_storage_page_cache &&
+        StoragePageCache::instance() != nullptr) {
+        if (_page_reader->has_page_cache_handle()) {
+            const PageCacheHandle& handle = _page_reader->page_cache_handle();
+            Slice cached = handle.data();
+            size_t header_size = _page_reader->header_bytes().size();
+            // Dictionary page layout in cache: header | payload (compressed or uncompressed)
+            Slice payload_slice(cached.data + header_size, cached.size - header_size);
+
+            bool cache_payload_is_decompressed = _page_reader->is_cache_payload_decompressed();
+
+            if (cache_payload_is_decompressed) {
+                // Use cached decompressed dictionary data
+                memcpy(dict_data.get(), payload_slice.data, payload_slice.size);
+                dict_loaded = true;
+            } else {
+                CHECK(_block_compress_codec);
+                // Decompress cached compressed dictionary data
+                Slice dict_slice(dict_data.get(), uncompressed_size);
+                RETURN_IF_ERROR(_block_compress_codec->decompress(payload_slice, &dict_slice));
+                dict_loaded = true;
+            }
+
+            // When dictionary page is loaded from cache, we need to skip the page data
+            // to update the offset correctly (similar to calling get_page_data())
+            if (dict_loaded) {
+                _page_reader->skip_page_data();
+            }
+        }
+    }
+
+    if (!dict_loaded) {
+        // Load and decompress dictionary page from file
+        if (_block_compress_codec != nullptr) {
+            Slice compressed_data;
+            RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
+            Slice dict_slice(dict_data.get(), uncompressed_size);
+            RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &dict_slice));
+
+            // Decide whether to cache decompressed or compressed dictionary based on threshold
+            bool should_cache_decompressed = false;
+            if (header->compressed_page_size > 0) {
+                should_cache_decompressed =
+                        (static_cast<double>(header->uncompressed_page_size) <=
+                         static_cast<double>(config::parquet_page_cache_decompress_threshold) *
+                                 static_cast<double>(header->compressed_page_size));
+            }
+
+            if (_ctx.enable_parquet_file_page_cache && !config::disable_storage_page_cache &&
+                StoragePageCache::instance() != nullptr && !_page_reader->header_bytes().empty()) {
+                std::vector<uint8_t> empty_levels; // Dictionary pages don't have levels
+                if (should_cache_decompressed) {
+                    // Cache the decompressed dictionary page
+                    _insert_page_into_cache(empty_levels, dict_slice);
+                    _chunk_statistics.page_cache_decompressed_write_counter += 1;
+                } else {
+                    if (config::enable_parquet_cache_compressed_pages) {
+                        // Cache the compressed dictionary page
+                        _insert_page_into_cache(empty_levels,
+                                                Slice(compressed_data.data, compressed_data.size));
+                        _chunk_statistics.page_cache_compressed_write_counter += 1;
+                    }
+                }
+            }
+        } else {
+            Slice dict_slice;
+            RETURN_IF_ERROR(_page_reader->get_page_data(dict_slice));
+            // The data is stored by BufferedStreamReader, we should copy it out
+            memcpy(dict_data.get(), dict_slice.data, dict_slice.size);
+
+            // Cache the uncompressed dictionary page
+            if (_ctx.enable_parquet_file_page_cache && !config::disable_storage_page_cache &&
+                StoragePageCache::instance() != nullptr && !_page_reader->header_bytes().empty()) {
+                std::vector<uint8_t> empty_levels;
+                Slice payload(dict_data.get(), uncompressed_size);
+                _insert_page_into_cache(empty_levels, payload);
+                _chunk_statistics.page_cache_decompressed_write_counter += 1;
+            }
+        }
     }
 
     // Cache page decoder
@@ -303,6 +500,32 @@ void ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_reserve_decompress_buf(siz
         _decompress_buf_size = BitUtil::next_power_of_two(size);
         _decompress_buf = make_unique_buffer<uint8_t>(_decompress_buf_size);
     }
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+void ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_insert_page_into_cache(
+        const std::vector<uint8_t>& level_bytes, const Slice& payload) {
+    StoragePageCache::CacheKey key(
+            fmt::format("{}::{}", _stream_reader->path(), _stream_reader->mtime()),
+            _page_reader->file_end_offset(), _page_reader->header_start_offset());
+    const std::vector<uint8_t>& header_bytes = _page_reader->header_bytes();
+    size_t total = header_bytes.size() + level_bytes.size() + payload.size;
+    auto* page = new DataPage(total, true, segment_v2::DATA_PAGE);
+    size_t pos = 0;
+    memcpy(page->data() + pos, header_bytes.data(), header_bytes.size());
+    pos += header_bytes.size();
+    if (!level_bytes.empty()) {
+        memcpy(page->data() + pos, level_bytes.data(), level_bytes.size());
+        pos += level_bytes.size();
+    }
+    if (payload.size > 0) {
+        memcpy(page->data() + pos, payload.data, payload.size);
+        pos += payload.size;
+    }
+    page->reset_size(total);
+    PageCacheHandle handle;
+    StoragePageCache::instance()->insert(key, page, &handle, segment_v2::DATA_PAGE);
+    _chunk_statistics.page_cache_write_counter += 1;
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>

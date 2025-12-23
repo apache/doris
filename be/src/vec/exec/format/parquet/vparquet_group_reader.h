@@ -166,7 +166,7 @@ public:
                    const PositionDeleteContext& position_delete_ctx,
                    const LazyReadContext& lazy_read_ctx, RuntimeState* state,
                    const std::set<uint64_t>& column_ids,
-                   const std::set<uint64_t>& filter_column_ids);
+                   const std::set<uint64_t>& filter_column_ids, const std::string& created_by = "");
 
     ~RowGroupReader();
     Status init(const FieldDescriptor& schema, RowRanges& row_ranges,
@@ -274,6 +274,7 @@ private:
     std::shared_ptr<ObjectPool> _obj_pool;
     const std::set<uint64_t>& _column_ids;
     const std::set<uint64_t>& _filter_column_ids;
+    std::string _created_by; // Parquet file's created_by field
     bool _is_row_group_filtered = false;
 
     RowGroupIndex _current_row_group_idx {0, 0, 0};
