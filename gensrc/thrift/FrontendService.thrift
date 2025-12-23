@@ -1544,6 +1544,8 @@ struct TCreatePartitionRequest {
     4: optional list<list<Exprs.TNullableStringLiteral>> partitionValues
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
+    // query_id to identify the coordinator, if coordinator exists, it means this is a multi-instance load
+    6: optional Types.TUniqueId query_id
 }
 
 struct TCreatePartitionResult {
