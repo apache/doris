@@ -87,7 +87,6 @@ import java.util.stream.Collectors;
 
 public class CloudInternalCatalog extends InternalCatalog {
     private static final Logger LOG = LogManager.getLogger(CloudInternalCatalog.class);
-    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     public CloudInternalCatalog() {
         super();
@@ -168,7 +167,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 clusterKeyUids = OlapTable.getClusterKeyUids(columns);
             }
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
-            requestBuilder.setRequestIp(REQUEST_IP);
+            requestBuilder.setRequestIp(FrontendOptions.getLocalHostAddressCached());
             List<String> rowStoreColumns =
                     tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet tablet : index.getTablets()) {
@@ -484,7 +483,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         Cloud.PartitionRequest.Builder partitionRequestBuilder = Cloud.PartitionRequest.newBuilder()
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.setTableId(tableId);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
@@ -530,7 +529,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         Cloud.PartitionRequest.Builder partitionRequestBuilder = Cloud.PartitionRequest.newBuilder()
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
         partitionRequestBuilder.addAllIndexIds(indexIds);
@@ -569,7 +568,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder()
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
         indexRequestBuilder.setTableId(tableId);
@@ -607,7 +606,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder()
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
         indexRequestBuilder.setDbId(dbId);
@@ -652,7 +651,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         checkKeyInfosBuilder.addTableIds(tableId);
 
         Cloud.CheckKVRequest.Builder checkKvRequestBuilder = Cloud.CheckKVRequest.newBuilder()
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         checkKvRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         checkKvRequestBuilder.setCheckKeys(checkKeyInfosBuilder.build());
         checkKvRequestBuilder.setOp(Cloud.CheckKVRequest.Operation.CREATE_PARTITION_AFTER_FE_COMMIT);
@@ -693,7 +692,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         checkKeyInfosBuilder.addTableIds(tableId);
 
         Cloud.CheckKVRequest.Builder checkKvRequestBuilder = Cloud.CheckKVRequest.newBuilder()
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         checkKvRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         checkKvRequestBuilder.setCheckKeys(checkKeyInfosBuilder.build());
         checkKvRequestBuilder.setOp(Cloud.CheckKVRequest.Operation.CREATE_INDEX_AFTER_FE_COMMIT);
@@ -856,7 +855,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         Cloud.PartitionRequest.Builder partitionRequestBuilder =
-                Cloud.PartitionRequest.newBuilder().setRequestIp(REQUEST_IP);
+                Cloud.PartitionRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.setTableId(tableId);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
@@ -894,7 +893,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             long partitionId, long tabletId, long newTabletId)
             throws DdlException {
         Cloud.FinishTabletJobRequest.Builder finishTabletJobRequestBuilder =
-                Cloud.FinishTabletJobRequest.newBuilder().setRequestIp(REQUEST_IP);
+                Cloud.FinishTabletJobRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         finishTabletJobRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         finishTabletJobRequestBuilder.setAction(Cloud.FinishTabletJobRequest.Action.ABORT);
         Cloud.TabletJobInfoPB.Builder tabletJobInfoPBBuilder = Cloud.TabletJobInfoPB.newBuilder();
@@ -961,7 +960,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder()
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
         indexRequestBuilder.setTableId(tableId);
@@ -1130,7 +1129,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.CreateStageRequest createStageRequest = Cloud.CreateStageRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setStage(stagePB)
                 .build();
         Cloud.CreateStageResponse response = null;
@@ -1239,7 +1238,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                       String stageName, String userId) throws DdlException {
         Cloud.GetStageRequest.Builder builder = Cloud.GetStageRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setType(stageType);
         if (userName != null) {
             builder.setMysqlUserName(userName);
@@ -1273,7 +1272,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.DropStageRequest.Builder builder = Cloud.DropStageRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setType(stageType);
         if (userName != null) {
             builder.setMysqlUserName(userName);
@@ -1335,7 +1334,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                                         long sizeLimit, int fileNumLimit, int fileMetaSizeLimit) throws DdlException {
         Cloud.BeginCopyRequest request = Cloud.BeginCopyRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id).setStageId(stageId).setStageType(stageType)
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setTableId(tableId).setCopyId(copyJobId).setGroupId(groupId).setStartTimeMs(startTime)
                 .setTimeoutTimeMs(timeoutTime).addAllObjectFiles(objectFiles).setFileNumLimit(fileNumLimit)
                 .setFileSizeLimit(sizeLimit).setFileMetaSizeLimit(fileMetaSizeLimit).build();
@@ -1366,7 +1365,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     public Cloud.GetIamResponse getIam() throws DdlException {
         Cloud.GetIamRequest.Builder builder = Cloud.GetIamRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         Cloud.GetIamResponse response = null;
         try {
             response = MetaServiceProxy.getInstance().getIam(builder.build());
@@ -1381,7 +1380,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                            int groupId, Action action) throws DdlException {
         Cloud.FinishCopyRequest request = Cloud.FinishCopyRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id).setStageId(stageId).setStageType(stageType)
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setTableId(tableId).setCopyId(copyJobId).setGroupId(groupId)
                 .setAction(action).setFinishTimeMs(System.currentTimeMillis()).build();
         Cloud.FinishCopyResponse response = null;
@@ -1420,7 +1419,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     public CopyJobPB getCopyJob(String stageId, long tableId, String copyJobId, int groupId) throws DdlException {
         Cloud.GetCopyJobRequest request = Cloud.GetCopyJobRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setStageId(stageId).setTableId(tableId).setCopyId(copyJobId)
                 .setGroupId(groupId).build();
         Cloud.GetCopyJobResponse response = null;
@@ -1440,7 +1439,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     public List<ObjectFilePB> getCopyFiles(String stageId, long tableId) throws DdlException {
         Cloud.GetCopyFilesRequest.Builder builder = Cloud.GetCopyFilesRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setStageId(stageId).setTableId(tableId);
         Cloud.GetCopyFilesResponse response = null;
         try {
@@ -1460,7 +1459,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             throws DdlException {
         Cloud.FilterCopyFilesRequest.Builder builder = Cloud.FilterCopyFilesRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setStageId(stageId).setTableId(tableId);
         for (ObjectFile objectFile : objectFiles) {
             builder.addObjectFiles(

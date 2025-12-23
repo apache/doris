@@ -169,6 +169,11 @@ public class FrontendOptions {
                 localAddr.getCanonicalHostName(), localAddr.getHostAddress());
     }
 
+    public static String getLocalHostAddressCached() {
+        static String addrString = getLocalHostAddress();
+        return addrString;
+    }
+
     public static String getLocalHostAddress() {
         if (useFqdn) {
             // localAddr.getHostName() is same as run `hostname`

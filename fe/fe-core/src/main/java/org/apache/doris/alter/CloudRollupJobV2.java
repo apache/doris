@@ -57,7 +57,6 @@ import java.util.Map;
 
 public class CloudRollupJobV2 extends RollupJobV2 {
     private static final Logger LOG = LogManager.getLogger(CloudRollupJobV2.class);
-    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
 
     public static AlterJobV2 buildCloudRollupJobV2(RollupJobV2 job) throws IllegalAccessException, AnalysisException {
         CloudRollupJobV2 ret = new CloudRollupJobV2();
@@ -209,7 +208,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             TTabletType tabletType = tbl.getPartitionInfo().getTabletType(partitionId);
             MaterializedIndex rollupIndex = entry.getValue();
             Cloud.CreateTabletsRequest.Builder requestBuilder =
-                    Cloud.CreateTabletsRequest.newBuilder().setRequestIp(REQUEST_IP);
+                    Cloud.CreateTabletsRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
             List<String> rowStoreColumns =
                                         tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet rollupTablet : rollupIndex.getTablets()) {

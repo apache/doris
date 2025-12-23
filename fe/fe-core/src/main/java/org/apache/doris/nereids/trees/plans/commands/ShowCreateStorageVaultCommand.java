@@ -52,7 +52,6 @@ import java.util.Optional;
  * ShowCreateStorageVaultCommand
  */
 public class ShowCreateStorageVaultCommand extends ShowCommand {
-    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
             .addColumn(new Column("StorageVaultName", ScalarType.createVarchar(128)))
@@ -79,7 +78,7 @@ public class ShowCreateStorageVaultCommand extends ShowCommand {
         try {
             Cloud.GetObjStoreInfoResponse response = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder()
-                            .setRequestIp(REQUEST_IP)
+                            .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                             .build());
             AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
             UserIdentity user = ctx.getCurrentUserIdentity();

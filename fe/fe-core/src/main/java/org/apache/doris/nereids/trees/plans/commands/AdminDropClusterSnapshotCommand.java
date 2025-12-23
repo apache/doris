@@ -44,7 +44,6 @@ import org.apache.logging.log4j.Logger;
 public class AdminDropClusterSnapshotCommand extends Command implements ForwardWithSync {
 
     private static final String SNAPSHOT_ID = "snapshot_id";
-    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
     private static final Logger LOG = LogManager.getLogger(AdminDropClusterSnapshotCommand.class);
 
     private String key;
@@ -99,7 +98,7 @@ public class AdminDropClusterSnapshotCommand extends Command implements ForwardW
         try {
             Cloud.DropSnapshotRequest request = Cloud.DropSnapshotRequest.newBuilder()
                     .setCloudUniqueId(Config.cloud_unique_id)
-                    .setRequestIp(REQUEST_IP)
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                     .setSnapshotId(value)
                     .build();
             Cloud.DropSnapshotResponse response = MetaServiceProxy.getInstance().dropSnapshot(request);

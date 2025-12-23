@@ -35,7 +35,6 @@ import java.lang.reflect.Constructor;
 public class CloudSnapshotHandler extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(CloudSnapshotHandler.class);
-    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     public CloudSnapshotHandler() {
         super("cloud snapshot handler", Config.cloud_snapshot_handler_interval_second * 1000);
@@ -80,7 +79,7 @@ public class CloudSnapshotHandler extends MasterDaemon {
         try {
             Cloud.ListSnapshotRequest request = Cloud.ListSnapshotRequest.newBuilder()
                     .setCloudUniqueId(Config.cloud_unique_id)
-                    .setRequestIp(REQUEST_IP)
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                     .setIncludeAborted(includeAborted)
                     .build();
             Cloud.ListSnapshotResponse response = MetaServiceProxy.getInstance().listSnapshot(request);

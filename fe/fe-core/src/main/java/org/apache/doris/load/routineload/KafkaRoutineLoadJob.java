@@ -85,7 +85,6 @@ import java.util.UUID;
  */
 public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
-    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
 
     public static final String KAFKA_FILE_CATALOG = "kafka";
     public static final String PROP_GROUP_ID = "group.id";
@@ -264,7 +263,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void updateCloudProgress() throws UserException {
         Cloud.GetRLTaskCommitAttachRequest.Builder builder =
-                Cloud.GetRLTaskCommitAttachRequest.newBuilder().setRequestIp(REQUEST_IP);
+                Cloud.GetRLTaskCommitAttachRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setCloudUniqueId(Config.cloud_unique_id);
         builder.setDbId(dbId);
         builder.setJobId(id);
@@ -750,7 +749,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
             if (Config.isCloudMode()) {
                 Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
-                        .setRequestIp(REQUEST_IP);
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 builder.setCloudUniqueId(Config.cloud_unique_id);
                 builder.setDbId(dbId);
                 builder.setJobId(id);

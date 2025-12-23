@@ -74,7 +74,6 @@ import java.util.Map;
 public class CloudRestoreJob extends RestoreJob {
 
     private static final Logger LOG = LogManager.getLogger(CloudRestoreJob.class);
-    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     private static final String PROP_STORAGE_VAULT_NAME = RestoreCommand.PROP_STORAGE_VAULT_NAME;
 
@@ -379,7 +378,7 @@ public class CloudRestoreJob extends RestoreJob {
                 int end = Math.min(i + maxCreateTabletBatchSize, restoreTablets.size());
                 List<Tablet> subRestoreTablets = restoreTablets.subList(i, end);
                 Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder()
-                        .setRequestIp(REQUEST_IP);
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 for (Tablet restoreTablet : subRestoreTablets) {
                     try {
                         requestBuilder.addTabletMetas(((CloudInternalCatalog) Env.getCurrentInternalCatalog())

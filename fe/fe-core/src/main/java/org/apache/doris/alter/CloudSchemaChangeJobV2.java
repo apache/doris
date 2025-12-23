@@ -56,7 +56,6 @@ import java.util.stream.Collectors;
 
 public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
-    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
 
     public CloudSchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId,
             String tableName, long timeoutMs) {
@@ -232,7 +231,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
 
                 Cloud.CreateTabletsRequest.Builder requestBuilder =
-                        Cloud.CreateTabletsRequest.newBuilder().setRequestIp(REQUEST_IP);
+                        Cloud.CreateTabletsRequest.newBuilder()
+                                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 for (Tablet shadowTablet : shadowIdx.getTablets()) {
                     OlapFile.TabletMetaCloudPB.Builder builder =
                             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

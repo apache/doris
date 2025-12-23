@@ -77,7 +77,6 @@ import java.util.stream.Collectors;
 @Log4j2
 public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     private static final Logger LOG = LogManager.getLogger(JobManager.class);
-    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
 
     private final ConcurrentHashMap<Long, T> jobMap = new ConcurrentHashMap<>(32);
 
@@ -252,7 +251,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         Cloud.DeleteStreamingJobResponse resp = null;
         try {
             Cloud.DeleteStreamingJobRequest req = Cloud.DeleteStreamingJobRequest.newBuilder()
-                    .setRequestIp(REQUEST_IP)
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                     .setCloudUniqueId(Config.cloud_unique_id)
                     .setDbId(streamingJob.getDbId())
                     .setJobId(job.getJobId())

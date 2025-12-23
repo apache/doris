@@ -52,7 +52,6 @@ import java.util.stream.Collectors;
 
 public class CloudSchemaChangeHandler extends SchemaChangeHandler {
     private static final Logger LOG = LogManager.getLogger(CloudSchemaChangeHandler.class);
-    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
 
     @Override
     public void updatePartitionsProperties(Database db, String tableName, List<String> partitionNames,
@@ -428,7 +427,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                     ? index + Config.cloud_txn_tablet_batch_size
                     : tabletIds.size();
             Cloud.UpdateTabletRequest.Builder requestBuilder = Cloud.UpdateTabletRequest.newBuilder()
-                    .setRequestIp(REQUEST_IP);
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached());
             while (index < nextIndex) {
                 Cloud.TabletMetaInfoPB.Builder infoBuilder = Cloud.TabletMetaInfoPB.newBuilder();
                 infoBuilder.setTabletId(tabletIds.get(index));

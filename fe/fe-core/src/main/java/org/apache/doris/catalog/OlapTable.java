@@ -134,7 +134,6 @@ import java.util.stream.Collectors;
 public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProcessable,
         SupportBinarySearchFilteringPartitions {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
-    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     @Override
     public Map<Long, PartitionItem> getOriginPartitions(CatalogRelation scan) {
@@ -3288,7 +3287,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(this.getDatabase().getId())
                 .setTableId(this.id)
                 .setBatchMode(false)
@@ -3342,7 +3341,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(-1)
                 .setTableId(-1)
                 .setPartitionId(-1)

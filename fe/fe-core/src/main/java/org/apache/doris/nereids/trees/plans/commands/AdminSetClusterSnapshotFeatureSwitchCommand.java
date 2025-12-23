@@ -43,7 +43,6 @@ import org.apache.logging.log4j.Logger;
 public class AdminSetClusterSnapshotFeatureSwitchCommand extends Command implements ForwardWithSync {
 
     private static final Logger LOG = LogManager.getLogger(AdminSetClusterSnapshotFeatureSwitchCommand.class);
-    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     private boolean on;
 
@@ -59,7 +58,7 @@ public class AdminSetClusterSnapshotFeatureSwitchCommand extends Command impleme
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         Cloud.AlterInstanceRequest.Builder builder = Cloud.AlterInstanceRequest.newBuilder()
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setOp(Cloud.AlterInstanceRequest.Operation.SET_SNAPSHOT_PROPERTY)
                 .putProperties(Cloud.AlterInstanceRequest.SnapshotProperty.ENABLE_SNAPSHOT.name(), String.valueOf(on));

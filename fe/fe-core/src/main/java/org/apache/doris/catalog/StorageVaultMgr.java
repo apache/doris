@@ -50,7 +50,6 @@ import java.util.concurrent.Executors;
 
 public class StorageVaultMgr {
     private static final Logger LOG = LogManager.getLogger(StorageVaultMgr.class);
-    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
     private static final ExecutorService ALTER_BE_SYNC_THREAD_POOL = Executors.newFixedThreadPool(1);
     private final SystemInfoService systemInfoService;
     // <VaultName, VaultId>
@@ -200,7 +199,7 @@ public class StorageVaultMgr {
         }
         try {
             Cloud.AlterObjStoreInfoRequest.Builder request = Cloud.AlterObjStoreInfoRequest.newBuilder()
-                    .setRequestIp(REQUEST_IP);
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached());
             if (type == StorageVaultType.S3) {
                 properties.keySet().stream()
                         .filter(key -> !S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(key))
@@ -245,7 +244,7 @@ public class StorageVaultMgr {
 
     public void setDefaultStorageVault(String vaultName) throws DdlException {
         Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder()
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         Cloud.StorageVaultPB.Builder vaultBuilder = Cloud.StorageVaultPB.newBuilder();
         vaultBuilder.setName(vaultName);
         builder.setVault(vaultBuilder.build());
@@ -272,7 +271,7 @@ public class StorageVaultMgr {
 
     public void unsetDefaultStorageVault() throws DdlException {
         Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder()
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setOp(Operation.UNSET_DEFAULT_VAULT);
         try {
             Cloud.AlterObjStoreInfoResponse resp =
@@ -300,7 +299,7 @@ public class StorageVaultMgr {
     public StorageVaultType getStorageVaultTypeByName(String vaultName) throws DdlException {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
-                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().setRequestIp(REQUEST_IP).build());
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached()).build());
 
             for (Cloud.StorageVaultPB vault : resp.getStorageVaultList()) {
                 if (vault.getName().equals(vaultName)) {
@@ -322,7 +321,7 @@ public class StorageVaultMgr {
     public void createHdfsVault(StorageVault vault) throws Exception {
         Cloud.StorageVaultPB.Builder alterHdfsInfoBuilder = buildAlterStorageVaultRequest(vault);
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
-                = Cloud.AlterObjStoreInfoRequest.newBuilder().setRequestIp(REQUEST_IP);
+                = Cloud.AlterObjStoreInfoRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_HDFS_INFO);
         requestBuilder.setVault(alterHdfsInfoBuilder.build());
         requestBuilder.setSetAsDefaultStorageVault(vault.setAsDefault());
@@ -372,7 +371,7 @@ public class StorageVaultMgr {
     public void createS3Vault(StorageVault vault) throws Exception {
         Cloud.StorageVaultPB.Builder s3StorageVaultBuilder = buildAlterStorageVaultRequest(vault);
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
-                = Cloud.AlterObjStoreInfoRequest.newBuilder().setRequestIp(REQUEST_IP);
+                = Cloud.AlterObjStoreInfoRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_S3_VAULT);
         requestBuilder.setVault(s3StorageVaultBuilder);
         requestBuilder.setSetAsDefaultStorageVault(vault.setAsDefault());

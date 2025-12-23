@@ -39,7 +39,6 @@ import java.util.Map;
  * Simple cloud plugin downloader for UDF and JDBC drivers.
  */
 public class CloudPluginDownloader {
-    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
 
     public enum PluginType {
         JDBC_DRIVERS,
@@ -82,7 +81,7 @@ public class CloudPluginDownloader {
     static Cloud.ObjectStoreInfoPB getCloudStorageInfo() throws Exception {
         Cloud.GetObjStoreInfoResponse response = MetaServiceProxy.getInstance()
                 .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder()
-                        .setRequestIp(REQUEST_IP)
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                         .build());
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {

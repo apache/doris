@@ -72,7 +72,6 @@ import java.util.stream.Collectors;
 
 public class CloudTabletRebalancer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudTabletRebalancer.class);
-    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     private volatile ConcurrentHashMap<Long, Set<Tablet>> beToTabletsGlobal =
             new ConcurrentHashMap<Long, Set<Tablet>>();
@@ -608,7 +607,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 }
                 LOG.info("prepare to notify meta service be {} decommissioned", backend.getAddress());
                 Cloud.AlterClusterRequest.Builder builder =
-                        Cloud.AlterClusterRequest.newBuilder().setRequestIp(REQUEST_IP);
+                        Cloud.AlterClusterRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 builder.setCloudUniqueId(Config.cloud_unique_id);
                 builder.setOp(Cloud.AlterClusterRequest.Operation.NOTIFY_DECOMMISSIONED);
 

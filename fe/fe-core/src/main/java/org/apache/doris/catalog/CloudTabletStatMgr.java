@@ -50,7 +50,6 @@ import java.util.concurrent.Future;
  */
 public class CloudTabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudTabletStatMgr.class);
-    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     // <(dbId, tableId) -> OlapTable.Statistics>
     private volatile Map<Pair<Long, Long>, OlapTable.Statistics> cloudTableStatsMap = new HashMap<>();
@@ -68,7 +67,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
         long start = System.currentTimeMillis();
 
         List<GetTabletStatsRequest> reqList = new ArrayList<GetTabletStatsRequest>();
-        GetTabletStatsRequest.Builder builder = GetTabletStatsRequest.newBuilder().setRequestIp(REQUEST_IP);
+        GetTabletStatsRequest.Builder builder =
+                GetTabletStatsRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -99,7 +99,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
                                 if (builder.getTabletIdxCount() >= Config.get_tablet_stat_batch_size) {
                                     reqList.add(builder.build());
-                                    builder = GetTabletStatsRequest.newBuilder().setRequestIp(REQUEST_IP);
+                                    builder = GetTabletStatsRequest.newBuilder()
+                                            .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                                 }
                             }
                         }

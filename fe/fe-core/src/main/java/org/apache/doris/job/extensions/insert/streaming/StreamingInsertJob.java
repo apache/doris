@@ -93,7 +93,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Log4j2
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback, GsonPostProcessable {
-    private static final String REQUEST_IP = FrontendOptions.getLocalHostAddress();
     private long dbId;
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     @Getter
@@ -505,7 +504,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     private void resetCloudProgress(Offset offset) throws JobException {
         Cloud.ResetStreamingJobOffsetRequest.Builder builder = Cloud.ResetStreamingJobOffsetRequest.newBuilder()
-                .setRequestIp(REQUEST_IP);
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setCloudUniqueId(Config.cloud_unique_id);
         builder.setDbId(getDbId());
         builder.setJobId(getJobId());
@@ -736,7 +735,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void replayOnCloudMode() throws JobException {
         Cloud.GetStreamingTaskCommitAttachRequest.Builder builder =
                 Cloud.GetStreamingTaskCommitAttachRequest.newBuilder()
-                        .setRequestIp(REQUEST_IP);
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setCloudUniqueId(Config.cloud_unique_id);
         builder.setDbId(getDbId());
         builder.setJobId(getJobId());

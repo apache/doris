@@ -49,7 +49,6 @@ import java.util.stream.Collectors;
  */
 public class CloudPartition extends Partition {
     private static final Logger LOG = LogManager.getLogger(CloudPartition.class);
-    private static final String REQUEST_IP = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
 
     // not Serialized
     @SerializedName(value = "dbId")
@@ -140,7 +139,7 @@ public class CloudPartition extends Partition {
         }
 
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(this.dbId)
                 .setTableId(this.tableId)
                 .setPartitionId(super.getId())
@@ -301,7 +300,7 @@ public class CloudPartition extends Partition {
                 "partition ids size: " + partitionIds.size() + " should equals to tablet ids size: " + tableIds.size();
 
         Cloud.GetVersionRequest req = Cloud.GetVersionRequest.newBuilder()
-                .setRequestIp(REQUEST_IP)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(-1)
                 .setTableId(-1)
                 .setPartitionId(-1)
