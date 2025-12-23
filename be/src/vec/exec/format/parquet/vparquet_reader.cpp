@@ -414,7 +414,6 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
 
     _top_runtime_vexprs.clear();
     _push_down_predicates.clear();
-    _useless_predicates.clear();
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
