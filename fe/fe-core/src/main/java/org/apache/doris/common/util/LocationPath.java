@@ -242,13 +242,20 @@ public class LocationPath {
                     authorityEnd = normalizedLocation.length();
                 }
                 String authority = normalizedLocation.substring(authorityStart, authorityEnd);
+                if (authority.isEmpty()) {
+                    throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
+                }
                 fsIdentifier = cachedFsIdPrefix + authority;
             } else {
                 // Fallback to full URI parsing
                 String encodedLocation = encodedLocation(normalizedLocation);
                 URI uri = URI.create(encodedLocation);
+                String authority = uri.getAuthority();
+                if (Strings.isNullOrEmpty(authority)) {
+                    throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
+                }
                 fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
-                        + Strings.nullToEmpty(uri.getAuthority());
+                        + authority;
             }
 
             String schema = cachedSchema != null ? cachedSchema : extractScheme(location);

@@ -108,4 +108,26 @@ class S3ConnectorPropertiesUtilsTest {
         Assertions.assertThrows(StoragePropertiesException.class, () -> S3PropertyUtils.validateAndNormalizeUri("", "false", "false"));
         Assertions.assertThrows(UserException.class, () -> S3PropertyUtils.validateAndNormalizeUri("not a uri", "true", "true"));
     }
+
+    @Test
+    void testSimpleSchemeConversion() throws UserException {
+        String[] schemes = {"s3a", "s3n", "oss", "cos", "cosn", "obs", "bos", "gs"};
+        for (String scheme : schemes) {
+            String input = scheme + "://bucket/key";
+            Assertions.assertEquals("s3://bucket/key",
+                    S3PropertyUtils.validateAndNormalizeUri(input, "false", "false"));
+        }
+        Assertions.assertEquals("s3://bucket/key",
+                S3PropertyUtils.validateAndNormalizeUri("OSS://bucket/key", "false", "false"));
+    }
+
+    @Test
+    void testSimpleSchemeConversionInvalid() {
+        Assertions.assertThrows(UserException.class,
+                () -> S3PropertyUtils.validateAndNormalizeUri("s3a://", "false", "false"));
+        Assertions.assertThrows(UserException.class,
+                () -> S3PropertyUtils.validateAndNormalizeUri("oss://http://example.com/path", "false", "false"));
+        Assertions.assertThrows(UserException.class,
+                () -> S3PropertyUtils.validateAndNormalizeUri("cosn:///path", "false", "false"));
+    }
 }

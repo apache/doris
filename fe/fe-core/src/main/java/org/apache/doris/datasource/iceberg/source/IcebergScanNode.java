@@ -118,10 +118,10 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     // Cached values for LocationPath creation optimization
     // These are lazily initialized on first use to avoid parsing overhead for each file
+    private boolean locationPathCacheInitialized = false;
     private StorageProperties cachedStorageProperties;
     private String cachedSchema;
     private String cachedFsIdPrefix;
-    private boolean locationPathCacheInitialized = false;
     // Cache for path prefix transformation to avoid repeated S3URI parsing
     // Maps original path prefix (e.g., "https://bucket.s3.amazonaws.com/") to normalized prefix (e.g., "s3://bucket/")
     private String cachedOriginalPathPrefix;

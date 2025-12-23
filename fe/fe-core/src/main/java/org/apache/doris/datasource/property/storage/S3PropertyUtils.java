@@ -178,9 +178,13 @@ public class S3PropertyUtils {
         String scheme = path.substring(0, delimIndex).toLowerCase();
         for (String compatibleScheme : SIMPLE_S3_COMPATIBLE_SCHEMES) {
             if (compatibleScheme.equals(scheme)) {
+                String rest = path.substring(delimIndex + SCHEME_DELIM.length());
+                if (rest.isEmpty() || rest.startsWith(S3URI.PATH_DELIM) || rest.contains(SCHEME_DELIM)) {
+                    return null;
+                }
                 // Simple conversion: replace scheme with "s3"
                 // e.g., "oss://bucket/key" -> "s3://bucket/key"
-                return S3_SCHEME_PREFIX + path.substring(delimIndex + SCHEME_DELIM.length());
+                return S3_SCHEME_PREFIX + rest;
             }
         }
         return null;
