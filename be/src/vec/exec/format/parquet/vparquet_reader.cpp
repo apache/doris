@@ -183,6 +183,22 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecompressTime", parquet_profile, 1);
         _parquet_profile.decompress_cnt = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "DecompressCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_read_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageReadCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_write_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheWriteCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_compressed_write_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheCompressedWriteCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_decompressed_write_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheDecompressedWriteCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheHitCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_missing_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheMissingCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_compressed_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheCompressedHitCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_decompressed_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheDecompressedHitCount", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.decode_header_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageHeaderDecodeTime", parquet_profile, 1);
         _parquet_profile.read_page_header_time =
@@ -789,12 +805,13 @@ Status ParquetReader::_next_row_group_reader() {
                                   _profile, _file_reader, io_ranges, merged_read_slice_size)
                         : _file_reader;
     }
-    _current_group_reader.reset(new RowGroupReader(
-            _io_ctx ? std::make_shared<io::TracingFileReader>(group_file_reader,
-                                                              _io_ctx->file_reader_stats)
-                    : group_file_reader,
-            _read_table_columns, _current_row_group_index.row_group_id, row_group, _ctz, _io_ctx,
-            position_delete_ctx, _lazy_read_ctx, _state, _column_ids, _filter_column_ids));
+    _current_group_reader.reset(
+            new RowGroupReader(_io_ctx ? std::make_shared<io::TracingFileReader>(
+                                                 group_file_reader, _io_ctx->file_reader_stats)
+                                       : group_file_reader,
+                               _read_table_columns, _current_row_group_index.row_group_id,
+                               row_group, _ctz, _io_ctx, position_delete_ctx, _lazy_read_ctx,
+                               _state, _column_ids, _filter_column_ids, _t_metadata->created_by));
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
@@ -1209,6 +1226,21 @@ void ParquetReader::_collect_profile() {
                    _column_statistics.page_index_read_calls);
     COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);
     COUNTER_UPDATE(_parquet_profile.decompress_cnt, _column_statistics.decompress_cnt);
+    COUNTER_UPDATE(_parquet_profile.page_read_counter, _column_statistics.page_read_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_write_counter,
+                   _column_statistics.page_cache_write_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_compressed_write_counter,
+                   _column_statistics.page_cache_compressed_write_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_decompressed_write_counter,
+                   _column_statistics.page_cache_decompressed_write_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_hit_counter,
+                   _column_statistics.page_cache_hit_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_missing_counter,
+                   _column_statistics.page_cache_missing_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_compressed_hit_counter,
+                   _column_statistics.page_cache_compressed_hit_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_decompressed_hit_counter,
+                   _column_statistics.page_cache_decompressed_hit_counter);
     COUNTER_UPDATE(_parquet_profile.decode_header_time, _column_statistics.decode_header_time);
     COUNTER_UPDATE(_parquet_profile.read_page_header_time,
                    _column_statistics.read_page_header_time);

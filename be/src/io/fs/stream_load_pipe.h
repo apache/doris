@@ -57,6 +57,8 @@ public:
 
     size_t size() const override { return 0; }
 
+    int64_t mtime() const override { return 0; }
+
     // called when consumer finished
     Status close() override {
         if (!(_finished || _cancelled)) {
