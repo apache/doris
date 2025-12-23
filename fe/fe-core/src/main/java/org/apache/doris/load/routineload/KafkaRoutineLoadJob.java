@@ -50,6 +50,7 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -783,6 +784,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
                 this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
             }
+            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+                String policy = jobProperties.get(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY);
+                if ("ERROR".equalsIgnoreCase(policy)) {
+                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
+                } else {
+                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+                }
+            }
         }
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
                 this.id, jobProperties, dataSourceProperties);
@@ -955,6 +964,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS, partitions,
                 mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs, precedingFilter,
                 whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism, loadToSingleTablet,
-                isPartialUpdate, memtableOnSinkNode);
+                isPartialUpdate, partialUpdateNewKeyPolicy, memtableOnSinkNode);
     }
 }
