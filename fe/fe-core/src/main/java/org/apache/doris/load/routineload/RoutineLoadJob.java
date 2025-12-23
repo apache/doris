@@ -67,6 +67,7 @@ import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
@@ -223,6 +224,7 @@ public abstract class RoutineLoadJob
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
     protected boolean isPartialUpdate = false;
+    protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     protected String sequenceCol;
 
@@ -394,6 +396,9 @@ public abstract class RoutineLoadJob
         jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, stmt.isPartialUpdate() ? "true" : "false");
         if (stmt.isPartialUpdate()) {
             this.isPartialUpdate = true;
+            this.partialUpdateNewKeyPolicy = info.getPartialUpdateNewKeyPolicy();
+            jobProperties.put(info.PARTIAL_UPDATE_NEW_KEY_POLICY,
+                    this.partialUpdateNewKeyPolicy == TPartialUpdateNewRowPolicy.ERROR ? "ERROR" : "APPEND");
         }
         jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
 
@@ -1830,11 +1835,15 @@ public abstract class RoutineLoadJob
 
         // job properties defined in CreateRoutineLoadStmt
         jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
-        jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
-        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, String.valueOf(maxBatchIntervalS));
-        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, String.valueOf(maxBatchRows));
-        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, String.valueOf(maxBatchSizeBytes));
-        jobProperties.put(CreateRoutineLoadStmt.CURRENT_CONCURRENT_NUMBER_PROPERTY,
+        if (isPartialUpdate) {
+            jobProperties.put(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY,
+                    partialUpdateNewKeyPolicy == TPartialUpdateNewRowPolicy.ERROR ? "ERROR" : "APPEND");
+        }
+        jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
+        jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY, String.valueOf(maxBatchIntervalS));
+        jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY, String.valueOf(maxBatchRows));
+        jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY, String.valueOf(maxBatchSizeBytes));
+        jobProperties.put(CreateRoutineLoadInfo.CURRENT_CONCURRENT_NUMBER_PROPERTY,
                 String.valueOf(currentTaskConcurrentNum));
         jobProperties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY,
                 String.valueOf(desireTaskConcurrentNum));
@@ -1896,6 +1905,12 @@ public abstract class RoutineLoadJob
         jobProperties.forEach((k, v) -> {
             if (k.equals(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
                 isPartialUpdate = Boolean.parseBoolean(v);
+            } else if (k.equals(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+                if ("ERROR".equalsIgnoreCase(v)) {
+                    partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
+                } else {
+                    partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+                }
             }
         });
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),

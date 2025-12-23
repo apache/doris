@@ -35,6 +35,7 @@ import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -111,6 +112,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
     public static final String FUZZY_PARSE = "fuzzy_parse";
 
     public static final String PARTIAL_COLUMNS = "partial_columns";
+    public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_behavior";
 
     public static final String WORKLOAD_GROUP = "workload_group";
 
@@ -141,6 +143,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
             .add(SEND_BATCH_PARALLELISM)
             .add(LOAD_TO_SINGLE_TABLET)
             .add(PARTIAL_COLUMNS)
+            .add(PARTIAL_UPDATE_NEW_KEY_POLICY)
             .add(WORKLOAD_GROUP)
             .add(LoadStmt.KEY_ENCLOSE)
             .add(LoadStmt.KEY_ESCAPE)
@@ -178,6 +181,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
      */
     @Getter
     private boolean isPartialUpdate = false;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     private String comment = "";
 
@@ -211,6 +215,15 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
                 .createDataSource(typeName, dataSourceProperties, this.isMultiTable);
         this.mergeType = mergeType;
         this.isPartialUpdate = this.jobProperties.getOrDefault(PARTIAL_COLUMNS, "false").equalsIgnoreCase("true");
+        if (this.isPartialUpdate && this.jobProperties.containsKey(PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+            String policyStr = this.jobProperties.get(PARTIAL_UPDATE_NEW_KEY_POLICY).toUpperCase();
+            if ("APPEND".equals(policyStr)) {
+                this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+            } else if ("ERROR".equals(policyStr)) {
+                this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
+            }
+            // validation will be done in checkJobProperties()
+        }
         if (comment != null) {
             this.comment = comment;
         }
@@ -280,6 +293,10 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
 
     public String getTimezone() {
         return timezone;
+    }
+
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewKeyPolicy() {
+        return partialUpdateNewKeyPolicy;
     }
 
     public LoadTask.MergeType getMergeType() {
@@ -489,6 +506,18 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
 
+        // check partial_update_new_key_behavior
+        if (jobProperties.containsKey(PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+            if (!isPartialUpdate) {
+                throw new AnalysisException(
+                    PARTIAL_UPDATE_NEW_KEY_POLICY + " can only be set when partial_columns is true");
+            }
+            String policy = jobProperties.get(PARTIAL_UPDATE_NEW_KEY_POLICY).toUpperCase();
+            if (!"APPEND".equals(policy) && !"ERROR".equals(policy)) {
+                throw new AnalysisException(
+                    PARTIAL_UPDATE_NEW_KEY_POLICY + " should be one of {'APPEND', 'ERROR'}, but found " + policy);
+            }
+        }
         fileFormatProperties.analyzeFileFormatProperties(jobProperties, false);
     }
 
