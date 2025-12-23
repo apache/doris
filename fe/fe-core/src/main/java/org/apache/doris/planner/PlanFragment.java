@@ -164,6 +164,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public TQueryCacheParam queryCacheParam;
     private int numBackends = 0;
     private boolean forceSingleInstance = false;
+    private Supplier<TPlanFragment> cachedThrift;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -177,6 +178,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.builderRuntimeFilterIds = new HashSet<>();
         this.targetRuntimeFilterIds = new HashSet<>();
         this.hasBucketShuffleJoin = buildHasBucketShuffleJoin();
+        this.cachedThrift = buildThriftCache();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
     }
@@ -202,6 +204,31 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                 }
             }
             return false;
+        });
+    }
+
+    private Supplier<TPlanFragment> buildThriftCache() {
+        return Suppliers.memoize(() -> {
+            TPlanFragment result = new TPlanFragment();
+            if (planRoot != null) {
+                result.setPlan(planRoot.treeToThrift());
+            }
+            if (outputExprs != null) {
+                result.setOutputExprs(Expr.treesToThrift(outputExprs));
+            }
+            if (sink != null) {
+                result.setOutputSink(sink.toThrift());
+            }
+            if (dataPartitionForThrift == null) {
+                result.setPartition(dataPartition.toThrift());
+            } else {
+                result.setPartition(dataPartitionForThrift.toThrift());
+            }
+
+            // TODO chenhao , calculated by cost
+            result.setMinReservationBytes(0);
+            result.setInitialReservationTotalClaims(0);
+            return result;
         });
     }
 
@@ -320,26 +347,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     }
 
     public TPlanFragment toThrift() {
-        TPlanFragment result = new TPlanFragment();
-        if (planRoot != null) {
-            result.setPlan(planRoot.treeToThrift());
+        if (cachedThrift == null) {
+            cachedThrift = buildThriftCache();
         }
-        if (outputExprs != null) {
-            result.setOutputExprs(Expr.treesToThrift(outputExprs));
-        }
-        if (sink != null) {
-            result.setOutputSink(sink.toThrift());
-        }
-        if (dataPartitionForThrift == null) {
-            result.setPartition(dataPartition.toThrift());
-        } else {
-            result.setPartition(dataPartitionForThrift.toThrift());
-        }
-
-        // TODO chenhao , calculated by cost
-        result.setMinReservationBytes(0);
-        result.setInitialReservationTotalClaims(0);
-        return result;
+        return cachedThrift.get();
     }
 
     public String getExplainString(TExplainLevel explainLevel) {
