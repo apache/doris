@@ -344,8 +344,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (upstreamFragment.getPlanRoot() instanceof AggregationNode && upstream instanceof PhysicalHashAggregate) {
             PhysicalHashAggregate<?> hashAggregate = (PhysicalHashAggregate<?>) upstream;
             if (hashAggregate.getAggPhase() == AggPhase.LOCAL
-                    && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER
-                    && hashAggregate.getTopnPushInfo() == null) {
+                    && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER) {
                 AggregationNode aggregationNode = (AggregationNode) upstreamFragment.getPlanRoot();
                 aggregationNode.setUseStreamingPreagg(hashAggregate.isMaybeUsingStream());
             }
