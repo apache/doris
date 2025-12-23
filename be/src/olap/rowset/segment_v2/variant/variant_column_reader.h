@@ -369,7 +369,7 @@ private:
             PathToBinaryColumnCache* binary_column_cache_ptr, const std::string& path,
             std::shared_ptr<ColumnReader> binary_column_reader);
 
-    std::vector<uint32_t> _pick_doc_snapshot_column_buckets(const std::string& path);
+    std::vector<uint32_t> _pick_doc_value_column_buckets(const std::string& path);
 
     // Protect `_subcolumns_meta_info` and `_statistics` when loading external meta.
     // english only in comments
@@ -391,7 +391,7 @@ private:
     uint64_t _num_rows {0};
     uint32_t _root_unique_id {0};
 
-    std::unordered_map<uint32_t, std::shared_ptr<ColumnReader>> _doc_snapshot_column_readers;
+    std::unordered_map<uint32_t, std::shared_ptr<ColumnReader>> _doc_value_column_readers;
 
     // call-once guard moved into VariantExternalMetaReader
 };

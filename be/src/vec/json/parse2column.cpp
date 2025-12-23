@@ -167,7 +167,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     }
     auto [doc_snapshot_data_paths, doc_snapshot_data_values] =
             column_variant.get_doc_snapshot_data_paths_and_values();
-    auto& doc_snapshot_data_offsets = column_variant.serialized_doc_snapshot_column_offsets();
+    auto& doc_snapshot_data_offsets = column_variant.serialized_doc_value_column_offsets();
     std::unordered_set<std::string> subcolumn_set;
     if (config.parse_to_subcolumns) {
         for (size_t i = 0; i < paths.size(); ++i) {
@@ -284,7 +284,7 @@ void parse_binary_to_variant(ColumnVariant& column_variant) {
     std::unordered_map<std::string_view, vectorized::ColumnVariant::Subcolumn> subcolumns;
 
     auto [column_key, column_value] = column_variant.get_doc_snapshot_data_paths_and_values();
-    const auto& column_offsets = column_variant.serialized_doc_snapshot_column_offsets();
+    const auto& column_offsets = column_variant.serialized_doc_value_column_offsets();
 
     size_t num_rows = column_offsets.size();
 

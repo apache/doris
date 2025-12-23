@@ -669,7 +669,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _variant_sparse_hash_shard_count = column.variant_sparse_hash_shard_count();
     }
     if (column.has_variant_enable_doc_snapshot_mode()) {
-        _variant_enable_doc_snapshot_mode = column.variant_enable_doc_snapshot_mode();
+        _variant_enable_doc_snapshot_mode = column.variant_enable_doc_mode();
     }
     if (column.has_variant_doc_snapshot_min_rows()) {
         _variant_doc_snapshot_min_rows = column.variant_doc_snapshot_min_rows();

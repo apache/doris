@@ -60,7 +60,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
         CREATE TABLE `test_predefine1` (
             `id` bigint NOT NULL,
-            `v1` variant<properties("variant_enable_doc_snapshot_mode" = "false")> NULL,
+            `v1` variant<properties("variant_enable_doc_mode" = "false")> NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true");
@@ -220,7 +220,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql "DROP TABLE IF EXISTS test_predefine3"
     sql """CREATE TABLE `test_predefine3` (
             `id` bigint NOT NULL,
-            `v` variant<'nested.a':string, properties("variant_enable_doc_snapshot_mode" = "false")> NULL)
+            `v` variant<'nested.a':string, properties("variant_enable_doc_mode" = "false")> NULL)
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "false", "disable_auto_compaction" = "true");"""
 

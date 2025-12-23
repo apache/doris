@@ -161,7 +161,7 @@ private:
                 _sparse_column_cache->binary_column->size());
         var.incr_num_rows(_sparse_column_cache->binary_column->size());
         var.get_sparse_column()->assume_mutable()->resize(var.rows());
-        var.get_doc_snapshot_column()->assume_mutable()->resize(var.rows());
+        var.get_doc_value_column()->assume_mutable()->resize(var.rows());
         ENABLE_CHECK_CONSISTENCY(&var);
     }
 

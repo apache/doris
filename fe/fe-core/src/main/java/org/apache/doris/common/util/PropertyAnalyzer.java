@@ -265,7 +265,7 @@ public class PropertyAnalyzer {
     // number of buckets when using bucketized sparse serialization
     public static final String PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT = "variant_sparse_hash_shard_count";
 
-    public static final String PROPERTIES_VARIANT_ENABLE_DOC_SNAPSHOT_MODE = "variant_enable_doc_snapshot_mode";
+    public static final String PROPERTIES_VARIANT_ENABLE_DOC_SNAPSHOT_MODE = "variant_enable_doc_mode";
 
     public static final String PROPERTIES_VARIANT_DOC_SNAPSHOT_MIN_ROWS = "variant_doc_snapshot_min_rows";
 
@@ -1971,7 +1971,7 @@ public class PropertyAnalyzer {
             try {
                 enableVariantDocSnapshotMode = Boolean.parseBoolean(enableVariantDocSnapshotModeStr);
             } catch (Exception e) {
-                throw new AnalysisException("variant_enable_doc_snapshot_mode must be `true` or `false`");
+                throw new AnalysisException("variant_enable_doc_mode must be `true` or `false`");
             }
             properties.remove(PROPERTIES_VARIANT_ENABLE_DOC_SNAPSHOT_MODE);
         }

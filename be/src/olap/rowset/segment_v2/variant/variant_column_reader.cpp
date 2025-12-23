@@ -633,12 +633,12 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     }
 
     // read root
-    if (root->path == relative_path && !_doc_snapshot_column_readers.empty()) {
+    if (root->path == relative_path && !_doc_value_column_readers.empty()) {
         plan->kind = ReadKind::DOC_SNAPSHOT_ALL;
         plan->type = create_variant_type(target_col);
         plan->relative_path = relative_path;
         plan->root = root;
-        for (const auto& [bucket_value, _] : _doc_snapshot_column_readers) {
+        for (const auto& [bucket_value, _] : _doc_value_column_readers) {
             plan->doc_snapshot_buckets.push_back(bucket_value);
         }
         return Status::OK();
@@ -738,7 +738,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
         // find if path exists in doc snapshot column
         auto picked_doc_snapshot_buckets =
-                _pick_doc_snapshot_column_buckets(relative_path.get_path());
+                _pick_doc_value_column_buckets(relative_path.get_path());
         if (!picked_doc_snapshot_buckets.empty()) {
             plan->kind = ReadKind::DOC_SNAPSHOT_EXTRACT;
             plan->type = create_variant_type(target_col);
@@ -816,7 +816,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
     case ReadKind::DOC_SNAPSHOT: {
         DCHECK(plan.doc_snapshot_buckets.size() == 1);
         ColumnIteratorUPtr inner_iter;
-        RETURN_IF_ERROR(_doc_snapshot_column_readers.at(plan.doc_snapshot_buckets[0])
+        RETURN_IF_ERROR(_doc_value_column_readers.at(plan.doc_snapshot_buckets[0])
                                 ->new_iterator(&inner_iter, nullptr));
         *iterator = std::make_unique<VariantDocSnapshotCompactIterator>(std::move(inner_iter));
         return Status::OK();
@@ -824,27 +824,27 @@ Status VariantColumnReader::_create_iterator_from_plan(
     case ReadKind::DOC_SNAPSHOT_EXTRACT: {
         DCHECK(plan.doc_snapshot_buckets.size() >= 1);
 
-        std::vector<BinaryColumnCacheSPtr> doc_snapshot_column_caches;
+        std::vector<BinaryColumnCacheSPtr> doc_value_column_caches;
         for (const auto& bucket : plan.doc_snapshot_buckets) {
             std::string path = DOC_SNAPSHOT_COLUMN_PATH + "." + std::to_string(bucket);
-            BinaryColumnCacheSPtr doc_snapshot_column_cache = DORIS_TRY(_get_binary_column_cache(
-                    binary_column_cache_ptr, path, _doc_snapshot_column_readers.at(bucket)));
-            doc_snapshot_column_caches.push_back(std::move(doc_snapshot_column_cache));
+            BinaryColumnCacheSPtr doc_value_column_cache = DORIS_TRY(_get_binary_column_cache(
+                    binary_column_cache_ptr, path, _doc_value_column_readers.at(bucket)));
+            doc_value_column_caches.push_back(std::move(doc_value_column_cache));
         }
         *iterator = std::make_unique<VariantDocSnapshotPathIterator>(
-                std::move(doc_snapshot_column_caches), plan.relative_path.get_path());
+                std::move(doc_value_column_caches), plan.relative_path.get_path());
         if (opt && opt->stats) {
             opt->stats->variant_subtree_doc_snapshot_extract_iter_count++;
         }
         return Status::OK();
     }
     case ReadKind::DOC_SNAPSHOT_ALL: {
-        std::vector<BinaryColumnCacheSPtr> doc_snapshot_column_caches;
+        std::vector<BinaryColumnCacheSPtr> doc_value_column_caches;
         for (const auto& bucket : plan.doc_snapshot_buckets) {
             std::string path = DOC_SNAPSHOT_COLUMN_PATH + "." + std::to_string(bucket);
-            BinaryColumnCacheSPtr doc_snapshot_column_cache = DORIS_TRY(_get_binary_column_cache(
-                    binary_column_cache_ptr, path, _doc_snapshot_column_readers.at(bucket)));
-            doc_snapshot_column_caches.push_back(std::move(doc_snapshot_column_cache));
+            BinaryColumnCacheSPtr doc_value_column_cache = DORIS_TRY(_get_binary_column_cache(
+                    binary_column_cache_ptr, path, _doc_value_column_readers.at(bucket)));
+            doc_value_column_caches.push_back(std::move(doc_value_column_cache));
         }
         std::unique_ptr<SubstreamIterator> root_column_reader;
         DCHECK(plan.root);
@@ -853,7 +853,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
                 std::make_unique<FileColumnIterator>(_root_column_reader),
                 plan.root->data.file_column_type);
         *iterator = std::make_unique<VariantDocSnapshotRootIterator>(
-                std::move(doc_snapshot_column_caches), std::move(root_column_reader));
+                std::move(doc_value_column_caches), std::move(root_column_reader));
         if (opt && opt->stats) {
             opt->stats->variant_subtree_doc_snapshot_all_iter_count++;
         }
@@ -980,13 +980,13 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             int bucket_value = std::stoi(rel_str.substr(bucket + 1));
             std::shared_ptr<ColumnReader> column_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &column_reader));
-            _doc_snapshot_column_readers.emplace(bucket_value, std::move(column_reader));
+            _doc_value_column_readers.emplace(bucket_value, std::move(column_reader));
             const auto& variant_stats = col.variant_statistics();
             std::set<std::string, std::less<>> paths;
-            for (const auto& [subpath, size] : variant_stats.doc_snapshot_column_non_null_size()) {
+            for (const auto& [subpath, size] : variant_stats.doc_value_column_non_null_size()) {
                 paths.insert(subpath);
             }
-            _statistics->doc_snapshot_column_paths[bucket_value] = std::move(paths);
+            _statistics->doc_value_column_paths[bucket_value] = std::move(paths);
             *handled = true;
             return Status::OK();
         }
@@ -1323,11 +1323,11 @@ Status DefaultNestedColumnIterator::read_by_rowids(const rowid_t* rowids, const 
     return Status::OK();
 }
 
-std::vector<uint32_t> VariantColumnReader::_pick_doc_snapshot_column_buckets(
+std::vector<uint32_t> VariantColumnReader::_pick_doc_value_column_buckets(
         const std::string& path) {
     std::vector<uint32_t> bucket_values;
-    for (const auto& [bucket_value, reader] : _doc_snapshot_column_readers) {
-        const auto& doc_snapshot_stats = _statistics->doc_snapshot_column_paths[bucket_value];
+    for (const auto& [bucket_value, reader] : _doc_value_column_readers) {
+        const auto& doc_snapshot_stats = _statistics->doc_value_column_paths[bucket_value];
         const std::string& prefix = path + ".";
         if (doc_snapshot_stats.find(path) != doc_snapshot_stats.end() ||
             (doc_snapshot_stats.lower_bound(prefix) != doc_snapshot_stats.end() &&

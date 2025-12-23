@@ -599,7 +599,7 @@ TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_
     return res;
 }
 
-TabletColumn create_doc_snapshot_column(const TabletColumn& variant, int bucket_index) {
+TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_index) {
     TabletColumn res;
     std::string name = variant.name_lower_case() + "." + DOC_SNAPSHOT_COLUMN_PATH + "." +
                        std::to_string(bucket_index);
@@ -794,7 +794,7 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
     RETURN_IF_ERROR(aggregate_path_to_stats(output, &output_uid_to_path_stats));
     for (const auto& [uid, stats] : output_uid_to_path_stats) {
         if (output->tablet_schema()->column_by_uid(uid).is_variant_type() &&
-            output->tablet_schema()->column_by_uid(uid).variant_enable_doc_snapshot_mode()) {
+            output->tablet_schema()->column_by_uid(uid).variant_enable_doc_mode()) {
             continue;
         }
         if (original_uid_to_path_stats.find(uid) == original_uid_to_path_stats.end()) {
@@ -1027,10 +1027,10 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         }
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
 
-        if (column->variant_enable_doc_snapshot_mode()) {
+        if (column->variant_enable_doc_mode()) {
             const int bucket_num = std::max(1, column->variant_doc_snapshot_shard_count());
             for (int b = 0; b < bucket_num; ++b) {
-                TabletColumn doc_snapshot_bucket_column = create_doc_snapshot_column(*column, b);
+                TabletColumn doc_snapshot_bucket_column = create_doc_value_column(*column, b);
                 doc_snapshot_bucket_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
                 doc_snapshot_bucket_column.set_is_nullable(false);
                 output_schema->append_column(doc_snapshot_bucket_column);

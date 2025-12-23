@@ -167,7 +167,7 @@ public class VariantType extends ScalarType {
         sb.append("\"variant_sparse_hash_shard_count\" = \"")
                                     .append(String.valueOf(variantSparseHashShardCount)).append("\"");
         sb.append(",");
-        sb.append("\"variant_enable_doc_snapshot_mode\" = \"")
+        sb.append("\"variant_enable_doc_mode\" = \"")
                                     .append(String.valueOf(enableVariantDocSnapshotMode)).append("\"");
         sb.append(",");
         sb.append("\"variant_doc_snapshot_min_rows\" = \"")

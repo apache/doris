@@ -45,7 +45,7 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
                              const std::string& column_type, const std::string& column_name,
                              int variant_max_subcolumns_count = 3, bool is_key = false,
                              bool is_nullable = false, int variant_sparse_hash_shard_count = 0,
-                             bool variant_enable_doc_snapshot_mode = false,
+                             bool variant_enable_doc_mode = false,
                              int64_t variant_doc_snapshot_min_rows = 0) {
     column_pb->set_unique_id(col_unique_id);
     column_pb->set_name(column_name);
@@ -57,7 +57,7 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
         column_pb->set_variant_max_sparse_column_statistics_size(10000);
         // 5 sparse hash shard
         column_pb->set_variant_sparse_hash_shard_count(variant_sparse_hash_shard_count);
-        column_pb->set_variant_enable_doc_snapshot_mode(variant_enable_doc_snapshot_mode);
+        column_pb->set_variant_enable_doc_snapshot_mode(variant_enable_doc_mode);
         column_pb->set_variant_doc_snapshot_min_rows(variant_doc_snapshot_min_rows);
     }
 }
@@ -2674,7 +2674,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_doc_snapshot_mode) {
     int variant_sparse_hash_shard_count = 3;
     construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 3, false, false,
                      variant_sparse_hash_shard_count,
-                     /*variant_enable_doc_snapshot_mode*/ true,
+                     /*variant_enable_doc_mode*/ true,
                      /*variant_doc_snapshot_min_rows*/ 0);
     _tablet_schema = std::make_shared<TabletSchema>();
     _tablet_schema->init_from_pb(schema_pb);
@@ -2759,10 +2759,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_doc_snapshot_mode) {
         auto rel = p->copy_pop_front().get_path();
         if (rel.find(DOC_SNAPSHOT_COLUMN_PATH) != std::string::npos) {
             ++doc_snapshot_meta_cnt;
-            // check_doc_snapshot_column_meta_basic(m);
-            // writer should set doc_snapshot_column_non_null_size stats (may be empty for some buckets)
+            // check_doc_value_column_meta_basic(m);
+            // writer should set doc_value_column_non_null_size stats (may be empty for some buckets)
             if (m.has_variant_statistics() &&
-                m.variant_statistics().doc_snapshot_column_non_null_size_size() > 0) {
+                m.variant_statistics().doc_value_column_non_null_size_size() > 0) {
                 ++doc_snapshot_non_empty_stats_cnt;
             }
             // stored as MAP in segment meta
@@ -2812,7 +2812,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_doc_snapshot_mode) {
 
     auto* dst_variant = assert_cast<vectorized::ColumnVariant*>(dst.get());
     EXPECT_TRUE(dst_variant->is_doc_snapshot_mode());
-    const auto& offsets = dst_variant->serialized_doc_snapshot_column_offsets();
+    const auto& offsets = dst_variant->serialized_doc_value_column_offsets();
     EXPECT_EQ(offsets.size(), 1000);
     // key0 exists in every row, so doc snapshot offsets should strictly increase
     for (size_t i = 0; i < offsets.size(); ++i) {
@@ -2863,7 +2863,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_doc_snapshot_mode) {
     fake_extracted.set_is_nullable(true);
     _tablet_schema->append_column(fake_extracted);
 
-    TabletColumn doc_bucket = vectorized::schema_util::create_doc_snapshot_column(parent_column, 0);
+    TabletColumn doc_bucket = vectorized::schema_util::create_doc_value_column(parent_column, 0);
     doc_bucket.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     doc_bucket.set_is_nullable(false);
     ColumnIteratorUPtr it_doc_bucket;
@@ -2891,7 +2891,7 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_snapshot_path_iterator_doc_snapsh
     int variant_sparse_hash_shard_count = 1;
     construct_column(schema_pb.add_column(), 1, "VARIANT", "v", /*variant_max_subcolumns_count*/ 0,
                      false, false, variant_sparse_hash_shard_count,
-                     /*variant_enable_doc_snapshot_mode*/ true,
+                     /*variant_enable_doc_mode*/ true,
                      /*variant_doc_snapshot_min_rows*/ 0);
     _tablet_schema = std::make_shared<TabletSchema>();
     _tablet_schema->init_from_pb(schema_pb);

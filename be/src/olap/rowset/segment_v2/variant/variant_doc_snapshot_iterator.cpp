@@ -35,32 +35,32 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
 VariantDocSnapshotIteratorBase::VariantDocSnapshotIteratorBase(
-        std::vector<BinaryColumnCacheSPtr>&& doc_snapshot_column_caches)
-        : _doc_snapshot_column_caches(std::move(doc_snapshot_column_caches)) {}
+        std::vector<BinaryColumnCacheSPtr>&& doc_value_column_caches)
+        : _doc_value_column_caches(std::move(doc_value_column_caches)) {}
 
 Status VariantDocSnapshotIteratorBase::init(const ColumnIteratorOptions& opts) {
-    for (const auto& cache : _doc_snapshot_column_caches) {
+    for (const auto& cache : _doc_value_column_caches) {
         RETURN_IF_ERROR(cache->init(opts));
     }
     return Status::OK();
 }
 
 Status VariantDocSnapshotIteratorBase::seek_to_ordinal(ordinal_t ord) {
-    for (const auto& cache : _doc_snapshot_column_caches) {
+    for (const auto& cache : _doc_value_column_caches) {
         RETURN_IF_ERROR(cache->seek_to_ordinal(ord));
     }
     return Status::OK();
 }
 
 ordinal_t VariantDocSnapshotIteratorBase::get_current_ordinal() const {
-    DCHECK(!_doc_snapshot_column_caches.empty());
-    return _doc_snapshot_column_caches[0]->get_current_ordinal();
+    DCHECK(!_doc_value_column_caches.empty());
+    return _doc_value_column_caches[0]->get_current_ordinal();
 }
 
 VariantDocSnapshotRootIterator::VariantDocSnapshotRootIterator(
-        std::vector<BinaryColumnCacheSPtr>&& doc_snapshot_column_caches,
+        std::vector<BinaryColumnCacheSPtr>&& doc_value_column_caches,
         std::unique_ptr<SubstreamIterator>&& root_reader)
-        : VariantDocSnapshotIteratorBase(std::move(doc_snapshot_column_caches)),
+        : VariantDocSnapshotIteratorBase(std::move(doc_value_column_caches)),
           _root_reader(std::move(root_reader)) {}
 
 Status VariantDocSnapshotRootIterator::init(const ColumnIteratorOptions& opts) {
@@ -149,10 +149,10 @@ Status VariantDocSnapshotRootIterator::_merge_doc_snapshot_into_variant(
     MutableColumnPtr container = ColumnVariant::create(variant.max_subcolumns_count(), root_type,
                                                        root_nullable_column->assume_mutable());
     auto& container_variant = assert_cast<ColumnVariant&>(*container);
-    vectorized::MutableColumnPtr doc_snapshot_column =
+    vectorized::MutableColumnPtr doc_value_column =
             vectorized::ColumnVariant::create_binary_column_fn();
 
-    auto& column_map = assert_cast<ColumnMap&>(*doc_snapshot_column);
+    auto& column_map = assert_cast<ColumnMap&>(*doc_value_column);
     auto& dst_doc_snapshot_data_paths =
             assert_cast<vectorized::ColumnString&>(column_map.get_keys());
     auto& dst_doc_snapshot_data_values =
@@ -182,7 +182,7 @@ Status VariantDocSnapshotRootIterator::_merge_doc_snapshot_into_variant(
         dst_doc_snapshot_data_offsets.push_back(dst_doc_snapshot_data_paths.size());
     }
 
-    container_variant.set_doc_snapshot_column(std::move(doc_snapshot_column));
+    container_variant.set_doc_value_column(std::move(doc_value_column));
 
     if (null_map) {
         if (_root_reader->column->is_nullable()) {
@@ -202,8 +202,8 @@ Status VariantDocSnapshotRootIterator::_merge_doc_snapshot_into_variant(
 }
 
 VariantDocSnapshotPathIterator::VariantDocSnapshotPathIterator(
-        std::vector<BinaryColumnCacheSPtr>&& doc_snapshot_column_caches, std::string path)
-        : VariantDocSnapshotIteratorBase(std::move(doc_snapshot_column_caches)),
+        std::vector<BinaryColumnCacheSPtr>&& doc_value_column_caches, std::string path)
+        : VariantDocSnapshotIteratorBase(std::move(doc_value_column_caches)),
           _path(std::move(path)) {}
 
 Status VariantDocSnapshotPathIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
@@ -318,7 +318,7 @@ Status VariantDocSnapshotPathIterator::_merge_doc_snapshot_into_variant(
                 subcolumn.insert_default();
             }
         }
-        container_variant.serialized_doc_snapshot_column_offsets().push_back(0);
+        container_variant.serialized_doc_value_column_offsets().push_back(0);
         if (null_map) {
             if (has_data) {
                 null_map->push_back(false);

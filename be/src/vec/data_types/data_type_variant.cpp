@@ -102,7 +102,7 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
             *column_variant.get_sparse_column(), be_exec_version);
 
     size += ColumnVariant::get_binary_column_type()->get_uncompressed_serialized_bytes(
-            *column_variant.get_doc_snapshot_column(), be_exec_version);
+            *column_variant.get_doc_value_column(), be_exec_version);
     return size;
 }
 
@@ -159,7 +159,7 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
     buf = ColumnVariant::get_binary_column_type()->serialize(*column_variant.get_sparse_column(),
                                                              buf, be_exec_version);
     buf = ColumnVariant::get_binary_column_type()->serialize(
-            *column_variant.get_doc_snapshot_column(), buf, be_exec_version);
+            *column_variant.get_doc_value_column(), buf, be_exec_version);
     return buf;
 }
 
@@ -224,10 +224,10 @@ const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* colu
         column_variant->get_subcolumn({})->resize(num_rows);
     }
 
-    MutableColumnPtr doc_snapshot_column = ColumnVariant::get_binary_column_type()->create_column();
-    buf = ColumnVariant::get_binary_column_type()->deserialize(buf, &doc_snapshot_column,
+    MutableColumnPtr doc_value_column = ColumnVariant::get_binary_column_type()->create_column();
+    buf = ColumnVariant::get_binary_column_type()->deserialize(buf, &doc_value_column,
                                                                be_exec_version);
-    column_variant->set_doc_snapshot_column(std::move(doc_snapshot_column));
+    column_variant->set_doc_value_column(std::move(doc_value_column));
 
     column_variant->set_num_rows(num_rows);
 

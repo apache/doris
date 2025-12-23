@@ -159,7 +159,7 @@ public class VariantType extends PrimitiveType {
                                     .append(String.valueOf(variantSparseHashShardCount))
                                     .append("\"");
         sb.append(",");
-        sb.append("\"variant_enable_doc_snapshot_mode\" = \"")
+        sb.append("\"variant_enable_doc_mode\" = \"")
                                     .append(String.valueOf(enableVariantDocSnapshotMode))
                                     .append("\"");
         sb.append(",");

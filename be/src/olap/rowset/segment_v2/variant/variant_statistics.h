@@ -33,7 +33,7 @@ struct VariantStatistics {
     std::map<std::string, uint32_t> sparse_column_non_null_size;
 
     // doc snapshot column non-null size for each bucket
-    std::unordered_map<uint32_t, std::set<std::string, std::less<>>> doc_snapshot_column_paths;
+    std::unordered_map<uint32_t, std::set<std::string, std::less<>>> doc_value_column_paths;
 
     void to_pb(VariantStatisticsPB* stats) const {
         auto* sparse_map = stats->mutable_sparse_column_non_null_size();

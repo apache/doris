@@ -60,7 +60,7 @@ suite("test_variant_predefine_doc_snapshot", "p0"){
     sql """
         CREATE TABLE `test_predefine1` (
             `id` bigint NOT NULL,
-            `v1` variant<properties("variant_enable_doc_snapshot_mode" = "false")> NULL,
+            `v1` variant<properties("variant_enable_doc_mode" = "false")> NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true");

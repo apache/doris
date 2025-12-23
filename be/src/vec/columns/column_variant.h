@@ -279,7 +279,7 @@ private:
     WrappedPtr serialized_sparse_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
-    WrappedPtr serialized_doc_snapshot_column = ColumnMap::create(
+    WrappedPtr serialized_doc_value_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
     // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
@@ -399,7 +399,7 @@ public:
 
     ColumnPtr get_sparse_column() const { return serialized_sparse_column; }
 
-    ColumnPtr get_doc_snapshot_column() const { return serialized_doc_snapshot_column; }
+    ColumnPtr get_doc_value_column() const { return serialized_doc_value_column; }
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     static MutableColumnPtr create_binary_column_fn() {
@@ -416,7 +416,7 @@ public:
 
     void set_sparse_column(ColumnPtr column) { serialized_sparse_column = column; }
 
-    void set_doc_snapshot_column(ColumnPtr column) { serialized_doc_snapshot_column = column; }
+    void set_doc_value_column(ColumnPtr column) { serialized_doc_value_column = column; }
 
     void finalize(FinalizeMode mode);
 
@@ -558,14 +558,14 @@ public:
 
     std::pair<const ColumnString*, const ColumnString*> get_doc_snapshot_data_paths_and_values()
             const {
-        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_snapshot_column);
+        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
         const auto& key = assert_cast<const ColumnString&>(column_map.get_keys());
         const auto& value = assert_cast<const ColumnString&>(column_map.get_values());
         return {&key, &value};
     }
 
     std::pair<ColumnString*, ColumnString*> get_doc_snapshot_data_paths_and_values() {
-        auto& column_map = assert_cast<ColumnMap&>(*serialized_doc_snapshot_column);
+        auto& column_map = assert_cast<ColumnMap&>(*serialized_doc_value_column);
         auto& key = assert_cast<ColumnString&>(column_map.get_keys());
         auto& value = assert_cast<ColumnString&>(column_map.get_values());
         return {&key, &value};
@@ -581,13 +581,13 @@ public:
         return column_map.get_offsets();
     }
 
-    ColumnArray::Offsets64& ALWAYS_INLINE serialized_doc_snapshot_column_offsets() {
-        auto& column_map = assert_cast<ColumnMap&>(*serialized_doc_snapshot_column);
+    ColumnArray::Offsets64& ALWAYS_INLINE serialized_doc_value_column_offsets() {
+        auto& column_map = assert_cast<ColumnMap&>(*serialized_doc_value_column);
         return column_map.get_offsets();
     }
 
-    const ColumnArray::Offsets64& ALWAYS_INLINE serialized_doc_snapshot_column_offsets() const {
-        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_snapshot_column);
+    const ColumnArray::Offsets64& ALWAYS_INLINE serialized_doc_value_column_offsets() const {
+        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
         return column_map.get_offsets();
     }
 
@@ -634,16 +634,16 @@ public:
         return _max_subcolumns_count - current_subcolumns_count;
     }
 
-    void reconstruct_and_sort_doc_snapshot_column();
+    void reconstruct_and_sort_doc_value_column();
 
     // doc snapshot mode: only root column, and doc snapshot column is not empty
     bool is_doc_snapshot_mode() const;
 
-    void try_get_from_doc_snapshot_column(size_t n, Field& res) const;
+    void try_get_from_doc_value_column(size_t n, Field& res) const;
 
-    void insert_to_doc_snapshot_column(const Field& field);
+    void insert_to_doc_value_column(const Field& field);
 
-    bool has_doc_snapshot_column(size_t n) const;
+    bool has_doc_value_column(size_t n) const;
 
 private:
     // May throw execption

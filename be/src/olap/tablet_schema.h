@@ -231,7 +231,7 @@ public:
 
     int32_t variant_sparse_hash_shard_count() const { return _variant_sparse_hash_shard_count; }
 
-    bool variant_enable_doc_snapshot_mode() const { return _variant_enable_doc_snapshot_mode; }
+    bool variant_enable_doc_mode() const { return _variant_enable_doc_snapshot_mode; }
 
     int64_t variant_doc_snapshot_min_rows() const { return _variant_doc_snapshot_min_rows; }
 
@@ -254,8 +254,8 @@ public:
         _variant_sparse_hash_shard_count = variant_sparse_hash_shard_count;
     }
 
-    void set_variant_enable_doc_snapshot_mode(bool variant_enable_doc_snapshot_mode) {
-        _variant_enable_doc_snapshot_mode = variant_enable_doc_snapshot_mode;
+    void set_variant_enable_doc_snapshot_mode(bool variant_enable_doc_mode) {
+        _variant_enable_doc_snapshot_mode = variant_enable_doc_mode;
     }
 
     void set_variant_enable_typed_paths_to_sparse(bool variant_enable_typed_paths_to_sparse) {

@@ -141,7 +141,7 @@ Status parse_variant_columns(vectorized::Block& block, const TabletSchema& table
         const auto& column = tablet_schema.column(variant_column_pos[i]);
         if (column.is_variant_type()) {
             // enable doc snapshot mode
-            if (column.variant_enable_doc_snapshot_mode()) {
+            if (column.variant_enable_doc_mode()) {
                 // if has schema template, no need to parse to doc snapshot, when writing data, we
                 // will parse to doc snapshot
                 if (column.get_sub_columns().empty()) {

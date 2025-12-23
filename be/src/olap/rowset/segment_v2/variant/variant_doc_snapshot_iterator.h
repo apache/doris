@@ -26,7 +26,7 @@ namespace doris::segment_v2 {
 class VariantDocSnapshotIteratorBase : public ColumnIterator {
 public:
     explicit VariantDocSnapshotIteratorBase(
-            std::vector<BinaryColumnCacheSPtr>&& doc_snapshot_column_caches);
+            std::vector<BinaryColumnCacheSPtr>&& doc_value_column_caches);
     ~VariantDocSnapshotIteratorBase() override = default;
 
     Status init(const ColumnIteratorOptions& opts) override;
@@ -43,8 +43,8 @@ protected:
             ReaderFunc&& reader_func,
             std::vector<vectorized::ColumnPtr>* doc_snapshot_data_buckets) {
         doc_snapshot_data_buckets->clear();
-        doc_snapshot_data_buckets->reserve(_doc_snapshot_column_caches.size());
-        for (const auto& cache : _doc_snapshot_column_caches) {
+        doc_snapshot_data_buckets->reserve(_doc_value_column_caches.size());
+        for (const auto& cache : _doc_value_column_caches) {
             DCHECK(cache);
             RETURN_IF_ERROR(reader_func(cache.get()));
             DCHECK(cache->binary_column);
@@ -53,12 +53,12 @@ protected:
         return Status::OK();
     }
 
-    std::vector<BinaryColumnCacheSPtr> _doc_snapshot_column_caches;
+    std::vector<BinaryColumnCacheSPtr> _doc_value_column_caches;
 };
 
 class VariantDocSnapshotRootIterator final : public VariantDocSnapshotIteratorBase {
 public:
-    VariantDocSnapshotRootIterator(std::vector<BinaryColumnCacheSPtr>&& doc_snapshot_column_caches,
+    VariantDocSnapshotRootIterator(std::vector<BinaryColumnCacheSPtr>&& doc_value_column_caches,
                                    std::unique_ptr<SubstreamIterator>&& root_reader);
 
     Status init(const ColumnIteratorOptions& opts) override;
@@ -78,7 +78,7 @@ private:
 
 class VariantDocSnapshotPathIterator final : public VariantDocSnapshotIteratorBase {
 public:
-    VariantDocSnapshotPathIterator(std::vector<BinaryColumnCacheSPtr>&& doc_snapshot_column_caches,
+    VariantDocSnapshotPathIterator(std::vector<BinaryColumnCacheSPtr>&& doc_value_column_caches,
                                    std::string path);
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;

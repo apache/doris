@@ -438,8 +438,8 @@ MutableColumnPtr ColumnVariant::apply_for_columns(Func&& func) const {
     }
     auto sparse_column = func(serialized_sparse_column);
     res->serialized_sparse_column = sparse_column->assume_mutable();
-    auto doc_snapshot_column = func(serialized_doc_snapshot_column);
-    res->serialized_doc_snapshot_column = doc_snapshot_column->assume_mutable();
+    auto doc_value_column = func(serialized_doc_value_column);
+    res->serialized_doc_value_column = doc_value_column->assume_mutable();
     res->num_rows = res->serialized_sparse_column->size();
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
@@ -456,7 +456,7 @@ void ColumnVariant::resize(size_t n) {
             subcolumn->data.pop_back(num_rows - n);
         }
         serialized_sparse_column->pop_back(num_rows - n);
-        serialized_doc_snapshot_column->pop_back(num_rows - n);
+        serialized_doc_value_column->pop_back(num_rows - n);
     }
     num_rows = n;
 
@@ -615,7 +615,7 @@ ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, DataTypePtr root_type
     subcolumns.create_root(
             Subcolumn(std::move(root_column), root_type, is_nullable, true /*root*/));
     serialized_sparse_column->resize(num_rows);
-    serialized_doc_snapshot_column->resize(num_rows);
+    serialized_doc_value_column->resize(num_rows);
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
@@ -631,7 +631,7 @@ ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, Subcolumns&& subcolum
                                max_subcolumns_count, subcolumns_.size());
     }
     serialized_sparse_column->resize(num_rows);
-    serialized_doc_snapshot_column->resize(num_rows);
+    serialized_doc_value_column->resize(num_rows);
 }
 
 ColumnVariant::ColumnVariant(int32_t max_subcolumns_count, size_t size)
@@ -655,10 +655,10 @@ void ColumnVariant::check_consistency() const {
                                "unmatched sparse column:, expeted rows: {}, but meet: {}", num_rows,
                                serialized_sparse_column->size());
     }
-    if (num_rows != serialized_doc_snapshot_column->size()) {
+    if (num_rows != serialized_doc_value_column->size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "unmatched doc snapshot column:, expeted rows: {}, but meet: {}",
-                               num_rows, serialized_doc_snapshot_column->size());
+                               num_rows, serialized_doc_value_column->size());
     }
 }
 
@@ -681,7 +681,7 @@ size_t ColumnVariant::byte_size() const {
         res += entry->data.byteSize();
     }
     res += serialized_sparse_column->byte_size();
-    res += serialized_doc_snapshot_column->byte_size();
+    res += serialized_doc_value_column->byte_size();
     return res;
 }
 
@@ -691,7 +691,7 @@ size_t ColumnVariant::allocated_bytes() const {
         res += entry->data.allocatedBytes();
     }
     res += serialized_sparse_column->allocated_bytes();
-    res += serialized_doc_snapshot_column->allocated_bytes();
+    res += serialized_doc_value_column->allocated_bytes();
     return res;
 }
 
@@ -702,7 +702,7 @@ void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
         }
     }
     callback(serialized_sparse_column);
-    callback(serialized_doc_snapshot_column);
+    callback(serialized_doc_value_column);
     // callback may be filter, so the row count may be changed
     num_rows = serialized_sparse_column->size();
     ENABLE_CHECK_CONSISTENCY(this);
@@ -716,7 +716,7 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
         src_v->subcolumns.get_root()->data.get(n, field);
         subcolumns.get_mutable_root()->data.insert(field);
         serialized_sparse_column->insert_from(*src_v->get_sparse_column(), n);
-        serialized_doc_snapshot_column->insert_from(*src_v->get_doc_snapshot_column(), n);
+        serialized_doc_value_column->insert_from(*src_v->get_doc_value_column(), n);
         num_rows++;
     } else {
         return try_insert((*src_v)[n]);
@@ -728,7 +728,7 @@ void ColumnVariant::try_insert(const Field& field) {
     const auto& object = field.get<const VariantMap&>();
     for (const auto& [key, value] : object) {
         if (key.get_path() == "__DORIS_VARIANT_DOC_SNAPSHOT__") {
-            insert_to_doc_snapshot_column(value.field);
+            insert_to_doc_value_column(value.field);
             continue;
         }
         if (!has_subcolumn(key)) {
@@ -761,8 +761,8 @@ void ColumnVariant::try_insert(const Field& field) {
         }
     }
     serialized_sparse_column->insert_default();
-    if (serialized_doc_snapshot_column->size() == old_size) {
-        serialized_doc_snapshot_column->insert_default();
+    if (serialized_doc_value_column->size() == old_size) {
+        serialized_doc_value_column->insert_default();
     }
     ++num_rows;
     ENABLE_CHECK_CONSISTENCY(this);
@@ -773,7 +773,7 @@ void ColumnVariant::insert_default() {
         entry->data.insert_default();
     }
     serialized_sparse_column->insert_default();
-    serialized_doc_snapshot_column->insert_default();
+    serialized_doc_value_column->insert_default();
     ++num_rows;
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -783,7 +783,7 @@ void ColumnVariant::insert_many_defaults(size_t length) {
         entry->data.insert_many_defaults(length);
     }
     serialized_sparse_column->resize(num_rows + length);
-    serialized_doc_snapshot_column->resize(num_rows + length);
+    serialized_doc_value_column->resize(num_rows + length);
     num_rows += length;
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -936,30 +936,30 @@ void ColumnVariant::get(size_t n, Field& res) const {
                                               .precision = data.second.precision,
                                               .scale = data.second.scale});
     }
-    try_get_from_doc_snapshot_column(n, res);
+    try_get_from_doc_value_column(n, res);
     if (object.empty()) {
         res = Field();
     }
 }
 
-bool ColumnVariant::has_doc_snapshot_column(size_t n) const {
-    const auto& offsets = serialized_doc_snapshot_column_offsets();
+bool ColumnVariant::has_doc_value_column(size_t n) const {
+    const auto& offsets = serialized_doc_value_column_offsets();
     return offsets[n - 1] < offsets[n];
 }
 
-void ColumnVariant::try_get_from_doc_snapshot_column(size_t n, Field& res) const {
-    if (!has_doc_snapshot_column(n)) {
+void ColumnVariant::try_get_from_doc_value_column(size_t n, Field& res) const {
+    if (!has_doc_value_column(n)) {
         return;
     }
     FieldWithDataType field_with_data_type;
-    serialized_doc_snapshot_column->get(n, field_with_data_type.field);
+    serialized_doc_value_column->get(n, field_with_data_type.field);
     auto& object = res.get<VariantMap&>();
     object.try_emplace(PathInData("__DORIS_VARIANT_DOC_SNAPSHOT__"),
                        std::move(field_with_data_type));
 }
 
-void ColumnVariant::insert_to_doc_snapshot_column(const Field& field) {
-    serialized_doc_snapshot_column->insert(field);
+void ColumnVariant::insert_to_doc_value_column(const Field& field) {
+    serialized_doc_value_column->insert(field);
     CHECK(subcolumns.size() == 1) << "subcolumns size should be 1";
 }
 
@@ -1077,7 +1077,7 @@ void ColumnVariant::insert_range_from(const IColumn& src, size_t start, size_t l
     insert_from_sparse_column_and_fill_remaing_dense_column(
             src_object, std::move(sorted_src_subcolumn_for_sparse_column), start, length);
 
-    serialized_doc_snapshot_column->insert_range_from(*src_object.serialized_doc_snapshot_column,
+    serialized_doc_value_column->insert_range_from(*src_object.serialized_doc_value_column,
                                                       start, length);
     num_rows += length;
     // finalize();
@@ -1216,7 +1216,7 @@ void ColumnVariant::pop_back(size_t length) {
         entry->data.pop_back(length);
     }
     serialized_sparse_column->pop_back(length);
-    serialized_doc_snapshot_column->pop_back(length);
+    serialized_doc_value_column->pop_back(length);
     num_rows -= length;
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -1568,11 +1568,11 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
         }
     }
 
-    const auto& doc_snapshot_column_map =
-            assert_cast<const ColumnMap&>(*serialized_doc_snapshot_column);
+    const auto& doc_value_column_map =
+            assert_cast<const ColumnMap&>(*serialized_doc_value_column);
     // doc snapshot column is not empty
-    if (doc_snapshot_column_map.get_offsets()[nrow - 1] !=
-        doc_snapshot_column_map.get_offsets()[nrow]) {
+    if (doc_value_column_map.get_offsets()[nrow - 1] !=
+        doc_value_column_map.get_offsets()[nrow]) {
         return false;
     }
     return !root->data.is_null_at(nrow);
@@ -1581,7 +1581,7 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
 void ColumnVariant::serialize_from_doc_snapshot_to_json_format(int64_t row_num,
                                                                BufferWritable& output,
                                                                bool* is_null) const {
-    const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_snapshot_column);
+    const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
     const auto& doc_snapshot_data_offsets = column_map.get_offsets();
     size_t doc_snapshot_data_offset = doc_snapshot_data_offsets[static_cast<ssize_t>(row_num) - 1];
     size_t doc_snapshot_data_end = doc_snapshot_data_offsets[static_cast<ssize_t>(row_num)];
@@ -1650,10 +1650,10 @@ void ColumnVariant::serialize_one_row_to_json_format(
         subcolumns.get_root()->data.serialize_text_json(row_num, output, options);
         return;
     }
-    const auto& doc_snapshot_column_map =
-            assert_cast<const ColumnMap&>(*serialized_doc_snapshot_column);
+    const auto& doc_value_column_map =
+            assert_cast<const ColumnMap&>(*serialized_doc_value_column);
     // if doc snapshot column is not empty, we should serialize from doc snapshot column first
-    if (doc_snapshot_column_map.get_offsets()[row_num] != 0) {
+    if (doc_value_column_map.get_offsets()[row_num] != 0) {
         serialize_from_doc_snapshot_to_json_format(row_num, output, is_null);
         return;
     }
@@ -2070,8 +2070,8 @@ ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
                                    entry->data.get_least_common_type());
     }
     new_column->serialized_sparse_column = serialized_sparse_column->filter(filter, count);
-    new_column->serialized_doc_snapshot_column =
-            serialized_doc_snapshot_column->filter(filter, count);
+    new_column->serialized_doc_value_column =
+            serialized_doc_value_column->filter(filter, count);
     ENABLE_CHECK_CONSISTENCY(new_column.get());
     return new_column;
 }
@@ -2115,7 +2115,7 @@ void ColumnVariant::clear() {
     empty.create_root(Subcolumn(0, is_nullable, true));
     std::swap(empty, subcolumns);
     serialized_sparse_column->clear();
-    serialized_doc_snapshot_column->clear();
+    serialized_doc_value_column->clear();
     num_rows = 0;
     _prev_positions.clear();
     ENABLE_CHECK_CONSISTENCY(this);
@@ -2129,8 +2129,8 @@ void ColumnVariant::create_root(const DataTypePtr& type, MutableColumnPtr&& colu
     if (serialized_sparse_column->empty()) {
         serialized_sparse_column->resize(num_rows);
     }
-    if (serialized_doc_snapshot_column->empty()) {
-        serialized_doc_snapshot_column->resize(num_rows);
+    if (serialized_doc_value_column->empty()) {
+        serialized_doc_value_column->resize(num_rows);
     }
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -2156,7 +2156,7 @@ bool ColumnVariant::is_null_root() const {
 // num_rows == 0, so we need to use NO_SANITIZE_UNDEFINED
 bool NO_SANITIZE_UNDEFINED ColumnVariant::is_scalar_variant() const {
     const auto& sparse_offsets = serialized_sparse_column_offsets().data();
-    const auto& doc_snapshot_offsets = serialized_doc_snapshot_column_offsets().data();
+    const auto& doc_snapshot_offsets = serialized_doc_value_column_offsets().data();
     // Only root itself is scalar, and no sparse data
     return !is_null_root() && subcolumns.get_leaves().size() == 1 &&
            subcolumns.get_root()->is_scalar() && sparse_offsets[num_rows - 1] == 0 &&
@@ -2190,13 +2190,13 @@ void ColumnVariant::insert_indices_from(const IColumn& src, const uint32_t* indi
         get_subcolumns().get_mutable_root()->data.num_rows = indices_end - indices_begin;
         get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
         serialized_sparse_column->insert_many_defaults(indices_end - indices_begin);
-        serialized_doc_snapshot_column->insert_many_defaults(indices_end - indices_begin);
+        serialized_doc_value_column->insert_many_defaults(indices_end - indices_begin);
         num_rows += indices_end - indices_begin;
     } else if (src_can_do_quick_insert && is_scalar_variant() &&
                src_v->get_root_type()->equals(*get_root_type())) {
         get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
         serialized_sparse_column->insert_many_defaults(indices_end - indices_begin);
-        serialized_doc_snapshot_column->insert_many_defaults(indices_end - indices_begin);
+        serialized_doc_value_column->insert_many_defaults(indices_end - indices_begin);
         get_subcolumns().get_mutable_root()->data.num_rows += indices_end - indices_begin;
         num_rows += indices_end - indices_begin;
     } else {
@@ -2230,7 +2230,7 @@ void ColumnVariant::for_each_imutable_column(Func&& callback) const {
         }
     }
     callback(serialized_sparse_column);
-    callback(serialized_doc_snapshot_column);
+    callback(serialized_doc_value_column);
 }
 
 void ColumnVariant::update_hash_with_value(size_t n, SipHash& hash) const {
@@ -2564,16 +2564,16 @@ MutableColumnPtr ColumnVariant::clone() const {
     auto sparse_column = std::move(*column).mutate();
     res->serialized_sparse_column = sparse_column->assume_mutable();
 
-    auto&& new_doc_snapshot_column = serialized_doc_snapshot_column->get_ptr();
-    auto doc_snapshot_column = std::move(*new_doc_snapshot_column).mutate();
-    res->serialized_doc_snapshot_column = doc_snapshot_column->assume_mutable();
+    auto&& new_doc_value_column = serialized_doc_value_column->get_ptr();
+    auto doc_value_column = std::move(*new_doc_value_column).mutate();
+    res->serialized_doc_value_column = doc_value_column->assume_mutable();
     res->set_num_rows(num_rows);
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
 }
 
-void ColumnVariant::reconstruct_and_sort_doc_snapshot_column() {
-    const auto& offset = serialized_doc_snapshot_column_offsets();
+void ColumnVariant::reconstruct_and_sort_doc_value_column() {
+    const auto& offset = serialized_doc_value_column_offsets();
 
     auto sort_map_by_row_paths = [&](const ColumnString& in_paths, const ColumnString& in_values,
                                      const ColumnArray::Offsets64& in_offsets) -> MutableColumnPtr {
@@ -2606,18 +2606,18 @@ void ColumnVariant::reconstruct_and_sort_doc_snapshot_column() {
     // sort the column by row paths.
     if (offset[num_rows - 1] != 0) {
         auto [path, value] = get_doc_snapshot_data_paths_and_values();
-        serialized_doc_snapshot_column = sort_map_by_row_paths(*path, *value, offset);
+        serialized_doc_value_column = sort_map_by_row_paths(*path, *value, offset);
         return;
     }
     CHECK(is_finalized());
 
-    auto doc_snapshot_column = create_binary_column_fn();
+    auto doc_value_column = create_binary_column_fn();
 
-    auto& doc_snapshot_column_map = assert_cast<ColumnMap&>(*doc_snapshot_column);
-    auto& doc_snapshot_data_paths = assert_cast<ColumnString&>(doc_snapshot_column_map.get_keys());
+    auto& doc_value_column_map = assert_cast<ColumnMap&>(*doc_value_column);
+    auto& doc_snapshot_data_paths = assert_cast<ColumnString&>(doc_value_column_map.get_keys());
     auto& doc_snapshot_data_values =
-            assert_cast<ColumnString&>(doc_snapshot_column_map.get_values());
-    auto& doc_snapshot_data_offsets = doc_snapshot_column_map.get_offsets();
+            assert_cast<ColumnString&>(doc_value_column_map.get_values());
+    auto& doc_snapshot_data_offsets = doc_value_column_map.get_offsets();
 
     for (int64_t i = 0; i < num_rows; ++i) {
         for (const auto& entry : subcolumns) {
@@ -2641,12 +2641,12 @@ void ColumnVariant::reconstruct_and_sort_doc_snapshot_column() {
         doc_snapshot_data_offsets.push_back(doc_snapshot_data_paths.size());
     }
 
-    serialized_doc_snapshot_column = sort_map_by_row_paths(
+    serialized_doc_value_column = sort_map_by_row_paths(
             doc_snapshot_data_paths, doc_snapshot_data_values, doc_snapshot_data_offsets);
 }
 
 bool ColumnVariant::is_doc_snapshot_mode() const {
-    const auto& offset = serialized_doc_snapshot_column_offsets();
+    const auto& offset = serialized_doc_value_column_offsets();
     return subcolumns.size() == 1 && offset[num_rows - 1] != 0;
 }
 

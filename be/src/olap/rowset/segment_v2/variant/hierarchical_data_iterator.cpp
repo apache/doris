@@ -299,7 +299,7 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
         RETURN_IF_ERROR(_process_sparse_column(container_variant, nrows));
     }
 
-    container_variant.get_doc_snapshot_column()->assume_mutable()->resize(nrows);
+    container_variant.get_doc_value_column()->assume_mutable()->resize(nrows);
     container_variant.set_num_rows(nrows);
     return Status::OK();
 }

@@ -234,14 +234,14 @@ private:
                     sparse_data_offsets.push_back(sparse_data_paths->size());
                 }
                 container->get_subcolumns().create_root(root);
-                container->get_doc_snapshot_column()->assume_mutable()->resize(mutable_ptr->size());
+                container->get_doc_value_column()->assume_mutable()->resize(mutable_ptr->size());
                 container->set_num_rows(mutable_ptr->size());
             };
-            auto extract_from_doc_snapshot_column = [&](auto& container) {
+            auto extract_from_doc_value_column = [&](auto& container) {
                 ColumnVariant::Subcolumn root {0, true, true};
                 // no root, no sparse column
                 const auto& doc_snapshot_data_map =
-                        assert_cast<const ColumnMap&>(*mutable_ptr->get_doc_snapshot_column());
+                        assert_cast<const ColumnMap&>(*mutable_ptr->get_doc_value_column());
                 const auto& src_doc_snapshot_data_offsets = doc_snapshot_data_map.get_offsets();
                 const auto& src_doc_snapshot_data_paths =
                         assert_cast<const ColumnString&>(doc_snapshot_data_map.get_keys());
@@ -293,7 +293,7 @@ private:
                     sparse_data_offsets.push_back(sparse_data_paths->size());
                 }
                 container->get_subcolumns().create_root(root);
-                container->get_doc_snapshot_column()->assume_mutable()->resize(mutable_ptr->size());
+                container->get_doc_value_column()->assume_mutable()->resize(mutable_ptr->size());
                 container->set_num_rows(mutable_ptr->size());
             };
 
@@ -334,7 +334,7 @@ private:
                                                        std::move(new_subcolumns));
                 const auto& sparse_offsets = mutable_ptr->serialized_sparse_column_offsets();
                 if (sparse_offsets.back() == sparse_offsets[-1]) {
-                    extract_from_doc_snapshot_column(container);
+                    extract_from_doc_value_column(container);
                 } else {
                     extract_from_sparse_column(container);
                 }

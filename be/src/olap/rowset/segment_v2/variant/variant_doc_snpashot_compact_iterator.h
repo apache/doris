@@ -35,18 +35,18 @@ public:
     }
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
-        vectorized::MutableColumnPtr doc_snapshot_column =
+        vectorized::MutableColumnPtr doc_value_column =
                 vectorized::ColumnVariant::create_binary_column_fn();
-        RETURN_IF_ERROR(_doc_snapshot_iterator->next_batch(n, doc_snapshot_column, has_null));
-        return _set_doc_snapshot_into_variant(dst, std::move(doc_snapshot_column), *n);
+        RETURN_IF_ERROR(_doc_snapshot_iterator->next_batch(n, doc_value_column, has_null));
+        return _set_doc_snapshot_into_variant(dst, std::move(doc_value_column), *n);
     }
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override {
-        vectorized::MutableColumnPtr doc_snapshot_column =
+        vectorized::MutableColumnPtr doc_value_column =
                 vectorized::ColumnVariant::create_binary_column_fn();
-        RETURN_IF_ERROR(_doc_snapshot_iterator->read_by_rowids(rowids, count, doc_snapshot_column));
-        return _set_doc_snapshot_into_variant(dst, std::move(doc_snapshot_column), count);
+        RETURN_IF_ERROR(_doc_snapshot_iterator->read_by_rowids(rowids, count, doc_value_column));
+        return _set_doc_snapshot_into_variant(dst, std::move(doc_value_column), count);
     }
 
     ordinal_t get_current_ordinal() const override {
@@ -55,13 +55,13 @@ public:
 
 private:
     Status _set_doc_snapshot_into_variant(vectorized::MutableColumnPtr& dst,
-                                          vectorized::MutableColumnPtr&& doc_snapshot_column,
+                                          vectorized::MutableColumnPtr&& doc_value_column,
                                           size_t count) const {
         auto& variant = assert_cast<vectorized::ColumnVariant&>(*dst);
         vectorized::MutableColumnPtr container =
                 vectorized::ColumnVariant::create(variant.max_subcolumns_count(), count);
         auto& container_variant = assert_cast<vectorized::ColumnVariant&>(*container);
-        container_variant.set_doc_snapshot_column(std::move(doc_snapshot_column));
+        container_variant.set_doc_value_column(std::move(doc_value_column));
         variant.insert_range_from(container_variant, 0, count);
         return Status::OK();
     }

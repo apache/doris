@@ -72,8 +72,8 @@ public:
 private:
     int _bucket_num = 0;
     int _first_column_id = -1;
-    std::vector<std::unique_ptr<ColumnWriter>> _doc_snapshot_column_writers;
-    std::vector<ColumnWriterOptions> _doc_snapshot_column_opts;
+    std::vector<std::unique_ptr<ColumnWriter>> _doc_value_column_writers;
+    std::vector<ColumnWriterOptions> _doc_value_column_opts;
 };
 
 // Unifies writing of Variant sparse data in two modes:
@@ -161,7 +161,7 @@ private:
     Status _process_subcolumns(vectorized::ColumnVariant* ptr,
                                vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
                                int& column_id);
-    Status _process_doc_snapshot_column(vectorized::ColumnVariant* ptr,
+    Status _process_doc_value_column(vectorized::ColumnVariant* ptr,
                                         vectorized::OlapBlockDataConvertor* converter,
                                         size_t num_rows, int& column_id);
     // prepare a column for finalize
@@ -239,7 +239,7 @@ private:
     const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     bool _is_finalized = false;
-    std::unique_ptr<ColumnWriter> _doc_snapshot_column_writer;
+    std::unique_ptr<ColumnWriter> _doc_value_column_writer;
     std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
     std::vector<TabletIndexes> _subcolumns_indexes;
     std::vector<ColumnWriterOptions> _subcolumn_opts;

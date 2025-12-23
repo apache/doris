@@ -393,19 +393,19 @@ Status VariantDocSnapShotWriter::init(const TabletColumn* parent_column, int buc
                                       SegmentFooterPB* footer) {
     _bucket_num = bucket_num;
     _first_column_id = column_id;
-    _doc_snapshot_column_writers.resize(_bucket_num);
-    _doc_snapshot_column_opts.resize(_bucket_num);
+    _doc_value_column_writers.resize(_bucket_num);
+    _doc_value_column_opts.resize(_bucket_num);
     for (int b = 0; b < _bucket_num; ++b) {
         const TabletColumn& bucket_column =
-                vectorized::schema_util::create_doc_snapshot_column(*parent_column, b);
-        _doc_snapshot_column_opts[b] = opts;
-        _doc_snapshot_column_opts[b].meta = footer->add_columns();
-        _init_column_meta(_doc_snapshot_column_opts[b].meta, column_id, bucket_column,
+                vectorized::schema_util::create_doc_value_column(*parent_column, b);
+        _doc_value_column_opts[b] = opts;
+        _doc_value_column_opts[b].meta = footer->add_columns();
+        _init_column_meta(_doc_value_column_opts[b].meta, column_id, bucket_column,
                           opts.compression_type);
-        RETURN_IF_ERROR(ColumnWriter::create_map_writer(_doc_snapshot_column_opts[b],
+        RETURN_IF_ERROR(ColumnWriter::create_map_writer(_doc_value_column_opts[b],
                                                         &bucket_column, opts.file_writer,
-                                                        &_doc_snapshot_column_writers[b]));
-        RETURN_IF_ERROR(_doc_snapshot_column_writers[b]->init());
+                                                        &_doc_value_column_writers[b]));
+        RETURN_IF_ERROR(_doc_value_column_writers[b]->init());
         ++column_id;
     }
     return Status::OK();
@@ -415,7 +415,7 @@ Status VariantDocSnapShotWriter::append_data(const TabletColumn* parent_column,
                                              const vectorized::ColumnVariant& src, size_t num_rows,
                                              vectorized::OlapBlockDataConvertor* converter) {
     const auto [paths_col, values_col] = src.get_doc_snapshot_data_paths_and_values();
-    const auto& offsets = src.serialized_doc_snapshot_column_offsets();
+    const auto& offsets = src.serialized_doc_value_column_offsets();
 
     std::vector<vectorized::MutableColumnPtr> tmp_maps(_bucket_num);
     for (int b = 0; b < _bucket_num; ++b) {
@@ -445,22 +445,22 @@ Status VariantDocSnapShotWriter::append_data(const TabletColumn* parent_column,
 
     for (int b = 0; b < _bucket_num; ++b) {
         TabletColumn bucket_column =
-                vectorized::schema_util::create_doc_snapshot_column(*parent_column, b);
+                vectorized::schema_util::create_doc_value_column(*parent_column, b);
         converter->add_column_data_convertor(bucket_column);
         int this_col_id = _first_column_id + b;
         RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
                 {tmp_maps[b]->get_ptr(), nullptr, ""}, 0, num_rows, this_col_id));
         auto [status, column] = converter->convert_column_data(this_col_id);
         RETURN_IF_ERROR(status);
-        RETURN_IF_ERROR(_doc_snapshot_column_writers[b]->append(column->get_nullmap(),
+        RETURN_IF_ERROR(_doc_value_column_writers[b]->append(column->get_nullmap(),
                                                                 column->get_data(), num_rows));
         converter->clear_source_content(this_col_id);
-        _doc_snapshot_column_opts[b].meta->set_num_rows(num_rows);
-        auto* stats = _doc_snapshot_column_opts[b].meta->mutable_variant_statistics();
-        auto* doc_snapshot_column_non_null_size =
-                stats->mutable_doc_snapshot_column_non_null_size();
+        _doc_value_column_opts[b].meta->set_num_rows(num_rows);
+        auto* stats = _doc_value_column_opts[b].meta->mutable_variant_statistics();
+        auto* doc_value_column_non_null_size =
+                stats->mutable_doc_value_column_non_null_size();
         for (const auto& [k, cnt] : bucket_path_counts[b]) {
-            (*doc_snapshot_column_non_null_size)[k.to_string()] = cnt;
+            (*doc_value_column_non_null_size)[k.to_string()] = cnt;
         }
     }
 
@@ -469,28 +469,28 @@ Status VariantDocSnapShotWriter::append_data(const TabletColumn* parent_column,
 
 uint64_t VariantDocSnapShotWriter::estimate_buffer_size() const {
     uint64_t size = 0;
-    for (const auto& writer : _doc_snapshot_column_writers) {
+    for (const auto& writer : _doc_value_column_writers) {
         size += writer->estimate_buffer_size();
     }
     return size;
 }
 
 Status VariantDocSnapShotWriter::finish() {
-    for (auto& writer : _doc_snapshot_column_writers) {
+    for (auto& writer : _doc_value_column_writers) {
         RETURN_IF_ERROR(writer->finish());
     }
     return Status::OK();
 }
 
 Status VariantDocSnapShotWriter::write_data() {
-    for (auto& writer : _doc_snapshot_column_writers) {
+    for (auto& writer : _doc_value_column_writers) {
         RETURN_IF_ERROR(writer->write_data());
     }
     return Status::OK();
 }
 
 Status VariantDocSnapShotWriter::write_ordinal_index() {
-    for (auto& writer : _doc_snapshot_column_writers) {
+    for (auto& writer : _doc_value_column_writers) {
         RETURN_IF_ERROR(writer->write_ordinal_index());
     }
     return Status::OK();
@@ -665,13 +665,13 @@ Status VariantColumnWriterImpl::_process_sparse_column(
     return Status::OK();
 }
 
-Status VariantColumnWriterImpl::_process_doc_snapshot_column(
+Status VariantColumnWriterImpl::_process_doc_value_column(
         vectorized::ColumnVariant* ptr, vectorized::OlapBlockDataConvertor* converter,
         size_t num_rows, int& column_id) {
-    if (!_tablet_column->variant_enable_doc_snapshot_mode()) {
+    if (!_tablet_column->variant_enable_doc_mode()) {
         return Status::OK();
     }
-    ptr->reconstruct_and_sort_doc_snapshot_column();
+    ptr->reconstruct_and_sort_doc_value_column();
     const int bucket_num = std::max(1, _tablet_column->variant_doc_snapshot_shard_count());
     RETURN_IF_ERROR(
             _doc_snapshot_writer.init(_tablet_column, bucket_num, column_id, _opts, _opts.footer));
@@ -735,7 +735,7 @@ Status VariantColumnWriterImpl::finalize() {
                 _process_sparse_column(ptr, olap_data_convertor.get(), num_rows, column_id));
 
         RETURN_IF_ERROR(
-                _process_doc_snapshot_column(ptr, olap_data_convertor.get(), num_rows, column_id));
+                _process_doc_value_column(ptr, olap_data_convertor.get(), num_rows, column_id));
     }
 
     _is_finalized = true;
@@ -1000,7 +1000,7 @@ Status VariantCompactionDocSnapshotWriter::finish() {
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
-    RETURN_IF_ERROR(_doc_snapshot_column_writer->finish());
+    RETURN_IF_ERROR(_doc_value_column_writer->finish());
     return Status::OK();
 }
 Status VariantCompactionDocSnapshotWriter::write_data() {
@@ -1010,7 +1010,7 @@ Status VariantCompactionDocSnapshotWriter::write_data() {
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->write_data());
     }
-    RETURN_IF_ERROR(_doc_snapshot_column_writer->write_data());
+    RETURN_IF_ERROR(_doc_value_column_writer->write_data());
     return Status::OK();
 }
 Status VariantCompactionDocSnapshotWriter::write_ordinal_index() {
@@ -1018,7 +1018,7 @@ Status VariantCompactionDocSnapshotWriter::write_ordinal_index() {
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->write_ordinal_index());
     }
-    RETURN_IF_ERROR(_doc_snapshot_column_writer->write_ordinal_index());
+    RETURN_IF_ERROR(_doc_value_column_writer->write_ordinal_index());
     return Status::OK();
 }
 
@@ -1029,7 +1029,7 @@ Status VariantCompactionDocSnapshotWriter::write_zone_map() {
             RETURN_IF_ERROR(_subcolumn_writers[i]->write_zone_map());
         }
     }
-    RETURN_IF_ERROR(_doc_snapshot_column_writer->write_zone_map());
+    RETURN_IF_ERROR(_doc_value_column_writer->write_zone_map());
 
     return Status::OK();
 }
@@ -1040,7 +1040,7 @@ Status VariantCompactionDocSnapshotWriter::write_inverted_index() {
             RETURN_IF_ERROR(_subcolumn_writers[i]->write_inverted_index());
         }
     }
-    RETURN_IF_ERROR(_doc_snapshot_column_writer->write_inverted_index());
+    RETURN_IF_ERROR(_doc_value_column_writer->write_inverted_index());
     return Status::OK();
 }
 Status VariantCompactionDocSnapshotWriter::write_bloom_filter_index() {
@@ -1050,7 +1050,7 @@ Status VariantCompactionDocSnapshotWriter::write_bloom_filter_index() {
             RETURN_IF_ERROR(_subcolumn_writers[i]->write_bloom_filter_index());
         }
     }
-    RETURN_IF_ERROR(_doc_snapshot_column_writer->write_bloom_filter_index());
+    RETURN_IF_ERROR(_doc_value_column_writer->write_bloom_filter_index());
     return Status::OK();
 }
 Status VariantCompactionDocSnapshotWriter::append_nullable(const uint8_t* null_map,
@@ -1073,7 +1073,7 @@ Status VariantCompactionDocSnapshotWriter::finalize() {
         std::unordered_map<std::string_view, vectorized::ColumnVariant::Subcolumn> subcolumns;
 
         auto [column_key, column_value] = variant_column->get_doc_snapshot_data_paths_and_values();
-        const auto& column_offsets = variant_column->serialized_doc_snapshot_column_offsets();
+        const auto& column_offsets = variant_column->serialized_doc_value_column_offsets();
 
         for (int64_t i = 0; i < num_rows; ++i) {
             size_t start = column_offsets[i - 1];
@@ -1172,32 +1172,32 @@ Status VariantCompactionDocSnapshotWriter::finalize() {
         }
     }
 
-    std::string doc_snapshot_column_path = _tablet_column->path_info_ptr()->get_path();
-    size_t pos = doc_snapshot_column_path.rfind(".");
-    int bucket_value = std::stoi(doc_snapshot_column_path.substr(pos + 1));
-    TabletColumn doc_snapshot_column =
-            vectorized::schema_util::create_doc_snapshot_column(parent_column, bucket_value);
-    _init_column_meta(_opts.meta, column_id, doc_snapshot_column, _opts.compression_type);
-    RETURN_IF_ERROR(ColumnWriter::create_map_writer(_opts, &doc_snapshot_column, _opts.file_writer,
-                                                    &_doc_snapshot_column_writer));
-    RETURN_IF_ERROR(_doc_snapshot_column_writer->init());
+    std::string doc_value_column_path = _tablet_column->path_info_ptr()->get_path();
+    size_t pos = doc_value_column_path.rfind(".");
+    int bucket_value = std::stoi(doc_value_column_path.substr(pos + 1));
+    TabletColumn doc_value_column =
+            vectorized::schema_util::create_doc_value_column(parent_column, bucket_value);
+    _init_column_meta(_opts.meta, column_id, doc_value_column, _opts.compression_type);
+    RETURN_IF_ERROR(ColumnWriter::create_map_writer(_opts, &doc_value_column, _opts.file_writer,
+                                                    &_doc_value_column_writer));
+    RETURN_IF_ERROR(_doc_value_column_writer->init());
 
     // convert root column data from engine format to storage layer format
-    converter->add_column_data_convertor(doc_snapshot_column);
+    converter->add_column_data_convertor(doc_value_column);
     // Convert MutableColumnPtr to ColumnPtr by creating a shared pointer from the raw pointer
     // The ownership is maintained by _column, so this is safe
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
-            {variant_column->get_doc_snapshot_column(), nullptr, ""}, 0, num_rows, column_id));
+            {variant_column->get_doc_value_column(), nullptr, ""}, 0, num_rows, column_id));
     auto [status, column] = converter->convert_column_data(column_id);
     RETURN_IF_ERROR(status);
-    RETURN_IF_ERROR(_doc_snapshot_column_writer->append(column->get_nullmap(), column->get_data(),
+    RETURN_IF_ERROR(_doc_value_column_writer->append(column->get_nullmap(), column->get_data(),
                                                         num_rows));
     converter->clear_source_content(column_id);
 
     _opts.meta->set_num_rows(num_rows);
 
     auto [column_key, column_value] = variant_column->get_doc_snapshot_data_paths_and_values();
-    const auto& column_offsets = variant_column->serialized_doc_snapshot_column_offsets();
+    const auto& column_offsets = variant_column->serialized_doc_value_column_offsets();
     std::map<StringRef, uint32_t> column_stats;
     for (int64_t i = 0; i < num_rows; ++i) {
         size_t start = column_offsets[i - 1];
@@ -1208,9 +1208,9 @@ Status VariantCompactionDocSnapshotWriter::finalize() {
         }
     }
     auto* stats = _opts.meta->mutable_variant_statistics();
-    auto* doc_snapshot_column_non_null_size = stats->mutable_doc_snapshot_column_non_null_size();
+    auto* doc_value_column_non_null_size = stats->mutable_doc_value_column_non_null_size();
     for (const auto& [k, cnt] : column_stats) {
-        (*doc_snapshot_column_non_null_size)[k.to_string()] = cnt;
+        (*doc_value_column_non_null_size)[k.to_string()] = cnt;
     }
     _is_finalized = true;
     return Status::OK();
