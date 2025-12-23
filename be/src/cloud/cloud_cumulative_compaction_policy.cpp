@@ -128,15 +128,16 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     // while still collecting enough rowsets to pass min_compaction_score check after level_size removal.
     // Must be placed after variable initialization and before collection loop.
     DEFER({
-        if (!skip_trim) {
-            // Keep at least 1 rowset to avoid removing the only rowset (consistent with fallback branch)
-            while (input_rowsets->size() > 1 &&
-                   *compaction_score > static_cast<size_t>(max_compaction_score)) {
-                auto& last_rowset = input_rowsets->back();
-                *compaction_score -= last_rowset->rowset_meta()->get_compaction_score();
-                total_size -= last_rowset->rowset_meta()->total_disk_size();
-                input_rowsets->pop_back();
-            }
+        if (skip_trim) {
+            return;
+        }
+        // Keep at least 1 rowset to avoid removing the only rowset (consistent with fallback branch)
+        while (input_rowsets->size() > 1 &&
+               *compaction_score > static_cast<size_t>(max_compaction_score)) {
+            auto& last_rowset = input_rowsets->back();
+            *compaction_score -= last_rowset->rowset_meta()->get_compaction_score();
+            total_size -= last_rowset->rowset_meta()->total_disk_size();
+            input_rowsets->pop_back();
         }
     });
 
@@ -249,7 +250,7 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
                 *compaction_score = max_score;
                 return transient_size;
             }
-            // Exceeding max compaction score, do compaction on all candidate rowsets anyway
+            // no rowset is OVERLAPPING, return all input rowsets (DEFER will trim to max_compaction_score)
             return transient_size;
         }
     }

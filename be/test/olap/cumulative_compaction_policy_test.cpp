@@ -2403,33 +2403,45 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_single_rowset
     EXPECT_EQ(150, compaction_score);
 }
 
-// Test case: All removed by level_size with no overlapping rowset (fallback, trim)
+// Large rowsets removed by level_size, small ones remain and get trimmed
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_fallback_no_overlapping) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
 
-    // Base rowset
+    // Base rowset: 1GB
     RowsetMetaSharedPtr ptr1(new RowsetMeta());
     init_rs_meta(ptr1, 0, 1);
     ptr1->set_total_disk_size(1024L * 1024 * 1024);
     ptr1->set_segments_overlap(NONOVERLAPPING);
     rs_metas.push_back(ptr1);
 
-    // 120 rowsets all non-overlapping with score=1 each
-    // After level_size removes all (if big one is first), fallback checks overlapping
-    // Create scenario: one big rowset followed by small non-overlapping
-    RowsetMetaSharedPtr ptr_big(new RowsetMeta());
-    init_rs_meta(ptr_big, 2, 2);
-    ptr_big->set_total_disk_size(200L * 1024 * 1024); // 200MB
-    ptr_big->set_num_segments(50);                    // score = 50
-    ptr_big->set_segments_overlap(NONOVERLAPPING);    // non-overlapping
-    rs_metas.push_back(ptr_big);
+    // 3 large rowsets (40MB, 15MB, 5MB) removed by level_size + 100 small ones remain
+    RowsetMetaSharedPtr ptr2(new RowsetMeta());
+    init_rs_meta(ptr2, 2, 2);
+    ptr2->set_total_disk_size(40L * 1024 * 1024);
+    ptr2->set_num_segments(1);
+    ptr2->set_segments_overlap(OVERLAPPING);
+    rs_metas.push_back(ptr2);
 
-    for (int i = 3; i <= 102; i++) {
+    RowsetMetaSharedPtr ptr3(new RowsetMeta());
+    init_rs_meta(ptr3, 3, 3);
+    ptr3->set_total_disk_size(15L * 1024 * 1024);
+    ptr3->set_num_segments(1);
+    ptr3->set_segments_overlap(OVERLAPPING);
+    rs_metas.push_back(ptr3);
+
+    RowsetMetaSharedPtr ptr4(new RowsetMeta());
+    init_rs_meta(ptr4, 4, 4);
+    ptr4->set_total_disk_size(5L * 1024 * 1024);
+    ptr4->set_num_segments(1);
+    ptr4->set_segments_overlap(OVERLAPPING);
+    rs_metas.push_back(ptr4);
+
+    for (int i = 5; i <= 104; i++) {
         RowsetMetaSharedPtr ptr(new RowsetMeta());
         init_rs_meta(ptr, i, i);
-        ptr->set_total_disk_size(100 * 1024); // 100KB
+        ptr->set_total_disk_size(10 * 1024);
         ptr->set_num_segments(1);
-        ptr->set_segments_overlap(NONOVERLAPPING); // non-overlapping
+        ptr->set_segments_overlap(OVERLAPPING);
         rs_metas.push_back(ptr);
     }
 
@@ -2448,17 +2460,77 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_fallback_no_o
     Version last_delete_version {-1, -1};
     size_t compaction_score = 0;
 
-    // total score = 150 >= max=100
-    // level_size will remove the big rowset, leaving small ones
-    // score after level_size = 100
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
-            _tablet.get(), candidate_rowsets, 100, 50, &input_rowsets, &last_delete_version,
+            _tablet.get(), candidate_rowsets, 100, 5, &input_rowsets, &last_delete_version,
             &compaction_score, config::enable_delete_when_cumu_compaction);
 
-    // Small rowsets size < min_size, score = 100 >= 50
-    // Score check passes, trim to 100
     EXPECT_EQ(100, input_rowsets.size());
     EXPECT_EQ(100, compaction_score);
+    EXPECT_EQ(5, input_rowsets.front()->start_version());
+}
+
+// Fallback: all rowsets removed by level_size, score >= max, no high-score rowset found
+// -> returns all, DEFER trims to max
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_fallback_no_high_score_rowset) {
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+
+    RowsetMetaSharedPtr ptr1(new RowsetMeta());
+    init_rs_meta(ptr1, 0, 1);
+    ptr1->set_total_disk_size(1024L * 1024 * 1024);
+    ptr1->set_segments_overlap(NONOVERLAPPING);
+    rs_metas.push_back(ptr1);
+
+    // 4 NONOVERLAPPING rowsets (score=1 each), all removed by level_size
+    // max=3, score=4 >= max triggers fallback, no score > 1 found
+    RowsetMetaSharedPtr ptr2(new RowsetMeta());
+    init_rs_meta(ptr2, 2, 2);
+    ptr2->set_total_disk_size(40L * 1024 * 1024);
+    ptr2->set_num_segments(1);
+    ptr2->set_segments_overlap(NONOVERLAPPING);
+    rs_metas.push_back(ptr2);
+
+    RowsetMetaSharedPtr ptr3(new RowsetMeta());
+    init_rs_meta(ptr3, 3, 3);
+    ptr3->set_total_disk_size(15L * 1024 * 1024);
+    ptr3->set_num_segments(1);
+    ptr3->set_segments_overlap(NONOVERLAPPING);
+    rs_metas.push_back(ptr3);
+
+    RowsetMetaSharedPtr ptr4(new RowsetMeta());
+    init_rs_meta(ptr4, 4, 4);
+    ptr4->set_total_disk_size(5L * 1024 * 1024);
+    ptr4->set_num_segments(1);
+    ptr4->set_segments_overlap(NONOVERLAPPING);
+    rs_metas.push_back(ptr4);
+
+    RowsetMetaSharedPtr ptr5(new RowsetMeta());
+    init_rs_meta(ptr5, 5, 5);
+    ptr5->set_total_disk_size(1L * 1024 * 1024);
+    ptr5->set_num_segments(1);
+    ptr5->set_segments_overlap(NONOVERLAPPING);
+    rs_metas.push_back(ptr5);
+
+    for (auto& rowset : rs_metas) {
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
+    }
+
+    TabletSharedPtr _tablet(
+            new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    static_cast<void>(_tablet->init());
+    _tablet->calculate_cumulative_point();
+
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+            _tablet.get(), candidate_rowsets, 3, 1, &input_rowsets, &last_delete_version,
+            &compaction_score, config::enable_delete_when_cumu_compaction);
+
+    EXPECT_EQ(3, input_rowsets.size());
+    EXPECT_EQ(3, compaction_score);
 }
 
 } // namespace doris

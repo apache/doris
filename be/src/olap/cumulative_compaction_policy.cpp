@@ -370,7 +370,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
             *compaction_score = max_score;
             return transient_size;
         }
-        // no rowset is OVERLAPPING, execute compaction on all input rowsets
+        // no rowset is OVERLAPPING, return all input rowsets (DEFER will trim to max_compaction_score)
         return transient_size;
     }
     input_rowsets->erase(input_rowsets->begin(), rs_begin);

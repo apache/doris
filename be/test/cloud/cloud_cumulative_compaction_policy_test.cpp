@@ -208,6 +208,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_empty_ro
 }
 
 // Test case: prioritize_query_perf_in_compaction for non-DUP_KEYS table
+// This tests the branch: rs_begin == end && prioritize_query_perf && keys_type != DUP_KEYS
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_prioritize_query_perf) {
     // Save original config value
     bool orig_prioritize_query_perf = config::prioritize_query_perf_in_compaction;
@@ -223,41 +224,45 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_prioriti
                                                    TCompressionType::LZ4F));
 
     CloudTablet _tablet(_engine, tablet_meta);
-    _tablet._base_size = 1024L * 1024 * 1024; // 1GB base
+    // Use large base_size to get large promotion_size, ensuring total_size < promotion_size
+    // so we don't trigger promotion_size early return and can reach level_size logic
+    _tablet._base_size = 20L * 1024 * 1024 * 1024; // 20GB base, promotion_size ~= 1GB
 
-    // Create candidate rowsets that will all be removed by level_size
-    // One large rowset followed by many small ones
+    // Create candidate rowsets that will ALL be removed by level_size
+    // Key: each rowset's level > remain_level after removal
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
-    // 1 large rowset (200MB) - will be removed by level_size
-    auto large_rowset = create_rowset(Version(2, 2), 50, true, 200L * 1024 * 1024);
-    candidate_rowsets.push_back(large_rowset);
+    // 3 rowsets with decreasing sizes, all will be removed by level_size:
+    // - 40MB: level(40)=32, remain=35, level(35)=32, 32>32? NO... need adjustment
+    // Let's use sizes that guarantee all removal:
+    // - 50MB: level(50)=32, after remove remain=25, level(25)=16, 32>16 -> remove
+    // - 20MB: level(20)=16, after remove remain=5, level(5)=4, 16>4 -> remove
+    // - 5MB:  level(5)=4, after remove remain=0, level(0)=0, 4>0 -> remove
+    auto rowset1 = create_rowset(Version(2, 2), 30, true, 50L * 1024 * 1024); // 50MB, score=30
+    auto rowset2 = create_rowset(Version(3, 3), 20, true, 20L * 1024 * 1024); // 20MB, score=20
+    auto rowset3 = create_rowset(Version(4, 4), 10, true, 5L * 1024 * 1024);  // 5MB, score=10
+    candidate_rowsets.push_back(rowset1);
+    candidate_rowsets.push_back(rowset2);
+    candidate_rowsets.push_back(rowset3);
 
-    // 50 small rowsets (100KB each)
-    for (int i = 0; i < 50; i++) {
-        auto rowset = create_rowset(Version(i + 3, i + 3), 1, true, 100 * 1024);
-        candidate_rowsets.push_back(rowset);
-    }
+    // total_size = 75MB < promotion_size (~1GB), enters level_size logic
+    // All 3 rowsets will be removed by level_size -> rs_begin == end
+    // With prioritize_query_perf=true and UNIQUE_KEYS, should return all candidates
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
     size_t compaction_score = 0;
 
     CloudSizeBasedCumulativeCompactionPolicy policy;
-    // For non-DUP_KEYS with prioritize_query_perf enabled,
-    // even if all rowsets are removed by level_size, return all candidates
-    policy.pick_input_rowsets(&_tablet, candidate_rowsets, 100, 50, &input_rowsets,
+    policy.pick_input_rowsets(&_tablet, candidate_rowsets, 100, 5, &input_rowsets,
                               &last_delete_version, &compaction_score, true);
 
     // With prioritize_query_perf enabled for non-DUP_KEYS table,
-    // should return rowsets even when level_size would remove all
-    // This is because compaction has significant positive impact on queries
-    // Note: total_size = 200MB + 5MB = 205MB, large rowset will be removed
-    // After level_size removal, 50 small rowsets remain, score = 50 >= min
-    // But level_size removes the large rowset first, then checks
-    // Actually the logic is: if all removed by level_size AND prioritize_query_perf, return all
-    // Here level_size won't remove all, so normal path
-    EXPECT_GE(input_rowsets.size(), 50);
+    // when all rowsets are removed by level_size, should return all candidates
+    // (before DEFER trim)
+    // Total score = 60, max = 100, so no trimming needed
+    EXPECT_EQ(3, input_rowsets.size());
+    EXPECT_EQ(60, compaction_score);
 
     // Restore original config value
     config::prioritize_query_perf_in_compaction = orig_prioritize_query_perf;
