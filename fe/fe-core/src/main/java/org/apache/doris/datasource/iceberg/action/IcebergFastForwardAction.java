@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.Table;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -83,7 +84,7 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
             long snapshotAfter = icebergTable.snapshot(sourceBranch).snapshotId();
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
-            return Lists.newArrayList(Lists.newArrayList(
+            return Collections.singletonList(Lists.newArrayList(
                     sourceBranch.trim(),
                     String.valueOf(snapshotBefore),
                     String.valueOf(snapshotAfter)

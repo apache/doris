@@ -32,6 +32,7 @@ import com.google.common.collect.Lists;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -80,7 +81,7 @@ public class IcebergRollbackToSnapshotAction extends BaseIcebergAction {
             Snapshot previousSnapshot = icebergTable.currentSnapshot();
             Long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : null;
             if (previousSnapshot != null && previousSnapshot.snapshotId() == targetSnapshotId) {
-                return Lists.newArrayList(Lists.newArrayList(
+                return Collections.singletonList(Lists.newArrayList(
                         String.valueOf(previousSnapshotId),
                         String.valueOf(targetSnapshotId)
                 ));
@@ -88,7 +89,7 @@ public class IcebergRollbackToSnapshotAction extends BaseIcebergAction {
             icebergTable.manageSnapshots().rollbackTo(targetSnapshotId).commit();
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
-            return Lists.newArrayList(Lists.newArrayList(
+            return Collections.singletonList(Lists.newArrayList(
                     String.valueOf(previousSnapshotId),
                     String.valueOf(targetSnapshotId)
             ));

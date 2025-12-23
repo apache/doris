@@ -33,6 +33,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -110,7 +111,7 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
             Long currentSnapshotId = currentSnapshot != null ? currentSnapshot.snapshotId() : null;
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
-            return Lists.newArrayList(Lists.newArrayList(
+            return Collections.singletonList(Lists.newArrayList(
                     String.valueOf(previousSnapshotId),
                     String.valueOf(currentSnapshotId)
             ));

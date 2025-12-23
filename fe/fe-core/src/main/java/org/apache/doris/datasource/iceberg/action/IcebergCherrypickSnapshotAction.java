@@ -32,6 +32,7 @@ import com.google.common.collect.Lists;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -84,7 +85,7 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
 
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
-            return Lists.newArrayList(Lists.newArrayList(
+            return Collections.singletonList(Lists.newArrayList(
                     String.valueOf(sourceSnapshotId),
                     String.valueOf(currentSnapshot.snapshotId()
                     )

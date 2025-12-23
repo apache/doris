@@ -408,10 +408,11 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     """
     logger.info("Ancestors of current snapshot: ${ancestorsDefaultResult}")
     assertTrue(ancestorsDefaultResult.size() >= 1, "Expected at least 1 ancestor snapshot")
-    
+
     // Verify each result row has snapshot_id and timestamp
     for (int i = 0; i < ancestorsDefaultResult.size(); i++) {
-        assertTrue(ancestorsDefaultResult[i].size() == 2, "Each ancestor row should have 2 columns (snapshot_id, timestamp)")
+        assertTrue(ancestorsDefaultResult[i].size() == 2,
+                "Each ancestor row should have 2 columns (snapshot_id, timestamp)")
         Long snapshotId = ancestorsDefaultResult[i][0] as Long
         Long timestamp = ancestorsDefaultResult[i][1] as Long
         assertTrue(snapshotId > 0, "Snapshot ID should be positive")
@@ -809,5 +810,4 @@ test {
     exception "Action 'publish_changes' does not support WHERE condition"
 }
 
-  
 }

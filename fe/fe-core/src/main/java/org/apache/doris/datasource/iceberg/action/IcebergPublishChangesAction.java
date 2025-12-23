@@ -32,6 +32,7 @@ import com.google.common.collect.Lists;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -102,7 +103,7 @@ public class IcebergPublishChangesAction extends BaseIcebergAction {
             String previousSnapshotIdString = previousSnapshotId != null ? String.valueOf(previousSnapshotId) : "null";
             String currentSnapshotIdString = currentSnapshotId != null ? String.valueOf(currentSnapshotId) : "null";
 
-            return Lists.newArrayList(Lists.newArrayList(
+            return Collections.singletonList(Lists.newArrayList(
                     previousSnapshotIdString,
                     currentSnapshotIdString
             ));
