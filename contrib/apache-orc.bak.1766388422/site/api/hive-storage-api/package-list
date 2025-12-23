@@ -1,0 +1,10 @@
+org.apache.hadoop.hive.common
+org.apache.hadoop.hive.common.io
+org.apache.hadoop.hive.common.io.encoded
+org.apache.hadoop.hive.common.type
+org.apache.hadoop.hive.ql.exec.vector
+org.apache.hadoop.hive.ql.exec.vector.expressions
+org.apache.hadoop.hive.ql.io.sarg
+org.apache.hadoop.hive.ql.util
+org.apache.hadoop.hive.serde2.io
+org.apache.hive.common.util

@@ -1,0 +1,1 @@
+ERROR 1105 (HY000) at line 1: errCode = 2, detailMessage = Failed to create partition[hits_hamming_distance].Timeout:30 seconds. Unfinished: (backendId = 1766285578511, tabletId = 1766285578617), (backendId = 1766285578511, tabletId = 1766285578603), (backendId = 1766285578511, tabletId = 1766285578619)

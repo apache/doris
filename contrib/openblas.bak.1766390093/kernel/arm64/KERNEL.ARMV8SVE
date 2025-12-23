@@ -1,0 +1,234 @@
+
+CSUMKERNEL    = csum_thunderx2t99.c
+ZSUMKERNEL    = zsum_thunderx2t99.c
+SAMINKERNEL  = ../arm/amin.c
+DAMINKERNEL  = ../arm/amin.c
+CAMINKERNEL  = ../arm/zamin.c
+ZAMINKERNEL  = ../arm/zamin.c
+
+SMAXKERNEL   = ../arm/max.c
+DMAXKERNEL   = ../arm/max.c
+
+SMINKERNEL   = ../arm/min.c
+DMINKERNEL   = ../arm/min.c
+
+ISAMINKERNEL = ../arm/iamin.c
+IDAMINKERNEL = ../arm/iamin.c
+ICAMINKERNEL = ../arm/izamin.c
+IZAMINKERNEL = ../arm/izamin.c
+
+ISMAXKERNEL  = ../arm/imax.c
+IDMAXKERNEL  = ../arm/imax.c
+
+ISMINKERNEL  = ../arm/imin.c
+IDMINKERNEL  = ../arm/imin.c
+
+STRSMKERNEL_LN	= trsm_kernel_LN_sve.c
+STRSMKERNEL_LT	= trsm_kernel_LT_sve.c
+STRSMKERNEL_RN	= trsm_kernel_RN_sve.c
+STRSMKERNEL_RT	= trsm_kernel_RT_sve.c
+
+DTRSMKERNEL_LN	= trsm_kernel_LN_sve.c
+DTRSMKERNEL_LT	= trsm_kernel_LT_sve.c
+DTRSMKERNEL_RN	= trsm_kernel_RN_sve.c
+DTRSMKERNEL_RT	= trsm_kernel_RT_sve.c
+
+TRSMCOPYLN_M    = trsm_lncopy_sve.c
+TRSMCOPYLT_M    = trsm_ltcopy_sve.c
+TRSMCOPYUN_M    = trsm_uncopy_sve.c
+TRSMCOPYUT_M    = trsm_utcopy_sve.c
+
+CTRSMKERNEL_LN	= trsm_kernel_LN_sve.c
+CTRSMKERNEL_LT	= trsm_kernel_LT_sve.c
+CTRSMKERNEL_RN	= trsm_kernel_RN_sve.c
+CTRSMKERNEL_RT	= trsm_kernel_RT_sve.c
+
+ZTRSMKERNEL_LN	= trsm_kernel_LN_sve.c
+ZTRSMKERNEL_LT	= trsm_kernel_LT_sve.c
+ZTRSMKERNEL_RN	= trsm_kernel_RN_sve.c
+ZTRSMKERNEL_RT	= trsm_kernel_RT_sve.c
+
+ZTRSMCOPYLN_M    = ztrsm_lncopy_sve.c
+ZTRSMCOPYLT_M    = ztrsm_ltcopy_sve.c
+ZTRSMCOPYUN_M    = ztrsm_uncopy_sve.c
+ZTRSMCOPYUT_M    = ztrsm_utcopy_sve.c
+
+
+SAMAXKERNEL  = amax.S
+DAMAXKERNEL  = amax.S
+CAMAXKERNEL  = zamax.S
+ZAMAXKERNEL  = zamax.S
+
+SAXPYKERNEL  = axpy.S
+DAXPYKERNEL  = daxpy_thunderx2t99.S
+CAXPYKERNEL  = zaxpy.S
+ZAXPYKERNEL  = zaxpy.S
+
+SROTKERNEL   = rot.c
+DROTKERNEL   = rot.c
+CROTKERNEL   = zrot.S
+ZROTKERNEL   = zrot.S
+
+SSCALKERNEL  = scal.S
+DSCALKERNEL  = scal.S
+CSCALKERNEL  = zscal.S
+ZSCALKERNEL  = zscal.S
+
+SGEMVNKERNEL = gemv_n_sve_v1x3.c
+DGEMVNKERNEL = gemv_n_sve_v1x3.c
+CGEMVNKERNEL = zgemv_n.S
+ZGEMVNKERNEL = zgemv_n.S
+
+SGEMVTKERNEL = gemv_t_sve_v1x3.c
+DGEMVTKERNEL = gemv_t_sve_v1x3.c
+CGEMVTKERNEL = zgemv_t.S
+ZGEMVTKERNEL = zgemv_t.S
+
+SSYMV_L_KERNEL = symv_L_sve_v1x4.c
+SSYMV_U_KERNEL = symv_U_sve_v1x4.c
+DSYMV_L_KERNEL = symv_L_sve_v1x4.c
+DSYMV_U_KERNEL = symv_U_sve_v1x4.c
+
+SASUMKERNEL    = sasum_thunderx2t99.c
+DASUMKERNEL    = dasum_thunderx2t99.c
+CASUMKERNEL    = casum_thunderx2t99.c
+ZASUMKERNEL    = zasum_thunderx2t99.c
+
+SCOPYKERNEL    = copy_thunderx2t99.c
+DCOPYKERNEL    = copy_thunderx2t99.c
+CCOPYKERNEL    = copy_thunderx2t99.c
+ZCOPYKERNEL    = copy_thunderx2t99.c
+
+SSWAPKERNEL    = swap.c
+DSWAPKERNEL    = swap.c
+CSWAPKERNEL    = swap_thunderx2t99.S
+ZSWAPKERNEL    = swap_thunderx2t99.S
+
+ISAMAXKERNEL   = iamax_thunderx2t99.c
+IDAMAXKERNEL   = iamax_thunderx2t99.c
+ICAMAXKERNEL   = izamax_thunderx2t99.c
+IZAMAXKERNEL   = izamax_thunderx2t99.c
+
+SNRM2KERNEL    = nrm2.S
+DNRM2KERNEL    = nrm2.S
+CNRM2KERNEL    = znrm2.S
+ZNRM2KERNEL    = znrm2.S
+
+DDOTKERNEL     = dot.c
+SDOTKERNEL     = dot.c
+CDOTKERNEL     = zdot_thunderx2t99.c
+ZDOTKERNEL     = zdot_thunderx2t99.c
+DSDOTKERNEL    = dot.S
+
+DGEMM_BETA     = dgemm_beta.S
+SGEMM_BETA     = sgemm_beta.S
+
+SGEMMKERNEL    =  sgemm_kernel_sve_v2x$(SGEMM_UNROLL_N).S
+STRMMKERNEL    =  strmm_kernel_sve_v1x$(SGEMM_UNROLL_N).S
+
+SGEMMINCOPY    =  gemm_ncopy_sve_v1x$(SGEMM_UNROLL_N).c
+SGEMMITCOPY    =  gemm_tcopy_sve_v1x$(SGEMM_UNROLL_N).c
+SGEMMONCOPY    =  sgemm_ncopy_$(SGEMM_UNROLL_N).S
+SGEMMOTCOPY    =  sgemm_tcopy_$(SGEMM_UNROLL_N).S
+
+SGEMMINCOPYOBJ =  sgemm_incopy$(TSUFFIX).$(SUFFIX)
+SGEMMITCOPYOBJ =  sgemm_itcopy$(TSUFFIX).$(SUFFIX)
+SGEMMONCOPYOBJ =  sgemm_oncopy$(TSUFFIX).$(SUFFIX)
+SGEMMOTCOPYOBJ =  sgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+SGEMM_SMALL_M_PERMIT = gemm_small_kernel_permit_sve.c
+SGEMM_SMALL_K_NT = sgemm_small_kernel_nt_sve.c
+SGEMM_SMALL_K_B0_NT = sgemm_small_kernel_nt_sve.c
+SGEMM_SMALL_K_NN = sgemm_small_kernel_nn_sve.c
+SGEMM_SMALL_K_B0_NN = sgemm_small_kernel_nn_sve.c
+SGEMM_SMALL_K_TT = sgemm_small_kernel_tt_sve.c
+SGEMM_SMALL_K_B0_TT = sgemm_small_kernel_tt_sve.c
+SGEMM_SMALL_K_TN = sgemm_small_kernel_tn_sve.c
+SGEMM_SMALL_K_B0_TN = sgemm_small_kernel_tn_sve.c
+
+STRMMUNCOPY_M  =  trmm_uncopy_sve_v1.c
+STRMMLNCOPY_M  =  trmm_lncopy_sve_v1.c
+STRMMUTCOPY_M  =  trmm_utcopy_sve_v1.c
+STRMMLTCOPY_M  =  trmm_ltcopy_sve_v1.c
+
+SSYMMUCOPY_M    =  symm_ucopy_sve.c
+SSYMMLCOPY_M    =  symm_lcopy_sve.c
+
+DGEMMKERNEL    =  dgemm_kernel_sve_v2x$(DGEMM_UNROLL_N).S
+DTRMMKERNEL    =  dtrmm_kernel_sve_v1x$(DGEMM_UNROLL_N).S
+
+DGEMMINCOPY    =  gemm_ncopy_sve_v1x$(DGEMM_UNROLL_N).c
+DGEMMITCOPY    =  gemm_tcopy_sve_v1x$(DGEMM_UNROLL_N).c
+DGEMMONCOPY    =  dgemm_ncopy_$(DGEMM_UNROLL_N).S
+DGEMMOTCOPY    =  dgemm_tcopy_$(DGEMM_UNROLL_N).S
+
+DGEMMINCOPYOBJ =  dgemm_incopy$(TSUFFIX).$(SUFFIX)
+DGEMMITCOPYOBJ =  dgemm_itcopy$(TSUFFIX).$(SUFFIX)
+DGEMMONCOPYOBJ =  dgemm_oncopy$(TSUFFIX).$(SUFFIX)
+DGEMMOTCOPYOBJ =  dgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+DGEMM_SMALL_M_PERMIT = gemm_small_kernel_permit_sve.c
+DGEMM_SMALL_K_NT = dgemm_small_kernel_nt_sve.c
+DGEMM_SMALL_K_B0_NT = dgemm_small_kernel_nt_sve.c
+DGEMM_SMALL_K_NN = dgemm_small_kernel_nn_sve.c
+DGEMM_SMALL_K_B0_NN = dgemm_small_kernel_nn_sve.c
+DGEMM_SMALL_K_TT = dgemm_small_kernel_tt_sve.c
+DGEMM_SMALL_K_B0_TT = dgemm_small_kernel_tt_sve.c
+DGEMM_SMALL_K_TN = dgemm_small_kernel_tn_sve.c
+DGEMM_SMALL_K_B0_TN = dgemm_small_kernel_tn_sve.c
+
+DTRMMUNCOPY_M  =  trmm_uncopy_sve_v1.c
+DTRMMLNCOPY_M  =  trmm_lncopy_sve_v1.c
+DTRMMUTCOPY_M  =  trmm_utcopy_sve_v1.c
+DTRMMLTCOPY_M  =  trmm_ltcopy_sve_v1.c
+
+DSYMMUCOPY_M    =  symm_ucopy_sve.c
+DSYMMLCOPY_M    =  symm_lcopy_sve.c
+
+CGEMMKERNEL    =  cgemm_kernel_sve_v1x$(ZGEMM_UNROLL_N).S
+CTRMMKERNEL    =  ctrmm_kernel_sve_v1x$(ZGEMM_UNROLL_N).S
+
+CGEMMINCOPY    =  gemm_ncopy_complex_sve_v1x$(ZGEMM_UNROLL_N).c
+CGEMMITCOPY    =  gemm_tcopy_complex_sve_v1x$(ZGEMM_UNROLL_N).c
+CGEMMONCOPY    =  ../generic/zgemm_ncopy_$(ZGEMM_UNROLL_N).c
+CGEMMOTCOPY    =  ../generic/zgemm_tcopy_$(ZGEMM_UNROLL_N).c
+
+CGEMMINCOPYOBJ =  cgemm_incopy$(TSUFFIX).$(SUFFIX)
+CGEMMITCOPYOBJ =  cgemm_itcopy$(TSUFFIX).$(SUFFIX)
+CGEMMONCOPYOBJ =  cgemm_oncopy$(TSUFFIX).$(SUFFIX)
+CGEMMOTCOPYOBJ =  cgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+CTRMMUNCOPY_M  =  ztrmm_uncopy_sve_v1.c
+CTRMMLNCOPY_M  =  ztrmm_lncopy_sve_v1.c
+CTRMMUTCOPY_M  =  ztrmm_utcopy_sve_v1.c
+CTRMMLTCOPY_M  =  ztrmm_ltcopy_sve_v1.c
+
+CHEMMLTCOPY_M    =  zhemm_ltcopy_sve.c
+CHEMMUTCOPY_M    =  zhemm_utcopy_sve.c
+
+CSYMMUCOPY_M    =  zsymm_ucopy_sve.c
+CSYMMLCOPY_M    =  zsymm_lcopy_sve.c
+
+ZGEMMKERNEL    =  zgemm_kernel_sve_v1x$(ZGEMM_UNROLL_N).S
+ZTRMMKERNEL    =  ztrmm_kernel_sve_v1x$(ZGEMM_UNROLL_N).S
+
+ZGEMMINCOPY    =  gemm_ncopy_complex_sve_v1x$(ZGEMM_UNROLL_N).c
+ZGEMMITCOPY    =  gemm_tcopy_complex_sve_v1x$(ZGEMM_UNROLL_N).c
+ZGEMMONCOPY    =  ../generic/zgemm_ncopy_$(ZGEMM_UNROLL_N).c
+ZGEMMOTCOPY    =  ../generic/zgemm_tcopy_$(ZGEMM_UNROLL_N).c
+
+ZGEMMINCOPYOBJ =  zgemm_incopy$(TSUFFIX).$(SUFFIX)
+ZGEMMITCOPYOBJ =  zgemm_itcopy$(TSUFFIX).$(SUFFIX)
+ZGEMMONCOPYOBJ =  zgemm_oncopy$(TSUFFIX).$(SUFFIX)
+ZGEMMOTCOPYOBJ =  zgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+ZTRMMUNCOPY_M  =  ztrmm_uncopy_sve_v1.c
+ZTRMMLNCOPY_M  =  ztrmm_lncopy_sve_v1.c
+ZTRMMUTCOPY_M  =  ztrmm_utcopy_sve_v1.c
+ZTRMMLTCOPY_M  =  ztrmm_ltcopy_sve_v1.c
+
+ZHEMMLTCOPY_M    =  zhemm_ltcopy_sve.c
+ZHEMMUTCOPY_M    =  zhemm_utcopy_sve.c
+
+ZSYMMUCOPY_M    =  zsymm_ucopy_sve.c
+ZSYMMLCOPY_M    =  zsymm_lcopy_sve.c

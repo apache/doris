@@ -1,0 +1,50 @@
+include $(KERNELDIR)/KERNEL.HASWELL
+
+SGEMMKERNEL    =  sgemm_kernel_16x4_skylakex_3.c
+STRMMKERNEL    =  sgemm_kernel_16x4_skylakex_2.c
+SGEMMINCOPY    =  ../generic/gemm_ncopy_16.c
+SGEMMITCOPY    =  sgemm_tcopy_16_skylakex.c
+SGEMMONCOPY    =  sgemm_ncopy_4_skylakex.c
+SGEMMOTCOPY    =  ../generic/gemm_tcopy_4.c
+STRSMKERNEL_LN =  ../generic/trsm_kernel_LN.c
+STRSMKERNEL_LT =  ../generic/trsm_kernel_LT.c
+STRSMKERNEL_RN =  ../generic/trsm_kernel_RN.c
+STRSMKERNEL_RT =  ../generic/trsm_kernel_RT.c
+SGEMM_SMALL_M_PERMIT = sgemm_small_kernel_permit_skylakex.c
+SGEMM_SMALL_K_NN = sgemm_small_kernel_nn_skylakex.c
+SGEMM_SMALL_K_B0_NN = sgemm_small_kernel_nn_skylakex.c
+SGEMM_SMALL_K_NT = sgemm_small_kernel_nt_skylakex.c
+SGEMM_SMALL_K_B0_NT = sgemm_small_kernel_nt_skylakex.c
+SGEMM_SMALL_K_TN = sgemm_small_kernel_tn_skylakex.c
+SGEMM_SMALL_K_B0_TN = sgemm_small_kernel_tn_skylakex.c
+SGEMM_SMALL_K_TT = sgemm_small_kernel_tt_skylakex.c
+SGEMM_SMALL_K_B0_TT = sgemm_small_kernel_tt_skylakex.c
+
+DGEMMKERNEL    =  dgemm_kernel_16x2_skylakex.c
+DTRMMKERNEL    =  dgemm_kernel_16x2_skylakex.c
+DGEMMINCOPY    =  ../generic/gemm_ncopy_16.c
+DGEMMITCOPY    =  dgemm_tcopy_16_skylakex.c
+DGEMMONCOPY    =  ../generic/gemm_ncopy_2.c
+DGEMMOTCOPY    =  ../generic/gemm_tcopy_2.c
+DTRSMKERNEL_RN =  ../generic/trsm_kernel_RN.c
+
+DGEMM_SMALL_M_PERMIT = dgemm_small_kernel_permit_skylakex.c
+DGEMM_SMALL_K_NN = dgemm_small_kernel_nn_skylakex.c
+DGEMM_SMALL_K_B0_NN = dgemm_small_kernel_nn_skylakex.c
+DGEMM_SMALL_K_NT = dgemm_small_kernel_nt_skylakex.c
+DGEMM_SMALL_K_B0_NT = dgemm_small_kernel_nt_skylakex.c
+DGEMM_SMALL_K_TN = dgemm_small_kernel_tn_skylakex.c
+DGEMM_SMALL_K_B0_TN = dgemm_small_kernel_tn_skylakex.c
+DGEMM_SMALL_K_TT = dgemm_small_kernel_tt_skylakex.c
+DGEMM_SMALL_K_B0_TT = dgemm_small_kernel_tt_skylakex.c
+
+SGEMM_BETA = sgemm_beta_skylakex.c
+DGEMM_BETA = dgemm_beta_skylakex.c
+
+CGEMMKERNEL    =  cgemm_kernel_8x2_skylakex.c
+ZGEMMKERNEL    =  zgemm_kernel_4x2_skylakex.c
+
+CASUMKERNEL = casum.c
+ZASUMKERNEL = zasum.c
+CSUMKERNEL = csum.c
+ZSUMKERNEL = zsum.c

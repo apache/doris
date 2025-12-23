@@ -1,0 +1,221 @@
+ifeq ($(__BYTE_ORDER__),__ORDER_BIG_ENDIAN__)
+include $(KERNELDIR)/KERNEL.POWER8
+else
+
+#SGEMM_BETA = ../generic/gemm_beta.c
+#DGEMM_BETA = ../generic/gemm_beta.c
+#CGEMM_BETA = ../generic/zgemm_beta.c
+#ZGEMM_BETA = ../generic/zgemm_beta.c
+
+STRMMKERNEL	= sgemm_kernel_power9.S
+DTRMMKERNEL	= dgemm_kernel_power9.S
+CTRMMKERNEL	= cgemm_kernel_power9.S
+ZTRMMKERNEL	= zgemm_kernel_power9.S
+
+SGEMMKERNEL    =  sgemm_kernel_power9.S
+SGEMMINCOPY    = sgemm_ncopy_16_power.c
+SGEMMITCOPY    = sgemm_tcopy_16_power8.S
+SGEMMONCOPY    =  ../generic/gemm_ncopy_8.c
+SGEMMOTCOPY    = sgemm_tcopy_8_power8.S
+SGEMMINCOPYOBJ =  sgemm_incopy$(TSUFFIX).$(SUFFIX)
+SGEMMITCOPYOBJ =  sgemm_itcopy$(TSUFFIX).$(SUFFIX)
+SGEMMONCOPYOBJ =  sgemm_oncopy$(TSUFFIX).$(SUFFIX)
+SGEMMOTCOPYOBJ =  sgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+DGEMMKERNEL    =  dgemm_kernel_power9.S
+DGEMMINCOPY    = ../generic/gemm_ncopy_16.c
+DGEMMITCOPY    =  dgemm_tcopy_16_power8.S
+DGEMMONCOPY    =  dgemm_ncopy_4_power8.S
+DGEMMOTCOPY    =  ../generic/gemm_tcopy_4.c
+DGEMMINCOPYOBJ =  dgemm_incopy$(TSUFFIX).$(SUFFIX)
+DGEMMITCOPYOBJ =  dgemm_itcopy$(TSUFFIX).$(SUFFIX)
+DGEMMONCOPYOBJ =  dgemm_oncopy$(TSUFFIX).$(SUFFIX)
+DGEMMOTCOPYOBJ =  dgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+CGEMMKERNEL    = cgemm_kernel_power9.S
+CGEMMINCOPY    = ../generic/zgemm_ncopy_8.c
+CGEMMITCOPY    = ../generic/zgemm_tcopy_8.c
+CGEMMONCOPY    = ../generic/zgemm_ncopy_4.c
+CGEMMOTCOPY    = ../generic/zgemm_tcopy_4.c
+CGEMMONCOPYOBJ =  cgemm_oncopy$(TSUFFIX).$(SUFFIX)
+CGEMMOTCOPYOBJ =  cgemm_otcopy$(TSUFFIX).$(SUFFIX)
+CGEMMINCOPYOBJ =  cgemm_incopy$(TSUFFIX).$(SUFFIX)
+CGEMMITCOPYOBJ =  cgemm_itcopy$(TSUFFIX).$(SUFFIX)
+
+ZGEMMKERNEL    = zgemm_kernel_power9.S
+ZGEMMONCOPY    = ../generic/zgemm_ncopy_2.c
+ZGEMMOTCOPY    = ../generic/zgemm_tcopy_2.c
+ZGEMMINCOPY    = ../generic/zgemm_ncopy_8.c
+ZGEMMITCOPY    = zgemm_tcopy_8_power8.S
+ZGEMMONCOPYOBJ =  zgemm_oncopy$(TSUFFIX).$(SUFFIX)
+ZGEMMOTCOPYOBJ =  zgemm_otcopy$(TSUFFIX).$(SUFFIX)
+ZGEMMINCOPYOBJ =  zgemm_incopy$(TSUFFIX).$(SUFFIX)
+ZGEMMITCOPYOBJ =  zgemm_itcopy$(TSUFFIX).$(SUFFIX)
+
+STRSMKERNEL_LN	= trsm_kernel_LN_power10.c
+STRSMKERNEL_LT	= trsm_kernel_LT_power10.c
+STRSMKERNEL_RN	= trsm_kernel_RN_power10.c
+STRSMKERNEL_RT	= trsm_kernel_RT_power10.c
+
+DTRSMKERNEL_LN	= trsm_kernel_LN_power10.c
+DTRSMKERNEL_LT	= dtrsm_kernel_LT_16x4_power8.S
+DTRSMKERNEL_RN	= trsm_kernel_RN_power10.c
+DTRSMKERNEL_RT	= trsm_kernel_RT_power10.c
+
+CTRSMKERNEL_LN	= ../generic/trsm_kernel_LN.c
+CTRSMKERNEL_LT	= ../generic/trsm_kernel_LT.c
+CTRSMKERNEL_RN	= ../generic/trsm_kernel_RN.c
+CTRSMKERNEL_RT	= ../generic/trsm_kernel_RT.c
+
+ZTRSMKERNEL_LN	= ../generic/trsm_kernel_LN.c
+ZTRSMKERNEL_LT	= ../generic/trsm_kernel_LT.c
+ZTRSMKERNEL_RN	= ../generic/trsm_kernel_RN.c
+ZTRSMKERNEL_RT	= ../generic/trsm_kernel_RT.c
+
+#Todo: CGEMM3MKERNEL should be 4x4 blocksizes.
+#CGEMM3MKERNEL    =  zgemm3m_kernel_8x4_sse3.S
+#ZGEMM3MKERNEL    =  zgemm3m_kernel_4x4_sse3.S
+
+#Pure C for other kernels
+#SAMAXKERNEL  = ../arm/amax.c
+#DAMAXKERNEL  = ../arm/amax.c
+#CAMAXKERNEL  = ../arm/zamax.c
+#ZAMAXKERNEL  = ../arm/zamax.c
+#
+#SAMINKERNEL  = ../arm/amin.c
+#DAMINKERNEL  = ../arm/amin.c
+#CAMINKERNEL  = ../arm/zamin.c
+#ZAMINKERNEL  = ../arm/zamin.c
+#
+#SMAXKERNEL   = ../arm/max.c
+#DMAXKERNEL   = ../arm/max.c
+#
+#SMINKERNEL   = ../arm/min.c
+#DMINKERNEL   = ../arm/min.c
+#
+ifneq ($(GCCVERSIONGTEQ9),1)
+ISAMAXKERNEL = isamax_power9.S
+else
+ISAMAXKERNEL = isamax.c
+endif
+IDAMAXKERNEL = idamax.c
+ifneq ($(GCCVERSIONGTEQ9),1)
+ICAMAXKERNEL = icamax_power9.S
+else
+ICAMAXKERNEL = icamax.c
+endif
+IZAMAXKERNEL = izamax.c
+#
+ifneq ($(GCCVERSIONGTEQ9),1)
+ISAMINKERNEL = isamin_power9.S
+else
+ISAMINKERNEL = isamin.c
+endif
+IDAMINKERNEL = idamin.c
+ifneq ($(GCCVERSIONGTEQ9),1)
+ICAMINKERNEL = icamin_power9.S
+else
+ICAMINKERNEL = icamin.c
+endif
+IZAMINKERNEL = izamin.c
+#
+#ISMAXKERNEL  = ../arm/imax.c
+#IDMAXKERNEL  = ../arm/imax.c
+#
+#ISMINKERNEL  = ../arm/imin.c
+#IDMINKERNEL  = ../arm/imin.c
+#
+SASUMKERNEL  = sasum.c
+DASUMKERNEL  = dasum.c
+CASUMKERNEL  = casum.c
+ZASUMKERNEL  = zasum.c
+#
+SAXPYKERNEL  = saxpy.c
+DAXPYKERNEL  = daxpy.c
+ifneq ($(GCCVERSIONGTEQ9),1)
+CAXPYKERNEL  = caxpy_power9.S
+else
+CAXPYKERNEL  = caxpy.c
+endif
+ZAXPYKERNEL  = zaxpy.c
+#
+SCOPYKERNEL  = scopy.c
+DCOPYKERNEL  = dcopy.c
+CCOPYKERNEL  = ccopy.c
+ZCOPYKERNEL  = zcopy.c
+#
+SDOTKERNEL   =  sdot.c
+DDOTKERNEL   =  ddot.c
+DSDOTKERNEL  =  sdot.c
+ifneq ($(GCCVERSIONGTEQ9),1)
+CDOTKERNEL   =  cdot_power9.S
+else
+CDOTKERNEL   =  cdot.c
+endif
+ZDOTKERNEL   =  zdot.c
+#
+SNRM2KERNEL  = ../arm/nrm2.c
+DNRM2KERNEL  = ../arm/nrm2.c
+CNRM2KERNEL  = ../arm/znrm2.c
+ZNRM2KERNEL  = ../arm/znrm2.c
+#
+SROTKERNEL   = srot.c
+DROTKERNEL   = drot.c
+CROTKERNEL   = crot.c
+ZROTKERNEL   = zrot.c
+#
+SSCALKERNEL  = sscal.c
+DSCALKERNEL  = dscal.c
+ifeq ($(C_COMPILER), PGI)
+CSCALKERNEL  = ../arm/zscal.c
+ZSCALKERNEL  = ../arm/zscal.c
+else
+CSCALKERNEL  = zscal.c
+ZSCALKERNEL  = zscal.c
+endif
+#
+SSWAPKERNEL  = sswap.c
+DSWAPKERNEL  = dswap.c
+CSWAPKERNEL  = cswap.c
+ZSWAPKERNEL  = zswap.c
+#
+
+SGEMVNKERNEL = sgemv_n.c
+SBGEMVNKERNEL = sbgemv_n_vsx.c
+DGEMVNKERNEL = dgemv_n.c
+CGEMVNKERNEL = cgemv_n.c
+ZGEMVNKERNEL = zgemv_n_4.c
+#
+SGEMVTKERNEL = sgemv_t.c
+SBGEMVTKERNEL = sbgemv_t_vsx.c
+DGEMVTKERNEL = dgemv_t.c
+CGEMVTKERNEL = cgemv_t.c
+ZGEMVTKERNEL = zgemv_t_4.c
+
+
+#SSYMV_U_KERNEL =  ../generic/symv_k.c
+#SSYMV_L_KERNEL =  ../generic/symv_k.c
+#DSYMV_U_KERNEL =  ../generic/symv_k.c
+#DSYMV_L_KERNEL =  ../generic/symv_k.c
+#QSYMV_U_KERNEL =  ../generic/symv_k.c
+#QSYMV_L_KERNEL =  ../generic/symv_k.c
+#CSYMV_U_KERNEL =  ../generic/zsymv_k.c
+#CSYMV_L_KERNEL =  ../generic/zsymv_k.c
+#ZSYMV_U_KERNEL =  ../generic/zsymv_k.c
+#ZSYMV_L_KERNEL =  ../generic/zsymv_k.c
+#XSYMV_U_KERNEL =  ../generic/zsymv_k.c
+#XSYMV_L_KERNEL =  ../generic/zsymv_k.c
+
+#ZHEMV_U_KERNEL =  ../generic/zhemv_k.c
+#ZHEMV_L_KERNEL =  ../generic/zhemv_k.c
+
+LSAME_KERNEL = ../generic/lsame.c
+SCABS_KERNEL	= ../generic/cabs.c
+DCABS_KERNEL	= ../generic/cabs.c
+QCABS_KERNEL	= ../generic/cabs.c
+
+#Dump kernel
+CGEMM3MKERNEL    = ../generic/zgemm3mkernel_dump.c
+ZGEMM3MKERNEL    = ../generic/zgemm3mkernel_dump.c
+
+endif

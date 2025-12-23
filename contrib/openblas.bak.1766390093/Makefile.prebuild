@@ -1,0 +1,113 @@
+# This is triggered by Makefile.system and runs before any of the code is built.
+
+export BINARY
+export USE_OPENMP
+
+ifdef DYNAMIC_ARCH
+override HOST_CFLAGS += -DDYNAMIC_ARCH
+endif
+
+ifdef TARGET_CORE
+TARGET_MAKE = Makefile_kernel.conf
+TARGET_CONF = config_kernel.h
+else
+TARGET_MAKE = Makefile.conf
+TARGET_CONF = config.h
+endif
+
+ifdef USE_PERL
+SCRIPTSUFFIX = .pl
+else
+SCRIPTSUFFIX =
+endif
+
+# CPUIDEMU = ../../cpuid/table.o
+
+ifdef CPUIDEMU
+EXFLAGS = -DCPUIDEMU -DVENDOR=99
+endif
+
+ifeq ($(TARGET), MIPS24K)
+TARGET_FLAGS = -mips32r2
+endif
+
+ifeq ($(TARGET), MIPS1004K)
+TARGET_FLAGS = -mips32r2
+endif
+
+ifeq ($(TARGET), P5600)
+TARGET_FLAGS = -mips32r5
+endif
+
+ifeq ($(TARGET), I6400)
+TARGET_FLAGS = -mips64r6
+endif
+
+ifeq ($(TARGET), P6600)
+TARGET_FLAGS = -mips64r6
+endif
+
+ifeq ($(TARGET), I6500)
+TARGET_FLAGS = -mips64r6
+endif
+
+ifeq ($(TARGET), C910V)
+TARGET_FLAGS = -march=rv64gcv0p7_zfh_xtheadc -mabi=lp64d
+endif
+
+ifeq ($(TARGET), CK860FV)
+TARGET_FLAGS = -march=ck860v -mcpu=ck860fv -mfdivdu -mhard-float
+endif
+
+ifeq ($(TARGET), x280)
+TARGET_FLAGS = -march=rv64imafdcv_zba_zbb_zfh -mabi=lp64d
+endif
+
+ifeq ($(TARGET), RISCV64_ZVL256B)
+TARGET_FLAGS = -march=rv64imafdcv -mabi=lp64d
+endif
+
+ifeq ($(TARGET), RISCV64_ZVL128B)
+TARGET_FLAGS = -march=rv64imafdcv -mabi=lp64d
+endif
+
+ifeq ($(TARGET), RISCV64_GENERIC)
+TARGET_FLAGS = -march=rv64imafdc -mabi=lp64d
+endif
+
+all: getarch_2nd
+	./getarch_2nd  0 >> $(TARGET_MAKE)
+	./getarch_2nd  1 >> $(TARGET_CONF)
+
+$(TARGET_CONF): c_check$(SCRIPTSUFFIX) f_check$(SCRIPTSUFFIX) getarch
+	./c_check$(SCRIPTSUFFIX) $(TARGET_MAKE) $(TARGET_CONF) "$(CC)" $(TARGET_FLAGS) $(CFLAGS)
+ifneq ($(ONLY_CBLAS), 1)
+	./f_check$(SCRIPTSUFFIX) $(TARGET_MAKE) $(TARGET_CONF) "$(FC)" $(TARGET_FLAGS)
+else
+#When we only build CBLAS, we set NOFORTRAN=2
+	echo "NOFORTRAN=2" >> $(TARGET_MAKE)
+	echo "NO_FBLAS=1" >> $(TARGET_MAKE)
+	echo "F_COMPILER=GFORTRAN"  >> $(TARGET_MAKE)
+	echo "BU=_"  >> $(TARGET_MAKE)
+	echo "#define BUNDERSCORE _" >> $(TARGET_CONF)
+	echo "#define NEEDBUNDERSCORE 1" >> $(TARGET_CONF)
+endif
+	./getarch 0 >> $(TARGET_MAKE)
+	./getarch 1 >> $(TARGET_CONF)
+
+
+getarch : getarch.c cpuid.S dummy $(CPUIDEMU)
+	avx512=$$(./c_check$(SCRIPTSUFFIX) - - "$(CC)" $(TARGET_FLAGS) $(CFLAGS) | grep NO_AVX512); \
+	rv64gv=$$(./c_check$(SCRIPTSUFFIX) - - "$(CC)" $(TARGET_FLAGS) $(CFLAGS) | grep NO_RV64GV); \
+	$(HOSTCC) $(HOST_CFLAGS) $(EXFLAGS) $${avx512:+-D$${avx512}} $${rv64gv:+-D$${rv64gv}} -o $(@F) getarch.c cpuid.S $(CPUIDEMU)
+
+getarch_2nd : getarch_2nd.c $(TARGET_CONF) dummy
+ifndef TARGET_CORE
+	$(HOSTCC) -I. $(HOST_CFLAGS) -o $(@F) getarch_2nd.c
+else
+	$(HOSTCC) -I. $(HOST_CFLAGS) -DBUILD_KERNEL -o $(@F) getarch_2nd.c
+endif
+
+dummy:
+
+.PHONY: dummy

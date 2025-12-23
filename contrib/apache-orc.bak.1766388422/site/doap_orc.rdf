@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl"?>
+<rdf:RDF xml:lang="en"
+         xmlns="http://usefulinc.com/ns/doap#" 
+         xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" 
+         xmlns:asfext="http://projects.apache.org/ns/asfext#"
+         xmlns:foaf="http://xmlns.com/foaf/0.1/">
+<!--
+    Licensed to the Apache Software Foundation (ASF) under one or more
+    contributor license agreements.  See the NOTICE file distributed with
+    this work for additional information regarding copyright ownership.
+    The ASF licenses this file to You under the Apache License, Version 2.0
+    (the "License"); you may not use this file except in compliance with
+    the License.  You may obtain a copy of the License at
+   
+         http://www.apache.org/licenses/LICENSE-2.0
+   
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+-->
+  <Project rdf:about="https://orc.apache.org">
+    <created>2015-05-12</created>
+    <license rdf:resource="http://spdx.org/licenses/Apache-2.0" />
+    <name>Apache ORC</name>
+    <homepage rdf:resource="https://orc.apache.org" />
+    <asfext:pmc rdf:resource="https://orc.apache.org" />
+    <shortdesc>A high-performance columnar file format for Hadoop workloads.</shortdesc>
+    <description>ORC is a self-describing type-aware columnar file format designed for
+Hadoop workloads. It is optimized for large streaming reads, but with
+integrated support for finding required rows quickly. Storing data in
+a columnar format lets the reader read, decompress, and process only
+the values that are required for the current query.</description>
+    <bug-database rdf:resource="https://issues.apache.org/jira/browse/orc" />
+    <mailing-list rdf:resource="https://orc.apache.org/develop" />
+    <download-page rdf:resource="https://orc.apache.org/releases" />
+    <programming-language>Java</programming-language>
+    <programming-language>C++</programming-language>
+    <category rdf:resource="http://projects.apache.org/category/big-data" />
+    <category rdf:resource="http://projects.apache.org/category/database" />
+    <category rdf:resource="http://projects.apache.org/category/hadoop" />
+    <category rdf:resource="http://projects.apache.org/category/library" />
+    <release>
+      <Version>
+        <name>Latest release</name>
+        <created>2022-12-02</created>
+        <revision>1.8.1</revision>
+      </Version>
+      <Version>
+        <name>Stable release</name>
+        <created>2022-11-17</created>
+        <revision>1.7.7</revision>
+      </Version>
+    </release>
+    <repository>
+      <GitRepository>
+        <location rdf:resource="https://gitbox.apache.org/repos/asf/orc.git"/>
+        <browse rdf:resource="https://github.com/apache/orc"/>
+      </GitRepository>
+    </repository>
+    <maintainer>
+      <foaf:Person>
+        <foaf:name>Dongjoon Hyun</foaf:name>
+          <foaf:mbox rdf:resource="mailto:dongjoon@apache.org"/>
+      </foaf:Person>
+    </maintainer>
+  </Project>
+</rdf:RDF>

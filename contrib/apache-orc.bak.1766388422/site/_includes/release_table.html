@@ -1,0 +1,27 @@
+{% comment %}
+This include generates the table of releases.
+{% endcomment %}
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: center">Version</th>
+      <th style="text-align: center">Date</th>
+      <th style="text-align: center">State</th>
+      <th style="text-align: center">Release</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for release in site.data.releases %}
+      {% assign datestr = release[1]["date"] | date: "%Y/%m/%d" %}
+      <tr>
+        <td style="text-align: center">{{ release[0] }}</td>
+        <td style="text-align: center">{{ release[1]["date"] }}</td>
+        <td style="text-align: center">{{ release[1]["state"] }}</td>
+        <td style="text-align: center">
+          <a href="/news/{{ datestr }}/ORC-{{ release[0] }}/">
+          ORC-{{ release[0] }}</a></td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>

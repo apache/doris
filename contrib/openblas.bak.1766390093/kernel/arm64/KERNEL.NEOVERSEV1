@@ -1,0 +1,24 @@
+include $(KERNELDIR)/KERNEL.ARMV8SVE
+
+SGEMVNKERNEL = gemv_n_sve_v1x3.c
+DGEMVNKERNEL = gemv_n_sve_v1x3.c
+SGEMVTKERNEL = gemv_t_sve_v1x3.c
+DGEMVTKERNEL = gemv_t_sve_v1x3.c
+ifeq ($(BUILD_BFLOAT16), 1)
+SBGEMM_BETA    =  sbgemm_beta_neoversev1.c
+SBGEMMKERNEL    = sbgemm_kernel_$(SBGEMM_UNROLL_M)x$(SBGEMM_UNROLL_N)_neoversev1.c
+ifneq ($(SBGEMM_UNROLL_M), $(SBGEMM_UNROLL_N))
+SBGEMMINCOPY    = sbgemm_ncopy_$(SBGEMM_UNROLL_M)_neoversev1.c
+SBGEMMITCOPY    = sbgemm_tcopy_$(SBGEMM_UNROLL_M)_neoversev1.c
+SBGEMMINCOPYOBJ =  sbgemm_incopy$(TSUFFIX).$(SUFFIX)
+SBGEMMITCOPYOBJ =  sbgemm_itcopy$(TSUFFIX).$(SUFFIX)
+endif
+SBGEMMONCOPY    = sbgemm_ncopy_$(SBGEMM_UNROLL_N)_neoversev1.c
+SBGEMMOTCOPY    = sbgemm_tcopy_$(SBGEMM_UNROLL_N)_neoversev1.c
+SBGEMMONCOPYOBJ =  sbgemm_oncopy$(TSUFFIX).$(SUFFIX)
+SBGEMMOTCOPYOBJ =  sbgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+SBGEMVNKERNEL = sbgemv_n_neon.c
+SBGEMVTKERNEL = sbgemv_t_bfdot.c
+
+endif

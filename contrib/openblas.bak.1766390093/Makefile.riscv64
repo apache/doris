@@ -1,0 +1,20 @@
+ifeq ($(CORE), C910V)
+CCOMMON_OPT += -march=rv64imafdcv0p7_zfh_xtheadc -mabi=lp64d -mtune=c920
+FCOMMON_OPT += -march=rv64imafdcv0p7_zfh_xtheadc -mabi=lp64d -mtune=c920 -static
+endif
+ifeq ($(CORE), x280)
+CCOMMON_OPT += -march=rv64imafdcv_zba_zbb_zfh_zvl512b -mabi=lp64d 
+FCOMMON_OPT += -march=rv64imafdcv_zba_zbb_zfh -mabi=lp64d -static
+endif
+ifeq ($(CORE), RISCV64_ZVL256B)
+CCOMMON_OPT += -march=rv64imafdcv_zvl256b -mabi=lp64d
+FCOMMON_OPT += -march=rv64imafdcv -mabi=lp64d
+endif
+ifeq ($(CORE), RISCV64_ZVL128B)
+CCOMMON_OPT += -march=rv64imafdcv -mabi=lp64d 
+FCOMMON_OPT += -march=rv64imafdcv -mabi=lp64d
+endif
+ifeq ($(CORE), RISCV64_GENERIC)
+CCOMMON_OPT += -march=rv64imafdc -mabi=lp64d
+FCOMMON_OPT += -march=rv64imafdc -mabi=lp64d
+endif

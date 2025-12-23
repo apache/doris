@@ -1,0 +1,4 @@
+ifeq ($(CORE), CK860FV)
+CCOMMON_OPT += -march=ck860v -mcpu=ck860fv -mfdivdu -mhard-float
+FCOMMON_OPT += -march=ck860v -mcpu=ck860fv -mfdivdu -mhard-float -static
+endif

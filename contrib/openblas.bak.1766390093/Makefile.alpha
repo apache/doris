@@ -1,0 +1,39 @@
+ifneq ($(COMPILER), NATIVE)
+# GCC User
+ifeq ($(CORE), EV4)
+CCOMMON_OPT += -mcpu=ev4
+endif
+ifeq ($(CORE), EV5)
+CCOMMON_OPT += -mcpu=ev5
+endif
+ifeq ($(CORE), EV6)
+CCOMMON_OPT += -mcpu=ev6
+endif
+else
+# Compaq Compiler User
+ifeq ($(CORE), EV4)
+CCOMMON_OPT += -tune ev4 -arch ev4
+endif
+ifeq ($(CORE), EV5)
+CCOMMON_OPT += -tune ev5 -arch ev5
+endif
+ifeq ($(CORE), EV6)
+CCOMMON_OPT += -tune ev6 -arch ev6
+endif
+endif
+
+ifeq ($(F_COMPILER), GFORTRAN)
+FCOMMON_OPT	+= -mieee
+endif
+
+ifeq ($(F_COMPILER), G77)
+FCOMMON_OPT	+= -mieee
+endif
+
+ifndef SMP
+LIBCXML		= -lcxml  -lots -lm
+LIBATLAS	= -L/usr/lib/atlas3.7.8 -lf77blas -latlas -lm
+else
+LIBCXML		= -lcxmlp -lots -lm
+LIBATLAS	= -L/usr/lib/atlas3.7.8p -llapack -lptcblas -lptf77blas -latlas -lpthread -lm
+endif

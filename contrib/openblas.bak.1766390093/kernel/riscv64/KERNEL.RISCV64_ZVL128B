@@ -1,0 +1,247 @@
+SAMAXKERNEL  = amax_rvv.c
+DAMAXKERNEL  = amax_rvv.c
+CAMAXKERNEL  = zamax_rvv.c
+ZAMAXKERNEL  = zamax_rvv.c
+
+SAMINKERNEL  = amin_rvv.c
+DAMINKERNEL  = amin_rvv.c
+CAMINKERNEL  = zamin_rvv.c
+ZAMINKERNEL  = zamin_rvv.c
+
+SMAXKERNEL   = max_rvv.c
+DMAXKERNEL   = max_rvv.c
+
+SMINKERNEL   = min_rvv.c
+DMINKERNEL   = min_rvv.c
+
+ISAMAXKERNEL = iamax_rvv.c
+IDAMAXKERNEL = iamax_rvv.c
+ICAMAXKERNEL = izamax_rvv.c
+IZAMAXKERNEL = izamax_rvv.c
+
+ISAMINKERNEL = iamin_rvv.c
+IDAMINKERNEL = iamin_rvv.c
+ICAMINKERNEL = izamin_rvv.c
+IZAMINKERNEL = izamin_rvv.c
+
+ISMAXKERNEL  = imax_rvv.c
+IDMAXKERNEL  = imax_rvv.c
+
+ISMINKERNEL  = imin_rvv.c
+IDMINKERNEL  = imin_rvv.c
+
+SASUMKERNEL  = asum_rvv.c
+DASUMKERNEL  = asum_rvv.c
+CASUMKERNEL  = zasum_rvv.c
+ZASUMKERNEL  = zasum_rvv.c
+
+SSUMKERNEL  = sum_rvv.c
+DSUMKERNEL  = sum_rvv.c
+CSUMKERNEL  = zsum_rvv.c
+ZSUMKERNEL  = zsum_rvv.c
+
+SAXPYKERNEL  = axpy_rvv.c
+DAXPYKERNEL  = axpy_rvv.c
+CAXPYKERNEL  = zaxpy_rvv.c
+ZAXPYKERNEL  = zaxpy_rvv.c
+
+SAXPBYKERNEL  = axpby_rvv.c
+DAXPBYKERNEL  = axpby_rvv.c
+CAXPBYKERNEL  = zaxpby_rvv.c
+ZAXPBYKERNEL  = zaxpby_rvv.c
+
+SCOPYKERNEL  = copy_rvv.c
+DCOPYKERNEL  = copy_rvv.c
+CCOPYKERNEL  = zcopy_rvv.c
+ZCOPYKERNEL  = zcopy_rvv.c
+
+SDOTKERNEL   = dot_rvv.c
+DDOTKERNEL   = dot_rvv.c
+CDOTKERNEL   = zdot_rvv.c
+ZDOTKERNEL   = zdot_rvv.c
+DSDOTKERNEL  = dot_rvv.c
+
+SNRM2KERNEL  = nrm2_rvv.c
+DNRM2KERNEL  = nrm2_rvv.c
+CNRM2KERNEL  = znrm2_rvv.c
+ZNRM2KERNEL  = znrm2_rvv.c
+
+SROTKERNEL   = rot_rvv.c
+DROTKERNEL   = rot_rvv.c
+CROTKERNEL   = zrot_rvv.c
+ZROTKERNEL   = zrot_rvv.c
+
+SROTMKERNEL  = ../generic/rotm.c
+DROTMKERNEL  = ../generic/rotm.c
+QROTMKERNEL = ../generic/rotm.c
+
+SSCALKERNEL  = scal_rvv.c
+DSCALKERNEL  = scal_rvv.c
+CSCALKERNEL  = zscal_rvv.c
+ZSCALKERNEL  = zscal_rvv.c
+
+SSWAPKERNEL  = swap_rvv.c
+DSWAPKERNEL  = swap_rvv.c
+CSWAPKERNEL  = zswap_rvv.c
+ZSWAPKERNEL  = zswap_rvv.c
+
+SGEMVNKERNEL = gemv_n_rvv.c
+DGEMVNKERNEL = gemv_n_rvv.c
+CGEMVNKERNEL = zgemv_n_rvv.c
+ZGEMVNKERNEL = zgemv_n_rvv.c
+
+SGEMVTKERNEL = gemv_t_rvv.c
+DGEMVTKERNEL = gemv_t_rvv.c
+CGEMVTKERNEL = zgemv_t_rvv.c
+ZGEMVTKERNEL = zgemv_t_rvv.c
+
+SGEMMKERNEL    =  sgemm_kernel_$(SGEMM_UNROLL_M)x$(SGEMM_UNROLL_N)_zvl128b.c
+SGEMMONCOPY    =  ../generic/gemm_ncopy_$(SGEMM_UNROLL_N).c
+SGEMMOTCOPY    =  ../generic/gemm_tcopy_$(SGEMM_UNROLL_N).c
+SGEMMONCOPYOBJ =  sgemm_oncopy$(TSUFFIX).$(SUFFIX)
+SGEMMOTCOPYOBJ =  sgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+ifneq ($(SGEMM_UNROLL_M), $(SGEMM_UNROLL_N))
+SGEMMINCOPY    =  ../generic/gemm_ncopy_$(SGEMM_UNROLL_M).c
+SGEMMITCOPY    =  ../generic/gemm_tcopy_$(SGEMM_UNROLL_M).c
+SGEMMINCOPYOBJ =  sgemm_incopy$(TSUFFIX).$(SUFFIX)
+SGEMMITCOPYOBJ =  sgemm_itcopy$(TSUFFIX).$(SUFFIX)
+endif
+
+DGEMMKERNEL    =  dgemm_kernel_$(DGEMM_UNROLL_M)x$(DGEMM_UNROLL_N)_zvl128b.c
+DGEMMONCOPY    =  ../generic/gemm_ncopy_$(DGEMM_UNROLL_N).c
+DGEMMOTCOPY    =  ../generic/gemm_tcopy_$(DGEMM_UNROLL_N).c
+DGEMMONCOPYOBJ =  dgemm_oncopy$(TSUFFIX).$(SUFFIX)
+DGEMMOTCOPYOBJ =  dgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+ifneq ($(DGEMM_UNROLL_M), $(DGEMM_UNROLL_N))
+DGEMMINCOPY    =  ../generic/gemm_ncopy_$(DGEMM_UNROLL_M).c
+DGEMMITCOPY    =  ../generic/gemm_tcopy_$(DGEMM_UNROLL_M).c
+DGEMMINCOPYOBJ =  dgemm_incopy$(TSUFFIX).$(SUFFIX)
+DGEMMITCOPYOBJ =  dgemm_itcopy$(TSUFFIX).$(SUFFIX)
+endif
+
+CGEMMKERNEL    =  cgemm_kernel_$(CGEMM_UNROLL_M)x$(CGEMM_UNROLL_N)_zvl128b.c
+CGEMMONCOPY    =  ../generic/zgemm_ncopy_$(CGEMM_UNROLL_N).c
+CGEMMOTCOPY    =  ../generic/zgemm_tcopy_$(CGEMM_UNROLL_N).c
+CGEMMONCOPYOBJ =  cgemm_oncopy$(TSUFFIX).$(SUFFIX)
+CGEMMOTCOPYOBJ =  cgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+ifneq ($(CGEMM_UNROLL_M), $(CGEMM_UNROLL_N))
+CGEMMINCOPY    =  ../generic/zgemm_ncopy_$(CGEMM_UNROLL_M).c
+CGEMMITCOPY    =  ../generic/zgemm_tcopy_$(CGEMM_UNROLL_M).c
+CGEMMINCOPYOBJ =  cgemm_incopy$(TSUFFIX).$(SUFFIX)
+CGEMMITCOPYOBJ =  cgemm_itcopy$(TSUFFIX).$(SUFFIX)
+endif
+
+ZGEMMKERNEL    =  zgemm_kernel_$(ZGEMM_UNROLL_M)x$(ZGEMM_UNROLL_N)_zvl128b.c
+ZGEMMONCOPY    =  ../generic/zgemm_ncopy_$(ZGEMM_UNROLL_N).c
+ZGEMMOTCOPY    =  ../generic/zgemm_tcopy_$(ZGEMM_UNROLL_N).c
+ZGEMMONCOPYOBJ =  zgemm_oncopy$(TSUFFIX).$(SUFFIX)
+ZGEMMOTCOPYOBJ =  zgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+ifneq ($(ZGEMM_UNROLL_M), $(ZGEMM_UNROLL_N))
+ZGEMMINCOPY    =  ../generic/zgemm_ncopy_$(ZGEMM_UNROLL_M).c
+ZGEMMITCOPY    =  ../generic/zgemm_tcopy_$(ZGEMM_UNROLL_M).c
+ZGEMMINCOPYOBJ =  zgemm_incopy$(TSUFFIX).$(SUFFIX)
+ZGEMMITCOPYOBJ =  zgemm_itcopy$(TSUFFIX).$(SUFFIX)
+endif
+
+STRMMKERNEL	   =  strmm_kernel_$(SGEMM_UNROLL_M)x$(SGEMM_UNROLL_N)_zvl128b.c
+STRMMUNCOPY_M  =  ../generic/trmm_uncopy_$(SGEMM_UNROLL_M).c
+STRMMLNCOPY_M  =  ../generic/trmm_lncopy_$(SGEMM_UNROLL_M).c
+STRMMUTCOPY_M  =  ../generic/trmm_utcopy_$(SGEMM_UNROLL_M).c
+STRMMLTCOPY_M  =  ../generic/trmm_ltcopy_$(SGEMM_UNROLL_M).c
+
+DTRMMKERNEL	   =  dtrmm_kernel_$(DGEMM_UNROLL_M)x$(DGEMM_UNROLL_N)_zvl128b.c
+DTRMMUNCOPY_M  =  ../generic/trmm_uncopy_$(DGEMM_UNROLL_M).c
+DTRMMLNCOPY_M  =  ../generic/trmm_lncopy_$(DGEMM_UNROLL_M).c
+DTRMMUTCOPY_M  =  ../generic/trmm_utcopy_$(DGEMM_UNROLL_M).c
+DTRMMLTCOPY_M  =  ../generic/trmm_ltcopy_$(DGEMM_UNROLL_M).c
+
+CTRMMKERNEL	   =  ctrmm_kernel_$(CGEMM_UNROLL_M)x$(CGEMM_UNROLL_N)_zvl128b.c
+CTRMMUNCOPY_M  =  ../generic/ztrmm_uncopy_$(CGEMM_UNROLL_M).c
+CTRMMLNCOPY_M  =  ../generic/ztrmm_lncopy_$(CGEMM_UNROLL_M).c
+CTRMMUTCOPY_M  =  ../generic/ztrmm_utcopy_$(CGEMM_UNROLL_M).c
+CTRMMLTCOPY_M  =  ../generic/ztrmm_ltcopy_$(CGEMM_UNROLL_M).c
+
+ZTRMMKERNEL	   =  ztrmm_kernel_$(ZGEMM_UNROLL_M)x$(ZGEMM_UNROLL_N)_zvl128b.c
+ZTRMMUNCOPY_M  =  ../generic/ztrmm_uncopy_$(ZGEMM_UNROLL_M).c
+ZTRMMLNCOPY_M  =  ../generic/ztrmm_lncopy_$(ZGEMM_UNROLL_M).c
+ZTRMMUTCOPY_M  =  ../generic/ztrmm_utcopy_$(ZGEMM_UNROLL_M).c
+ZTRMMLTCOPY_M  =  ../generic/ztrmm_ltcopy_$(ZGEMM_UNROLL_M).c
+
+STRSMKERNEL_LN	=  ../generic/trsm_kernel_LN.c
+STRSMKERNEL_LT	=  ../generic/trsm_kernel_LT.c
+STRSMKERNEL_RN	=  ../generic/trsm_kernel_RN.c
+STRSMKERNEL_RT	=  ../generic/trsm_kernel_RT.c
+
+DTRSMKERNEL_LN	= ../generic/trsm_kernel_LN.c
+DTRSMKERNEL_LT	= ../generic/trsm_kernel_LT.c
+DTRSMKERNEL_RN	= ../generic/trsm_kernel_RN.c
+DTRSMKERNEL_RT	= ../generic/trsm_kernel_RT.c
+
+CTRSMKERNEL_LN	= ../generic/trsm_kernel_LN.c
+CTRSMKERNEL_LT	= ../generic/trsm_kernel_LT.c
+CTRSMKERNEL_RN	= ../generic/trsm_kernel_RN.c
+CTRSMKERNEL_RT	= ../generic/trsm_kernel_RT.c
+
+ZTRSMKERNEL_LN	= ../generic/trsm_kernel_LN.c
+ZTRSMKERNEL_LT	= ../generic/trsm_kernel_LT.c
+ZTRSMKERNEL_RN	= ../generic/trsm_kernel_RN.c
+ZTRSMKERNEL_RT	= ../generic/trsm_kernel_RT.c
+
+SSYMV_U_KERNEL =  symv_U_rvv.c 
+SSYMV_L_KERNEL =  symv_L_rvv.c
+DSYMV_U_KERNEL =  symv_U_rvv.c 
+DSYMV_L_KERNEL =  symv_L_rvv.c
+CSYMV_U_KERNEL =  zsymv_U_rvv.c
+CSYMV_L_KERNEL =  zsymv_L_rvv.c
+ZSYMV_U_KERNEL =  zsymv_U_rvv.c
+ZSYMV_L_KERNEL =  zsymv_L_rvv.c
+
+CHEMV_L_KERNEL =  zhemv_LM_rvv.c
+CHEMV_M_KERNEL =  zhemv_LM_rvv.c
+CHEMV_U_KERNEL =  zhemv_UV_rvv.c
+CHEMV_V_KERNEL =  zhemv_UV_rvv.c
+ZHEMV_L_KERNEL =  zhemv_LM_rvv.c
+ZHEMV_M_KERNEL =  zhemv_LM_rvv.c
+ZHEMV_U_KERNEL =  zhemv_UV_rvv.c
+ZHEMV_V_KERNEL =  zhemv_UV_rvv.c
+
+SSYMMUCOPY_M   =  ../generic/symm_ucopy_$(SGEMM_UNROLL_M).c 
+SSYMMLCOPY_M   =  ../generic/symm_lcopy_$(SGEMM_UNROLL_M).c
+
+DSYMMUCOPY_M   =  ../generic/symm_ucopy_$(DGEMM_UNROLL_M).c 
+DSYMMLCOPY_M   =  ../generic/symm_lcopy_$(DGEMM_UNROLL_M).c
+
+CSYMMUCOPY_M   =  ../generic/zsymm_ucopy_$(CGEMM_UNROLL_M).c 
+CSYMMLCOPY_M   =  ../generic/zsymm_lcopy_$(CGEMM_UNROLL_M).c
+
+ZSYMMUCOPY_M   =  ../generic/zsymm_ucopy_$(ZGEMM_UNROLL_M).c 
+ZSYMMLCOPY_M   =  ../generic/zsymm_lcopy_$(ZGEMM_UNROLL_M).c
+
+CHEMMLTCOPY_M  =  ../generic/zhemm_ltcopy_$(CGEMM_UNROLL_M).c
+CHEMMUTCOPY_M  =  ../generic/zhemm_utcopy_$(CGEMM_UNROLL_M).c
+
+ZHEMMLTCOPY_M  =  ../generic/zhemm_ltcopy_$(ZGEMM_UNROLL_M).c
+ZHEMMUTCOPY_M  =  ../generic/zhemm_utcopy_$(ZGEMM_UNROLL_M).c
+
+LSAME_KERNEL = ../generic/lsame.c
+
+SCABS_KERNEL = ../generic/cabs.c
+DCABS_KERNEL = ../generic/cabs.c
+QCABS_KERNEL = ../generic/cabs.c
+
+ifndef SGEMM_BETA
+SGEMM_BETA = gemm_beta_rvv.c
+endif
+ifndef DGEMM_BETA
+DGEMM_BETA = gemm_beta_rvv.c
+endif
+ifndef CGEMM_BETA
+CGEMM_BETA = zgemm_beta_rvv.c
+endif
+ifndef ZGEMM_BETA
+ZGEMM_BETA = zgemm_beta_rvv.c
+endif

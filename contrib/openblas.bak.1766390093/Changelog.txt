@@ -1,0 +1,2402 @@
+OpenBLAS ChangeLog
+====================================================================
+Version 0.3.30
+19-Jun-2025
+
+general:
+ - fixed an installation problem with the thread safety test in gmake builds
+ - fixed spurious overwriting of an input array in complex GEMMT/GEMMTR
+ - fixed naming of GEMMTR in error messages from XERBLA
+ - fixed compilation of SBGEMMT/SBGEMMTR in CMake builds
+ - fixed the implementation of ?NRM2 to handle INCX=0 correctly
+ - removed tests for CSROT and ZDROT that relied on unspecified behavior
+ - fixed a performance regression in multithreaded GEMM that was particularly
+   serious on POWER targets
+ - fixed linking issues when using LLVM's flang-new with gmake
+ - fixed a potential thread safety problem with C11 atomic operations
+ - further improved the workload partitioning in parallel GEMM
+ - fixed omission of LAPACKE interfaces for CGESVDQ,CTRSYL3 and ?GEQPF in 
+   CMake builds
+ - fixed mishandling of setting NO_LAPACK to FALSE, and incorrect dependencies
+   for LAPACK function SPMV in CMake builds
+ - added explicit CMake options for building LAPACKE and shared libraries
+ - simplified and improved handling of OpenMP options in CMake builds
+ - reworked Windows DLL generation in CMake builds to ensure correct symbol
+   renaming (pre/postfixing) and optional generation of PDB files for debugging
+ - updated the Perl script version of the gensymbol utility for use with 
+   Windows-on-Arm
+ - Fixed building with (Mingw) gmake on Windows to ensure completeness of the
+   LAPACK included in the static library (potential race condition due to the
+   Windows version of the "ln" utility creating snapshot copies rather than links)
+ - fixed unwanted deletion of the lapacke_mangling.h file by "make clean"
+ - fixed potential duplication of a _64 suffix on library names in CMake builds
+ - fixed compilation of the C fallback copies of the LAPACK code with GCC 15
+ - included fixed from the Reference-LAPACK project:
+   - fixed a truncated error message in the EIG part of the testsuite
+     (Reference-LAPACK PR 1119)
+   - fixed too strict check in LAPACKE_?gesdd_work (PR #1126)
+   - fixed memory corruption when calling ?GEEV with non-finite data (PR #1128)
+   - fixed missing initialization of a variable in C/GEQP3RK (PR #1131)
+   - fixed 2nd dimension chosen in C/ZUNMLQ transposition operation (PR #1135)
+
+x86_64:
+ - fixed an error in the SBGEMV kernel for Cooper Lake/Sapphire Rapids
+ - fixed corner cases of NAN and INF input handling in CSCAL and ZSCAL
+ - improved the compiler identification code for flang-new
+ - fixed a potential build issue in the ZSUM kernel
+ - fixed "argument list too long" errors when building on MacOS
+ - added cpu autodetection support for several new Arrow Lake models
+ - fixed conditional inclusion of the fast path SGEMM kernel in DYNAMIC_ARCH
+ - fixed compilation with the MinGW build of GCC 15
+
+arm64:
+ - fixed cpu type detection of A64FX and some ThunderX models (broken in 0.3.29)
+ - added support for the AmpereOne/1A cpus in DYNAMIC_ ARCH builds
+ - added an optimized SBGEMM kernel for NEOVERSEV1
+ - improved 1xN SBGEMM performance by forwarding to SBGEMV 
+ - introduced a stepwise increase of the thread count used for
+   SGEMM and SGEMV on NEOVERSEV1/V2 in relation to problem size
+ - introduced a stepwise increase of the thread count used for
+   DGEMV on NEOVERSEV1 in relation to problem size
+ - introduced a stepwise increase of the thread count used for
+   SDOT and DDOT on NEOVERSEV1 in relation to problem size
+ - worked around assembler limitations in LLVM for Windows-on-Arm
+ - enabled cpu type autodetection from the registry on Windows-on-Arm
+ - improved multithreading threshold for GEMV and GESV on Windows-on-Arm
+ - fixed overoptimization issues with LLVM's flang in Windows-on-Arm
+ - fixed corner cases of NAN and INF input handling in CSCAL and ZSCAL
+ - added a fast path SGEMM kernel for small workloads on SME capable targets
+ - improved performance of SGEMM and DGEMM kernels for small workloads
+ - improved performance of SGEMV and DGEMV on SVE-capable targets
+ - improved performance of SGEMV on NEOVERSEN1 and Apple M
+ - added optimized SSYMV and DSYMV kernels for NEOVERSEN1, Apple M and all
+   SVE capable targets
+ - added optimized SBGEMV kernels for NEOVERSEV1/V2/N2
+ - improved performance of SGEMM through faster NCOPY kernels
+ - added compiler options for the NVIDIA HPC Compiler Suite
+ - fixed compilation on OSX with XCode 16.3 and later
+ - fixed cpu core type and cache size detection on Apple M4
+ - updated GEMM parameter settings for Neoverse cpus in cross-builds with CMake
+ - fixed default compiler options for NEOVERSEN1 and CORTEXX2 in CMake builds
+ - fixed conditional inclusion of the fast path SGEMM kernel in DYNAMIC_ARCH
+ - fixed potential miscompilation of the non-SVE SDOT kernel
+
+riscv64:
+ - added optimized SROTM and DROTM kernels for x280
+ - fixed corner cases of NAN and INF input handling in CSCAL and ZSCAL
+ - improved performance of GEMM_TCOPY on RVV1.0 targets with 
+   VLEN of 128 or 256
+ - improved performance of OMATCOPY on targets with VLEN 256
+ - greatly improved performance of SGEMV/DGEMV
+ - improved performance of CGEMV and ZGEMV on C910V and all RVV targets 
+   with VLEN 256
+ - improved performance of SAXPBY and DAXPBY on C910V and all RVV targets 
+   with VLEN 256
+ - improved performance of AXPY and DOT on C910V and ZVL256B targets by
+   falling back to non-vectorized code for very small N. (Thereby fixing
+   poor performance of CHBMV/ZHBMV for very small K)
+ - fixed CMake build failures of the TRMM kernels 
+
+loongarch64:
+ - improved performance of the LSX versions of SSYMV/DSYMV
+ - made the LASX versions of the DSYMV and SSYMV kernels 
+   compatible with hardware changes in LA664 and future targets
+ - fixed inaccuracies in several LASX kernels
+ - improved compatibility of LSX kernels with LA264 targets
+ - fixed handling of deprecated target names in CMake builds
+ - fixed corner cases of NAN and INF input handling in CSCAL and ZSCAL
+
+power:
+ - fixed building for PPCG4 with CMake
+ - fixed SSCAL/DSCAL on PPC970 running FreeBSD
+ - fixed a potential alignment issue in the POWER8 SGEMV kernel
+ - fixed corner cases of NAN and INF input handling in CSCAL and ZSCAL
+
+zarch:
+ - fixed corner cases of NAN and INF input handling in CSCAL and ZSCAL
+ - fixed unwanted generation of object files with a writable stack
+
+x86:
+ - fixed corner cases of NAN and INF input handling in CSCAL and ZSCAL
+ - worked around potential miscompilation of CDOT with very old binutils
+
+arm:
+ - fixed corner cases of NAN and INF input handling in CSCAL and ZSCAL
+ - fixed unwanted generation of object files with a writable stack
+
+sparc:
+ - fixed corner cases of NAN and INF input handling in CSCAL and ZSCAL
+
+alpha:
+ - fixed build failure caused by spurious Windows-only typecasts
+
+cell:
+ - fixed probable build issue caused by spurious Windows-only typecasts
+ 
+====================================================================
+Version 0.3.29
+12-Jan-2025
+
+general:
+ - fixed a potential NULL pointer dereference in multithreaded builds
+ - added function aliases for GEMMT using its new name GEMMTR adopted by Reference-BLAS
+ - fixed a build failure when building without LAPACK_DEPRECATED functions
+ - the minimum required CMake version for CMake-based builds was raised to 3.16.0 in order 
+   to remove many compatibility and deprecation warnings
+ - added more detailed CMake rules for OpenMP builds (mainly to support recent LLVM)
+ - fixed the behavior of the recently added CBLAS_?GEMMT functions with row-major data
+ - improved thread scaling of multithreaded SBGEMV 
+ - improved thread scaling of multithreaded TRTRI 
+ - fixed compilation of the CBLAS testsuite with gcc14 (and no Fortran compiler)
+ - added support for option handling changes in flang-new from LLVM18 onwards 
+ - added support for recent calling conventions changes in Cray and NVIDIA compilers
+ - added support for compilation with the NAG Fortran compiler
+ - fixed placement of the -fopenmp flag and libsuffix in the generated pkgconfig file
+ - improved the CMakeConfig file generated by the Makefile build
+ - fixed const-correctness of cblas_?geadd in cblas.h
+ - fixed a potential inaccuracy in multithreaded BLAS3 calls
+ - fixed empty implementations of get/set_affinity that print a warning in OpenMP builds
+ - fixed function signatures for TRTRS in the converted C version of LAPACK
+ - fixed omission of several single-precision LAPACK symbols in the shared library 
+ - improved build instructions for the provided "pybench" benchmarks
+ - improved documentation, including added build instructions for WoA and HarmonyOS
+   as well as descriptions of environment variables that affect build and runtime behavior
+ - added a separate "make install_tests" target for use with cross-compilations
+ - integrated improvements and corrections from Reference-LAPACK:
+   - removed a comparison in LAPACKE ?tpmqrt that is always false (LAPACK PR 1062)
+   - fixed the leading dimension for B in tests for GGEV (LAPACK PR 1064)
+   - replaced the ?LARFT functions with a recursive implementation (LAPACK PR 1080)
+
+arm:
+ - fixed build with recent versions of the NDK (missing .type declaration of symbols)
+
+arm64:
+ - fixed a long-standing bug in the (generic) c/zgemm_beta kernel that could lead to
+   reads and writes outside the array bounds in some circumstances
+ - rewrote cpu autodetection to scan all cores and return the highest performing type
+ - improved the DGEMM performance for SVE targets and small matrix sizes
+ - improved dimension criteria for forwarding from GEMM to GEMV kernels
+ - added SVE kernels for ROT and SWAP
+ - improved SVE kernels for SGEMV and DGEMV on A64FX and NEOVERSEV1
+ - added support for using the "small matrix" kernels with CMake as well
+ - fixed compilation on Windows on Arm
+ - improved compile-time detection of SVE capability
+ - added cpu autodetection and initial support for Apple M4
+ - added support for compilation on systems running IOS
+ - added support for compilation on NetBSD ("evbarm" architecture)
+ - fixed NRM2 implementations for generic SVE targets and the Neoverse N2
+ - fixed compilation for SVE-capable targets with the NVIDIA compiler
+
+x86_64:
+ - fixed a wrong storage size in the SBGEMV kernel for Cooper Lake
+ - added cpu autodetection for Intel Granite Rapids
+ - added cpu autodetection for AMD Ryzen 5 series
+ - added optimized SOMATCOPY_CT for AVX-capable targets
+ - fixed the fallback implementation of GEMM3M in GENERIC builds
+ - tentatively re-enabled builds with the EXPRECISION option
+ - worked around a miscompilation of tests with mingw32-gfortran14
+ - added support for compilation with the Intel oneAPI 2025.0 compiler on Windows
+
+power:
+ - fixed multithreaded SBGEMM
+ - fixed a CMake build problem on POWER10
+ - improved the performance of SGEMV
+ - added vectorized implementations of SBGEMV and support for forwarding 1xN SBGEMM to them
+ - fixed illegal instructions and potential memory overflow in SGEMM on PPCG4
+ - fixed handling of NaN and Inf arguments in SSCAL and DSCAL on PPC440,G4 and 970
+ - added improved CGEMM and ZGEMM kernels for POWER10
+ - added Makefile logic to remove all optimization flags in DEBUG builds
+
+mips64:
+ - fixed compilation with gcc14
+ - fixed GEMM parameter selection for the MIPS64_GENERIC target
+ - fixed a potential build failure when compiling with OpenMP
+
+loongarch64:
+ - fixed compilation for Loongson3 with recent versions of gmake
+ - fixed a potential loss of precision in Loongson3A GEMM
+ - fixed a potential build failure when compiling with OpenMP
+ - added optimized SOMATCOPY for LASX-capable targets
+ - introduced a new cpu naming scheme while retaining compatibility
+ - added support for cross-compiling Loongarch64 targets with CMake
+ - added support for compilation with LLVM
+
+riscv64:
+ - removed thread yielding overhead caused by sched_yield
+ - replaced some non-standard intrinsics with their official names
+ - fixed and sped up the implementations of CGEMM/ZGEMM TCOPY for vector lenghts 128 and 256
+ - improved the performance of SNRM2/DNRM2 for RVV1.0 targets
+ - added optimized ?OMATCOPY_CN kernels for RVV1.0 targets
+
+====================================================================
+Version 0.3.28
+ 8-Aug-2024
+
+general:
+- Reworked the unfinished implementation of HUGETLB from GotoBLAS
+  for allocating huge memory pages as buffers on suitable systems
+- Changed the unfinished implementation of GEMM3M for the generic
+  target on all architectures to at least forward to regular GEMM
+- Improved multithreaded GEMM performance for large non-skinny matrices
+- Improved BLAS3 performance on larger multicore systems through improved
+  parallelism
+- Improved performance of the initial memory allocation by reducing
+  locking overhead
+- Improved performance of GBMV at small problem sizes by introducing
+  a size barrier for the switch to multithreading
+- Added an implementation of the CBLAS_GEMM_BATCH extension
+- Fixed miscompilation of CAXPYC and ZAXPYC on all architectures in 
+  CMAKE builds (error introduced in 0.3.27)
+- Fixed corner cases involving the handling of NAN and INFINITY
+  arguments in ?SCAL on all architectures
+- Added support for cross-compiling to WEBM with CMAKE (in addition
+  to the already present makefile support)
+- Fixed NAN handling and potential accuracy issues in compilations with
+  Intel ICX by supplying a suitable fp-model option by default
+- The contents of the github project wiki have been converted into
+  a new set of documentation included with the source code.
+- It is now possible to register a callback function that replaces
+  the built-in support for multithreading with an external backend
+  like TBB (openblas_set_threads_callback_function)
+- Fixed potential duplication of suffixes in shared library naming
+- Improved C compiler detection by the build system to tolerate more
+  naming variants for gcc builds
+- Fixed an unnecessary dependency of the utest on CBLAS
+- Fixed spurious error reports from the BLAS extensions utest
+- Fixed unwanted invocation of the GEMM3M tests in cross-compilation
+- Fixed a flaw in the makefile build that could lead to the pkgconfig
+  file containing an entry of UNKNOWN for the target cpu after installing
+- Integrated fixes from the Reference-LAPACK project:
+  - Fixed uninitialized variables in the LAPACK tests for ?QP3RK (PR 961)
+  - Fixed potential bounds error in ?UNHR_COL/?ORHR_COL (PR 1018)
+  - Fixed potential infinite loop in the LAPACK testsuite (PR 1024)
+  - Make the variable type used for hidden length arguments configurable (PR 1025)  
+  - Fixed SYTRD workspace computation and various typos (PR 1030)
+  - Prevent compiler use of FMA that could increase numerical error in ?GEEVX (PR 1033)
+
+x86-64:
+- reverted thread management under Windows to its state before 0.3.26
+  due to signs of race conditions in some circumstances now under study
+- fixed accidental selection of the unoptimized generic SBGEMM kernel
+  in CMAKE builds for CooperLake and SapphireRapids targets
+- fixed a potential thread buffer overrun in SBSTOBF16 on small systems
+- fixed an accuracy issue in ZSCAL introduced in 0.3.26
+- fixed compilation with CMAKE and recent releases of LLVM
+- added support for Intel Emerald Rapids and Meteor Lake cpus
+- added autodetection support for the Zhaoxin KX-7000 cpu
+- fixed autodetection of Intel Prescott (probably broken since 0.3.19)
+- fixed compilation for older targets with the Yocto SDK
+- fixed compilation of the converter-generated C versions
+  of the LAPACK sources with gcc-14
+- improved compiler options when building with CMAKE and LLVM for
+  AVX512-capable targets
+- added support for supplying the L2 cache size via an environment
+  variable (OPENBLAS_L2_SIZE) in case it is not correctly reported
+  (as in some VM configurations)
+- improved the error message shown when thread creation fails on startup
+- fixed setting the rpath entry of the dylib in CMAKE builds on MacOS
+
+arm:
+- fixed building for baremetal targets with make
+
+arm64:
+- Added a fast path forwarding SGEMM and DGEMM calls with a 1xN or Mx1
+  matrix to the corresponding GEMV kernel 
+- added optimized SGEMV and DGEMV kernels for A64FX
+- added optimized SVE kernels for small-matrix GEMM
+- added A64FX to the cpu list for DYNAMIC_ARCH
+- fixed building with support for cpu affinity
+- worked around accuracy problems with C/ZNRM2 on NeoverseN1 and
+  Apple M targets
+- improved GEMM performance on Neoverse V1
+- fixed compilation for NEOVERSEN2 with older compilers
+- fixed potential miscompilation of the SVE SDOT and DDOT kernels
+- fixed potential miscompilation of the non-SVE CDOT and ZDOT kernels
+- fixed a potential overflow when using very large user-defined BUFFERSIZE
+- fixed setting the rpath entry of the dylib in CMAKE builds on MacOS
+
+power:
+- Added a fast path forwarding SGEMM and DGEMM calls with a 1xN or Mx1
+  matrix to the corresponding GEMV kernel 
+- significantly improved performance of SBGEMM on POWER10
+- fixed compilation with OpenMP and the XLF compiler
+- fixed building of the BLAS extension utests under AIX
+- fixed building of parts of the LAPACK testsuite with XLF
+- fixed CSWAP/ZSWAP on big-endian POWER10 targets
+- fixed a performance regression in SAXPY on POWER10 with OpenXL
+- fixed accuracy issues in CSCAL/ZSCAL when compiled with LLVM
+- fixed building for POWER9 under FreeBSD
+- fixed a potential overflow when using very large user-defined BUFFERSIZE
+- fixed an accuracy issue in the POWER6 kernels for GEMM and GEMV
+
+riscv64:
+- Added a fast path forwarding SGEMM and DGEMM calls with a 1xN or Mx1
+  matrix to the corresponding GEMV kernel 
+- fixed building for RISCV64_GENERIC with OpenMP enabled
+- added DYNAMIC_ARCH support (comprising GENERIC_RISCV64 and the two
+  RVV 1.0 targets with vector length of 128 and 256)
+- worked around the ZVL128B kernels for AXPBY mishandling the special
+  case of zero Y increment
+
+loongarch64:
+- improved GEMM performance on servers of the 3C5000 generation
+- improved performance and stability of DGEMM
+- improved GEMV and TRSM kernels for LSX and LASX vector ABIs
+- fixed CMAKE compilation with the INTERFACE64 option set
+- fixed compilation with CMAKE
+- worked around spurious errors flagged by the BLAS3 tests
+- worked around a miscompilation of the POTRS utest by gcc 14.1
+
+mips64:
+- fixed ASUM and SUM kernels to accept negative step sizes in X
+- fixed complex GEMV kernels for MSA
+
+====================================================================
+Version 0.3.27
+ 4-Apr-2024
+
+general:
+- added initial (generic) support for the CSKY architecture
+- capped the maximum number of threads used in GEMM, GETRF and POTRF to avoid creating
+  underutilized or idle threads
+- sped up multithreaded POTRF on all platforms
+- added extension openblas_set_num_threads_local() that returns the previous thread count
+- re-evaluated the SGEMV and DGEMV load thresholds to avoid activating multithreading 
+  for too small workloads
+- improved the fallback code used when the precompiled number of threads is exceeded,
+  and made it callable multiple times during the lifetime of an instance
+- added CBLAS interfaces for the BLAS extensions ?AMIN,?AMAX, CAXPYC and ZAXPYC
+- fixed a potential buffer overflow in the interface to the GEMMT kernels
+- fixed use of incompatible pointer types in GEMMT and C/ZAXPBY as flagged by GCC-14
+- fixed unwanted case sensitivity of the character parameters in ?TRTRS
+- sped up the OpenMP thread management code
+- fixed sizing of logical variables in INTERFACE64 builds of the C version of LAPACK
+- fixed inclusion of new LAPACK and LAPACKE functions from LAPACK 3.11 in the shared library
+- added a testsuite for the BLAS extensions
+- modified the error thresholds for SGS/DGS functions in the LAPACK testsuite to suppress
+  spurious errors
+- added support for building the benchmark collection with CMAKE
+- added rewriting of linker options to avoid linking both libgomp and libomp in CMAKE builds
+  with OpenMP enabled that use clang with gfortran
+- fixed building on systems with ucLibc
+- added support for calling ?NRM2 with a negative increment value on all architectures
+- added support for the LLVM18 version of the flang-new compiler
+- fixed handling of the OPENBLAS_LOOPS variable in several benchmarks
+- Integrated fixes from the Reference-LAPACK project:
+  - Increased accuracy in C/ZLARFGP (Reference-LAPACK PR 981)
+  
+x86:
+- fixed handling of NaN and Inf arguments in ZSCAL
+- fixed GEMM3M functions failing in CMAKE builds
+
+x86-64:
+- removed all instances of sched_yield() on Linux and BSD
+- fixed a potential deadlock in the thread server on MSWindows (introduced in 0.3.26)
+- fixed GEMM3M functions failing in CMAKE builds
+- fixed handling of NaN and Inf arguments in ZSCAL
+- added compiler checks for AVX512BF16 compatibility
+- fixed LLVM compiler options for Sapphire Rapids 
+- fixed cpu handling fallbacks for Sapphire Rapids with
+  disabled AVX2 in DYNAMIC_ARCH mode
+- fixed extensions SCSUM and DZSUM
+- improved GEMM performance for ZEN targets
+
+arm:
+- fixed handling of NaN and Inf arguments in ZSCAL
+
+arm64:
+- added initial support for the Cortex-A76 cpu
+- fixed handling of NaN and Inf arguments in ZSCAL
+- fixed default compiler options for gcc (-march and -mtune)
+- added support for ArmCompilerForLinux
+- added support for the NeoverseV2 cpu in DYNAMIC_ARCH builds
+- fixed mishandling of the INTERFACE64 option in CMAKE builds
+- corrected SCSUM kernels (erroneously duplicating SCASUM behaviour)  
+- added SVE-enabled kernels for CSUM/ZSUM
+- worked around an inaccuracy in the NRM2 kernels for NeoverseN1 and Apple M
+
+power:
+- improved performance of SGEMM on POWER8/9/10
+- improved performance of DGEMM on POWER10
+- added support for OpenMP builds with xlc/xlf on AIX
+- improved cpu autodetection for DYNAMIC_ARCH builds on older AIX
+- fixed cpu core counting on AIX
+- added support for building a shared library on AIX
+
+riscv64:
+- added support for the X280 cpu
+- added support for semi-generic RISCV models with vector length 128 or 256
+- added support for compiling with either RVV 0.7.1 or RVV 1.0 standard compilers
+- fixed handling of NaN and Inf arguments in ZSCAL
+- improved cpu model autodetection
+- fixed corner cases in ?AXPBY for C910V
+- fixed handling of zero increments in ?AXPY kernels for C910V
+
+loongarch64:
+- added optimized kernels for ?AMIN and ?AMAX
+- fixed handling of NaN and Inf arguments in ZSCAL
+- fixed handling of corner cases in ?AXPBY
+- fixed computation of SAMIN and DAMIN in LSX mode
+- fixed computation of ?ROT
+- added optimized SSYMV and DSYMV kernels for LSX and LASX mode
+- added optimized CGEMM and ZGEMM kernels for LSX and LASX mode
+- added optimized CGEMV and ZGEMV kernels
+
+mips:
+- fixed utilizing MSA on P5600 and related cpus (broken in 0.3.22)
+- fixed handling of NaN and Inf arguments in ZSCAL
+- fixed mishandling of the INTERFACE64 option in CMAKE builds
+
+zarch:
+- fixed handling of NaN and Inf arguments in ZSCAL
+- fixed calculation of ?SUM on Z13
+
+====================================================================
+Version 0.3.26
+ 2-Jan-2024
+
+general:
+- improved the version of openblas.pc that is created by the CMAKE build
+- fixed a CMAKE-specific build problem on older versions of MacOS
+- worked around linking problems on old versions of MacOS
+- corrected installation location of the lapacke_mangling header in CMAKE builds
+- added type declarations for complex variables to the MSVC-specific parts of the LAPACK header
+- significantly sped up ?GESV for small problem sizes by introducing a lower bound for multithreading
+- imported additions and corrections from the Reference-LAPACK project:
+  - added new LAPACK functions for truncated QR with pivoting (Reference-LAPACK PRs 891&941)
+  - handle miscalculation of minimum work array size in corner cases (Reference-LAPACK PR 942)
+  - fixed use of uninitialized variables in ?GEDMD and improved inline documentation (PR 959)
+  - fixed use of uninitialized variables (and consequential failures) in ?BBCSD (PR 967)
+  - added tests for the recently introduced Dynamic Mode Decomposition functions (PR 736)
+  - fixed several memory leaks in the LAPACK testsuite (PR 953)
+  - fixed counting of testsuite results by the Python script (PR 954)
+   
+x86-64:
+- fixed computation of CASUM on SkylakeX and newer targets in the special
+  case that AVX512 is not supported by the compiler or operating environment
+- fixed potential undefined behaviour in the CASUM/ZASUM kernels for AVX512 targets
+- worked around a problem in the pre-AVX kernels for GEMV
+- sped up the thread management code on MS Windows
+
+arm64:
+- fixed building of the LAPACK testsuite with Xcode 15 on Apple M1 and newer
+- sped up the thread management code on MS Windows
+- sped up SGEMM and DGEMM on Neoverse V1 and N1
+- sped up ?DOT on SVE-capable targets
+- reduced the number of targets in DYNAMIC_ARCH builds by eliminating functionally equivalent ones
+- included support for Apple M1 and newer targets in DYNAMIC_ARCH builds
+
+power:
+- improved the SGEMM kernel for POWER10
+- fixed compilation with (very) old versions of gcc
+- fixed detection of old 32bit PPC targets in CMAKE-based builds
+- added autodetection of the POWERPC 7400 subtype
+- fixed CMAKE-based compilation for PPCG4 and PPC970 targets
+
+loongarch64:
+- added and improved optimized kernels for almost all BLAS functions
+
+====================================================================
+Version 0.3.25
+ 12-Nov-2023
+
+general:
+- improved the error message shown on exceeding the maximum thread count
+- improved the code to add supplementary thread buffers in case of overflow
+- fixed a potential division by zero in ?ROTG
+- improved the ?MATCOPY functions to accept zero-sized rows or columns
+- corrected empty prototypes in function declarations
+- cleaned up unused declarations in the f2c-converted versions of the LAPACK sources
+- fixed compilation with the Cray CCE Compiler suite
+- improved link line rewriting to avoid mixed libgomp/libomp builds with clang&gfortran
+- worked around OPENMP builds with LLVM14's libomp hanging on FreeBSD
+- improved the Makefiles to require less option duplication on "make install"
+- imported the following changes from the upcoming release 3.12 of Reference-LAPACK
+  - deprecate utility functions ?GELQS and ?GEQRS (LAPACK PR 900)
+  - apply rounding up to workspace calculations done in floating point (LAPACK PR 904)
+  - avoid overflow in STGEX2/DTGEX2 (LAPACK PR 907)
+  - fix accumulation in ?LASSQ (LAPACK PR 909)
+  - fix handling of NaN values in ?GECON (LAPACK PR 926)
+  - avoid overflow in CBDSQR/ZBDSQR (LAPACK PR 927)
+  - fix poor vector orthogonalizations in ?ORBDB5/?UNBDB5 (LAPACK PR 928 & 930)
+
+x86-64:
+- fixed compile-time autodetection of AMD Ryzen3 and Ryzen4 cpus
+- fixed capability-based fallback selection for unknown cpus in DYNAMIC_ARCH
+- added AVX512 optimizations for ?ASUM on Sapphire Rapids and Cooper Lake
+
+ARM64:
+- fixed building on Apple with homebrew gcc
+- fixed building with XCODE 15
+- fixed building on A64FX and Cortex A710/X1/X2
+- increased the default buffer size for recent ARM server cpus 
+
+POWER:
+- fixed building with the IBM xlf 16.1.1 compiler
+- fixed building with IBM XL C
+- added support for DYNAMIC_ARCH builds with clang
+- fixed union declaration in the BFLOAT16 test case
+- enable optimizations for the AIX assembler on POWER10
+
+LOONGARCH64:
+- added an optimized SGEMV kernel
+- added an optimized DTRSM kernel
+
+====================================================================
+Version 0.3.24
+ 03-Sep-2023
+
+general:
+   - declared the arguments of cblas_xerbla as const (in accordance with the reference implementation 
+     and others, the previous discrepancy appears to have dated back to GotoBLAS)
+   - fixed the implementation of ?GEMMT that was added in 0.3.23
+   - made cpu-specific SWITCH_RATIO parameters for GEMM available to DYNAMIC_ARCH builds
+   - fixed application of SYMBOLSUFFIX in CMAKE builds
+   - fixed missing SSYCONVF function in the shared library
+   - fixed parallel build logic used with gmake
+   - added support for compilation with LLVM17, in particular its new Fortran compiler
+   - added support for CMAKE builds using the NVIDIA HPC compiler
+   - fixed INTERFACE64 builds with CMAKE and the f95 Fortran compiler
+   - fixed cross-build detection and management in c_check
+   - disabled building of the tests with CMAKE when ONLY_CBLAS is defined
+   - fixed several issues with the handling of runtime limits on the number of OPENMP threads
+   - corrected the error code returned by SGEADD/DGEADD when LDA is too small
+   - corrected the error code returned by IMATCOPY when LDB is too small
+   - updated ?NRM2 to support negative increment values (as introduced in release 3.10 
+     of the reference BLAS)
+   - fixed OpenMP builds with CLANG for the case where libomp is not in a standard location
+   - fixed a potential overwrite of unrelated memory during thread initialisation on startup
+   - fixed a potential integer overflow in the multithreading threshold for ?SYMM/?SYRK
+   - fixed build of the LAPACKE interfaces for the LAPACK 3.11.0 ?TRSYL functions added in 0.3.22
+   - fixed installation of .cmake files in concurrent 32 and 64bit builds with CMAKE
+   - applied additions and corrections from the development branch of Reference-LAPACK:
+   - fixed actual arguments passed to a number of LAPACK functions (from Reference-LAPACK PR 885)
+   - fixed workspace query results in LAPACK ?SYTRF/?TRECV3 (from Reference-LAPACK PR 883)
+   - fixed derivation of the UPLO parameter in LAPACKE_?larfb (from Reference-LAPACK PR 878)
+   - fixed a crash in LAPACK ?GELSDD on NRHS=0 (from Reference-LAPACK PR 876)
+   - added new LAPACK utility functions CRSCL and ZRSCL (from Reference-LAPACK PR 839)
+	- corrected the order of eigenvalues for 2x2 matrices in ?STEMR (Reference-LAPACK PR 867)
+	- removed spurious reference to OpenMP variables outside OpenMP contexts (Reference-LAPACK PR 860)
+	- updated file comments on use of LAMBDA variable in LAPACK (Reference-LAPACK PR 852)
+	- fixed documentation of LAPACK SLASD0/DLASD0 (Reference-LAPACK PR 855)
+	- fixed confusing use of "minor" in LAPACK documentation (Reference-LAPACK PR 849)
+	- added new LAPACK functions ?GEDMD for dynamic mode decomposition (Reference-LAPACK PR 736)
+	- fixed potential stack overflows in the EIG part of the LAPACK testsuite (Reference-LAPACK PR 854)
+	- applied small improvements to the variants of Cholesky and QR functions (Reference-LAPACK PR 847)
+	- removed unused variables from LAPACK ?BDSQR (Reference-LAPACK PR 832)
+	- fixed a potential crash on allocation failure in LAPACKE SGEESX/DGEESX (Reference-LAPACK PR 836)
+	- added a quick return from SLARUV/DLARUV for N < 1 (Reference-LAPACK PR 837)
+	- updated function descriptions in LAPACK ?GEGS/?GEGV (Reference-LAPACK PR 831)
+	- improved algorithm description in ?GELSY (Reference-LAPACK PR 833)
+	- fixed scaling in LAPACK STGSNA/DTGSNA (Reference-LAPACK PR 830)
+	- fixed crash in LAPACKE_?geqrt with row-major data (Reference-LAPACK PR 768)
+	- added LAPACKE interfaces for C/ZUNHR_COL and S/DORHR_COL (Reference-LAPACK PR 827)
+	- added error exit tests for SYSV/SYTD2/GEHD2 to the testsuite (Reference-LAPACK PR 795)
+	- fixed typos in LAPACK source and comments (Reference-LAPACK PRs 809,811,812,814,820)
+	- adopt refactored ?GEBAL implementation (Reference-LAPACK PR 808)
+
+x86_64:
+   - added cpu model autodetection for Intel Alder Lake N
+   - added activation of the AMX tile to the Sapphire Rapids SBGEMM kernel
+   - worked around miscompilations of GEMV/SYMV kernels by gcc's tree-vectorizer
+   - fixed compilation of Cooperlake and Sapphire Rapids kernels with CLANG
+   - fixed runtime detection of Cooperlake and Sapphire Rapids in DYNAMIC_ARCH
+   - fixed feature-based cputype fallback in DYNAMIC_ARCH
+   - added support for building the AVX512 kernels with the NVIDIA HPC compiler
+   - corrected ZAXPY result on old pre-AVX hardware for the INCX=0 case
+   - fixed a potential use of uninitialized variables in ZTRSM
+
+ARM64:
+   - added cpu model autodetection for Apple M2
+   - fixed wrong results of CGEMM/CTRMM/DNRM2 under OSX (use of reserved register)
+   - added support for building the SVE kernels with the NVIDIA HPC compiler
+   - added support for building the SVE kernels with the Apple Clang compiler
+   - fixed compiler option handling for building the SVE kernels with LLVM
+   - implemented SWITCH_RATIO parameter for improved GEMM performance on Neoverse
+   - activated SVE SGEMM and DGEMM kernels for Neoverse V1
+   - improved performance of the SVE CGEMM and ZGEMM kernels on Neoverse V1
+   - improved kernel selection for the ARMV8SVE target and added it to DYNAMIC_ARCH
+   - fixed runtime check for SVE availability in DYNAMIC_ARCH builds to take OS or
+     container restrictions into account
+   - fixed a potential use of uninitialized variables in ZTRSM
+   - fix a potential misdetection of ARMV8 hardware as 32bit in CMAKE builds
+
+LOONGARCH64:
+   - added ABI detection
+   - added support for cpu affinity handling
+   - fixed compilation with early versions of the Loongson toolchain
+   - added an optimized SGEMM kernel for 3A5000
+   - added optimized DGEMV kernels for 3A5000
+   - improved the performance of the DGEMM kernel for 3A5000
+
+MIPS64:
+   - fixed miscompilation of TRMM kernels for the MIPS64_GENERIC target
+
+POWER:
+   - fixed compiler warnings in the POWER10 SBGEMM kernel
+
+RISCV:
+   - fixed application of the INTERFACE64 option when building with CMAKE
+   - fix a potential misdetection of RISCV hardware as 32bit in CMAKE builds
+   - fixed IDAMAX and DOT kernels for C910V
+   - fixed corner cases in the ROT and SWAP kernels for C910V
+   - fixed compilation of the C910V target with recent vendor compilers
+
+====================================================================
+Version 0.3.23
+ 01-Apr-2023
+ 
+ general:
+   - fixed a serious regression in GETRF/GETF2 and ZGETRF/ZGETF2 where
+     subnormal but nonzero data elements triggered the singularity flag
+   - fixed a long-standing bug in CSPR/ZSPR in single-threaded operation
+     for cases where elements of the X vector are real numbers (or 
+     complex with only the real part zero)
+   - fixed gmake builds with the option NO_LAPACK
+   - fixed a few instances in the gmake Makefiles where expressly
+     setting NO_LAPACK=0 or NO_LAPACKE=0 would have the opposite effect
+   
+x86_64:
+   - added further CPUID values for Intel Raptor Lake
+
+====================================================================
+Version 0.3.22
+ 26-Mar-2023
+
+general:
+ - Updated the included LAPACK to Reference-LAPACK release 3.11.0
+   plus post-release corrections and improvements
+ - Added initial support for processing with the EMSCRIPTEN javascript
+   converter (yielding a single-threaded build only)
+ - Added a threshold for multithreading in SYMM, SYMV and SYR2K
+ - Increased the threshold for multithreading in SYRK
+ - OpenBLAS no longer decreases the global OMP_NUM_THREADS when it
+   exceeds the maximum thread count the library was compiled for.
+ - fixed ?GETF2 potentially returning NaN with tiny matrix elements
+ - fixed openblas_set_num_threads to work in USE_OPENMP builds
+ - fixed cpu core counting in USE_OPENMP builds returning the number
+   of OMP "places" rather than cores
+ - fixed interpretation of USE_PERL=0 in build scripts
+ - fixed linking of the library with libm in CMAKE builds
+ - fixed startup delays resulting from a wrong default setting of 
+   NO_WARMUP in CMAKE builds
+ - fixed inconsistent defaults for overriding of LAPACK SPMV, SPR, 
+   SYMV, SYR functions in gmake and CMAKE builds
+ - fixed stride calculation in the optimized small-matrix path of 
+   complex SYR
+ - fixed compilation of ReLAPACK with CMAKE
+ - fixed pkgconfig file contents for INTERFACE64 builds
+ - fixed building of Reference-LAPACK with recent gfortran
+ - fixed building with only a subset of precision types on Windows
+ - added new environment variable OPENBLAS_DEFAULT_NUM_THREADS
+ - added a GEMV-based implementation of GEMMT 
+ - added support for building under QNX
+ - updated support for (cross-)building for ALPHA targets
+
+x86_64:
+ - added autodetection of Intel Raptor Lake cpu models
+ - added SSCAL microkernels for Haswell and newer targets
+ - improved the performance of the Haswell DSCAL microkernel
+ - added CSCAL and ZSCAL microkernels for SkylakeX targets
+ - fixed detection of gfortran and Cray CCE compilers
+ - fixed detection of recent versions of the Intel Fortran compiler
+ - fixed compilation with LLVM to no longer run out of AVX512 registers
+ - fix cpu type option setting with recent NVIDIA HPC compiler versions
+ - fixed compilation for/on AMD Ryzen 4 cpus
+ - fixed compilation of AVX2-capable targets with Apple Clang
+ - fixed runtime selection of COOPERLAKE in DYNAMIC_ARCH builds
+ - worked around gcc/llvm using risky FMA operations in CSCAL/ZSCAL
+ - worked around miscompilations of GEMV, SYMV and ZDOT kernels
+   by gcc12's tree-vectorizer on OSX and Windows
+
+ARM:
+ - fixed cross-compilation to ARMV5 and ARMV6 targets with CMAKE
+
+ARMV8:
+ - fixed cross-compilation to CortexA53 with CMAKE
+ - fixed compilation with CMAKE and "Arm Compiler for Linux 22.1"
+ - added cpu autodetection for Cortex X3 and A715
+ - fixed conditional compilation of SVE-capable targets in DYNAMIC_ARCH
+ - sped up SVE kernels by removing unnecessary prefetches
+ - improved the GEMM performance of Neoverse V1
+ - added SVE kernels for SDOT and DDOT
+ - added an SBGEMM kernel for Neoverse N2
+ - improved cpu-specific compiler option selection for Neoverse cpus
+ - added support for setting CONSISTENT_FPCSR 
+
+MIPS64:
+ - improved MSA capability detection and handling
+ - added a MIPS64_GENERIC build target
+ - fixed corner cases in DNRM2
+
+LOONGARCH64:
+ - fixed handling of the INTERFACE64 option
+
+RISCV:
+ - fixed handling of the INTERFACE64 option
+
+====================================================================
+Version 0.3.21
+ 07-Aug-2022
+
+general:
+ - Updated the included LAPACK to Reference-LAPACK release 3.10.1
+ - when no Fortran compiler is available, OpenBLAS builds will now automatically
+   build LAPACK from an f2c-converted copy of LAPACK 3.9.0 unless the NO_LAPACK option
+   is specified
+ - similarly added C versions of the BLAS and CBLAS tests
+ - enabled building of the ReLAPACK GEMMT kernels when ReLAPACK is built
+ - function LAPACKE_lsame is now annotated with the GCC attribute "const" to aid static analyzers
+ - added USE_TLS to the list of options reported by the openblas_get_config() function
+ - CMAKE builds now support the BUILD_TESTING keyword (to disable the LAPACK testsuite) of Reference-LAPACK
+ - fixed CMAKE builds of the laswp_ncopy and neg_tcopy kernels
+ - removed the build system requirements for PERL (while keeping the original perl scripts as backup)
+ - handle building and running OpenBLAS on systems that report zero available cpu cores
+ - added SYMBOLPREFIX/SYMBOLSUFFIX handling for LAPACK 3.10.0 functions added in 0.3.20
+ - fixed linking of the utests on QNX
+ - Added support for compilation with the Intel ifx compiler
+ - Added support for compilation with the Fujitsu FCC compiler for Fugaku
+ - Added support for compilation with the Cray C and Fortran compilers
+ - reverted OpenMP threadpool behaviour in the exec_blas call to its state before 0.3.11, that is
+   the threadpool will no longer grow or shrink on demand as the overhead for this is too big at least with
+   GNU OpenMP. The adaptive behaviour introduced in 0.3.11 can still be requested at runtime by setting
+   the environment variable OMP_ADAPTIVE
+ - worked around spurious STFSM/CTFSM errors reported by the LAPACK testsuite
+
+x86_64:
+ - fixed determination of compiler support for AVX512 and removed the 0.3.19
+   workaround for building SKYLAKEX kernels on Sandybridge hardware
+ - fixed compilation for the SKYLAKEX target with gcc 6
+ - fixed compilation of the CooperLake SBGEMM kernel with LLVM
+ - fixed compilation of the SkyLakeX small matrix GEMM kernels with LLVM or ICC
+ - fixed compilation of some BFLOAT16 kernels with CMAKE
+ - added support for the Zhaoxin/Centaur KH40000 cpu
+ - fixed a potential crash in the ZSYMV kernel used for all targets except generic
+ - fixed gmake compilation for DYNAMIC_ARCH with a DYNAMIC_LIST including ATOM
+ - fixed compilation of LAPACKE with the INTEGER64 option on Windows
+ - added support for cross-compiling to individual Intel or AMD targets using CMAKE
+   (previously only CORE2 supported, added targets are ATOM, PRESCOTT, NEHALEM, SANDYBRIDGE,
+   HASWELL,SKYLAKEX, COOPERLAKE, SAPPHIRERAPIDS, OPTERON, BARCELONA, BULLDOZER, PILEDRIVER,
+   STEAMROLLER,EXCAVATOR, ZEN)
+
+SPARC:
+ - worked around an overflow error in the DNRM2 kernel
+
+POWER:
+ - worked around an overflow error in the POWER6 DNRM2 kernel
+ - fixed compilation on PPC440
+ - fixed a performance regression in the level1 BLAS on POWER10
+ - fixed the POWER10 ZGEMM kernel
+ - fixed singlethreaded builds for POWER10
+ - fixed compilation of the POWER10 DGEMV kernel with older gcc versions
+ - enabled compilation of the BFLOAT16 kernels by default
+ - enabled the small matrix kernels by default for DYNAMIC_ARCH builds
+ - added a workaround for a miscompilation of the CDOT and ZDOT kernels by GCC 12
+
+- RISCV:
+ - fixed cpu autodetection logic
+
+ARMV8:
+ - added an SBGEMM kernel for Neoverse N2
+ - worked around an overflow error in the DNRM2 kernel used on M1, NeoverseN1, ThunderX2T99
+ - added support for ARM64 systems running MS Windows
+ - added support for cross-compiling to the GENERIC ARMV8 target under CMAKE (Windows/MSVC)
+ - fixed a performance regression in the generic ARMV8 DGEMM kernel introduced in 0.3.19
+ - added initial support for the Apple M1 cpu under Linux
+ - added initial support for the Phytium FT2000 cpu
+ - added initial support for the Cortex A510, A710, X1 and X2 cpu
+ - fixed an accidental mixup of cpu identifiers in the autodetection code introduced in 0.3.20
+ - fixed linking of Apple M1 builds on macOS 12 and later with recent XCode
+ - made Neoverse N2 available in DYNAMIC_ARCH builds
+
+MIPS,MIPS64:
+ - worked around an overflow error in the DNRM2 kernel
+
+LOONGARCH64:
+ - worked around an overflow error in the DNRM2 kernel
+ - added preliminary support for the LOONGSON2K1000 cpu
+ - added DYNAMIC_ARCH support
+
+====================================================================
+Version 0.3.20
+ 20-Feb-2022
+
+general:
+ - some code cleanup, with added casts etc.
+ - fixed obtaining the cpu count with OpenMP and OMP_PROC_BIND unset
+ - fixed pivot index calculation by ?LASWP for negative increments other than one
+ - fixed input argument check in LAPACK ? GEQRT2
+ - improved the check for a Fortran compiler in CMAKE builds
+ - disabled building OpenBLAS' optimized versions of LAPACK complex SPMV,SPR,SYMV,SYR with NO_LAPACK=1
+ - fixed building of LAPACK on certain distributed filesystems with parallel gmake
+ - fixed building the shared library on MacOS with classic flang
+
+x86_64:
+ - fixed cross-compilation with CMAKE for CORE2 target
+ - fixed miscompilation of AVX512 code in DYNAMIC_ARCH builds
+ - added support for the "incidental" AVX512 hardware in Alder Lake when enabled in BIOS
+
+E2K:
+ - add new architecture (Russian Elbrus E2000 family)
+
+SPARC:
+ - fix IMIN/IMAX
+
+ARMV8:
+ - added SVE-enabled CGEMM and ZGEMM kernels for ARMV8SVE and A64FX
+ - added support for Neoverse N2 and V1 cpus
+
+MIPS,MIPS64:
+ - fixed autodetection of MSA capability
+
+LOONGARCH64:
+ - added an optimized DGEMM kernel
+
+====================================================================
+Version 0.3.19
+ 19-Dec-2021
+ 
+ general:
+ - reverted unsafe TRSV/ZRSV optimizations introduced in 0.3.16
+ - fixed a potential thread race in the thread buffer reallocation routines
+   that were introduced in 0.3.18
+ - fixed miscounting of thread pool size on Linux with OMP_PROC_BIND=TRUE
+ - fixed CBLAS interfaces for CSROT/ZSROT and CROTG/ZROTG
+ - made automatic library suffix for CMAKE builds with INTERFACE64 available
+   to CBLAS-only builds
+
+x86_64:
+ - DYNAMIC_ARCH builds now fall back to the cpu with most similar capabilities
+   when an unknown CPUID is encountered, instead of defaulting to Prescott
+ - added cpu detection for Intel Alder Lake
+ - added cpu detection for Intel Sapphire Rapids
+ - added an optimized SBGEMM kernel for Sapphire Rapids
+ - fixed DYNAMIC_ARCH builds on OSX with CMAKE
+ - worked around DYNAMIC_ARCH builds made on Sandybridge failing on SkylakeX
+ - fixed missing thread initialization for static builds on Windows/MSVC
+ - fixed an excessive read in ZSYMV
+
+POWER:
+ - added support for POWER10 in big-endian mode
+ - added support for building with CMAKE
+ - added optimized SGEMM and DGEMM kernels for small matrix sizes
+
+ARMV8:
+ - added basic support and cputype detection for Fujitsu A64FX
+ - added a generic ARMV8SVE target  
+ - added SVE-enabled SGEMM and DGEMM kernels for ARMV8SVE and A64FX
+ - added optimized CGEMM and ZGEMM kernels for Cortex A53 and A55 cpus
+ - fixed cpuid detection for Apple M1 and improved performance
+ - improved compiler flag setting in CMAKE builds
+
+RISCV64:
+ - fixed improper initialization in CSCAL/ZSCAL for strided access patterns
+
+MIPS:
+ - added a GENERIC target for MIPS32
+ - added support for cross-compiling to MIPS32 on x86_64 using CMAKE
+
+MIPS64:
+ - fixed misdetection of MSA capability
+
+====================================================================
+Version 0.3.18
+ 02-Oct-2021
+
+general:
+ - when the build-time number of preconfigured threads is exceeded
+   at runtime (typically by an external program calling BLAS functions
+   from a larger number of threads in parallel), OpenBLAS will now 
+   allocate an auxiliary control structure for up to 512 additional
+   threads instead of aborting
+ - added support for Loongson's LoongArch64 cpu architecture
+ - fixed building OpenBLAS with CMAKE and -DBUILD_BFLOAT16=ON
+ - added support for building OpenBLAS as a CMAKE subproject
+ - added support for building for Windows/ARM64 targets with clang
+ - improved support for building with the IBM xlf compiler
+ - imported Reference-LAPACK PR 625 (out-of-bounds reads in ?LARRV)
+ - imported Reference-LAPACK PR 597 for testsuite compatibility with
+   LLVM's libomp
+
+x86_64:
+ - added SkylakeX S/DGEMM kernels for small problem sizes (M*N*K<=1000000)
+ - added optimized SBGEMM for Intel Cooper Lake
+ - reinstated the performance patch for AVX512 SGEMV_T with a proper fix
+ - added a workaround for a gcc11 tree-vectorizer bug that caused spurious
+   failures in the test programs for complex BLAS3 when compiling at -O3
+   (the default for cmake "release" builds)
+ - added support for runtime cpu count detection under Haiku OS
+ - worked around a long-standing miscompilation issue of the Haswell DGEMV_T
+   kernel with gcc that could produce NaN output in some corner cases
+
+POWER:
+ - improved performance of DASUM on POWER10
+
+ARMV8:
+ - fixed crashes (use of reserved register x18) on Apple M1 under OSX
+ - fixed building with gcc releases earlier than 5.1
+
+MIPS:
+ - fixed building under BSD
+
+MIPS64:
+ - fixed building under BSD
+
+====================================================================
+Version 0.3.17
+ 15-Jul-2021
+
+common:
+ - reverted the optimization of SGEMV_N/DGEMV_N for small input sizes
+   and consecutive arguments as it led to stack overflows on x86_64
+   with some operating systems (notably OSX and Windows)
+ 
+ x86_64:
+  - reverted the performance patch for SGEMV_T on AVX512 as it caused
+    wrong results in some applications
+    
+ SPARC:
+  - fixed compilation with compilers other than gcc
+====================================================================
+Version 0.3.16
+ 11-Jul-2021
+
+common:
+ - drastically reduced the stack size requirements for running the LAPACK
+   testsuite (Reference-LAPACK PR 553)
+ - fixed spurious test failures in the LAPACK testsuite (Reference-LAPACK
+   PR 564)
+ - expressly setting DYNAMIC_ARCH=0 no longer enables dynamic_arch mode 
+ - improved performance of xGER, xSPR, xSPR2, xSYR, xSYR2, xTRSV, SGEMV_N 
+   and DGEMV_N, for small input sizes and consecutive arguments
+ - improved performance of xGETRF, xPORTF and xPOTRI for small input sizes
+   by disabling multithreading
+ - fixed installing with BSD versions of the "install" utility
+
+RISCV:
+ - fixed the implementation of xIMIN
+ - improved the performance of DSDOT
+ - fixed linking of the tests on C910V with current vendor gcc
+
+POWER:
+- fixed SBGEMM computation for some odd value inputs
+- fixed compilation for PPCG4, PPC970, POWER3, POWER4 and POWER5
+
+x86_64:
+ - improved performance of SGEMV_N and SGEMV_T for small N on AVX512-capable cpus
+ - worked around a miscompilation of ZGEMM/ZTRMM on Sandybridge with old gcc
+   versions
+ - fixed compilation with MS Visual Studio versions older than 2017
+ - fixed macro name collision with winnt.h from the latest Win10 SDK
+ - added cpu type autodetection for Intel Ice Lake SP
+ - fixed cpu type autodetection for Intel Tiger Lake
+ - added cpu type autodetection for recent Centaur/Zhaoxin models
+ - fixed compilation with musl libc
+
+ARM64:
+- fixed compilation with gcc/gfortran on the Apple M1
+- fixed linking of the tests on FreeBSD
+- fixed missing restore of a register in the recently rewritten DNRM2 kernel
+  for ThunderX2 and Neoverse N1 that could cause spurious failures in e.g.
+  DGEEV
+- added compiler optimization flags for the EMAG8180
+- added initial support for Cortex A55
+
+ARM:
+- fixed linking of the tests on FreeBSD
+
+====================================================================
+Version 0.3.15
+  2-May-2021
+
+common:
+ - imported improvements and bugfixes from Reference-LAPACK 3.9.1
+ - imported LAPACKE interface fixes from Reference-LAPACK PRs 534 + 537
+ - fixed a problem in the cpu detection of 0.3.14 that prevented cross-compilation
+ - fixed a sequence problem in the generation of softlinks to the library in GMAKE
+
+RISC V:
+ - fixed compilation on RISCV (missing entry in getarch)
+ - fixed a potential division by zero in CROTG and ZROTG
+
+POWER:
+ - fixed LAPACK testsuite failures seen with the NVIDIA HPC compiler
+ - improved CGEMM, DGEMM and ZGEMM performance on POWER10
+ - added an optimized ZGEMV kernel for POWER10
+ - fixed a potential division by zero in CROTG and ZROTG
+
+x86_64:
+ - added support for Intel Control-flow Enforcement Technology (CET)
+ - reverted the DOMATCOPY_RT code to the generic C version
+ - fixed a bug in the AVX512 SGEMM kernel introduced in 0.3.14
+ - fixed misapplication of -msse flag to non-SSE cpus in DYNAMIC_ARCH
+ - added support for compilation of the benchmarks on older OSX versions
+ - fix propagation of the NO_AVX512 option in CMAKE builds
+ - fix compilation of the AVX512 SGEMM kernel with clang-cl on Windows
+ - fixed compilation of the CTESTs with INTERFACE64=1 (random faults on OSX)
+ - corrected the Haswell DROT kernel to require AVX2/FMA3 rather than AVX512
+
+ARM:
+ - fixed a potential division by zero in CROTG and ZROTG
+ - fixed a potential overflow in IMATCOPY/ZIMATCOPY and the CTESTs
+
+ARM64:
+ - fixed spurious reads outside the array in the SGEMM tcopy macro
+ - fixed a potential division by zero in CROTG and ZROTG
+ - fixed a segmentation fault in DYNAMIC_ARCH builds (reappeared in 0.3.14)
+
+MIPS
+ - fixed a potential division by zero in CROTG and ZROTG
+ - fixed a potential overflow in IMATCOPY/ZIMATCOPY and the CTESTs
+
+MIPS64:
+ - fixed a potential division by zero in CROTG and ZROTG
+
+SPARC:
+ - fixed a potential division by zero in CROTG and ZROTG
+
+====================================================================
+Version 0.3.14
+ 17-Mar-2021
+ 
+ common:
+	* Fixed a race condition on thread shutdown in non-OpenMP builds
+	* Fixed custom BUFFERSIZE option getting ignored in gmake builds
+	* Fixed CMAKE compilation of the TRMM kernels for GENERIC platforms
+	* Added CBLAS interfaces for CROTG, ZROTG, CSROT and ZDROT
+	* Improved performance of OMATCOPY_RT across all platforms
+	* Changed perl scripts to use env instead of a hardcoded /usr/bin/perl
+	* Fixed potential misreading of the GCC compiler version in the build scripts
+	* Fixed convergence problems in LAPACK complex GGEV/GGES (Reference-LAPACK #477)
+	* Reduced the stacksize requirements for running the LAPACK testsuite (Reference-LAPACK #335)
+
+ RISCV:
+ 	* Fixed compilation on RISCV (missing entry in getarch)
+	
+ POWER:
+ 	* Fixed compilation for DYNAMIC_ARCH with clang and with old gcc versions
+	* Added support for compilation on FreeBSD/ppc64le
+ 	* Added optimized POWER10 kernels for SSCAL, DSCAL, CSCAL, ZSCAL
+	* Added optimized POWER10 kernels for SROT, DROT, CDOT, SASUM, DASUM
+	* Improved SSWAP, DSWAP, CSWAP, ZSWAP performance on POWER10
+	* Improved SCOPY and CCOPY performance on POWER10
+	* Improved SGEMM and DGEMM performance on POWER10
+	* Added support for compilation with the NVIDIA HPC compiler
+
+ x86_64:
+	* Added an optimized bfloat16 GEMM kernel for Cooperlake
+	* Added CPUID autodetection for Intel Rocket Lake and Tiger Lake cpus
+	* Improved the performance of SASUM,DASUM,SROT,DROT on AMD Ryzen cpus
+	* Added support for compilation with the NAG Fortran compiler
+	* Fixed recognition of the AMD AOCC compiler
+	* Fixed compilation for DYNAMIC_ARCH with clang on Windows
+	* Added support for running the BLAS/CBLAS tests on Windows
+	* Fixed signatures of the tls callback functions for Windows x64
+	* Fixed various issues with fma intrinsics support handling 
+
+ ARM:
+	* Added support for embedded Cortex M targets via a new option EMBEDDED
+
+ ARMV8:
+ 	* Fixed the THUNDERX2T99 and NEOVERSEN1 DNRM2/ZNRM2 kernels for inputs with Inf
+	* Added support for the DYNAMIC_LIST option
+	* Added support for compilation with the NVIDIA HPC compiler
+ 	* Added support for compiling with the NAG Fortran compiler
+
+====================================================================
+Version 0.3.13
+ 12-Dec-2020
+ 
+ common:
+	* Added a generic bfloat16 SBGEMV kernel
+	* Fixed a potentially severe memory leak after fork in OpenMP builds
+	  that was introduced in 0.3.12
+	* Added detection of the Fujitsu Fortran compiler
+	* Added detection of the (e)gfortran compiler on OpenBSD
+	* Added support for overriding the default name of the library independently
+	  from symbol suffixing in the gmake builds (already supported in cmake)
+
+RISCV:
+	* Added a RISC V port optimized for C910V
+
+POWER:
+	* Added optimized POWER10 kernels for SAXPY, CAXPY, SDOT, DDOT and DGEMV_N
+	* Improved DGEMM performance on POWER10
+	* Improved STRSM and DTRSM performance on POWER9 and POWER10
+	* Fixed segmemtation faults in DYNAMIC_ARCH builds
+ 	* Fixed compilation with the PGI compiler
+
+x86:
+	* Fixed compilation of kernels that require SSE2 intrinsics since 0.3.12
+	
+x86_64:
+	* Added an optimized bfloat16 SBGEMV kernel for SkylakeX and Cooperlake
+	* Improved the performance of SASUM and DASUM kernels through parallelization
+	* Improved the performance of SROT and DROT kernels
+	* Improved the performance of multithreaded xSYRK
+	* Fixed OpenMP builds that use the LLVM Clang compiler together with GNU gfortran
+	  (where linking of both the LLVM libomp and GNU libgomp could lead to lockups or
+	  wrong results)
+	* Fixed miscompilations by old gcc 4.6
+	* Fixed misdetection of AVX2 capability in some Sandybridge cpus
+	* Fixed lockups in builds combining DYNAMIC_ARCH with TARGET=GENERIC on OpenBSD
+
+ARM64:
+	* Fixed segmemtation faults in DYNAMIC_ARCH builds
+
+MIPS:
+	* Improved kernels for Loongson 3R3 ("3A") and 3R4 ("3B") models, including MSA
+	* Fixed bugs in the MSA kernels for CGEMM, CTRMM, CGEMV and ZGEMV
+	* Added handling of zero increments in the MSA kernels for SSWAP and DSWAP
+	* Added DYNAMIC_ARCH support for MIPS64 (currently Loongson3R3/3R4 only)
+
+SPARC:
+	* Fixed building 32 and 64 bit SPARC kernels with the SolarisStudio compilers
+
+====================================================================
+Version 0.3.12
+ 24-Oct-2020
+
+common:
+	* Fixed missing BLAS/LAPACK functions (inadvertently dropped during
+	  the build system restructuring)
+	* Fixed argument conversion macro in LAPACKE_zgesvdq (LAPACK #458)
+
+POWER:
+	* Added optimized SCOPY/CCOPY kernels for POWER10
+	* Increased and unified the default size of the GEMM BUFFER
+	* Fixed building for POWER10 in DYNAMIC_ARCH mode
+	* POWER10 compatibility test now checks binutils version as well
+	* Cleaned up compiler warnings
+
+x86_64:
+	* corrected compiler version checks for AVX2 compatibility
+	* added compiler option -mavx2 for building with flang
+	* fixed direct SGEMM pathway for small matrix sizes (broken by
+	  the code refactoring in 0.3.11)
+	* fixed unhandled partial register clobbers in several kernels
+	  for AXPY,DOT,GEMV_N and GEMV_T flagged by gcc10 tree-vectorizer
+
+ARMV8:
+	* improved Apple Vortex support to include cross-compiling
+
+====================================================================
+Version 0.3.11
+ 17-Oct-2020
+
+common:
+ 	* API change:
+	  the newly added BFLOAT16 functions were renamed to use the
+	  letter "B" instead of "H" to avoid potential confusion with
+	  the IEEE "half precision float" type, i.e. the 0.3.10
+	  SHGEMM is now SBGEMM and the corresponding build option
+	  was changed from "BUILD_HALF" to "BUILD_BFLOAT16".
+	* Reduced the default BLAS3_MEM_ALLOC_THRESHOLD (used as an upper
+	  limit for placing temporary arrays on the stack) to be compatible
+	  with a stack size of 1mb (as imposed by the JAVA runtime library) 
+	* Added mixed-precision dot function SBDOT and utility functions
+	  shstobf16, shdtobf16, sbf16tos and dbf16tod to convert between
+	  single or double precision float arrays and bfloat16 arrays
+	* Fixed prototypes of LAPACK_?ggsvp and LAPACK_?ggsvd functions
+	  in lapack.h
+	* Fixed underflow and rounding errors in LAPACK SLANV2 and DLANV2
+	  (causing miscalculations in e.g. SHSEQR/DHSEQR, LAPACK issue #263)
+	* Fixed workspace calculation in LAPACK ?GELQ (LAPACK issue #415)
+	* Fixed several bugs in the LAPACK testsuite
+	* Improved performance of TRMM and TRSM for certain problem sizes
+	* Fixed infinite recursions and workspace miscalculations in ReLAPACK
+	* CMAKE builds no longer require pkg-config for creating the .pc file
+	* Makefile builds no longer misread NO_CBLAS=0 or NO_LAPACK=0 as 
+	  enabling these options
+	* Fixed detection of gfortran when invoked through an mpi wrapper
+	* Improve thread reinitialization performance with OpenMP after a fork 
+	* Added support for building only the subset of the library required
+	  for a particular precision by specifying BUILD_SINGLE, BUILD_DOUBLE
+	* Optional function name prefixes and suffixes are now correctly
+	  reflected in the generated cblas.h
+	* Added CMAKE build support for the LAPACK and multithreading tests
+
+POWER:
+	* Added optimized support for POWER10
+	* Added support for compiling for POWER8 in 32bit mode
+	* Added support for compilation with LLVM/clang
+	* Added support for compilation with NVIDIA/PGI compilers
+	* Fixed building on big-endian POWER8
+	* Fixed miscompilation of ZDOTC by gcc10
+	* Fixed alignment errors in the POWER8 SAXPY kernel
+	* Improved CPU detection on AIX
+	* Supported building with older compilers on POWER9
+
+x86_64:
+	* Added support for Intel Cooperlake
+	* Added autodetection of AMD Renoir/Matisse/Zen3 cpus
+	* Added autodetection of Intel Comet Lake cpus
+	* Reimplemented ?sum, ?dot and daxpy using universal intrinsics
+	* Reset the fpu state before using the fpu on Windows as a workaround
+	  for a problem introduced in Windows 10 build 19041 (a.k.a. SDK 2004)
+	* Fixed potentially undefined behaviour in the dot and gemv_t kernels
+	* Fixed a potential segmentation fault in DYNAMIC_ARCH builds
+	* Fixed building for ZEN with PGI/NVIDIA and AMD AOCC compilers
+	
+ARMV7:
+	* Fixed cpu detection on BSD-like systems
+
+ARMV8:
+	* Added preliminary support for Apple Vortex cpus
+	* Added support for the Cavium ThunderX3T110 cpu
+	* Fixed cpu detection on BSD-like systems
+	* Fixed compilation in -std=C18 mode
+
+IBM Z:
+	* Added support for compiling with the clang compiler
+	* Improved GEMM performance on Z14
+
+====================================================================
+Version 0.3.10
+ 14-Jun-2020
+
+common:
+	* Improved thread locking behaviour in blas_server and parallel getrf                         
+	* Imported bugfix 394 from LAPACK (spurious reference to "XERBL"
+	  due to overlong lines)
+	* Imported bugfix 403 from LAPACK (compile option "recursive" required
+	  for correctness with Intel and PGI)
+	* Imported bugfix 408 from LAPACK (wrong scaling in ZHEEQUB)
+	* Imported bugfix 411 from LAPACK (infinite loop in LARGV/LARTG/LARTGP)
+	* Fixed mismatches between BUFFERSIZE and GEMM_UNROLL parameters that
+	  could lead to crashes at large matrix sizes  
+	* Restored internal soname in dynamic libraries on FreeBSD and Dragonfly 
+	* Added API (openblas_setaffinity) to set the thread affinity on Linux
+	* Added initial infrastructure for half-precision floating point 
+	  (bfloat16) support with a generic implementation of SHGEMM     
+	* Added CMAKE build system support for building the cblas_Xgemm3m
+	  functions
+	* Fixed CMAKE support for building in a path with embedded spaces
+	* Fixed CMAKE (non)handling of NO_EXPRECISION and MAX_STACK_ALLOC
+	* Fixed GCC version detection in the Makefiles
+	* Allowed overriding the names of AR, AS and LD in Makefile builds
+
+POWER:
+	* Fixed big-endian POWER8 ELFv2 builds on FreeBSD
+	* Fixed GCC version checks and DYNAMIC_ARCH builds on POWER9
+	* Fixed CMAKE build support for POWER9
+	* fixed a potential race condition in the thread buffer allocation
+	* Worked around LAPACK test failures on PPC G4
+
+MIPS:
+	* Fixed a potential race condition in the thread buffer allocation
+	* Added support for MIPS 24K/24KE family based on P5600 kernels
+
+MIPS64:
+	* fixed a potential race condition in the thread buffer allocation
+	* Added TARGET=GENERIC
+
+ARMV7:
+	* Fixed a race condition in the thread buffer allocation
+
+ARMV8:
+	* Fixed a race condition in the thread buffer allocation
+	* Fixed zero initialisation in the assembly for SGEMM and DGEMM BETA
+	* Improved performance of the ThunderX2 DAXPY kernel
+	* Added an optimized SGEMM kernel for Cortex A53    
+	* Fixed Makefile support for INTERFACE64 (8-byte integer)
+
+x86_64:
+	* Fixed a syntax error in the CMAKE setup for SkylakeX
+	* Improved performance of STRSM on Haswell, SkylakeX and Ryzen
+	* Improved SGEMM performance on SGEMM for workloads with ldc a
+	  multiple of 1024
+	* Improved DGEMM performance on Skylake X
+	* Fixed unwanted AVX512-dependency of SGEMM in DYNAMIC_ARCH
+	  builds created on SkylakeX
+	* Removed data alignment requirement in the SSE2 copy kernels
+	  that could cause spurious crashes
+	* Added a workaround for an optimizer bug in AppleClang 11.0.3
+	* Fixed LAPACK test failures due to wrong options for Intel Fortran
+	* Fixed compilation and LAPACK test results with recent Flang
+	  and AMD AOCC
+	* Fixed DYNAMIC_ARCH builds with CMAKE on OS X
+	* Fixed missing exports of cblas_i?amin, cblas_i?min, cblas_i?max,
+	  cblas_?sum, cblas_?gemm3m in the shared library on OS 
+	* Fixed reporting of cpu name in DYNAMIC_ARCH builds (would sometimes
+	  show the name of an older generation chip supported by the same kernels)
+
+IBM Z:
+	* Improved performance of SGEMM/STRMM and DGEMM/DTRMM on Z14
+
+====================================================================
+Version 0.3.9
+ 1-Mar-2020
+ 
+ common:
+ 	* Fixed a miscompilation of the GETRF functions with CMAKE
+	* Imported bugfix 390 from LAPACK (missing NaN propagation in xCOMBSSQ)
+	* The size of the memory buffer used for splitting GEMM tasks across
+          multiple threads can now be configured in the build system.
+
+POWER:
+	* Fixed several compilation problems related to endianness
+	  and ELF version on POWER8 and POWER9
+	* Fixed use of the absolute value IAMIN/IAMAX instead of IMIN/IMAX
+	* Fixed a race condition in the level3 blas code
+	
+MIPS64:
+	* Fixed use of the absoltute value IAMIN/IAMAX instead of IMIN/IMAX
+	
+ARMV7:
+	* Fixed a race condition in the level3 blas code
+	* Fixed compilation on Android
+ARMV8:
+	* Added support for Ampere EMAG8180
+	* Added support for Neoverse N1
+	* Improved performance of the blas_lock function
+	* Fixed a race condition in the level3 blas code
+	* Fixed a performance regression on TSV110-based servers
+
+x86_64:
+	* Fixed a long-standing error with undeclared register overwrites
+	  in the DSCAL microkernel for HASWELL,SKYLAKEX and ZEN
+	* Fixed a long-standing bug in the SSE implementation of IAMAX
+	* Fixed a CMAKE build failure with DYNAMIC_ARCH
+	* Fixed cpu autodetection of Goldmont+, Cannon Lake and Ice Lake
+	* Fixed a compilation failure on OSX with compiler name containing dash
+	* Fixed compilation with MinGW on SkylakeX
+	* Improved speed of the AVX512 GEMM3M kernel on SkylakeX
+	* Added an AVX512 STRMM kernel for SkylakeX
+	* Improved GEMM performance on Haswell and Zen
+
+zarch:
+	* fixed compilation of the DYNAMIC_ARCH code
+	
+====================================================================
+Version 0.3.8
+ 9-Feb-2020
+
+common: 
+`	* LAPACK has been updated to 3.9.0 (plus patches up to 
+	  January 2nd, 2020)
+	* CMAKE support has been improved in several areas including
+	  cross-compilation
+	* a thread race condition in the GEMM3M kernels was resolved
+	* the "generic" (plain C) gemm beta kernel used by many targets
+	  has been sped up
+	* an optimized version of the LAPACK trtrs functions has been added
+	* an incompatibilty between the LAPACK tests and the OpenBLAS
+	  implementation of XERBLA was resolved, removing the numerous
+	  warnings about wrong error exits in the former 
+	* support for NetBSD has been added
+	* support for compilation with g95 and non-GNU versions of ld
+	  has been improved
+	* support for compilation with (upcoming) gcc 10 has been added
+
+POWER:
+	* worked around miscompilation of several POWER8 and POWER9 
+	  kernels by older versions of gcc
+	* added support for big-endian POWER8 and for compilation on AIX
+	* corrected bugs in the big-endian support for PPC440 and PPC970
+	* DYNAMIC_ARCH support is now available in CMAKE builds as well
+
+ARMV8:
+	* performance of DGEMM_BETA and SGEMM_NCOPY has been improved
+	* compilation for 32bit works again 
+	* performance of the RPCC function has been improved
+	* improved performance on small systems
+	* DYNAMIC_ARCH support is now available in CMAKE builds as well
+	* cross-compilation from OSX to IOS was simplified
+ 
+x86_64:
+	* a new AVX512 DGEMM kernel was added and the AVX512 SGEMM kernel
+	  was significantly improved
+	* optimized AVX512 kernels for CGEMM and ZGEMM have been added
+	* AVX2 kernels for STRMM, SGEMM, and CGEMM have been significantly
+	  sped up and optimized CGEMM3M and ZGEMM3M kernels have been added 
+	* added support for QEMU virtual cpus
+	* a compilation problem with PGI and SUN compilers was fixed
+	* Intel "Goldmont plus" is now autodetected
+	* a potential crash on program exit on MS Windows has been fixed
+
+x86:
+	* an unwanted case sensitivity in the implementation of LSAME
+  	  on older 32bit AMD cpus was fixed
+
+zarch:
+	* Z15 is now supported as Z14
+	* DYNAMIC_ARCH is now available on ZARCH as well
+
+====================================================================
+Version 0.3.7
+11-Aug 2019
+
+common:
+  * having the gmake special variables TARGET_ARCH or TARGET_MACH
+    defined no longer causes build failures in ctest or utest
+  * defining NO_AFFINITY or USE_TLS to 0 in gmake builds no longer
+    has the same effect as setting them to 1
+  * a new test program was added to allow checking the library for
+    thread safety
+  * a new option USE_LOCKING was added to ensure thread safety when
+    OpenBLAS itself is built without multithreading but will be 
+    called from multiple threads.
+  * a build failure on Linux with glibc versions earlier than 2.5
+    was fixed
+  * a runtime error with CPU enumeration (and NO_AFFINITY not set)
+    on glibc 2.6 was fixed
+  * NO_AFFINITY was added to the CMAKE options (and defaults to being
+    active on Linux, as in the gmake builds)
+
+x86_64:
+  * the build-time logic for detection of AVX512 availability in
+    the processor and compiler was fixed
+  * gmake builds on OSX now set the internal name of the library to 
+    libopenblas.0.dylib (consistent with CMAKE)
+  * the Haswell DGEMM kernel received a significant speedup through
+    improved prefetch and load instructions
+  * performance of DGEMM, DTRMM, DTRSM and ZDOT on Zen/Zen2 was markedly
+    increased by avoiding vpermpd instructions
+  * the SKYLAKEX (AVX512) DGEMM helper functions have now been disabled
+    to fix remaining errors in DGEMM, DSYMM and DTRMM
+
+POWER:
+  * added support for building on FreeBSD/powerpc64 and FreeBSD/ppc970
+  * added optimized kernels for POWER9 SGEMM and STRMM
+
+ARMV7:
+  * fixed the softfp implementations of xAMAX and IxAMAX
+  * removed the predefined -march= flags on both ARMV5 and ARMV6 as
+    they were appropriate for only a subset of platforms
+
+====================================================================
+Version 0.3.6
+29-Apr-2019
+
+common:
+	* the build tools now check that a given cpu TARGET is actually valid
+	* the build-time check of system features (c_check) has been made
+  	  less dependent on particular perl features (this should mainly
+  	  benefit building on Windows)
+	* several problem with the ReLAPACK integration were fixed,
+	  including INTERFACE64 support and building a shared library
+	* building with CMAKE on BSD systems was improved
+	* a non-absolute SUM function was added based on the
+  	  existing optimized code for ASUM
+	* CBLAS interfaces to the IxMIN and IxMAX functions were added
+	* a name clash between LAPACKE and BOOST headers was resolved
+	* CMAKE builds with OpenMP failed to include the appropriate getrf_parallel
+	  kernels
+	* a crash on thread (key) deletion with the USE_TLS=1 memory management
+	  option was fixed
+	* restored several earlier fixes, in particular for OpenMP performance,
+  	  building on BSD, and calling fork on CYGWIN, which had inadvertently
+  	  been dropped in the 0.3.3 rewrite of the memory management code.
+
+x86_64:
+	* the AVX512 DGEMM kernel has been disabled again due to unsolved problems
+	* building with old versions of MSVC was fixed
+	* it is now possible to build a static library on Windows with CMAKE
+	* accessing environment variables on CYGWIN at run time was fixed
+	* the CMAKE build system now recognizes 32bit userspace on 64bit hardware
+	* Intel "Denverton" atom and Hygon "Dhyana" zen CPUs are now autodetected
+	* building for DYNAMIC_ARCH with a DYNAMIC_LIST of targets is now supported
+  	  with CMAKE as well
+	* building for DYNAMIC_ARCH with GENERIC as the default target is now supported
+	* a buffer overflow in the SSE GEMM kernel for Intel Nano targets was fixed
+	* assembly bugs involving undeclared modification of input operands were fixed
+  	  in the AXPY, DOT, GEMV, GER, SCAL, SYMV and TRSM microkernels for Nehalem,
+	  Sandybridge, Haswell, Bulldozer and Piledriver. These would typically cause
+	  test failures or segfaults when compiled with recent versions of gcc from 8 onward.
+	* a similar bug was fixed in the blas_quickdivide code used to split workloads
+	  in most functions
+	* a bug in the IxMIN implementation for the GENERIC target made it return the result of IxMAX
+	* fixed building on SkylakeX systems when either the compiler or the (emulated) operating
+	  environment does not support AVX512
+	* improved GEMM performance on ZEN targets
+
+x86:
+	* build failures caused by the recently added checks for AVX512 were fixed
+	* an inline assembly bug involving undeclared modification of an input argument was
+  	  fixed in the blas_quickdivide code used to split workloads in most functions
+	* a bug in the IMIN implementation for the GENERIC target made it return the result of IMAX
+
+MIPS32:
+	* a bug in the IMIN implementation made it return the result of IMAX
+
+POWER:
+	* single precision BLAS1/2 functions have received optimized POWER8 kernels
+	* POWER9 is now a separate target, with an optimized DGEMM/DTRMM kernel
+	* building on PPC970 systems under OSX Leopard or Tiger is now supported
+	* out-of-bounds memory accesses in the gemm_beta microkernels were fixed
+	* building a shared library on AIX is now supported for POWER6
+	* DYNAMIC_ARCH support has been added for POWER6 and newer
+
+ARMv7:
+	* corrected xDOT behaviour with zero INC_X or INC_Y
+	* a bug in the IMIN implementation made it return the result of IMAX
+
+ARMv8:
+	* added support for HiSilicon TSV110 cpus
+	* the CMAKE build system now recognizes 32bit userspace on 64bit hardware
+	* cross-compilation with CMAKE now works again
+	* a bug in the IMIN implementation made it return the result of IMAX
+	* ARMV8 builds with the BINARY=32 option are now automatically handled as ARMV7
+
+IBM Z:
+	* optimized microkernels for single precicion BLAS1/2 functions have been added
+	  for both Z13 and Z14
+
+====================================================================
+Version 0.3.5
+31-Dec-2018
+
+common:
+	* loop unrolling in TRMV has been enabled again.
+	* A domain error in the thread workload distribution for SYRK
+	  has been fixed.
+	* gmake builds will now automatically add -fPIC to the build
+	  options if the platform requires it.
+	* a pthreads key leakage (and associate crash on dlclose) in
+	  the USE_TLS codepath was fixed.
+	* building of the utest cases on systems that do not provide
+	  an implementation of complex.h was fixed.
+	  
+x86_64:
+	* the SkylakeX code was changed to compile on OSX.
+	* unwanted application of the -march=skylake-avx512 option
+	  to the common code parts of a DYNAMIC_ARCH build was fixed.
+	* improved performance of SGEMM for small workloads on Skylake X.
+	* performance of SGEMM and DGEMM was improved on Haswell.
+
+ARMV8:
+	* a configuration error that broke the CNRM2 kernel was corrected.
+	* compilation of the GEMM kernels with CMAKE was fixed.
+	* DYNAMIC_ARCH builds are now available with CMAKE as well.
+	* using CMAKE for cross-compilation to the new cpu TARGETs
+	  introduced in 0.3.4 now works.
+	  
+POWER:
+	* a problem in cpu autodetection for AIX has been corrected.
+	
+====================================================================
+Version 0.3.4
+02-Dec-2018
+
+common:
+	* the new, experimental thread-local memory allocation had 
+	  inadvertently been left enabled for gmake builds in 0.3.3
+	  despite the announcement. It is now disabled by default, and
+	  single-threaded builds will keep using the old allocator even
+	  if the USE_TLS option is turned on.
+	* OpenBLAS will now provide enough buffer space for at least 50
+	  threads by default.
+	* The output of openblas_get_config() now contains the version
+	  number.
+	* A serious thread safety bug in GEMV operation with small M and
+	  large N size has been fixed.
+	* The code will now automatically call blas_thread_init after a
+	  fork if needed before handling a call to openblas_set_num_threads
+	* Accesses to parallelized level3 functions from multiple callers
+	  are now serialized to avoid thread races (unless using OpenMP).
+	  This should provide better performance than the known-threadsafe
+	  (but non-default) USE_SIMPLE_THREADED_LEVEL3 option.
+	* When building LAPACK with gfortran, -frecursive is now (again)
+	  enabled by default to ensure correct behaviour.
+        * The OpenBLAS version cblas.h now supports both CBLAS_ORDER and
+	  CBLAS_LAYOUT as the name of the matrix row/column order option.
+	* Externally set LDFLAGS are now passed through to the final compile/link
+	  steps to facilitate setting platform-specific linker flags.
+	* A potential race condition during the build of LAPACK (that would 
+	  usually manifest itself as a failure to build TESTING/MATGEN) has been 
+	  fixed.
+	* xHEMV has been changed to stay single-threaded for small input sizes
+	  where the overhead of multithreading exceeds any possible gains
+	* CSWAP and ZSWAP have been limited to a single thread except on ARMV8 or
+	  ThunderX hardware with sizable input.
+	* Linker flags for the PGI compiler have been updated
+	* Behaviour of AXPY with zero increments is now handled in the C interface,
+	  correcting the result on at least Intel Atom.
+	* The result matrix from calling SGELSS with an all-zero input matrix is 
+	  now zeroed completely.
+	  
+x86_64:
+	* Autodetection of AMD Ryzen2 has been fixed (again).
+        * CMAKE builds now support labeling of an INTERFACE64=1 build of
+	  the library with the _64 suffix.
+	* AVX512 version of DGEMM has been added and the AVX512 SGEMM kernel
+	  has been sped up by rewriting with C intrinsics
+	* Fixed compilation on RHEL5/CENTOS5 (issue with typename __WAIT_STATUS)
+	
+POWER:
+	* added support for building on AIX (with gcc and GNU tools from AIX Toolbox).
+	* CPU type detection has been implemented for AIX.
+	* CPU type detection has been fixed for NETBSD.
+	
+MIPS64:
+	* AXPY on LOONGSON3A has been corrected to pass "zero increment" utest.
+	* DSDOT on LOONGSON3A has been fixed.
+	* the SGEMM microkernel has been hardened against potential data loss.
+	
+ARMV8:
+	* DYNAMic_ARCH support is now available for 64bit ARM
+	* cross-compiling for ARMV8 under iOS now works.
+	* cpu-specific code has been rearranged to make better use of both
+	  hardware commonalities and model-specific compiler optimizations.
+	* XGENE1 has been removed as a TARGET, superseded by the improved generic
+	  ARMV8 support.
+	
+ARMV7:
+	* Older assembly mnemonics have been converted to UAL form to allow
+	  building with clang 7.0
+	* Cross compiling LAPACKE for Android has been fixed again (broken by
+	  update to LAPACK 3.7.0 some while ago).  
+	  
+====================================================================
+Version 0.3.3
+31-Aug-2018
+
+common:
+	* thread memory allocation has been switched back to the method
+	  used before version 0.3.1 due to unexpected problems caused by
+	  the new code under some circumstances. A new compile-time option
+	  USE_TLS has been added to enable the new code, and it is hoped
+	  that this can become the default again in the next version.
+	* LAPAck PR272 has been integrated, which fixes spurious errors
+	  in DSYEVR and related functions caused by missing conversion 
+	  from ILAENV to ILAENV_2STAGE in several _2stage routines.
+	* the cmake-generated OpenBLASConfig.cmake now uses correct case
+	  for the name of the library
+	* added support for Haiku OS  
+
+x86_64:
+	* added AVX512 implementations of SDOT, DDOT, SAXPY, DAXPY,
+	  DSCAL, DGEMVN and DSYMVL 
+	* added a workaround for a cygwin issue that prevented compilation
+	  of AVX512 code
+	  
+IBM Z:
+	* added autodetection of Z14
+	* fixed TRMM errors in the generic target
+	
+====================================================================
+Version 0.3.2
+30-Jul-2018
+
+common:
+	* fixes for regressions caused by the rewrite of the thread
+	  initialization code in 0.3.1
+
+POWER:
+	* fixed cpu autodetection for the BSDs
+
+MIPS64:
+	* fixed utest errors in AXPY, DSDOT, ROT and SWAP
+
+x86_64:
+	* added autodetection of AMD Ryzen 2
+	* fixed build with older versions of MSVC
+
+====================================================================
+Version 0.3.1
+01-Jul-2018
+
+common:
+	* rewritten thread initialization code with significantly reduced overhead
+	* added CBLAS interfaces to the IxAMIN BLAS extension functions
+	* fixed the lapack-test target
+	* CMAKE builds now create an OpenBLASConfig.cmake file
+	* ZAXPY now uses a single thread for small input sizes
+	* the LAPACK code was updated from Reference-LAPACK/lapack#253
+          (fixing LAPACKE interfaces to Aasen's functions)
+
+POWER:
+	* corrected CROT and ZROT behaviour with zero INC_X
+
+ARMV7:
+	* corrected xDOT behaviour with zero INC_X or INC_Y
+
+x86_64:
+	* retired some older targets of DYNAMIC_ARCH builds to a new option DYNAMIC_OLDER,
+	  this affects PENRYN,DUNNINGTON,OPTERON,OPTERON_SSE3,BOBCAT,ATOM and NANO
+	  (which will still be supported via the slower PRESCOTT kernels when this option is not set)
+	* added an option DYNAMIC_LIST that (used in conjunction with DYNAMIC_ARCH) allows to 
+	  specify the list of x86_64 targets to include. Any target not on the list will be supported 
+	  by the Sandybridge or Nehalem kernels if available, or by Prescott.
+	* improved SWITCH_RATIO on Haswell for increased GEMM throughput
+	* added initial support for Intel Skylake X, including an AVX512 SGEMM kernel
+	* added autodetection of Intel Cannon Lake series as Skylake X
+	* added a default L2 cache size for hypervisors that return zero here (Chromebook)
+	* fixed a name clash with recent Windows10 headers that broke the build with (at least)
+	  recent mingw from MSYS2
+	* fixed a link error in mixed clang/gfortran builds with OpenMP
+	* updated the OSX deployment target to 10.8
+	* switched on parallel make for builds on MS Windows by default
+
+x86:
+	* fixed SSWAP and DSWAP behaviour with zero INC_X and INC_Y
+
+====================================================================
+Version 0.3.0
+23-May-2108
+
+common:
+	* fixed some more thread race and locking bugs
+	* added preliminary support for calling an OpenMP build of the library from multiple threads
+	* removed performance impact of thread locks added in 0.2.20 on OpenMP code
+	* general code cleanup 
+	* optimized DSDOT implementation
+	* improved thread distribution for GEMM
+	* corrected IMATCOPY/OMATCOPY implementation
+	* fixed out-of-bounds accesses in the multithreaded xBMV/xPMV and SYMV implementations
+	* cmake build improvements
+	* pkgconfig file now contains build options
+	* openblas_get_config() now reports USE_OPENMP and NUM_THREADS settings used for the build
+	* corrections and improvements for systems with more than 64 cpus
+	* LAPACK code updated to 3.8.0 including later fixes
+	* added ReLAPACK, a recursive implementation of several LAPACK functions
+	* Rewrote ROTMG to handle cases that the netlib code failed to address
+	* Disabled (broken) multithreading code for xTRMV
+	* corrected prototypes of complex CBLAS functions to make our cblas.h match the generally accepted standard
+	* shared memory access failures on startup are now handled more gracefully
+	* restored utests from earlier releases (and made them pass on all affected systems)
+
+SPARC:
+	* several fixes for cpu autodetection
+
+POWER:
+	* corrected vector register overwriting in several Power8 kernels
+	* optimized additional BLAS functions
+
+ARM:
+	* added support for CortexA53 and A72 
+	* added autodetection for ThunderX2T99
+	* made most optimized kernels the default for generic ARMv8 targets 
+
+x86_64:
+	* parallelized DDOT kernel for Haswell
+	* changed alignment directives in assembly kernels to boost performance on OSX
+	* fixed register handling in the GEMV microkernels (bug exposed by gcc7)
+	* added support for building on OpenBSD and Dragonfly 
+	* updated compiler options to work with Intel release 2018
+	* support fully optimized build with clang/flang on Microsoft Windows
+	* fixed building on AIX
+
+IBM Z:
+	* added optimized BLAS 1/2 functions
+
+MIPS:
+	* fixed cpu autodetection helper code
+	* added mips32 1004K cpu (Mediatek MT7621 and similar SoC)
+	* added mips64 I6500 cpu
+
+====================================================================
+Version 0.2.20
+24-Jul-2017
+
+common:
+        * Improved CMake support
+        * Fixed several thread race and locking bugs
+        * Fixed default LAPACK optimization level
+        * Updated LAPACK to 3.7.0
+        * Added ReLAPACK (https://github.com/HPAC/ReLAPACK, make BUILD_RELAPACK=1)
+
+POWER:
+        * Optimizations for Power9
+        * Fixed several Power8 assembly bugs
+
+ARM:
+        * New optimized Vulcan and ThunderX2T99 targets
+        * Support for ARMV7 SOFT_FP ABI (make ARM_SOFTFP_ABI=1)
+        * Detect all cpu cores including offline ones
+        * Fix compilation with CLANG
+        * Support building a shared library for Android
+
+MIPS:
+        * Fixed several threading issues
+        * Fix compilation with CLANG
+
+x86_64:
+        * Detect Intel Bay Trail and Apollo Lake
+        * Detect Intel Sky Lake and Kaby Lake
+        * Detect Intel Knights Landing
+        * Detect AMD A8, A10, A12 and Ryzen
+        * Support 64bit builds with Visual Studio
+        * Fix building with Intel and PGI compilers
+        * Fix building with MINGW and TDM-GCC
+        * Fix cmake builds for Haswell and related cpus
+        * Fix building for Sandybridge with CLANG 3.9
+	* Add support for the FLANG compiler
+
+IBM Z:
+        * New target z13 with BLAS3 optimizations
+
+====================================================================
+Version 0.2.19
+1-Sep-2016
+common:
+	* Improved cross compiling.
+	* Fix the bug on musl libc.
+
+POWER:
+	* Optimize BLAS on Power8
+	* Fixed Julia+OpenBLAS bugs on Power8
+
+MIPS:
+	* Optimize BLAS on MIPS P5600 and I6400 (Thanks, Shivraj Patil, Kaustubh Raste)
+
+ARM:
+	* Improved on ARM Cortex-A57. (Thanks, Ashwin Sekhar T K)
+
+
+====================================================================
+Version 0.2.18
+12-Apr-2016
+common:
+	* If you set MAKE_NB_JOBS flag less or equal than zero,
+	  make will be without -j.
+
+x86/x86_64:
+	* Support building Visual Studio static library. (#813, Thanks, theoractice)
+	* Fix bugs to pass buidbot CI tests (http://build.openblas.net)
+
+ARM:
+	* Provide DGEMM 8x4 kernel for Cortex-A57 (Thanks, Ashwin Sekhar T K)
+
+POWER:
+	* Optimize S and C BLAS3 on Power8
+	* Optimize BLAS2/1 on Power8
+
+====================================================================
+Version 0.2.17
+20-Mar-2016
+common:
+	* Enable BUILD_LAPACK_DEPRECATED=1 by default.
+
+====================================================================
+Version 0.2.16
+15-Mar-2016
+common:
+	* Avoid potential getenv segfault. (#716)
+	* Import LAPACK svn bugfix #142-#147,#150-#155
+
+x86/x86_64:
+	* Optimize c/zgemv for AMD Bulldozer, Piledriver, Steamroller
+	* Fix bug with scipy linalg test.
+
+ARM:
+	* Improve DGEMM for ARM Cortex-A57. (Thanks, Ashwin Sekhar T K)
+
+POWER:
+	* Optimize D and Z BLAS3 functions for Power8.
+
+====================================================================
+Version 0.2.16.rc1
+23-Feb-2016
+common:
+	* Upgrade LAPACK to 3.6.0 version.
+	  Add BUILD_LAPACK_DEPRECATED option in Makefile.rule to build
+	  LAPACK deprecated functions.
+	* Add MAKE_NB_JOBS option in Makefile.
+	  Force number of make jobs.This is particularly
+	  useful when using distcc. (#735. Thanks, Jerome Robert.)
+	* Redesign unit test. Run unit/regression test at every build (Travis-CI and Appveyor).
+	* Disable multi-threading for small size swap and ger. (#744. Thanks, Jerome Robert)
+	* Improve small zger, zgemv, ztrmv using stack alloction (#727. Thanks, Jerome Robert)
+	* Let openblas_get_num_threads return the number of active threads. 
+	  (#760. Thanks, Jerome Robert)
+	* Support illumos(OmniOS). (#749. Thanks, Lauri Tirkkonen)
+	* Fix LAPACK Dormbr, Dormlq bug. (#711, #713. Thanks, Brendan Tracey)
+	* Update scipy benchmark script. (#745. Thanks, John Kirkham)
+
+x86/x86_64:
+	* Optimize trsm kernels for AMD Bulldozer, Piledriver, Steamroller.
+	* Detect Intel Avoton.
+	* Detect AMD Trinity, Richland, E2-3200.
+	* Fix gemv performance bug on Mac OSX Intel Haswell.
+	* Fix some bugs with CMake and Visual Studio
+
+ARM:
+	* Support and optimize Cortex-A57 AArch64.
+	  (#686. Thanks, Ashwin Sekhar TK)
+	* Fix Android build on ARMV7 (#778. Thanks, Paul Mustiere)
+	* Update ARMV6 kernels.
+
+POWER:
+	* Fix detection of POWER architecture
+	  (#684. Thanks, Sebastien Villemot)
+
+====================================================================
+Version 0.2.15
+27-Oct-2015
+common:
+	* Support cmake on x86/x86-64. Natively compiling on MS Visual Studio.
+	  (experimental. Thank Hank Anderson for the initial cmake porting work.)
+	  
+	  On Linux and Mac OSX, OpenBLAS cmake supports assembly kernels.
+	  e.g. cmake .
+	       make
+	       make test (Optional)
+
+	  On Windows MS Visual Studio, OpenBLAS cmake only support C kernels.
+	  (OpenBLAS uses AT&T style assembly, which is not supported by MSVC.)
+	  e.g. cmake -G "Visual Studio 12 Win64" .
+	       Open OpenBLAS.sln and build.
+	  
+	* Enable MAX_STACK_ALLOC flags by default.
+	  Improve ger and gemv for small matrices.
+	* Improve gemv parallel with small m and large n case.
+	* Improve ?imatcopy when lda==ldb (#633. Thanks, Martin Koehler)
+	* Add vecLib benchmarks (#565. Thanks, Andreas Noack.)
+	* Fix LAPACK lantr for row major matrices (#634. Thanks, Dan Kortschak)
+	* Fix LAPACKE lansy (#640. Thanks, Dan Kortschak)
+	* Import bug fixes for LAPACKE s/dormlq, c/zunmlq 
+	* Raise the signal when pthread_create fails (#668. Thanks, James K. Lowden)
+	* Remove g77 from compiler list.
+	* Enable AppVeyor Windows CI.
+
+x86/x86-64:
+	* Support pure C generic kernels for x86/x86-64.
+	* Support Intel Boardwell and Skylake by Haswell kernels.
+	* Support AMD Excavator by Steamroller kernels.
+	* Optimize s/d/c/zdot for Intel SandyBridge and Haswell.
+	* Optimize s/d/c/zdot for AMD Piledriver and Steamroller.
+	* Optimize s/d/c/zapxy for Intel SandyBridge and Haswell.
+	* Optimize s/d/c/zapxy for AMD Piledriver and Steamroller.
+	* Optimize d/c/zscal for Intel Haswell, dscal for Intel SandyBridge.
+	* Optimize d/c/zscal for AMD Bulldozer, Piledriver and Steamroller.
+	* Optimize s/dger for Intel SandyBridge.
+	* Optimize s/dsymv for Intel SandyBridge.
+	* Optimize ssymv for Intel Haswell.
+	* Optimize dgemv for Intel Nehalem and Haswell.
+	* Optimize dtrmm for Intel Haswell.
+
+ARM:
+	* Support Android NDK armeabi-v7a-hard ABI (-mfloat-abi=hard)
+	  e.g. make HOSTCC=gcc CC=arm-linux-androideabi-gcc NO_LAPACK=1 TARGET=ARMV7
+	* Fix lock, rpcc bugs (#616, #617. Thanks, Grazvydas Ignotas)
+POWER:
+	* Support ppc64le platform (ELF ABI v2. #612. Thanks, Matthew Brandyberry.)
+	* Support POWER7/8 by POWER6 kernels. (#612. Thanks, Fábio Perez.)
+
+====================================================================
+Version 0.2.14
+24-Mar-2015
+common:
+	* Improve OpenBLASConfig.cmake. (#474, #475. Thanks, xantares.)
+	* Improve ger and gemv for small matrices by stack allocation.
+	  e.g. make -DMAX_STACK_ALLOC=2048 (#482. Thanks, Jerome Robert.)
+	* Introduce openblas_get_num_threads and openblas_get_num_procs.
+	  (#497. Thanks, Erik Schnetter.)
+	* Add ATLAS-style ?geadd function. (#509. Thanks, Martin Köhler.)
+	* Fix c/zsyr bug with negative incx. (#492.)
+	* Fix race condition during shutdown causing a crash in
+	  gotoblas_set_affinity(). (#508. Thanks, Ton van den Heuvel.)
+
+x86/x86-64:
+	* Support AMD Streamroller.
+
+ARM:
+	* Add Cortex-A9 and Cortex-A15 targets.
+
+====================================================================
+Version 0.2.13
+3-Dec-2014
+common:
+	* Add SYMBOLPREFIX and SYMBOLSUFFIX makefile options
+	  for adding a prefix or suffix to all exported symbol names
+	  in the shared library.(#459, Thanks Tony Kelman)
+	* Provide OpenBLASConfig.cmake at installation.
+	* Fix Fortran compiler detection on FreeBSD.
+	  (#470, Thanks Mike Nolta)
+
+
+x86/x86-64:
+	* Add generic kernel files for x86-64. make TARGET=GENERIC
+	* Fix a bug of sgemm kernel on Intel Sandy Bridge.
+	* Fix c_check bug on some amd64 systems. (#471, Thanks Mike Nolta)
+
+ARM:
+	* Support APM's X-Gene 1 AArch64 processors.
+	  Optimize trmm and sgemm. (#465, Thanks Dave Nuechterlein)
+
+====================================================================
+Version 0.2.12
+13-Oct-2014
+common:
+	* Added CBLAS interface for ?omatcopy and ?imatcopy.
+	* Enable ?gemm3m functions.
+	* Added benchmark for ?gemm3m.
+	* Optimized multithreading lower limits.
+	* Disabled SYMM3M and HEMM3M functions 
+	  because of segment violations.
+
+x86/x86-64:
+	* Improved axpy and symv performance on AMD Bulldozer.
+	* Improved gemv performance on modern Intel and AMD CPUs.
+
+====================================================================
+Version 0.2.11
+18-Aug-2014
+common:
+	* Added some benchmark codes.
+	* Fix link error on Linux/musl.(Thanks Isaac Dunham)
+
+x86/x86-64:
+	* Improved s/c/zgemm performance for Intel Haswell.
+	* Improved s/d/c/zgemv performance.
+	* Support the big numa machine.(EXPERIMENT)
+
+ARM:
+	* Fix detection when cpuinfo uses "Processor". (Thanks Isaiah)
+
+====================================================================
+Version 0.2.10
+16-Jul-2014
+common:
+	* Added BLAS extensions as following.
+	  s/d/c/zaxpby, s/d/c/zimatcopy, s/d/c/zomatcopy.
+	* Added OPENBLAS_CORETYPE environment for dynamic_arch. (a86d34)
+	* Added NO_AVX2 flag for old binutils. (#401)
+	* Support outputing the CPU corename on runtime.(#407)
+	* Patched LAPACK to fix bug 114, 117, 118. 
+	  (http://www.netlib.org/lapack/bug_list.html)
+	* Disabled ?gemm3m for a work-around fix. (#400)
+x86/x86-64:
+	* Fixed lots of bugs for optimized kernels on sandybridge,Haswell, 
+	  bulldozer, and piledriver.
+	  https://github.com/xianyi/OpenBLAS/wiki/Fixed-optimized-kernels-To-do-List
+
+ARM:
+	* Improved LAPACK testing.
+
+====================================================================
+Version 0.2.9
+10-Jun-2014
+common:
+	* Improved the result for LAPACK testing. (#372)
+	* Installed DLL to prefix/bin instead of prefix/lib. (#366)
+	* Build import library on Windows.(#374)
+x86/x86-64:
+	* To improve LAPACK testing, we fallback some kernels. (#372)
+	https://github.com/xianyi/OpenBLAS/wiki/Fixed-optimized-kernels-To-do-List
+
+====================================================================
+Version 0.2.9.rc2
+06-Mar-2014
+common:
+	* Added OPENBLAS_VERBOSE environment variable.(#338)
+	* Make OpenBLAS thread-pool resilient to fork via pthread_atfork.
+	  (#294, Thank Olivier Grisel)
+	* Rewrote rotmg
+	* Fixed sdsdot bug.
+x86/x86-64:
+	* Detect Intel Haswell for new Macbook.
+
+====================================================================
+Version 0.2.9.rc1
+13-Jan-2013
+common:
+	* Update LAPACK to 3.5.0 version
+	* Fixed compatiable issues with Clang and Pathscale compilers.
+
+x86/x86-64:
+	* Optimization on Intel Haswell.
+	* Enable optimization kernels on AMD Bulldozer and Piledriver.
+
+ARM:
+	* Support ARMv6 and ARMv7 ISA.
+	* Optimization on ARM Cortex-A9.
+
+====================================================================
+Version 0.2.8
+01-Aug-2013
+common:
+	* Support Open64 5.0. (#266)
+	* Add executable stack markings. (#262, Thank Sébastien Fabbro)
+	* Respect user's LDFLAGS (Thank Sébastien Fabbro)
+
+x86/x86-64:
+	* Rollback bulldozer and piledriver kernels to barcelona kernels (#263)
+	  We will fix the compuational error bug in bulldozer and piledriver kernels.
+
+====================================================================
+Version 0.2.7
+20-Jul-2013
+common:
+	* Support LSB (Linux Standard Base) 4.1.
+          e.g. make CC=lsbcc
+	* Include LAPACK 3.4.2 source codes to the repo.
+          Avoid downloading at compile time.
+	* Add NO_PARALLEL_MAKE flag to disable parallel make.
+        * Create openblas_get_parallel to retrieve information which
+          parallelization model is used by OpenBLAS. (Thank grisuthedragon)
+	* Detect LLVM/Clang compiler. The default compiler is Clang on Mac OS X.
+        * Change LIBSUFFIX from .lib to .a on windows.
+	* A work-around for dtrti_U single thread bug. Replace it with LAPACK codes. (#191)
+
+x86/x86-64:
+	* Optimize c/zgemm, trsm, dgemv_n, ddot, daxpy, dcopy on
+          AMD Bulldozer. (Thank Werner Saar)
+        * Add Intel Haswell support (using Sandybridge optimizations).
+          (Thank Dan Luu)
+	* Add AMD Piledriver support (using Bulldozer optimizations).
+        * Fix the computational error in zgemm avx kernel on
+          Sandybridge. (#237)
+        * Fix the overflow bug in gemv.
+	* Fix the overflow bug in multi-threaded BLAS3, getrf when NUM_THREADS
+          is very large.(#214, #221, #246).
+MIPS64:
+        * Support loongcc (Open64 based) compiler for ICT Loongson 3A/B.
+
+Power:
+        * Support Power7 by old Power6 kernels. (#220)
+
+====================================================================
+Version 0.2.6
+2-Mar-2013
+common:
+	* Improved OpenMP performance slightly. (d744c9)
+	* Improved cblas.h compatibility with Intel MKL.(#185)
+	* Fixed the overflowing bug in single thread cholesky factorization.
+	* Fixed the overflowing buffer bug of multithreading hbmv and sbmv.(#174)
+
+x86/x86-64:
+	* Added AMD Bulldozer x86-64 S/DGEMM AVX kernels. (Thank Werner Saar)
+	  We will tune the performance in future.
+	* Auto-detect Intel Xeon E7540.
+	* Fixed the overflowing buffer bug of gemv. (#173)
+	* Fixed the bug of s/cdot about invalid reading NAN on x86_64. (#189)
+
+MIPS64:
+
+====================================================================
+Version 0.2.5
+26-Nov-2012
+common:
+	* Added NO_SHARED flag to disable generating the shared library.
+	* Compile LAPACKE with ILP64 modle when INTERFACE64=1 (#158)
+	* Export LAPACK 3.4.2 symbols in shared library. (#147)
+	* Only detect the number of physical CPU cores on Mac OSX. (#157)
+	* Fixed NetBSD build. (#155)
+	* Fixed compilation with TARGET=GENERIC. (#160)
+x86/x86-64:
+	* Restore the original CPU affinity when calling
+	  openblas_set_num_threads(1) (#153)
+	* Fixed a SEGFAULT bug in dgemv_t when m is very large.(#154)
+MIPS64:
+
+====================================================================
+Version 0.2.4
+8-Oct-2012
+common:
+	* Upgraded LAPACK to 3.4.2 version. (#145)
+	* Provided support for passing CFLAGS, FFLAGS, PFLAGS,
+	  FPFLAGS to make. (#137)
+	* f77blas.h:compatibility for compilers without C99 complex
+	  number support. (#141)
+x86/x86-64:
+	* Added NO_AVX flag. Check OS supporting AVX on runtime. (#139)
+	* Fixed zdot incompatibility ABI issue with GCC 4.7 on
+	  Windows 32-bit. (#140)
+MIPS64:
+	* Fixed the generation of shared library bug.
+	* Fixed the detection bug on the Loongson 3A server.
+====================================================================
+Version 0.2.3
+20-Aug-2012
+common:
+	* Fixed LAPACK unstable bug about ?laswp. (#130)
+	* Fixed the shared library bug about unloading the library on
+	  Linux (#132).
+	* Fixed the compilation failure on BlueGene/P (TARGET=PPC440FP2)
+	  Please use gcc and IBM xlf. (#134)
+x86/x86-64:
+	* Supported goto_set_num_threads and openblas_set_num_threads
+	  APIs in Windows. They can set the number of threads on runtime.
+
+====================================================================
+Version 0.2.2
+6-July-2012
+common:
+	* Fixed exporting DLL functions bug on Windows/MingW
+	* Support GNU Hurd (Thank Sylvestre Ledru)
+	* Support kfreebsd kernel (Thank Sylvestre Ledru)
+x86/x86-64:
+	* Support Intel Sandy Bridge 22nm desktop/mobile CPU
+SPARC:
+	* Improve the detection of SPARC (Thank Sylvestre Ledru)
+
+====================================================================
+Version 0.2.1
+30-Jun-2012
+common:
+x86/x86-64:
+	* Fixed the SEGFAULT bug about hyper-theading
+	* Support AMD Bulldozer by using GotoBLAS2 AMD Barcelona codes
+
+====================================================================
+Version 0.2.0
+26-Jun-2012
+common:
+	* Removed the limitation (64) of numbers of CPU cores.
+	  Now, it supports 256 cores at max.
+	* Supported clang compiler.
+	* Fixed some build bugs on FreeBSD
+x86/x86-64:
+	* Optimized Level-3 BLAS on Intel Sandy Bridge x86-64 by AVX instructions.
+	  Please use gcc >= 4.6 or clang >=3.1.
+	* Support AMD Bobcat by using GotoBLAS2 AMD Barcelona codes.
+
+====================================================================
+Version 0.1.1
+29-Apr-2012
+common:
+	* Upgraded LAPACK to 3.4.1 version. (Thank Zaheer Chothia)
+	* Supported LAPACKE, a C interface to LAPACKE. (Thank Zaheer Chothia)
+	* Fixed the build bug (MD5 and download) on Mac OSX.
+	* Auto download CUnit 2.1.2-2 from SF.net with UTEST_CHECK=1.
+	* Fxied the compatibility issue for compilers without C99 complex number
+	  (e.g. Visual Studio)
+x86/x86_64:
+	* Auto-detect Intel Sandy Bridge Core i7-3xxx & Xeon E7 Westmere-EX.
+	* Test alpha=Nan in dscale.
+	* Fixed a SEGFAULT bug in samax on x86 windows.
+
+====================================================================
+Version 0.1.0
+23-Mar-2012
+common:
+	* Set soname of shared library on Linux.
+	* Added LIBNAMESUFFIX flag in Makefile.rule. The user can use
+	  this flag to control the library name, e.g. libopenblas.a,
+	  libopenblas_ifort.a or libopenblas_omp.a.
+	* Added GEMM_MULTITHREAD_THRESHOLD flag in Makefile.rule.
+	  The lib use single thread in GEMM function with small matrices.
+x86/x86_64:
+	* Used GEMV SSE/SSE2 kernels on x86 32-bit.
+	* Exported CBLAS functions in Windows DLL.
+MIPS64:
+	* Completed Level-3 BLAS optimization on Loongson 3A CPU.
+	* Improved GEMV performance on Loongson 3A CPU.
+	* Improved Level-3 BLAS performance on Loongson 3B CPU. (EXPERIMENT)
+
+====================================================================
+Version 0.1 alpha2.5
+19-Feb-2012
+common:
+	* Fixed missing "#include <sched.h>" bug on Mac OS X.
+	  Thank Mike Nolta for the patch.
+	* Upgraded LAPACK to 3.4.0 version
+	* Fixed a bug on Mac OS X. Don't require SystemStubs on OS X.
+	  SystemStubs does not exist on Lion. Thank Stefan Karpinski.
+	* Improved README with using OpenMP. Check the internal threads
+	  count less than or equal to omp_get_max_threads()
+x86/x86_64:
+	* Auto-detect Intel Core i6/i7 (Sandy Bridge) CPU with Nehalem assembly kernels
+	* Fixed some bugs on MingW 64-bit including zgemv, cdot, zdot.
+
+====================================================================
+Version 0.1 alpha2.4
+18-Sep-2011
+common:
+	* Fixed a bug about installation. The header file "fblas77.h"
+	  works fine now.
+	* Fixed #61 a building bug about setting TARGET and DYNAMIC_ARCH.
+	* Try to handle absolute path of shared library in OSX. (#57)
+	  Thank Dr Kane O'Donnell.
+	* Changed the installation folder layout to $(PREFIX)/include and
+	  $(PREFIX)/lib
+
+x86/x86_64:
+	* Fixed #58 zdot/xdot SEGFAULT bug with GCC-4.6 on x86. According
+	  to i386 calling convention, The callee should remove the first
+	  hidden parameter.Thank Mr. John for this patch.
+
+====================================================================
+Version 0.1 alpha2.3
+5-Sep-2011
+
+x86/x86_64:
+	*  Added DTB_ENTRIES into dynamic arch setting parameters. Now,
+	   it can read DTB_ENTRIES on runtime. (Refs issue #55 on github)
+
+====================================================================
+Version 0.1 alpha2.2
+14-Jul-2011
+
+common:
+	* Fixed a building bug when DYNAMIC_ARCH=1 & INTERFACE64=1.
+	  (Refs issue #44 on github)
+
+====================================================================
+Version 0.1 alpha2.1
+28-Jun-2011
+
+common:
+	* Stop the build and output the error message when detecting
+	  fortran compiler failed. (Refs issue #42 on github)
+
+====================================================================
+Version 0.1 alpha2
+23-Jun-2011
+
+common:
+	* Fixed blasint undefined bug in <cblas.h> file. Other software
+	  could include this header successfully(Refs issue #13 on github)
+	* Fixed the SEGFAULT bug on 64 cores. On SMP server, the number
+	  of CPUs or cores should be less than or equal to 64.(Refs issue #14
+	  on github)
+	* Support "void goto_set_num_threads(int num_threads)" and "void
+	  openblas_set_num_threads(int num_threads)" when USE_OPENMP=1
+	* Added extern "C" to support C++. Thank Tasio for the patch(Refs
+	  issue #21 on github)
+	* Provided an error message when the arch is not supported.(Refs
+	  issue #19 on github)
+	* Fixed issue #23. Fixed a bug of f_check script about generating link flags.
+	* Added openblas_set_num_threads for Fortran.
+	* Fixed #25 a wrong result of rotmg.
+	* Fixed a bug about detecting underscore prefix in c_check.
+	* Print the wall time (cycles) with enabling FUNCTION_PROFILE
+	* Fixed #35 a build bug with NO_LAPACK=1 & DYNAMIC_ARCH=1
+	* Added install target. You can use "make install". (Refs #20)
+
+
+x86/x86_64:
+	* Fixed #28 a wrong result of dsdot on x86_64.
+	* Fixed #32 a SEGFAULT bug of zdotc with gcc-4.6.
+	* Fixed #33 ztrmm bug on Nehalem.
+	* Work-around #27 the low performance axpy issue with small imput size & multithreads.
+
+MIPS64:
+	* Fixed #28 a wrong result of dsdot on Loongson3A/MIPS64.
+	* Optimized single/double precision BLAS Level3 on Loongson3A/MIPS64. (Refs #2)
+	* Optimized single/double precision axpy function on Loongson3A/MIPS64. (Refs #3)
+
+====================================================================
+Version 0.1 alpha1
+20-Mar-2011
+
+common:
+	* Support "make  NO_LAPACK=1" to build the library without
+	  LAPACK functions.
+	* Fixed randomly SEGFAULT when nodemask==NULL with above Linux 2.6.34.
+	  Thank Mr.Ei-ji Nakama providing this patch. (Refs issue #12 on github)
+	* Added DEBUG=1 rule in Makefile.rule to build debug version.
+	* Disable compiling quad precision in reference BLAS library(netlib BLAS).
+	* Added unit testcases in utest/ subdir. Used  CUnit framework.
+	* Supported OPENBLAS_* & GOTO_* environment variables (Pleas see README)
+	* Imported GotoBLAS2 1.13 BSD version
+
+x86/x86_64:
+	* On x86 32bits, fixed a bug in zdot_sse2.S line 191. This would casue
+	  zdotu & zdotc failures. Instead, work-around it. (Refs issue #8 #9 on github)
+	* Modified ?axpy functions to return same netlib BLAS results
+	  when incx==0 or incy==0 (Refs issue #7 on github)
+	* Modified ?swap functions to return same netlib BLAS results
+	  when incx==0 or incy==0 (Refs issue #6 on github)
+	* Modified ?rot functions to return same netlib BLAS results
+	  when incx==0 or incy==0 (Refs issue #4 on github)
+	* Detect Intel Westmere,Intel Clarkdale and Intel Arrandale
+	  to use Nehalem codes.
+	* Fixed a typo bug about compiling dynamic ARCH library.
+MIPS64:
+	* Improve daxpy performance on ICT Loongson 3A.
+	* Supported ICT Loongson 3A CPU (Refs issue #1 on github)
+====================================================================

@@ -1,0 +1,65 @@
+site_name: OpenBLAS
+site_url: https://openblas.net/docs/
+repo_url: https://github.com/OpenMathLib/OpenBLAS
+copyright: Copyright &copy; 2012- OpenBLAS contributors
+
+theme:
+  name: material
+  logo: logo.svg
+  favicon: logo.svg
+  features:
+    - header.autohide
+  palette:
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: blue grey
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+    # Palette toggle for light mode
+    - scheme: default
+      primary: blue grey
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+plugins:
+  - search
+  - mermaid2
+  - git-revision-date-localized:
+      enable_creation_date: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:mermaid2.fence_mermaid_custom
+  - footnotes
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      toc_depth: 4
+
+nav:
+  - index.md
+  - install.md
+  - user_manual.md
+  - extensions.md
+  - developers.md
+  - build_system.md
+  - runtime_variables.md
+  - distributing.md
+  - ci.md
+  - about.md
+  - faq.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/OpenMathLib/OpenBLAS
+    - icon: material/license
+      link: https://github.com/OpenMathLib/OpenBLAS/LICENSE

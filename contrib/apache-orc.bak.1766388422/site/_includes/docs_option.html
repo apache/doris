@@ -1,0 +1,11 @@
+{% assign items = include.items %}
+
+{% for item in items %}
+  {% assign item_url = item | prepend:"/docs/" | append:".html" %}
+
+  {% for p in site.docs %}
+    {% if p.url == item_url %}
+      <option value="{{ p.url }}">{{ p.title }}</option>
+    {% endif %}
+  {% endfor %}
+{% endfor %}

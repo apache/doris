@@ -1,0 +1,17 @@
+# Load the LAPACK package with which we were built.
+set(LAPACK_DIR "@LAPACK_BINARY_DIR@")
+find_package(LAPACK NO_MODULE)
+
+# Load lapack targets from the build tree, including lapacke targets.
+if(NOT TARGET @LAPACKELIB@)
+  include("@LAPACK_BINARY_DIR@/@LAPACKLIB@-targets.cmake")
+endif()
+
+# Hint for project building against lapack
+set(LAPACKE_Fortran_COMPILER_ID ${LAPACK_Fortran_COMPILER_ID})
+
+# Report lapacke header search locations from build tree.
+set(LAPACKE_INCLUDE_DIRS "@LAPACK_BINARY_DIR@/include")
+
+# Report lapacke libraries.
+set(LAPACKE_LIBRARIES @LAPACKELIB@ ${LAPACK_LIBRARIES})

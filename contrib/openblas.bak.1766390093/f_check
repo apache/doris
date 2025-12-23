@@ -1,0 +1,444 @@
+#!/bin/sh
+
+split() {
+    set -f
+    old_ifs=$IFS
+    IFS=$2
+    set -- $1
+    printf '%s ' "$@"
+    IFS=$old_ifs
+    set +f
+}
+
+hostos="$(uname -s | sed 's/\-.*//')"
+
+#
+# 1. Not specified
+#   1.1 Automatically detect, then check compiler
+#   1.2 If no fortran compiler is detected, gfortran is default with NOFORTRAN definition
+# 2. Specified
+#   2.1 If path is correct, check compiler
+#   2.2 If path is not correct, but still valid compiler name, force setting
+#     2.2.2 Path is not correct, invalid compiler name, then gfortran is default with NOFORTRAN definition
+#
+
+makefile="$1"
+config="$2"
+
+nofortran=0
+
+shift 2
+compiler="$*"
+compiler_bin="$1"
+
+# f77 is too ambiguous
+[ "$compiler" = "f77" ] && compiler=''
+
+path=`split "$PATH" ':'`
+
+if [ -z "$compiler" ]; then
+
+    lists="gfortran g95 frt fort openf90 openf95
+	      sunf77 sunf90 sunf95
+              xlf95 xlf90 xlf
+              ppuf77 ppuf95 ppuf90 ppuxlf
+	      pathf90 pathf95
+	      pgf95 pgf90 pgf77 pgfortran nvfortran
+	      flang egfortran
+              ifort nagfor ifx ftn crayftn armflang"
+
+    for list in $lists; do
+        for p in $path; do
+            if [ -x "$p/$list" ]; then
+                compiler=$list
+                compiler_bin=$list
+                break 2
+            fi
+        done
+    done
+fi
+
+if [ -z "$compiler" ]; then
+
+    nofortran=1
+    compiler=gfortran
+    vendor=GFORTRAN
+    bu="_"
+
+else
+    {
+        data="$(command -v "$compiler_bin" >/dev/null 2>&1)"
+        vendor=""
+    } && {
+    	data=`$compiler -O2 -S ftest.f > /dev/null 2>&1 && cat ftest.s && rm -f ftest.s`
+    	if [ -z "$data" ]; then
+    		data=`$compiler -O2 -S ftest.f > /dev/null 2>&1 && cat ftest.c && rm -f ftest.c`
+    	fi
+
+        case "$data" in *zhoge_*) bu=_ ;; esac
+
+        case "$data" in
+            *Fujitsu*)
+                vendor=FUJITSU
+                openmp='-Kopenmp'
+                ;;
+	    *Hewlett*)
+		vendor=CRAY
+		openmp='-fopenmp'
+		;;
+   	    *Arm\ F90*|*F90\ Flang*)
+		vendor=FLANG
+		openmp='-fopenmp'
+		;;	
+            *GNU*|*GCC*)
+
+                v="${data#*GCC: *\) }"
+                v="${v%%\"*}"
+
+                major="${v%%.*}"
+
+                if [ "$major" -ge 4 ]; then
+                    vendor=GFORTRAN
+                    openmp='-fopenmp'
+                else
+                    case "$compiler" in
+                        *flang*)
+                            vendor=FLANG
+                            openmp='-fopenmp'
+			    data=`$compiler -v 2>&1 > /dev/null `
+                	    v="${data#*version *}"
+                	    v="${v%%*.}"
+                	    major="${v%%.*}"
+                	    if [ "$major" -ge 17 ]; then
+                        	vendor=FLANGNEW
+			    fi	
+			    ;;
+                        *ifort*|*ifx*)
+                            vendor=INTEL
+                            openmp='-fopenmp'
+                            ;;
+                        *pgf*|*nvf*)
+                            vendor=PGI
+                            openmp='-mp'
+                            ;;
+                        *xlf*)
+                            vendor=IBM
+                            ;;
+                        *)
+                            vendor=G77
+                            openmp=''
+                            ;;
+                    esac
+                fi
+                ;;
+	    *Cray*)
+		vendor=CRAY
+		openmp='-fopenmp'
+		;;		
+            *g95*)
+                vendor=G95
+                openmp=''
+                ;;
+            *Intel*)
+                vendor=INTEL
+                openmp='-fopenmp'
+                ;;
+            *'Sun Fortran'*)
+                vendor=SUN
+                openmp='-xopenmp=parallel'
+                ;;
+            *PathScale*)
+                vendor=PATHSCALE
+                openmp='-openmp'
+                ;;
+            *Open64*)
+                vendor=OPEN64
+                openmp='-mp'
+                ;;
+            *PGF*|*NVF*)
+                vendor=PGI
+                openmp='-mp'
+                ;;
+            *'IBM XL'*)
+                vendor=IBM
+                openmp='-openmp'
+		case "$CC" in *gcc*)
+		bu=_
+		;;
+		esac
+                ;;
+            *NAG*)
+                vendor=NAG
+                openmp='-openmp'
+                ;;
+        esac
+
+    	# for embedded underscore name, e.g. zho_ge, it may append 2 underscores.
+    	data=`$compiler -O2 -S ftest3.f >/dev/null 2>&1 && cat ftest3.s && rm -f ftest3.s`
+
+    	[ -z "$data" ] && {
+    		data=`$compiler -O2 -S ftest3.f >/dev/null 2>&1 && cat ftest3.c && rm -f ftest3.c`
+    	}
+
+    	case "$data" in *' zho_ge__'*) need2bu=1 ;; esac
+    	case "$vendor" in *G95*) [ "$NO_LAPACKE" != 1 ] && need2bu='' ;; esac
+	}
+
+    if [ -z "$vendor" ]; then
+        case "$compiler" in
+            *g77*)
+                vendor=G77
+                bu=_
+                openmp=''
+                ;;
+            *g95*)
+                vendor=G95
+                bu=_
+                openmp=''
+                ;;
+            *gfortran*)
+                vendor=GFORTRAN
+                bu=_
+                openmp='-fopenmp'
+                ;;
+            *ifort*|*ifx*)
+                vendor=INTEL
+                bu=_
+                openmp='-fopenmp'
+                ;;
+            *pathf*)
+            	vendor=PATHSCALE
+            	bu=_
+            	openmp='-mp'
+            	;;
+            *pgf*|*nvf*)
+                vendor=PGI
+                bu=_
+                openmp='-mp'
+                ;;
+            *ftn*)
+            	vendor=PGI
+            	bu=_
+            	openmp=-openmp
+            	;;
+            *frt*)
+                vendor=FUJITSU
+                bu=_
+                openmp='-openmp'
+                ;;
+            *sunf77*|*sunf90*|*sunf95*)
+                vendor=SUN
+                bu=_
+                openmp='-xopenmp=parallel'
+                ;;
+            *ppuf*|*xlf*)
+                vendor=IBM
+                openmp='-openmp'
+		case "$CC" in *gcc*)
+		bu=_
+		;;
+		esac
+                ;;
+            *open64*)
+                vendor=OPEN64
+                openmp='-mp'
+                ;;
+            *flang*)
+                vendor=FLANG
+        	data=`$compiler -v 2>&1 > /dev/null`
+        	v="${data#*version *}"
+                v="${v%%*.}"
+                major="${v%%.*}"
+                if [ "$major" -ge 17 ]; then
+                        vendor=FLANGNEW
+                fi
+                bu=_
+                openmp='-fopenmp'
+                ;;
+            *nagfor*)
+                vendor=NAG
+                bu=_
+                openmp='-openmp'
+                ;;
+        esac
+
+    	if [ -z "$vendor" ]; then
+    	    nofortran=1
+    	    compiler="gfortran"
+    	    vendor=GFORTRAN
+    	    bu=_
+    	    openmp=''
+    	fi
+    fi
+fi
+
+{
+    data=`command -v $compiler_bin >/dev/null 2>&1`
+} && {
+
+    binary=$BINARY
+
+    [ "$USE_OPENMP" != 1 ] && openmp=''
+
+    case "$binary" in
+        32)
+            {
+                link=`$compiler $openmp -m32 -v ftest2.f 2>&1 && rm -f a.out a.exe`
+            } || {
+                link=`$compiler $openmp -q32 -v ftest2.f 2>&1 && rm -f a.out a.exe`
+            } || {
+                # for AIX
+                link=`$compiler $openmp -maix32 -v ftest2.f 2>&1 && rm -f a.out a.exe`
+            } || {
+                # for gfortran MIPS
+                mips_data=`$compiler_bin -E -dM - < /dev/null`
+                case "$mips_data" in
+                    *_MIPS_ISA_MIPS64*)
+                        link=`$compiler $openmp -mabi=n32 -v ftest2.f 2>&1 && rm -f a.out a.exe`
+                        ;;
+                    *)
+                        link=`$compiler $openmp -mabi=32 -v ftest2.f 2>&1 && rm -f a.out a.exe`
+                        ;;
+                esac
+            } || {
+                binary=''
+            }
+            ;;
+        64)
+            {
+                link=`$compiler $openmp -m64 -v ftest2.f 2>&1 && rm -f a.out a.exe`
+            } || {
+                link=`$compiler $openmp -q64 -v ftest2.f 2>&1 && rm -f a.out a.exe`
+            } || {
+                # for AIX
+                link=`$compiler $openmp -maix64 -v ftest2.f 2>&1 && rm -f a.out a.exe`
+            } || {
+                # for gfortran MIPS
+                link=`$compiler $openmp -mabi=64 -v ftest2.f 2>&1 && rm -f a.out a.exe`
+            } || {
+                # for nagfor
+                link=`$compiler $openmp -dryrun ftest2.f 2>&1 && rm -f a.out a.exe`
+            } || {
+                binary=''
+            }
+            ;;
+    esac
+
+    if [ -z "$binary" ]; then
+        link=`$compiler $openmp -v ftest2.f 2>&1 && rm -f a.out a.exe`
+    fi
+}
+
+if [ "$vendor" = "NAG" ]; then
+    link=`$compiler $openmp -dryrun ftest2.f 2>&1 && rm -f a.out a.exe`
+fi
+if [ "$vendor" = "CRAY" ]; then
+    link=`$compiler $openmp -hnopattern ftest2.f 2>&1 && rm -f a.out a.exe`
+fi
+linker_L=""
+linker_l=""
+linker_a=""
+
+if [ -n "$link" ]; then
+
+    link=`echo "$link" | sed 's/\-Y[[:space:]]P\,/\-Y/g'`
+
+    link=`echo "$link" | sed 's/\-R[[:space:]]*/\-rpath\%/g'`
+
+    link=`echo "$link" | sed 's/\-rpath[[:space:]]+/\-rpath\%/g'`
+
+    link=`echo "$link" | sed 's/\-rpath-link[[:space:]]+/\-rpath-link\%/g'`
+
+    flags=`echo "$link" | tr "',\n" " "`
+    # remove leading and trailing quotes from each flag.
+    #@flags = map {s/^['"]|['"]$//g; $_} @flags;
+
+    for flag in $flags; do
+        case "$flag" in -L*)
+            case "$flag" in
+                -LIST:*|-LANG:*) ;;
+                *) linker_L="$linker_L $flag" ;;
+            esac
+        esac
+
+    	case "$flag" in -Y*)
+    	    [ "$hostos" = "SunOS" ] && continue
+    	    linker_L="$linker_L -Wl,$flag"
+    	    ;;
+        esac
+
+    	case "$flag" in --exclude-libs*)
+            linker_L="$linker_L -Wl,$flag"
+            flag=""
+            ;;
+        esac
+
+    	case "$flag" in -rpath%*)
+    	    flag=`echo "$flag" | sed 's/\%/\,/g'`
+    	    linker_L="$linker_L -Wl,$flag"
+        esac
+
+    	case "$flag" in -rpath-link%*)
+    	    flag=`echo "$flag" | sed 's/\%/\,/g'`
+    	    linker_L="$linker_L -Wl,$flag"
+    	    ;;
+    	esac
+
+        case "$flag" in -l*)
+            case "$flag" in
+                *ibrary*|*gfortranbegin*|*flangmain*|*frtbegin*|*pathfstart*|\
+                    *crt[0-9]*|*gcc*|*user32*|*kernel32*|*advapi32*|*shell32*|\
+                    -l) ;;
+                *omp*)
+                    case "$vendor" in
+                        *PGI*|*FUJITSU*) ;;
+                        *) linker_l="$linker_l $flag" ;;
+                    esac
+                    ;;
+                *[0-9]*)
+                    if [ "$vendor" = "FUJITSU" ]; then
+                        case "$flag" in
+                            -lfj90*) linker_l="$linker_l $flag" ;;
+                            *) ;;
+                        esac
+                    fi
+                    ;;
+                *) linker_l="$linker_l $flag" ;;
+            esac
+    	esac
+
+        case "$flag" in *quickfit.o*)
+            [ "$vendor" = "NAG" ] && linker_l="$linker_l $flag" ;;
+        esac
+
+        case "$flag" in *safefit.o*)
+            [ "$vendor" = "NAG" ] && linker_l="$linker_l $flag" ;;
+        esac
+
+        case "$flag" in *thsafe.o*)
+            [ "$vendor" = "NAG" ] && linker_l="$linker_l $flag" ;;
+        esac
+
+    	case "$flag" in *.a) linker_a="$linker_a $flag" ;; esac
+    done
+fi
+
+if [ "$vendor" = "FLANG" ]; then
+    linker_a="$linker_a -lflang"
+fi
+
+printf "F_COMPILER=%s\n" "$vendor"               >> "$makefile"
+printf "FC=%s\n" "$compiler"                     >> "$makefile"
+[ -n "$bu" ] && printf 'BU=%s\n' "$bu"           >> "$makefile"
+[ "$nofortran" -eq 1 ] && printf 'NOFORTRAN=1\n' >> "$makefile"
+
+[ -n "$bu" ] && printf '#define BUNDERSCORE\t%s\n' "$bu"    >> "$config"
+[ -n "$bu" ] && printf '#define NEEDBUNDERSCORE\t1\n'       >> "$config"
+[ -n "$need2bu" ] && printf "#define NEED2UNDERSCORES\t1\n" >> "$config"
+
+[ -n "$need2bu" ] && printf "#define NEED2UNDERSCORES=1\n"  >> "$config"
+
+if [ -n "$linker_l" ] || [ -n "$linker_a" ]; then
+    printf "FEXTRALIB=%s %s %s\n" "$linker_L" "$linker_l" "$linker_a" >> "$makefile"
+fi
+

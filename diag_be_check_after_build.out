@@ -1,0 +1,393 @@
+--- TIME ---
+Sun Dec 21 15:32:41 CST 2025
+--- ps for doris_be ---
+zhisheng  242019 15.1  6.7 22020900 1085972 pts/3 Sl  15:28   0:39 /home/zhisheng/doris/lib/doris_be
+zhisheng  244332  0.0  0.0   4096  2176 ?        S    15:32   0:00 grep -E doris_be
+BE_PID=242019
+--- exe path ---
+/home/zhisheng/doris/output/be/lib/doris_be
+--- grep source for hamming_distance ---
+be/src/vec/functions/function_string.cpp:1294:    static constexpr auto name = "hamming_distance";
+be/src/vec/functions/function_string.cpp:1301:    static Int64 calculate_hamming_distance(const StringRef& str1, const StringRef& str2) {
+be/src/vec/functions/function_string.cpp:1332:                res[i] = calculate_hamming_distance(lstr, rstr);
+be/src/vec/functions/function_string.cpp:1354:                res[i] = calculate_hamming_distance(lstr, rstr);
+be/src/vec/functions/function_string.cpp:1376:                res[i] = calculate_hamming_distance(lstr, rstr);
+--- grep be.log for hamming_distance entries ---
+--- tail last 200 lines of be.out ---
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-17 15:29:57,384 Start time: Wed Dec 17 15:29:57 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:38:12,996 Start time: Sat Dec 20 16:38:12 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:38:47,695 Start time: Sat Dec 20 16:38:47 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:45:23,316 Start time: Sat Dec 20 16:45:23 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 18:30:42,492 Start time: Sat Dec 20 18:30:42 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 23:03:19,855 Start time: Sat Dec 20 23:03:19 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 23:58:54,784 Start time: Sat Dec 20 23:58:54 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:08:23,998 Start time: Sun Dec 21 11:08:22 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:44:38,425 Start time: Sun Dec 21 11:44:38 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+thrift error, reason=THRIFT_EAGAIN (timed out)INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:56:01,762 Start time: Sun Dec 21 11:56:01 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 13:01:12,408 Start time: Sun Dec 21 13:01:12 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+thrift error, reason=No more data to read.thrift error, reason=No more data to read.thrift error, reason=write() send(): Broken pipethrift error, reason=write() send(): Broken pipethrift error, reason=No more data to read.thrift error, reason=write() send(): Broken pipethrift error, reason=write() send(): Broken pipeINFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 14:37:56,202 Start time: Sun Dec 21 14:37:56 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 15:27:56,843 Start time: Sun Dec 21 15:27:56 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+--- strings in BE binary (case-insensitive) ---
+_ZNK5faiss22HammingComputerDefault7hammingEPKh
+_ZNK5faiss18PolysemousTraining23optimize_pq_for_hammingERNS_16ProductQuantizerEmPKf
+_ZNK5faiss7IndexPQ22hamming_distance_tableElPKfPi
+_ZN5faiss7IndexPQ26hamming_distance_histogramElPKflS2_Pl
+_ZN5faiss15hammings_knn_hcEPNS_9HeapArrayINS_4CMaxIilEEEEPKhS6_mmi17ApproxTopK_mode_tPKNS_10IDSelectorE
+_ZN5faiss27generalized_hammings_knn_hcEPNS_9HeapArrayINS_4CMaxIilEEEEPKhS6_mmi
+_ZN5faiss8hammingsEPKhS1_mmmPi
+_ZN5faiss15hammings_knn_mcEPKhS1_mmmmPiPlPKNS_10IDSelectorE
+_ZN5faiss20hamming_range_searchEPKhS1_mmimPNS_17RangeSearchResultEPKNS_10IDSelectorE
+_ZN5faiss8hammingsEPKmS1_mmmPi
+_ZN5faiss12hammings_knnEPNS_9HeapArrayINS_4CMaxIilEEEEPKhS6_mmi
+_ZN5faiss18hamming_batch_sizeE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj32ELj2ENS_16HammingComputer4EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj16ELj2ENS_16HammingComputer4EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj2ENS_16HammingComputer4EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj3ENS_16HammingComputer4EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj32ELj2ENS_16HammingComputer8EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj16ELj2ENS_16HammingComputer8EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj2ENS_16HammingComputer8EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj3ENS_16HammingComputer8EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj32ELj2ENS_17HammingComputer16EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj16ELj2ENS_17HammingComputer16EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj2ENS_17HammingComputer16EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj3ENS_17HammingComputer16EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj32ELj2ENS_17HammingComputer20EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj16ELj2ENS_17HammingComputer20EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj2ENS_17HammingComputer20EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj3ENS_17HammingComputer20EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj32ELj2ENS_17HammingComputer32EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj16ELj2ENS_17HammingComputer32EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj2ENS_17HammingComputer32EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj3ENS_17HammingComputer32EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj32ELj2ENS_17HammingComputer64EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj16ELj2ENS_17HammingComputer64EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj2ENS_17HammingComputer64EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj3ENS_17HammingComputer64EE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj32ELj2ENS_22HammingComputerDefaultEE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj16ELj2ENS_22HammingComputerDefaultEE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj2ENS_22HammingComputerDefaultEE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss27HeapWithBucketsForHamming32INS_4CMaxIilEELj8ELj3ENS_22HammingComputerDefaultEE7bs_addnEjjRKS3_PKhjPiPlPKNS_10IDSelectorE
+_ZN5faiss19hamming_count_thresEPKhS1_mmimPm
+_ZN5faiss24crosshamming_count_thresEPKhmimPm
+_ZN5faiss19match_hamming_thresEPKhS1_mmimPlPi
+void faiss::(anonymous namespace)::search_knn_hamming_per_invlist(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, idx_t, const idx_t *__restrict, const int32_t *__restrict, int32_t *__restrict, idx_t *__restrict, bool, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputerDefault]
+In hs_expr_ext, cannot have both edit distance and Hamming distance.
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer64, store_pairs = true]
+void faiss::(anonymous namespace)::hammings_knn_hc(int, int_maxheap_array_t *__restrict, const uint8_t *__restrict, const uint8_t *__restrict, size_t, bool, bool, ApproxTopK_mode_t, const faiss::IDSelector *) [HammingComputer = faiss::HammingComputer20]
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer20, store_pairs = false]
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::generalized_hammings_knn_hc;673;25;;
+;/root/doris/contrib/faiss/faiss/IndexPQ.cpp;faiss::IndexPQ::hamming_distance_histogram;481;1;;
+void faiss::IndexPQ::hamming_distance_histogram(idx_t, const float *, idx_t, const float *, int64_t *)
+void faiss::(anonymous namespace)::hammings_knn_hc(int, int_maxheap_array_t *__restrict, const uint8_t *__restrict, const uint8_t *__restrict, size_t, bool, bool, ApproxTopK_mode_t, const faiss::IDSelector *) [HammingComputer = faiss::HammingComputer32]
+void faiss::(anonymous namespace)::hammings_knn_hc(int, int_maxheap_array_t *__restrict, const uint8_t *__restrict, const uint8_t *__restrict, size_t, bool, bool, ApproxTopK_mode_t, const faiss::IDSelector *) [HammingComputer = faiss::HammingComputer64]
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::(anonymous namespace)::hammings_knn_mc;265;1;;
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer8, store_pairs = true]
+;/root/doris/contrib/faiss/faiss/IndexBinaryHNSW.cpp;faiss::(anonymous namespace)::FlatHammingDis<faiss::HammingComputerDefault>::~FlatHammingDis;277;1;;
+void faiss::hammings(const uint8_t *__restrict, const uint8_t *__restrict, size_t, size_t, size_t, hamdis_t *__restrict)
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::(anonymous namespace)::hammings_knn_hc;184;25;;
+virtual void faiss::(anonymous namespace)::IVFScanner<faiss::HammingComputer20>::set_query(const float *) [HammingComputer = faiss::HammingComputer20]
+virtual void faiss::(anonymous namespace)::IVFScanner<faiss::HammingComputer32>::set_query(const float *) [HammingComputer = faiss::HammingComputer32]
+;/root/doris/contrib/faiss/faiss/IndexBinaryHNSW.cpp;faiss::(anonymous namespace)::FlatHammingDis<faiss::HammingComputer20>::~FlatHammingDis;277;1;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::pack_bitstrings;713;39;;
+;/root/doris/contrib/faiss/faiss/IndexBinaryHNSW.cpp;faiss::(anonymous namespace)::FlatHammingDis<faiss::HammingComputer8>::~FlatHammingDis;277;1;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::bitvec_shuffle;440;40;;
+void faiss::(anonymous namespace)::hammings_knn_hc(int, int_maxheap_array_t *__restrict, const uint8_t *__restrict, const uint8_t *__restrict, size_t, bool, bool, ApproxTopK_mode_t, const faiss::IDSelector *) [HammingComputer = faiss::HammingComputer8]
+virtual void faiss::(anonymous namespace)::IVFScanner<faiss::HammingComputer16>::set_query(const float *) [HammingComputer = faiss::HammingComputer16]
+;/root/doris/contrib/faiss/faiss/IndexBinaryIVF.cpp;faiss::(anonymous namespace)::search_knn_hamming_heap;398;1;;
+;/root/doris/contrib/faiss/faiss/IndexBinaryHNSW.cpp;faiss::(anonymous namespace)::FlatHammingDis<faiss::HammingComputer4>::~FlatHammingDis;277;1;;
+;/root/doris/contrib/faiss/faiss/IndexBinaryHNSW.cpp;faiss::(anonymous namespace)::FlatHammingDis<faiss::HammingComputer64>::~FlatHammingDis;277;1;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::(anonymous namespace)::hamming_range_search;308;16;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::unpack_bitstrings;755;1;;
+virtual void faiss::(anonymous namespace)::IVFScanner<faiss::HammingComputer8>::set_query(const float *) [HammingComputer = faiss::HammingComputer8]
+;/root/doris/contrib/faiss/faiss/IndexBinaryIVF.cpp;faiss::(anonymous namespace)::search_knn_hamming_count;497;53;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::(anonymous namespace)::hammings_knn_mc;265;25;;
+;/root/doris/contrib/faiss/faiss/IndexBinaryIVF.cpp;faiss::(anonymous namespace)::search_knn_hamming_heap;398;16;;
+/root/doris/contrib/faiss/faiss/utils/hamming.cpp
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer20, store_pairs = true]
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::fvecs2bitvecs;384;1;;
+void faiss::(anonymous namespace)::hammings_knn_hc(int, int_maxheap_array_t *__restrict, const uint8_t *__restrict, const uint8_t *__restrict, size_t, bool, bool, ApproxTopK_mode_t, const faiss::IDSelector *) [HammingComputer = faiss::HammingComputer16]
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::unpack_bitstrings;778;39;;
+void faiss::(anonymous namespace)::hammings_knn_hc(int, int_maxheap_array_t *__restrict, const uint8_t *__restrict, const uint8_t *__restrict, size_t, bool, bool, ApproxTopK_mode_t, const faiss::IDSelector *) [HammingComputer = faiss::HammingComputer4]
+void faiss::hamming_count_thres(const uint8_t *, const uint8_t *, size_t, size_t, hamdis_t, size_t, size_t *)
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::pack_bitstrings;713;1;;
+faiss::(anonymous namespace)::ReproduceWithHammingObjective::ReproduceWithHammingObjective(int, const std::vector<double> &, double)
+void faiss::(anonymous namespace)::search_knn_hamming_per_invlist(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, idx_t, const idx_t *__restrict, const int32_t *__restrict, int32_t *__restrict, idx_t *__restrict, bool, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer4]
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer32, store_pairs = true]
+void faiss::crosshamming_count_thres(const uint8_t *, size_t, hamdis_t, size_t, size_t *)
+void faiss::(anonymous namespace)::search_knn_hamming_per_invlist(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, idx_t, const idx_t *__restrict, const int32_t *__restrict, int32_t *__restrict, idx_t *__restrict, bool, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer16]
+;/root/doris/contrib/faiss/faiss/IndexBinaryHNSW.cpp;faiss::(anonymous namespace)::FlatHammingDis<faiss::HammingComputer32>::~FlatHammingDis;277;1;;
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer8, store_pairs = false]
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::bitvecs2fvecs;395;41;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::(anonymous namespace)::hamming_range_search;308;1;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::bitvec_shuffle;440;1;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::(anonymous namespace)::hamming_range_search;304;1;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::generalized_hammings_knn_hc;673;1;;
+void faiss::(anonymous namespace)::search_knn_hamming_per_invlist(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, idx_t, const idx_t *__restrict, const int32_t *__restrict, int32_t *__restrict, idx_t *__restrict, bool, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer8]
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer16, store_pairs = true]
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer16, store_pairs = false]
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::pack_bitstrings;736;1;;
+;/root/doris/contrib/faiss/faiss/IndexBinaryIVF.cpp;faiss::(anonymous namespace)::search_knn_hamming_heap;393;1;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::bitvecs2fvecs;395;1;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::(anonymous namespace)::hammings_knn_hc;184;1;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::unpack_bitstrings;778;1;;
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer4, store_pairs = false]
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::pack_bitstrings;736;39;;
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::unpack_bitstrings;755;39;;
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputerDefault, store_pairs = true]
+;/root/doris/contrib/faiss/faiss/IndexBinaryHNSW.cpp;faiss::(anonymous namespace)::FlatHammingDis<faiss::HammingComputer16>::~FlatHammingDis;277;1;;
+;/root/doris/contrib/faiss/faiss/IndexPQ.cpp;faiss::IndexPQ::hamming_distance_histogram;481;16;;
+virtual void faiss::(anonymous namespace)::IVFScanner<faiss::HammingComputerDefault>::set_query(const float *) [HammingComputer = faiss::HammingComputerDefault]
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer4, store_pairs = true]
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputerDefault, store_pairs = false]
+;/root/doris/contrib/faiss/faiss/utils/hamming.cpp;faiss::fvecs2bitvecs;384;41;;
+;/root/doris/contrib/faiss/faiss/IndexBinaryIVF.cpp;faiss::(anonymous namespace)::search_knn_hamming_count;497;1;;
+;/root/doris/contrib/faiss/faiss/IndexPQ.cpp;faiss::IndexPQ::hamming_distance_histogram;499;1;;
+;/root/doris/contrib/faiss/faiss/IndexPQ.cpp;faiss::IndexPQ::hamming_distance_histogram;477;1;;
+virtual void faiss::(anonymous namespace)::IVFScanner<faiss::HammingComputer64>::set_query(const float *) [HammingComputer = faiss::HammingComputer64]
+void faiss::(anonymous namespace)::search_knn_hamming_per_invlist(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, idx_t, const idx_t *__restrict, const int32_t *__restrict, int32_t *__restrict, idx_t *__restrict, bool, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer20]
+void faiss::(anonymous namespace)::search_knn_hamming_per_invlist(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, idx_t, const idx_t *__restrict, const int32_t *__restrict, int32_t *__restrict, idx_t *__restrict, bool, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer64]
+size_t faiss::match_hamming_thres(const uint8_t *, const uint8_t *, size_t, size_t, hamdis_t, size_t, int64_t *, hamdis_t *)
+virtual void faiss::(anonymous namespace)::IVFScanner<faiss::HammingComputer4>::set_query(const float *) [HammingComputer = faiss::HammingComputer4]
+void faiss::(anonymous namespace)::search_knn_hamming_per_invlist(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, idx_t, const idx_t *__restrict, const int32_t *__restrict, int32_t *__restrict, idx_t *__restrict, bool, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer32]
+;/root/doris/contrib/faiss/faiss/IndexBinaryIVF.cpp;faiss::(anonymous namespace)::search_knn_hamming_heap;393;67;;
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer32, store_pairs = false]
+void faiss::(anonymous namespace)::hammings_knn_hc(int, int_maxheap_array_t *__restrict, const uint8_t *__restrict, const uint8_t *__restrict, size_t, bool, bool, ApproxTopK_mode_t, const faiss::IDSelector *) [HammingComputer = faiss::HammingComputerDefault]
+void faiss::(anonymous namespace)::search_knn_hamming_heap(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, idx_t, const idx_t *__restrict, const int32_t *__restrict, int32_t *__restrict, idx_t *__restrict, bool, const IVFSearchParameters *)
+void faiss::(anonymous namespace)::search_knn_hamming_count(const IndexBinaryIVF *, size_t, const uint8_t *__restrict, const idx_t *__restrict, int, int32_t *__restrict, idx_t *__restrict, const IVFSearchParameters *) [HammingComputer = faiss::HammingComputer64, store_pairs = false]
+N5faiss12_GLOBAL__N_129ReproduceWithHammingObjectiveE
+N5faiss12_GLOBAL__N_110IVFScannerINS_16HammingComputer4EEE
+N5faiss12_GLOBAL__N_110IVFScannerINS_16HammingComputer8EEE
+N5faiss12_GLOBAL__N_110IVFScannerINS_17HammingComputer16EEE
+N5faiss12_GLOBAL__N_110IVFScannerINS_17HammingComputer20EEE
+N5faiss12_GLOBAL__N_110IVFScannerINS_17HammingComputer32EEE
+N5faiss12_GLOBAL__N_110IVFScannerINS_17HammingComputer64EEE
+N5faiss12_GLOBAL__N_110IVFScannerINS_22HammingComputerDefaultEEE
+N5faiss12_GLOBAL__N_118IVFBinaryScannerL2INS_16HammingComputer4EEE
+N5faiss12_GLOBAL__N_118IVFBinaryScannerL2INS_16HammingComputer8EEE
+N5faiss12_GLOBAL__N_118IVFBinaryScannerL2INS_17HammingComputer16EEE
+N5faiss12_GLOBAL__N_118IVFBinaryScannerL2INS_17HammingComputer20EEE
+N5faiss12_GLOBAL__N_118IVFBinaryScannerL2INS_17HammingComputer32EEE
+N5faiss12_GLOBAL__N_118IVFBinaryScannerL2INS_17HammingComputer64EEE
+N5faiss12_GLOBAL__N_118IVFBinaryScannerL2INS_22HammingComputerDefaultEEE
+N5faiss12_GLOBAL__N_114FlatHammingDisINS_16HammingComputer4EEE
+N5faiss12_GLOBAL__N_114FlatHammingDisINS_16HammingComputer8EEE
+N5faiss12_GLOBAL__N_114FlatHammingDisINS_17HammingComputer16EEE
+N5faiss12_GLOBAL__N_114FlatHammingDisINS_17HammingComputer20EEE
+N5faiss12_GLOBAL__N_114FlatHammingDisINS_17HammingComputer32EEE
+N5faiss12_GLOBAL__N_114FlatHammingDisINS_17HammingComputer64EEE
+N5faiss12_GLOBAL__N_114FlatHammingDisINS_22HammingComputerDefaultEEE
+_ZN5faiss12_GLOBAL__N_113IVFPQScannerTIlLNS_10MetricTypeE0ENS_10PQDecoder8EE27Run_scan_list_polysemous_hcINS0_18RangeSearchResultsINS_4CMinIflEELb1EEEE1fINS_17HammingComputer32EJmPKhS9_EEEvPKS4_DpT0_
+_ZNK5faiss12_GLOBAL__N_113IVFPQScannerTIlLNS_10MetricTypeE0ENS_10PQDecoder8EE23scan_list_polysemous_hcINS_17HammingComputer32ENS0_16KnnSearchResultsINS_4CMinIflEELb1EEEEEvmPKhRT0_
+_ZNK5faiss12_GLOBAL__N_113IVFPQScannerTIlLNS_10MetricTypeE1ENS_10PQDecoder8EE23scan_list_polysemous_hcINS_22HammingComputerDefaultENS0_18RangeSearchResultsINS_4CMaxIflEELb1EEEEEvmPKhRT0_
+_ZN5faiss12_GLOBAL__N_113IVFPQScannerTIlLNS_10MetricTypeE1ENS_10PQDecoder8EE27Run_scan_list_polysemous_hcINS0_18RangeSearchResultsINS_4CMaxIflEELb1EEEE1fINS_22HammingComputerDefaultEJmPKhS9_EEEvPKS4_DpT0_
+scan_list_polysemous_hc<faiss::HammingComputer20, faiss::(anonymous namespace)::RangeSearchResults<faiss::CMax<float, long>, true> >
+_ZNK5faiss12_GLOBAL__N_113IVFPQScannerTIlLNS_10MetricTypeE1ENS_10PQDecoder8EE23scan_list_polysemous_hcINS_17HammingComputer16ENS0_16KnnSearchResultsINS_4CMaxIflEELb1EEEEEvmPKhRT0_
+_ZN5faiss24dispatch_HammingComputerINS_12_GLOBAL__N_113IVFPQScannerTIlLNS_10MetricTypeE0ENS_16PQDecoderGenericEE27Run_scan_list_polysemous_hcINS1_18RangeSearchResultsINS_4CMinIflEELb1EEEEEJPKS5_mPKhSA_EEENT_1TEiRSG_DpT0_
+f<faiss::HammingComputer16, unsigned long, const unsigned char *, faiss::(anonymous namespace)::RangeSearchResults<faiss::CMin<float, long>, false> >
+_ZNK5faiss12_GLOBAL__N_113IVFPQScannerTIlLNS_10MetricTypeE0ENS_10PQDecoder8EE23scan_list_polysemous_hcINS_16HammingComputer8ENS0_16KnnSearchResultsINS_4CMinIflEELb0EEEEEvmPKhRT0_
+scan_list_polysemous_hc<faiss::HammingComputer20, faiss::(anonymous namespace)::KnnSearchResults<faiss::CMin<float, long>, false> >
+_ZN5faiss12_GLOBAL__N_113IVFPQScannerTIlLNS_10MetricTypeE1ENS_10PQDecoder8EE27Run_scan_list_polysemous_hcINS0_16KnnSearchResultsINS_4CMaxIflEELb0EEEE1fINS_17HammingComputer32EJmPKhS9_EEEvPKS4_DpT0_
+_ZNK5faiss12_GLOBAL__N_113IVFPQScannerTIlLNS_10MetricTypeE1ENS_11PQDecoder16EE23scan_list_polysemous_hcINS_17HammingComputer64ENS0_18RangeSearchResultsINS_4CMaxIflEELb0EEEEEvmPKhRT0_
+_ZN5faiss24dispatch_HammingComputerINS_12_GLOBAL__N_113IVFPQScannerTIlLNS_10MetricTypeE0ENS_10PQDecoder8EE27Run_scan_list_polysemous_hcINS1_16KnnSearchResultsINS_4CMinIflEELb1EEEEEJPKS5_mPKhSA_EEENT_1TEiRSG_DpT0_
+_ZNK5faiss20GenHammingComputer167hammingEPKh
+_ZN5faissL11hamming_disEmm
+_ZN5faiss12_GLOBAL__N_110IVFScannerINS_17HammingComputer64EE9set_queryEPKf
+_ZN5faiss12_GLOBAL__N_110IVFScannerINS_17HammingComputer32EE9set_queryEPKf
+_ZN5faiss12_GLOBAL__N_110IVFScannerINS_17HammingComputer32EE8set_listElf
+_ZN5faiss12_GLOBAL__N_110IVFScannerINS_17HammingComputer20EEC2EPKNS_20IndexIVFSpectralHashEb
+_ZNSt15__new_allocatorIN5faiss13HCounterStateINS0_16HammingComputer4EEEEaSERKS4_
+_ZNSt6vectorIN5faiss13HCounterStateINS0_16HammingComputer4EEESaIS3_EE11_S_relocateEPS3_S6_S6_RS4_
+_ZNSt6vectorIN5faiss13HCounterStateINS0_16HammingComputer4EEESaIS3_EE4swapERS5_
+_ZNSt15__new_allocatorIN5faiss13HCounterStateINS0_16HammingComputer8EEEEaSERKS4_
+rebind<faiss::HCounterState<faiss::HammingComputer8> >
+_ZNSt6vectorIN5faiss13HCounterStateINS0_16HammingComputer8EEESaIS3_EE15_S_use_relocateEv
+_ZN9__gnu_cxx17__normal_iteratorIPKN5faiss13HCounterStateINS1_16HammingComputer8EEESt6vectorIS4_SaIS4_EEEmmEi
+_ZNKSt6vectorIN5faiss13HCounterStateINS0_16HammingComputer8EEESaIS3_EE4cendEv
+_ZNSt6vectorIN5faiss13HCounterStateINS0_16HammingComputer8EEESaIS3_EE16_M_shrink_to_fitEv
+_ZNSt6vectorIN5faiss13HCounterStateINS0_16HammingComputer8EEESaIS3_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS3_S5_EEOS3_
+_ZNKSt6vectorIN5faiss13HCounterStateINS0_16HammingComputer8EEESaIS3_EE12_M_check_lenEmPKc
+_ZNSt6vectorIN5faiss13HCounterStateINS0_16HammingComputer8EEESaIS3_EE15_M_erase_at_endEPS3_
+allocator_traits<std::allocator<faiss::HCounterState<faiss::HammingComputer16> > >
+_ZNSt12_Vector_baseIN5faiss13HCounterStateINS0_17HammingComputer16EEESaIS3_EE17_M_create_storageEm
+_ZNSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer16EEESaIS3_EE14_S_do_relocateEPS3_S6_S6_RS4_St17integral_constantIbLb1EE
+_ZNSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer16EEESaIS3_EE6rbeginEv
+_ZNSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer16EEESaIS3_EE14_M_emplace_auxEN9__gnu_cxx17__normal_iteratorIPKS3_S5_EEOS3_
+_ZNSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer16EEESaIS3_EE8_M_eraseEN9__gnu_cxx17__normal_iteratorIPS3_S5_EE
+_ZNSaIN5faiss13HCounterStateINS_17HammingComputer20EEEEaSERKS3_
+_ZN9__gnu_cxx14__alloc_traitsISaIN5faiss13HCounterStateINS1_17HammingComputer20EEEES4_E27_S_propagate_on_copy_assignEv
+_ZNK9__gnu_cxx17__normal_iteratorIPN5faiss13HCounterStateINS1_17HammingComputer20EEESt6vectorIS4_SaIS4_EEEdeEv
+_ZNSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer20EEESaIS3_EE17_S_check_init_lenEmRKS4_
+_ZNSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer20EEESaIS3_EE14_M_move_assignEOS5_St17integral_constantIbLb1EE
+_ZNSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer20EEESaIS3_EE14_M_move_assignEOS5_St17integral_constantIbLb0EE
+_ZNSaIN5faiss13HCounterStateINS_17HammingComputer32EEEEaSERKS3_
+_ZNK9__gnu_cxx17__normal_iteratorIPKN5faiss13HCounterStateINS1_17HammingComputer32EEESt6vectorIS4_SaIS4_EEE4baseEv
+_ZNSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer32EEESaIS3_EE4rendEv
+_ZNKSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer32EEESaIS3_EE8capacityEv
+_ZNSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer32EEESaIS3_EE5eraseEN9__gnu_cxx17__normal_iteratorIPKS3_S5_EESA_
+_ZNSt6vectorIN5faiss13HCounterStateINS0_17HammingComputer32EEESaIS3_EE14_M_insert_rvalEN9__gnu_cxx17__normal_iteratorIPKS3_S5_EEOS3_
+_ZNKSt15__new_allocatorIN5faiss13HCounterStateINS0_17HammingComputer64EEEE7addressERS3_
+_ZNSt16allocator_traitsISaIN5faiss13HCounterStateINS0_17HammingComputer64EEEEE37select_on_container_copy_constructionERKS4_
+--- nm -D demangled symbols matching hamming ---
+0000000015762260 T faiss::hammings_knn(faiss::HeapArray<faiss::CMax<int, long> >*, unsigned char const*, unsigned char const*, unsigned long, unsigned long, int)
+0000000015762280 T faiss::hammings_knn_hc(faiss::HeapArray<faiss::CMax<int, long> >*, unsigned char const*, unsigned char const*, unsigned long, unsigned long, int, ApproxTopK_mode_t, faiss::IDSelector const*)
+0000000015765870 T faiss::hammings_knn_mc(unsigned char const*, unsigned char const*, unsigned long, unsigned long, unsigned long, unsigned long, int*, long*, faiss::IDSelector const*)
+0000000016307a78 D faiss::hamming_batch_size
+000000001576aaa0 T faiss::hamming_count_thres(unsigned char const*, unsigned char const*, unsigned long, unsigned long, int, unsigned long, unsigned long*)
+000000001576e210 T faiss::match_hamming_thres(unsigned char const*, unsigned char const*, unsigned long, unsigned long, int, unsigned long, long*, int*)
+00000000157699f0 T faiss::hamming_range_search(unsigned char const*, unsigned char const*, unsigned long, unsigned long, int, unsigned long, faiss::RangeSearchResult*, faiss::IDSelector const*)
+000000001576c680 T faiss::crosshamming_count_thres(unsigned char const*, unsigned long, int, unsigned long, unsigned long*)
+0000000015772490 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 16u, 2u, faiss::HammingComputer4>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer4 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015776190 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 16u, 2u, faiss::HammingComputer8>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer8 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+000000001577a0a0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 16u, 2u, faiss::HammingComputer16>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer16 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+000000001577e480 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 16u, 2u, faiss::HammingComputer20>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer20 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015782910 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 16u, 2u, faiss::HammingComputer32>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer32 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015786240 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 16u, 2u, faiss::HammingComputer64>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer64 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015789da0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 16u, 2u, faiss::HammingComputerDefault>::bs_addn(unsigned int, unsigned int, faiss::HammingComputerDefault const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+00000000157735e0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 32u, 2u, faiss::HammingComputer4>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer4 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015777310 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 32u, 2u, faiss::HammingComputer8>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer8 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+000000001577b390 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 32u, 2u, faiss::HammingComputer16>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer16 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+000000001577f6d0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 32u, 2u, faiss::HammingComputer20>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer20 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015783c10 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 32u, 2u, faiss::HammingComputer32>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer32 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015787340 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 32u, 2u, faiss::HammingComputer64>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer64 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+000000001578b090 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 32u, 2u, faiss::HammingComputerDefault>::bs_addn(unsigned int, unsigned int, faiss::HammingComputerDefault const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+00000000157718c0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 2u, faiss::HammingComputer4>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer4 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015775580 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 2u, faiss::HammingComputer8>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer8 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+00000000157793b0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 2u, faiss::HammingComputer16>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer16 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+000000001577d6a0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 2u, faiss::HammingComputer20>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer20 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015781a20 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 2u, faiss::HammingComputer32>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer32 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+00000000157859d0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 2u, faiss::HammingComputer64>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer64 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+00000000157890b0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 2u, faiss::HammingComputerDefault>::bs_addn(unsigned int, unsigned int, faiss::HammingComputerDefault const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015770c50 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 3u, faiss::HammingComputer4>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer4 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+00000000157748e0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 3u, faiss::HammingComputer8>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer8 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015778640 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 3u, faiss::HammingComputer16>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer16 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+000000001577c7d0 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 3u, faiss::HammingComputer20>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer20 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015780a70 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 3u, faiss::HammingComputer32>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer32 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015785110 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 3u, faiss::HammingComputer64>::bs_addn(unsigned int, unsigned int, faiss::HammingComputer64 const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+0000000015788310 W faiss::HeapWithBucketsForHamming32<faiss::CMax<int, long>, 8u, 3u, faiss::HammingComputerDefault>::bs_addn(unsigned int, unsigned int, faiss::HammingComputerDefault const&, unsigned char const*, unsigned int, int*, long*, faiss::IDSelector const*)
+000000001576e650 T faiss::generalized_hammings_knn_hc(faiss::HeapArray<faiss::CMax<int, long> >*, unsigned char const*, unsigned char const*, unsigned long, unsigned long, int)
+0000000015368340 T faiss::IndexPQ::hamming_distance_histogram(long, float const*, long, float const*, long*)
+0000000015761340 T faiss::hammings(unsigned char const*, unsigned char const*, unsigned long, unsigned long, unsigned long, int*)
+0000000015760420 T faiss::hammings(unsigned long const*, unsigned long const*, unsigned long, unsigned long, unsigned long, int*)
+0000000015384f90 T faiss::PolysemousTraining::optimize_pq_for_hamming(faiss::ProductQuantizer&, unsigned long, float const*) const
+000000001535fc70 W faiss::HammingComputerDefault::hamming(unsigned char const*) const
+00000000153682b0 T faiss::IndexPQ::hamming_distance_table(long, float const*, int*) const

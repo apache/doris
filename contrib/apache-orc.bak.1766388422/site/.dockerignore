@@ -1,0 +1,5 @@
+.sass-cache
+*~
+Dockerfile
+Gemfile.lock
+target

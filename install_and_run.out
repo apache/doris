@@ -1,0 +1,1191 @@
+--- TIME ---
+Sun Dec 21 11:20:38 CST 2025
+--- CHECK mysql client ---
+mysql client not found; attempting install (non-interactive)
+sudo: a terminal is required to read the password; either use the -S option to read from standard input or configure an askpass helper
+sudo: a password is required
+sudo: a terminal is required to read the password; either use the -S option to read from standard input or configure an askpass helper
+sudo: a password is required
+sudo install failed or sudo not available; trying apt-get without sudo
+Reading package lists...
+E: Could not open lock file /var/lib/apt/lists/lock - open (13: Permission denied)
+E: Unable to lock directory /var/lib/apt/lists/
+W: Problem unlinking the file /var/cache/apt/pkgcache.bin - RemoveCaches (13: Permission denied)
+W: Problem unlinking the file /var/cache/apt/srcpkgcache.bin - RemoveCaches (13: Permission denied)
+E: Could not open lock file /var/lib/dpkg/lock-frontend - open (13: Permission denied)
+E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), are you root?
+--- SHOW BACKENDS via FE MySQL ---
+mysql client still not available; cannot run SHOW BACKENDS
+--- SET JAVA_HOME and RUN regression ---
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+Running regression script: ./run-regression-test.sh --run -s test_hamming_distance
+[1mApache Maven 3.8.7[m
+Maven home: /usr/share/maven
+Java version: 17.0.17, vendor: Ubuntu, runtime: /usr/lib/jvm/java-17-openjdk-amd64
+Default locale: en, platform encoding: UTF-8
+OS name: "linux", version: "6.6.87.2-microsoft-standard-wsl2", arch: "amd64", family: "unix"
+===== Run Regression Test =====
+2025-12-21 11:20:40.824 INFO [main] (Config.groovy:332) - Load config file /home/zhisheng/doris/regression-test/conf/regression-conf.groovy
+2025-12-21 11:20:41.762 INFO [main] (Config.groovy:764) - Set s3Provider to 'OSS' because not specify.
+2025-12-21 11:20:41.762 INFO [main] (Config.groovy:782) - Set s3BucketName to 'doris-regression-hk' because not specify.
+2025-12-21 11:20:41.762 INFO [main] (Config.groovy:800) - Set s3Region to 'oss-cn-hongkong' because not specify.
+2025-12-21 11:20:41.763 INFO [main] (Config.groovy:818) - Set s3Endpoint to 'oss-cn-hongkong.aliyuncs.com' because not specify.
+2025-12-21 11:20:41.763 INFO [main] (Config.groovy:823) - set caseNamePrefix to '' because not specify.
+2025-12-21 11:20:41.763 INFO [main] (Config.groovy:828) - set validateBackupPrefix to 'doris_validate_backup' because not specify.
+2025-12-21 11:20:41.763 INFO [main] (Config.groovy:874) - Set cloudUniqueId to 'cloud_unique_id_xxx' because not specify.
+2025-12-21 11:20:41.764 INFO [main] (Config.groovy:879) - Set metaServiceHttpAddress to '127.0.0.1:5000' because not specify.
+2025-12-21 11:20:41.764 INFO [main] (Config.groovy:884) - Set recycleServiceHttpAddress to '127.0.0.1:5001' because not specify.
+2025-12-21 11:20:41.765 INFO [main] (Config.groovy:889) - Set recycleBeforeTest to 'false' because not specify.
+2025-12-21 11:20:41.765 INFO [main] (Config.groovy:904) - Set syncerAddress to '127.0.0.1:9190' because not specify.
+2025-12-21 11:20:41.766 INFO [main] (Config.groovy:920) - Set feCloudHttpAddress to '127.0.0.1:8876' because not specify.
+2025-12-21 11:20:41.766 INFO [main] (Config.groovy:925) - Set feCloudHttpUser to 'root' because not specify.
+2025-12-21 11:20:41.766 INFO [main] (Config.groovy:930) - Set feCloudHttpPassword to empty because not specify.
+2025-12-21 11:20:41.767 INFO [main] (Config.groovy:950) - Set cacheDataPath to 'regression-test/cacheData' because not specify.
+2025-12-21 11:20:41.767 INFO [main] (Config.groovy:1019) - Set parallel to 1 because not specify.
+2025-12-21 11:20:41.767 INFO [main] (Config.groovy:1024) - Set suiteParallel to 1 because not specify.
+2025-12-21 11:20:41.767 INFO [main] (Config.groovy:1029) - Set dockerSuiteParallel to 1 because not specify.
+2025-12-21 11:20:41.768 INFO [main] (Config.groovy:1034) - Set actionParallel to 10 because not specify.
+2025-12-21 11:20:41.770 INFO [main] (Config.groovy:370) - runMode: UNKNOWN
+2025-12-21 11:20:41.795 INFO [main] (Config.groovy:454) - feCloudHttpAddress : 127.0.0.1:8876, socketAddr : /127.0.0.1:8876
+2025-12-21 11:20:41.796 INFO [main] (Config.groovy:457) - instanceId : default_instance_id
+2025-12-21 11:20:41.796 INFO [main] (Config.groovy:460) - cloudUniqueId : cloud_unique_id_xxx
+2025-12-21 11:20:41.798 INFO [main] (Config.groovy:470) - msAddr : 127.0.0.1:5000, socketAddr : /127.0.0.1:5000
+2025-12-21 11:20:41.798 INFO [main] (Config.groovy:473) - multiClusterBes is null
+2025-12-21 11:20:41.798 INFO [main] (Config.groovy:476) - metaServiceToken is greedisgood9999
+2025-12-21 11:20:41.798 INFO [main] (Config.groovy:479) - multiClusterInstance is default_instance_id
+2025-12-21 11:20:41.799 INFO [main] (Config.groovy:482) - upgradeNewBeIp is null
+2025-12-21 11:20:41.799 INFO [main] (Config.groovy:485) - upgradeNewBeHbPort is null
+2025-12-21 11:20:41.799 INFO [main] (Config.groovy:488) - upgradeNewBeHttpPort is null
+2025-12-21 11:20:41.799 INFO [main] (Config.groovy:491) - upgradeNewBeUniqueId is null
+2025-12-21 11:20:41.800 INFO [main] (Config.groovy:494) - stageIamEndpoint is null
+2025-12-21 11:20:41.800 INFO [main] (Config.groovy:496) - stageIamRegion is null
+2025-12-21 11:20:41.800 INFO [main] (Config.groovy:498) - stageIamBucket is null
+2025-12-21 11:20:41.800 INFO [main] (Config.groovy:500) - stageIamPolicy is null
+2025-12-21 11:20:41.800 INFO [main] (Config.groovy:502) - stageIamRole is null
+2025-12-21 11:20:41.800 INFO [main] (Config.groovy:504) - stageIamArn is null
+2025-12-21 11:20:41.801 INFO [main] (Config.groovy:506) - stageIamAk is null
+2025-12-21 11:20:41.801 INFO [main] (Config.groovy:508) - stageIamSk is null
+2025-12-21 11:20:41.801 INFO [main] (Config.groovy:510) - stageIamUserId is null
+2025-12-21 11:20:41.801 INFO [main] (Config.groovy:512) - cloudVersion is null
+2025-12-21 11:20:41.803 INFO [main] (Config.groovy:515) - tdeAk is null
+2025-12-21 11:20:41.803 INFO [main] (Config.groovy:517) - tdeSk is null
+2025-12-21 11:20:41.803 INFO [main] (Config.groovy:519) - tdeKeyEndpoint is null
+2025-12-21 11:20:41.803 INFO [main] (Config.groovy:521) - tdeKeyRegion is null
+2025-12-21 11:20:41.804 INFO [main] (Config.groovy:523) - tdeKeyProvider is null
+2025-12-21 11:20:41.804 INFO [main] (Config.groovy:525) - tdeAlgorithm is null
+2025-12-21 11:20:41.804 INFO [main] (Config.groovy:527) - tdeKeyId is null
+2025-12-21 11:20:41.806 INFO [main] (Config.groovy:539) - recycleAddr : 127.0.0.1:5001, socketAddr : /127.0.0.1:5001
+2025-12-21 11:20:41.807 INFO [main] (Config.groovy:567) - randomOrder is false
+2025-12-21 11:20:41.807 INFO [main] (Config.groovy:568) - stopWhenFail is false
+2025-12-21 11:20:41.808 INFO [main] (Config.groovy:569) - withOutLoadData is false
+2025-12-21 11:20:41.808 INFO [main] (Config.groovy:570) - runNonConcurrent is true
+2025-12-21 11:20:41.808 INFO [main] (Config.groovy:571) - caseNamePrefix is 
+2025-12-21 11:20:41.808 INFO [main] (Config.groovy:572) - validateBackupPrefix is doris_validate_backup
+2025-12-21 11:20:41.808 INFO [main] (Config.groovy:573) - dryRun is false
+2025-12-21 11:20:41.808 INFO [main] (Config.groovy:576) - s3Source is aliyun
+2025-12-21 11:20:41.809 INFO [main] (Config.groovy:577) - s3Provider is OSS
+2025-12-21 11:20:41.809 INFO [main] (Config.groovy:578) - s3BucketName is doris-regression-hk
+2025-12-21 11:20:41.809 INFO [main] (Config.groovy:579) - s3Region is oss-cn-hongkong
+2025-12-21 11:20:41.809 INFO [main] (Config.groovy:580) - s3Endpoint is oss-cn-hongkong.aliyuncs.com
+2025-12-21 11:20:41.810 INFO [main] (Config.groovy:1088) - Try to create db, sql: CREATE DATABASE IF NOT EXISTS regression_test
+2025-12-21 11:20:42.076 INFO [main] (Config.groovy:1081) - Reset jdbcUrl to jdbc:mysql://127.0.0.1:9030/regression_test?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round&verifyServerCertificate=false&useSSL=true&requireSSL=false&enabledTLSProtocols=TLSv1.2&connectTimeout=5000&socketTimeout=1800000&tcpKeepAlive=true
+2025-12-21 11:20:42.200 INFO [main] (Config.groovy:1133) - show random_add_cluster_keys_for_mow config: [[Comment:, Type:boolean, Value:false, MasterOnly:true, IsMutable:true, Key:random_add_cluster_keys_for_mow]]
+2025-12-21 11:20:42.200 INFO [main] (Config.groovy:1143) - random_add_cluster_keys_for_mow in fe.conf: false
+2025-12-21 11:20:42.201 INFO [main] (RegressionTest.groovy:153) - ================================================================================
+2025-12-21 11:20:42.201 INFO [main] (RegressionTest.groovy:154) - Log file: /home/zhisheng/doris/output/regression-test/log/doris-regression-test.20251221.112039.log
+2025-12-21 11:20:42.201 INFO [main] (RegressionTest.groovy:155) - ================================================================================
+2025-12-21 11:20:42.202 INFO [main] (RegressionTest.groovy:164) - parallel = 10, suiteParallel = 10, actionParallel = 10
+2025-12-21 11:20:42.732 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_compaction_plugin.groovy
+2025-12-21 11:20:42.763 INFO [main] (cloud_compaction_plugin.groovy:110) - Added 'doCloudCompaction' function to Suite
+2025-12-21 11:20:42.764 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_compaction_plugin.groovy
+2025-12-21 11:20:42.868 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smooth_upgrade.groovy
+2025-12-21 11:20:42.870 INFO [main] (cloud_smooth_upgrade.groovy:64) - Added 'addNodeForSmoothUpgrade' function to Suite
+2025-12-21 11:20:42.871 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smooth_upgrade.groovy
+2025-12-21 11:20:42.941 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_cluster_op_plugin.groovy
+2025-12-21 11:20:42.947 INFO [main] (cloud_cluster_op_plugin.groovy:85) - Added 'cloud cluster op' function to Suite
+2025-12-21 11:20:42.948 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_cluster_op_plugin.groovy
+2025-12-21 11:20:43.039 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check.groovy
+2025-12-21 11:20:43.041 INFO [main] (plugin_check.groovy:40) - Added 'check_sql_equal' function to Suite
+2025-12-21 11:20:43.042 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check.groovy
+2025-12-21 11:20:43.289 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_query_timeout_debugger.groovy
+2025-12-21 11:20:43.329 INFO [main] (plugin_query_timeout_debugger.groovy:89) - worker started with scheduler
+2025-12-21 11:20:43.329 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_query_timeout_debugger.groovy
+2025-12-21 11:20:43.373 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180]
+2025-12-21 11:20:43.394 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_ranger.groovy
+2025-12-21 11:20:43.398 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_ranger.groovy
+2025-12-21 11:20:43.399 WARN [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:85) - work exception: Connection refused
+java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:178)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+	at java.base/sun.net.www.http.HttpClient.<init>(HttpClient.java:283)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:386)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:408)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getNewHttpClient(HttpURLConnection.java:1329)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1262)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1148)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.connect(HttpURLConnection.java:1077)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1717)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1641)
+	at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:529)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.curl(plugin_query_timeout_debugger.groovy:152)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.work(plugin_query_timeout_debugger.groovy:106)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:20:43.417 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_planner.groovy
+2025-12-21 11:20:43.420 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_planner.groovy
+2025-12-21 11:20:43.447 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/test_helper.groovy
+2025-12-21 11:20:43.449 INFO [main] (test_helper.groovy:65) - Added 'createTestTable' function to Suite
+2025-12-21 11:20:43.449 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/test_helper.groovy
+2025-12-21 11:20:43.739 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_show_data_plugin.groovy
+2025-12-21 11:20:43.747 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_show_data_plugin.groovy
+2025-12-21 11:20:43.879 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_abnormal_plugin.groovy
+2025-12-21 11:20:43.889 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_abnormal_plugin.groovy
+2025-12-21 11:20:43.924 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check_sql_single_value.groovy
+2025-12-21 11:20:43.927 INFO [main] (plugin_check_sql_single_value.groovy:51) - Added 'isSqlValueEqualToTarget' function to Suite
+2025-12-21 11:20:43.928 INFO [main] (plugin_check_sql_single_value.groovy:79) - Added 'isSqlValueGreaterThanTarget' function to Suite
+2025-12-21 11:20:43.928 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check_sql_single_value.groovy
+2025-12-21 11:20:44.120 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_compaction.groovy
+2025-12-21 11:20:44.125 INFO [main] (plugin_compaction.groovy:43) - Added 'be_run_base_compaction' function to Suite
+2025-12-21 11:20:44.126 INFO [main] (plugin_compaction.groovy:49) - Added 'be_run_cumulative_compaction' function to Suite
+2025-12-21 11:20:44.127 INFO [main] (plugin_compaction.groovy:59) - Added 'be_run_full_compaction' function to Suite
+2025-12-21 11:20:44.129 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_compaction.groovy
+2025-12-21 11:20:44.147 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_filecache_plugin.groovy
+2025-12-21 11:20:44.149 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_filecache_plugin.groovy
+2025-12-21 11:20:44.181 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_async_job_wait.groovy
+2025-12-21 11:20:44.183 INFO [main] (plugin_async_job_wait.groovy:42) - Added 'getLoadFinalState' function to Suite
+2025-12-21 11:20:44.184 INFO [main] (plugin_async_job_wait.groovy:64) - Added 'getAlterColumnFinalState' function to Suite
+2025-12-21 11:20:44.186 INFO [main] (plugin_async_job_wait.groovy:86) - Added 'getAlterRollupFinalState' function to Suite
+2025-12-21 11:20:44.186 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_async_job_wait.groovy
+2025-12-21 11:20:44.206 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_get_table_properties.groovy
+2025-12-21 11:20:44.207 INFO [main] (plugin_get_table_properties.groovy:34) - Added 'get_table_replica_num' function to Suite
+2025-12-21 11:20:44.208 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_get_table_properties.groovy
+2025-12-21 11:20:44.232 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugins_get_ids_from_proc.groovy
+2025-12-21 11:20:44.234 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugins_get_ids_from_proc.groovy
+2025-12-21 11:20:44.255 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_example.groovy
+2025-12-21 11:20:44.256 INFO [main] (plugin_example.groovy:34) - Added 'testPlugin' function to Suite
+2025-12-21 11:20:44.257 INFO [main] (plugin_example.groovy:54) - Added 'check2_doris' function to Suite
+2025-12-21 11:20:44.257 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_example.groovy
+2025-12-21 11:20:44.273 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_must_contains.groovy
+2025-12-21 11:20:44.276 INFO [main] (plugin_must_contains.groovy:30) - Added 'mustContain' function to Suite
+2025-12-21 11:20:44.276 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_must_contains.groovy
+2025-12-21 11:20:44.326 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster.groovy
+2025-12-21 11:20:44.329 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster.groovy
+2025-12-21 11:20:44.425 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugins_create_table_nested_type.groovy
+2025-12-21 11:20:44.426 INFO [main] (plugins_create_table_nested_type.groovy:109) - Added 'create_table_with_nested_type' function to Suite
+2025-12-21 11:20:44.428 INFO [main] (plugins_create_table_nested_type.groovy:147) - Added 'get_create_table_with_nested_type' function to Suite
+2025-12-21 11:20:44.429 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugins_create_table_nested_type.groovy
+2025-12-21 11:20:44.749 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_recycler_plugin.groovy
+2025-12-21 11:20:44.751 INFO [main] (cloud_recycler_plugin.groovy:72) - Added 'triggerRecycle' function to Suite
+2025-12-21 11:20:44.752 INFO [main] (cloud_recycler_plugin.groovy:207) - Added 'checkRecycleTable' function to Suite
+2025-12-21 11:20:44.754 INFO [main] (cloud_recycler_plugin.groovy:314) - Added 'checkRecycleInternalStage' function to Suite
+2025-12-21 11:20:44.755 INFO [main] (cloud_recycler_plugin.groovy:458) - Added 'checkRecycleExpiredStageObjects' function to Suite
+2025-12-21 11:20:44.757 INFO [main] (cloud_recycler_plugin.groovy:601) - Added 'checkRecycleMetrics' function to Suite
+2025-12-21 11:20:44.757 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_recycler_plugin.groovy
+2025-12-21 11:20:44.778 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_resource_plugin.groovy
+2025-12-21 11:20:44.780 INFO [main] (cloud_resource_plugin.groovy:75) - Added 'getObjStoreInfo' function to Suite
+2025-12-21 11:20:44.780 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_resource_plugin.groovy
+2025-12-21 11:20:45.097 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_stage_ram_plugin.groovy
+2025-12-21 11:20:45.099 INFO [main] (cloud_stage_ram_plugin.groovy:41) - Added 'getRoleName' function to Suite
+2025-12-21 11:20:45.100 INFO [main] (cloud_stage_ram_plugin.groovy:46) - Added 'getExternalId' function to Suite
+2025-12-21 11:20:45.101 INFO [main] (cloud_stage_ram_plugin.groovy:98) - Added 'getRole' function to Suite
+2025-12-21 11:20:45.104 INFO [main] (cloud_stage_ram_plugin.groovy:143) - Added 'attachPolicy' function to Suite
+2025-12-21 11:20:45.105 INFO [main] (cloud_stage_ram_plugin.groovy:336) - Added 'createRole' function to Suite
+2025-12-21 11:20:45.106 INFO [main] (cloud_stage_ram_plugin.groovy:371) - Added 'detachPolicy' function to Suite
+2025-12-21 11:20:45.108 INFO [main] (cloud_stage_ram_plugin.groovy:424) - Added 'deleteRole' function to Suite
+2025-12-21 11:20:45.108 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_stage_ram_plugin.groovy
+2025-12-21 11:20:45.452 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_curl_requester.groovy
+2025-12-21 11:20:45.455 INFO [main] (plugin_curl_requester.groovy:113) - Added 'http_client' function to Suite
+2025-12-21 11:20:45.456 INFO [main] (plugin_curl_requester.groovy:175) - Added 'curl' function to Suite
+2025-12-21 11:20:45.457 INFO [main] (plugin_curl_requester.groovy:181) - Added 'show_be_config' function to Suite
+2025-12-21 11:20:45.458 INFO [main] (plugin_curl_requester.groovy:187) - Added 'update_be_config' function to Suite
+2025-12-21 11:20:45.460 INFO [main] (plugin_curl_requester.groovy:202) - Added 'update_all_be_config' function to Suite
+2025-12-21 11:20:45.461 INFO [main] (plugin_curl_requester.groovy:215) - Added 'be_report_disk' function to Suite
+2025-12-21 11:20:45.463 INFO [main] (plugin_curl_requester.groovy:222) - Added 'be_report_tablet' function to Suite
+2025-12-21 11:20:45.464 INFO [main] (plugin_curl_requester.groovy:229) - Added 'be_report_task' function to Suite
+2025-12-21 11:20:45.465 INFO [main] (plugin_curl_requester.groovy:269) - Added 'check_nested_index_file' function to Suite
+2025-12-21 11:20:45.465 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_curl_requester.groovy
+2025-12-21 11:20:45.493 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smoke_plugin.groovy
+2025-12-21 11:20:45.494 INFO [main] (cloud_smoke_plugin.groovy:47) - Added 'cloud smoke' function to Suite
+2025-12-21 11:20:45.495 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smoke_plugin.groovy
+2025-12-21 11:20:45.652 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/aliyun_oss_sdk.groovy
+2025-12-21 11:20:45.682 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/aliyun_oss_sdk.groovy
+2025-12-21 11:20:45.703 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster_version.groovy
+2025-12-21 11:20:45.704 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster_version.groovy
+2025-12-21 11:20:45.783 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_index_change.groovy
+2025-12-21 11:20:45.788 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_index_change.groovy
+2025-12-21 11:20:45.788 INFO [main] (RegressionTest.groovy:105) - === run 0 time ===
+2025-12-21 11:20:45.792 INFO [main] (RegressionTest.groovy:343) - run scripts in directories: []
+2025-12-21 11:20:45.793 INFO [main] (RegressionTest.groovy:345) - Start to run load scripts
+2025-12-21 11:20:54.739 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 11:21:01.541 INFO [main] (RegressionTest.groovy:351) - Start to run scripts
+2025-12-21 11:21:49.276 WARN [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:85) - work exception: Connection refused
+java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:178)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+	at java.base/sun.net.www.http.HttpClient.<init>(HttpClient.java:283)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:386)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:408)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getNewHttpClient(HttpURLConnection.java:1329)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1262)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1148)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.connect(HttpURLConnection.java:1077)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1717)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1641)
+	at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:529)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.selectMethod(IndyInterface.java:355)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.curl(plugin_query_timeout_debugger.groovy:152)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.selectMethod(IndyInterface.java:355)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.work(plugin_query_timeout_debugger.groovy:106)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.selectMethod(IndyInterface.java:355)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:22:24.508 INFO [script-thread-10] (SuiteScript.groovy:48) - run /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 11:22:24.521 INFO [script-thread-10] (SuiteContext.groovy:103) - packageName: query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 11:22:24.521 INFO [script-thread-10] (SuiteContext.groovy:114) - scriptFileName: test_hamming_distance.groovy
+2025-12-21 11:22:24.522 INFO [script-thread-10] (SuiteContext.groovy:98) - flowName: query_p0.sql_functions.test_hamming_distance.test_hamming_distance, flowId: query_p0/sql_functions/test_hamming_distance.groovy#test_hamming_distance
+2025-12-21 11:22:24.561 INFO [suite-thread-1] (ScriptContext.groovy:100) - Run test_hamming_distance in /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 11:22:24.592 INFO [suite-thread-1] (SuiteContext.groovy:162) - Try to create db, sql: CREATE DATABASE IF NOT EXISTS regression_test_query_p0_sql_functions
+2025-12-21 11:22:24.596 INFO [suite-thread-1] (SuiteContext.groovy:170) - connect to jdbc:mysql://127.0.0.1:9030/regression_test_query_p0_sql_functions?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round&verifyServerCertificate=false&useSSL=true&requireSSL=false&enabledTLSProtocols=TLSv1.2&connectTimeout=5000&socketTimeout=1800000&tcpKeepAlive=true
+2025-12-21 11:22:24.636 INFO [suite-thread-1] (Suite.groovy:572) - Execute sql:  drop table if exists hits_hamming_distance 
+2025-12-21 11:22:24.641 INFO [suite-thread-1] (Suite.groovy:572) - Execute sql:  create table hits_hamming_distance(
+                nothing boolean
+            )
+            properties("replication_num" = "1");
+    
+2025-12-21 11:22:24.678 ERROR [suite-thread-1] (ScriptContext.groovy:122) - Run test_hamming_distance in /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy failed
+java.sql.SQLException: errCode = 2, detailMessage = replication num should be less than the number of available backends. replication num is 1, available backend num is 0
+	at com.mysql.cj.jdbc.exceptions.SQLError.createSQLException(SQLError.java:129)
+	at com.mysql.cj.jdbc.exceptions.SQLExceptionsMapping.translateException(SQLExceptionsMapping.java:122)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.executeInternal(ClientPreparedStatement.java:953)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.execute(ClientPreparedStatement.java:371)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.util.JdbcUtils$_executeToList_closure1.doCall(JdbcUtils.groovy:47)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:422)
+	at org.codehaus.groovy.runtime.IOGroovyMethods.withCloseable(IOGroovyMethods.java:1649)
+	at org.codehaus.groovy.runtime.dgm$1000.doMethodInvoke(Unknown Source)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.util.JdbcUtils.executeToList(JdbcUtils.groovy:46)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.sql_impl(Suite.groovy:573)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.jdbc_sql(Suite.groovy:581)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.sql(Suite.groovy:592)
+	at org.apache.doris.regression.suite.Suite.sql(Suite.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at org.codehaus.groovy.runtime.metaclass.TransformMetaMethod.invoke(TransformMetaMethod.java:59)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass$1.invoke(ClosureMetaClass.java:218)
+	at org.codehaus.groovy.runtime.metaclass.TransformMetaMethod.doMethodInvoke(TransformMetaMethod.java:66)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at test_hamming_distance$_run_closure1.doCall(test_hamming_distance.groovy:21)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:422)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1$_closure5.doCall(ScriptContext.groovy:108)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at org.codehaus.groovy.runtime.ConvertedClosure.invokeCustom(ConvertedClosure.java:52)
+	at org.codehaus.groovy.runtime.ConversionHandler.invoke(ConversionHandler.java:113)
+	at jdk.proxy1/jdk.proxy1.$Proxy16.apply(Unknown Source)
+	at org.apache.doris.regression.suite.SuiteContext$_start_closure5.doCall(SuiteContext.groovy:594)
+	at org.apache.doris.regression.suite.SuiteContext$_start_closure5.call(SuiteContext.groovy)
+	at org.codehaus.groovy.runtime.IOGroovyMethods.withCloseable(IOGroovyMethods.java:1616)
+	at org.apache.doris.regression.suite.SuiteContext.start(SuiteContext.groovy:591)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1.doCall(ScriptContext.groovy:99)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1.call(ScriptContext.groovy)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:22:55.028 WARN [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:85) - work exception: Connection refused
+java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:178)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+	at java.base/sun.net.www.http.HttpClient.<init>(HttpClient.java:283)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:386)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:408)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getNewHttpClient(HttpURLConnection.java:1329)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1262)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1148)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.connect(HttpURLConnection.java:1077)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1717)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1641)
+	at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:529)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.curl(plugin_query_timeout_debugger.groovy:152)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.work(plugin_query_timeout_debugger.groovy:106)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:23:21.889 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 11:24:00.839 WARN [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:85) - work exception: Connection refused
+java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:178)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+	at java.base/sun.net.www.http.HttpClient.<init>(HttpClient.java:283)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:386)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:408)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getNewHttpClient(HttpURLConnection.java:1329)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1262)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1148)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.connect(HttpURLConnection.java:1077)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1717)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1641)
+	at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:529)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.curl(plugin_query_timeout_debugger.groovy:152)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.work(plugin_query_timeout_debugger.groovy:106)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:25:06.852 WARN [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:85) - work exception: Connection refused
+java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:178)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+	at java.base/sun.net.www.http.HttpClient.<init>(HttpClient.java:283)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:386)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:408)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getNewHttpClient(HttpURLConnection.java:1329)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1262)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1148)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.connect(HttpURLConnection.java:1077)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1717)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1641)
+	at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:529)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.curl(plugin_query_timeout_debugger.groovy:152)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.work(plugin_query_timeout_debugger.groovy:106)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:26:09.869 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180]
+2025-12-21 11:26:09.870 WARN [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:85) - work exception: Connection refused
+java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:178)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+	at java.base/sun.net.www.http.HttpClient.<init>(HttpClient.java:283)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:386)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:408)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getNewHttpClient(HttpURLConnection.java:1329)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1262)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1148)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.connect(HttpURLConnection.java:1077)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1717)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1641)
+	at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:529)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.curl(plugin_query_timeout_debugger.groovy:152)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.work(plugin_query_timeout_debugger.groovy:106)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:27:15.495 WARN [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:85) - work exception: Connection refused
+java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:178)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+	at java.base/sun.net.www.http.HttpClient.<init>(HttpClient.java:283)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:386)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:408)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getNewHttpClient(HttpURLConnection.java:1329)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1262)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1148)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.connect(HttpURLConnection.java:1077)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1717)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1641)
+	at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:529)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.curl(plugin_query_timeout_debugger.groovy:152)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.work(plugin_query_timeout_debugger.groovy:106)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:27:43.200 INFO [main] (RegressionTest.groovy:357) - Start to run check hash bucket table scripts
+2025-12-21 11:27:43.675 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 11:27:43.712 INFO [main] (RegressionTest.groovy:464) - Failure suites:
+/home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy: group=default,p0, name=test_hamming_distance
+2025-12-21 11:27:43.714 INFO [main] (RegressionTest.groovy:540) - Some suites failed.
+ _____ _    ___ _     _____ ____
+|  ___/ \  |_ _| |   | ____|  _ \
+| |_ / _ \  | || |   |  _| | | | |
+|  _/ ___ \ | || |___| |___| |_| |
+|_|/_/   \_\___|_____|_____|____/
+
+2025-12-21 11:27:43.714 INFO [main] (RegressionTest.groovy:478) - Test 1 suites, failed 1 suites, fatal 0 scripts, skipped 0 scripts
+2025-12-21 11:27:43.714 INFO [main] (RegressionTest.groovy:130) - Test finished
+2025-12-21 11:27:43.715 INFO [main] (RegressionTest.groovy:153) - ================================================================================
+2025-12-21 11:27:43.715 INFO [main] (RegressionTest.groovy:154) - Log file: /home/zhisheng/doris/output/regression-test/log/doris-regression-test.20251221.112039.log
+2025-12-21 11:27:43.715 INFO [main] (RegressionTest.groovy:155) - ================================================================================
+2025-12-21 11:27:43.717 INFO [Thread-0] (plugin_query_timeout_debugger.groovy:93) - stop worker
+--- SUMMARY TAILS ---
+--- register_be.log ---
+mysql client still not available; cannot run SHOW BACKENDS
+--- regression_after_fix.log ---
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:25:06.852 WARN [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:85) - work exception: Connection refused
+java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:178)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+	at java.base/sun.net.www.http.HttpClient.<init>(HttpClient.java:283)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:386)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:408)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getNewHttpClient(HttpURLConnection.java:1329)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1262)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1148)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.connect(HttpURLConnection.java:1077)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1717)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1641)
+	at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:529)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.curl(plugin_query_timeout_debugger.groovy:152)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.work(plugin_query_timeout_debugger.groovy:106)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:26:09.869 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180]
+2025-12-21 11:26:09.870 WARN [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:85) - work exception: Connection refused
+java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:178)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+	at java.base/sun.net.www.http.HttpClient.<init>(HttpClient.java:283)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:386)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:408)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getNewHttpClient(HttpURLConnection.java:1329)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1262)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1148)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.connect(HttpURLConnection.java:1077)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1717)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1641)
+	at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:529)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.curl(plugin_query_timeout_debugger.groovy:152)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.work(plugin_query_timeout_debugger.groovy:106)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:27:15.495 WARN [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:85) - work exception: Connection refused
+java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:178)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+	at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+	at java.base/sun.net.www.http.HttpClient.<init>(HttpClient.java:283)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:386)
+	at java.base/sun.net.www.http.HttpClient.New(HttpClient.java:408)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getNewHttpClient(HttpURLConnection.java:1329)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1262)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1148)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.connect(HttpURLConnection.java:1077)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1717)
+	at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1641)
+	at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:529)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.curl(plugin_query_timeout_debugger.groovy:152)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger.work(plugin_query_timeout_debugger.groovy:106)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy:83)
+	at PluginQueryTimeoutDebugger$_startWorker_closure2.doCall(plugin_query_timeout_debugger.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:412)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:27:43.200 INFO [main] (RegressionTest.groovy:357) - Start to run check hash bucket table scripts
+2025-12-21 11:27:43.675 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 11:27:43.712 INFO [main] (RegressionTest.groovy:464) - Failure suites:
+/home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy: group=default,p0, name=test_hamming_distance
+2025-12-21 11:27:43.714 INFO [main] (RegressionTest.groovy:540) - Some suites failed.
+ _____ _    ___ _     _____ ____
+|  ___/ \  |_ _| |   | ____|  _ \
+| |_ / _ \  | || |   |  _| | | | |
+|  _/ ___ \ | || |___| |___| |_| |
+|_|/_/   \_\___|_____|_____|____/
+
+2025-12-21 11:27:43.714 INFO [main] (RegressionTest.groovy:478) - Test 1 suites, failed 1 suites, fatal 0 scripts, skipped 0 scripts
+2025-12-21 11:27:43.714 INFO [main] (RegressionTest.groovy:130) - Test finished
+2025-12-21 11:27:43.715 INFO [main] (RegressionTest.groovy:153) - ================================================================================
+2025-12-21 11:27:43.715 INFO [main] (RegressionTest.groovy:154) - Log file: /home/zhisheng/doris/output/regression-test/log/doris-regression-test.20251221.112039.log
+2025-12-21 11:27:43.715 INFO [main] (RegressionTest.groovy:155) - ================================================================================
+2025-12-21 11:27:43.717 INFO [Thread-0] (plugin_query_timeout_debugger.groovy:93) - stop worker
+--- fe.log tail ---
+	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+	at org.eclipse.jetty.ee10.servlet.FilterHolder.doFilter(FilterHolder.java:205)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler$Chain.doFilter(ServletHandler.java:1594)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler$MappedServlet.handle(ServletHandler.java:1555)
+	at org.eclipse.jetty.ee10.servlet.ServletChannel.dispatch(ServletChannel.java:824)
+	at org.eclipse.jetty.ee10.servlet.ServletChannel.handle(ServletChannel.java:439)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler.handle(ServletHandler.java:470)
+	at org.eclipse.jetty.security.SecurityHandler.handle(SecurityHandler.java:575)
+	at org.eclipse.jetty.ee10.servlet.SessionHandler.handle(SessionHandler.java:717)
+	at org.eclipse.jetty.server.handler.ContextHandler.handle(ContextHandler.java:1096)
+	at org.eclipse.jetty.server.Handler$Wrapper.handle(Handler.java:740)
+	at org.eclipse.jetty.server.handler.EventsHandler.handle(EventsHandler.java:81)
+	at org.eclipse.jetty.server.Server.handle(Server.java:182)
+	at org.eclipse.jetty.server.internal.HttpChannelState$HandlerInvoker.run(HttpChannelState.java:677)
+	at org.eclipse.jetty.server.internal.HttpConnection.onFillable(HttpConnection.java:416)
+	at org.eclipse.jetty.io.AbstractConnection$ReadCallback.succeeded(AbstractConnection.java:322)
+	at org.eclipse.jetty.io.FillInterest.fillable(FillInterest.java:105)
+	at org.eclipse.jetty.io.SelectableChannelEndPoint$1.run(SelectableChannelEndPoint.java:53)
+	at org.eclipse.jetty.util.thread.strategy.AdaptiveExecutionStrategy.runTask(AdaptiveExecutionStrategy.java:492)
+	at org.eclipse.jetty.util.thread.strategy.AdaptiveExecutionStrategy.epcRunTask(AdaptiveExecutionStrategy.java:428)
+	at org.eclipse.jetty.util.thread.strategy.AdaptiveExecutionStrategy.consumeTask(AdaptiveExecutionStrategy.java:401)
+	at org.eclipse.jetty.util.thread.strategy.AdaptiveExecutionStrategy.tryProduce(AdaptiveExecutionStrategy.java:255)
+	at org.eclipse.jetty.util.thread.strategy.AdaptiveExecutionStrategy.run(AdaptiveExecutionStrategy.java:204)
+	at org.eclipse.jetty.util.thread.ReservedThreadExecutor$ReservedThread.run(ReservedThreadExecutor.java:311)
+	at org.eclipse.jetty.util.thread.QueuedThreadPool.runJob(QueuedThreadPool.java:981)
+	at org.eclipse.jetty.util.thread.QueuedThreadPool$Runner.doRunJob(QueuedThreadPool.java:1211)
+	at org.eclipse.jetty.util.thread.QueuedThreadPool$Runner.run(QueuedThreadPool.java:1166)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763] java.lang.Exception: status is not TEMPORARY_REDIRECT 307, status: 200, response: {"status":"FAILED","msg":"errCode = 2, detailMessage = No backend available for load, please check the status of your backends., policy: computeNode=false | query=false | load=true | schedule=false | tags= | medium=null, compute group is AllBackendComputeGroup"}, request is: curl -v -X PUT \
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "Authorization":"Basic YWRtaW46" \
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "Expect":"100-continue" \
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "Content-Type":"text/plain; charset=UTF-8" \
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "max_filter_ratio":"1.0" \
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "columns":"query_id,time,client_ip,user,frontend_ip,catalog,db,state,error_code,error_message,query_time,cpu_time_ms,peak_memory_bytes,scan_bytes,scan_rows,return_rows,shuffle_send_rows,shuffle_send_bytes,spill_write_bytes_from_local_storage,spill_read_bytes_from_local_storage,scan_bytes_from_local_storage,scan_bytes_from_remote_storage,parse_time_ms,plan_times_ms,get_meta_times_ms,schedule_times_ms,hit_sql_cache,handled_in_fe,queried_tables_and_views,chosen_m_views,changed_variables,sql_mode,stmt_type,stmt_id,sql_hash,sql_digest,is_query,is_nereids,is_internal,workload_group,compute_group,stmt" \
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "redirect-policy":"random-be" \
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   "http://127.0.0.1:8030/api/__internal_schema/audit_log/_stream_load?"
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763] 	at org.apache.doris.plugin.audit.AuditStreamLoader.loadBatch(AuditStreamLoader.java:132)
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763] 	at org.apache.doris.plugin.audit.AuditLoader.loadIfNecessary(AuditLoader.java:239)
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763] 	at org.apache.doris.plugin.audit.AuditLoader$LoadWorker.run(AuditLoader.java:277)
+2025-12-21 11:27:20,504 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763] 	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:27:20,504 WARN (audit loader thread|62) [AuditStreamLoader.loadBatch():158] failed to load audit via AuditLoader plugin with label: audit_log_20251221_112720_494_172_17_0_1_9010
+java.lang.Exception: status is not TEMPORARY_REDIRECT 307, status: 200, response: {"status":"FAILED","msg":"errCode = 2, detailMessage = No backend available for load, please check the status of your backends., policy: computeNode=false | query=false | load=true | schedule=false | tags= | medium=null, compute group is AllBackendComputeGroup"}, request is: curl -v -X PUT \
+  -H "Authorization":"Basic YWRtaW46" \
+  -H "Expect":"100-continue" \
+  -H "Content-Type":"text/plain; charset=UTF-8" \
+  -H "max_filter_ratio":"1.0" \
+  -H "columns":"query_id,time,client_ip,user,frontend_ip,catalog,db,state,error_code,error_message,query_time,cpu_time_ms,peak_memory_bytes,scan_bytes,scan_rows,return_rows,shuffle_send_rows,shuffle_send_bytes,spill_write_bytes_from_local_storage,spill_read_bytes_from_local_storage,scan_bytes_from_local_storage,scan_bytes_from_remote_storage,parse_time_ms,plan_times_ms,get_meta_times_ms,schedule_times_ms,hit_sql_cache,handled_in_fe,queried_tables_and_views,chosen_m_views,changed_variables,sql_mode,stmt_type,stmt_id,sql_hash,sql_digest,is_query,is_nereids,is_internal,workload_group,compute_group,stmt" \
+  -H "redirect-policy":"random-be" \
+  "http://127.0.0.1:8030/api/__internal_schema/audit_log/_stream_load?"
+	at org.apache.doris.plugin.audit.AuditStreamLoader.loadBatch(AuditStreamLoader.java:132)
+	at org.apache.doris.plugin.audit.AuditLoader.loadIfNecessary(AuditLoader.java:239)
+	at org.apache.doris.plugin.audit.AuditLoader$LoadWorker.run(AuditLoader.java:277)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:27:20,984 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:21,984 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:22,398 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 11:27:22,411 INFO (colocate group clone checker|104) [ColocateTableCheckerAndBalancer.matchGroups():594] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/0/0/0/0/0, cost: 0 ms
+2025-12-21 11:27:22,421 INFO (tablet checker|37) [TabletChecker.checkTablets():351] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 32/32/0/0/0/0,cost: 0 ms
+2025-12-21 11:27:22,505 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 11:27:22,505 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 11:27:22,984 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:23,984 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:24,471 WARN (heartbeat-mgr-pool-5|216) [HeartbeatMgr$BackendHeartbeatHandler.pingOnce():368] backend heartbeat got exception
+org.apache.thrift.transport.TTransportException: java.net.ConnectException: Connection refused
+	at org.apache.thrift.transport.TSocket.open(TSocket.java:255)
+	at org.apache.doris.common.GenericPool$ThriftClientFactory.create(GenericPool.java:143)
+	at org.apache.doris.common.GenericPool$ThriftClientFactory.create(GenericPool.java:126)
+	at org.apache.commons.pool2.BaseKeyedPooledObjectFactory.makeObject(BaseKeyedPooledObjectFactory.java:62)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.create(GenericKeyedObjectPool.java:1012)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.borrowObject(GenericKeyedObjectPool.java:356)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.borrowObject(GenericKeyedObjectPool.java:277)
+	at org.apache.doris.common.GenericPool.borrowObject(GenericPool.java:95)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.pingOnce(HeartbeatMgr.java:304)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.call(HeartbeatMgr.java:271)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.call(HeartbeatMgr.java:260)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at org.apache.thrift.transport.TSocket.open(TSocket.java:250)
+	... 14 more
+2025-12-21 11:27:24,471 WARN (heartbeat-mgr-pool-5|216) [HeartbeatMgr$BackendHeartbeatHandler.pingOnce():368] backend heartbeat got exception
+org.apache.thrift.transport.TTransportException: java.net.ConnectException: Connection refused
+	at org.apache.thrift.transport.TSocket.open(TSocket.java:255)
+	at org.apache.doris.common.GenericPool$ThriftClientFactory.create(GenericPool.java:143)
+	at org.apache.doris.common.GenericPool$ThriftClientFactory.create(GenericPool.java:126)
+	at org.apache.commons.pool2.BaseKeyedPooledObjectFactory.makeObject(BaseKeyedPooledObjectFactory.java:62)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.create(GenericKeyedObjectPool.java:1012)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.borrowObject(GenericKeyedObjectPool.java:356)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.borrowObject(GenericKeyedObjectPool.java:277)
+	at org.apache.doris.common.GenericPool.borrowObject(GenericPool.java:95)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.pingOnce(HeartbeatMgr.java:304)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.call(HeartbeatMgr.java:274)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.call(HeartbeatMgr.java:260)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at org.apache.thrift.transport.TSocket.open(TSocket.java:250)
+	... 14 more
+2025-12-21 11:27:24,471 WARN (heartbeat mgr|30) [HeartbeatMgr.runAfterCatalogReady():165] get bad heartbeat response: type: BACKEND, status: BAD, msg: java.net.ConnectException: Connection refused, beId: 1766220400802, beHost: 172.30.95.46, bePort: 0, httpPort: 0, brpcPort: 0, arrowFlightSqlPort: 0
+2025-12-21 11:27:24,472 INFO (abort-txn-executor-0|187) [HeartbeatMgr.lambda$submitAbortTxnTaskByExecutor$2():243] start abort txn task, reason=down, start_ts=1766287644471
+2025-12-21 11:27:24,472 INFO (abort-txn-executor-0|187) [HeartbeatMgr.lambda$submitAbortTxnTaskByExecutor$2():247] finish abort txn task, reason=down, start_ts=1766287644471, cost_ms=1
+2025-12-21 11:27:24,985 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:28,951 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:29,951 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:30,349 INFO (binlog-gcer|53) [BinlogManager.gc():654] begin gc binlog
+2025-12-21 11:27:30,349 INFO (binlog-gcer|53) [BinlogManager.gc():665] gc binlog, dbBinlogMap is null
+2025-12-21 11:27:30,349 INFO (binlog-gcer|53) [BinlogGcer.runAfterCatalogReady():63] no gc binlog
+2025-12-21 11:27:30,472 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 11:27:30,472 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 11:27:30,952 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:31,952 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:32,952 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:33,952 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:34,953 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:35,364 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 11:27:35,472 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 11:27:35,472 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 11:27:35,953 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:36,953 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:37,444 WARN (heartbeat-mgr-pool-6|217) [HeartbeatMgr$BackendHeartbeatHandler.pingOnce():368] backend heartbeat got exception
+org.apache.thrift.transport.TTransportException: java.net.ConnectException: Connection refused
+	at org.apache.thrift.transport.TSocket.open(TSocket.java:255)
+	at org.apache.doris.common.GenericPool$ThriftClientFactory.create(GenericPool.java:143)
+	at org.apache.doris.common.GenericPool$ThriftClientFactory.create(GenericPool.java:126)
+	at org.apache.commons.pool2.BaseKeyedPooledObjectFactory.makeObject(BaseKeyedPooledObjectFactory.java:62)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.create(GenericKeyedObjectPool.java:1012)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.borrowObject(GenericKeyedObjectPool.java:356)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.borrowObject(GenericKeyedObjectPool.java:277)
+	at org.apache.doris.common.GenericPool.borrowObject(GenericPool.java:95)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.pingOnce(HeartbeatMgr.java:304)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.call(HeartbeatMgr.java:271)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.call(HeartbeatMgr.java:260)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at org.apache.thrift.transport.TSocket.open(TSocket.java:250)
+	... 14 more
+2025-12-21 11:27:37,444 WARN (heartbeat-mgr-pool-6|217) [HeartbeatMgr$BackendHeartbeatHandler.pingOnce():368] backend heartbeat got exception
+org.apache.thrift.transport.TTransportException: java.net.ConnectException: Connection refused
+	at org.apache.thrift.transport.TSocket.open(TSocket.java:255)
+	at org.apache.doris.common.GenericPool$ThriftClientFactory.create(GenericPool.java:143)
+	at org.apache.doris.common.GenericPool$ThriftClientFactory.create(GenericPool.java:126)
+	at org.apache.commons.pool2.BaseKeyedPooledObjectFactory.makeObject(BaseKeyedPooledObjectFactory.java:62)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.create(GenericKeyedObjectPool.java:1012)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.borrowObject(GenericKeyedObjectPool.java:356)
+	at org.apache.commons.pool2.impl.GenericKeyedObjectPool.borrowObject(GenericKeyedObjectPool.java:277)
+	at org.apache.doris.common.GenericPool.borrowObject(GenericPool.java:95)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.pingOnce(HeartbeatMgr.java:304)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.call(HeartbeatMgr.java:274)
+	at org.apache.doris.system.HeartbeatMgr$BackendHeartbeatHandler.call(HeartbeatMgr.java:260)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at org.apache.thrift.transport.TSocket.open(TSocket.java:250)
+	... 14 more
+2025-12-21 11:27:37,445 WARN (heartbeat mgr|30) [HeartbeatMgr.runAfterCatalogReady():165] get bad heartbeat response: type: BACKEND, status: BAD, msg: java.net.ConnectException: Connection refused, beId: 1766220400802, beHost: 172.30.95.46, bePort: 0, httpPort: 0, brpcPort: 0, arrowFlightSqlPort: 0
+2025-12-21 11:27:37,445 INFO (abort-txn-executor-0|187) [HeartbeatMgr.lambda$submitAbortTxnTaskByExecutor$2():243] start abort txn task, reason=down, start_ts=1766287657445
+2025-12-21 11:27:37,445 INFO (abort-txn-executor-0|187) [HeartbeatMgr.lambda$submitAbortTxnTaskByExecutor$2():247] finish abort txn task, reason=down, start_ts=1766287657445, cost_ms=0
+2025-12-21 11:27:37,953 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:38,954 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:39,954 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:40,473 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 11:27:40,473 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 11:27:40,954 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:41,954 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:42,954 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 11:27:43,955 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+--- be.out tail ---
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-17 15:29:57,384 Start time: Wed Dec 17 15:29:57 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:38:12,996 Start time: Sat Dec 20 16:38:12 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:38:47,695 Start time: Sat Dec 20 16:38:47 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:45:23,316 Start time: Sat Dec 20 16:45:23 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 18:30:42,492 Start time: Sat Dec 20 18:30:42 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 23:03:19,855 Start time: Sat Dec 20 23:03:19 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 23:58:54,784 Start time: Sat Dec 20 23:58:54 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:08:23,998 Start time: Sun Dec 21 11:08:22 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]

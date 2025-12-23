@@ -1,0 +1,38 @@
+image:
+- Visual Studio 2017
+
+configuration: Release
+clone_depth: 3
+
+matrix:
+  fast_finish: false
+
+skip_commits:
+# Add [av skip] to commit messages
+  message: /\[av skip\]/
+
+cache:
+  - '%APPVEYOR_BUILD_FOLDER%\build'
+
+environment:
+  global:
+    CONDA_INSTALL_LOCN: C:\\Miniconda36-x64
+
+install:
+  - call %CONDA_INSTALL_LOCN%\Scripts\activate.bat
+  - conda config --add channels conda-forge --force
+  - conda install --yes --quiet flang jom
+  - call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" amd64
+  - set "LIB=%CONDA_INSTALL_LOCN%\Library\lib;%LIB%"
+  - set "CPATH=%CONDA_INSTALL_LOCN%\Library\include;%CPATH%"
+
+before_build:
+  - ps: if (-Not (Test-Path .\build)) { mkdir build }
+  - cd build
+  - cmake -G "NMake Makefiles JOM" -DCMAKE_Fortran_COMPILER=flang -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON ..
+
+build_script:
+  - cmake --build .
+
+test_script:
+  - ctest -j2

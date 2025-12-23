@@ -1,0 +1,557 @@
+--- TIME ---
+Sun Dec 21 11:45:12 CST 2025
+Using regression script: ./run-regression-test.sh
+[1mApache Maven 3.8.7[m
+Maven home: /usr/share/maven
+Java version: 17.0.17, vendor: Ubuntu, runtime: /usr/lib/jvm/java-17-openjdk-amd64
+Default locale: en, platform encoding: UTF-8
+OS name: "linux", version: "6.6.87.2-microsoft-standard-wsl2", arch: "amd64", family: "unix"
+===== Run Regression Test =====
+2025-12-21 11:45:14.850 INFO [main] (Config.groovy:332) - Load config file /home/zhisheng/doris/regression-test/conf/regression-conf.groovy
+2025-12-21 11:45:15.658 INFO [main] (Config.groovy:764) - Set s3Provider to 'OSS' because not specify.
+2025-12-21 11:45:15.659 INFO [main] (Config.groovy:782) - Set s3BucketName to 'doris-regression-hk' because not specify.
+2025-12-21 11:45:15.659 INFO [main] (Config.groovy:800) - Set s3Region to 'oss-cn-hongkong' because not specify.
+2025-12-21 11:45:15.659 INFO [main] (Config.groovy:818) - Set s3Endpoint to 'oss-cn-hongkong.aliyuncs.com' because not specify.
+2025-12-21 11:45:15.660 INFO [main] (Config.groovy:823) - set caseNamePrefix to '' because not specify.
+2025-12-21 11:45:15.660 INFO [main] (Config.groovy:828) - set validateBackupPrefix to 'doris_validate_backup' because not specify.
+2025-12-21 11:45:15.660 INFO [main] (Config.groovy:874) - Set cloudUniqueId to 'cloud_unique_id_xxx' because not specify.
+2025-12-21 11:45:15.660 INFO [main] (Config.groovy:879) - Set metaServiceHttpAddress to '127.0.0.1:5000' because not specify.
+2025-12-21 11:45:15.660 INFO [main] (Config.groovy:884) - Set recycleServiceHttpAddress to '127.0.0.1:5001' because not specify.
+2025-12-21 11:45:15.661 INFO [main] (Config.groovy:889) - Set recycleBeforeTest to 'false' because not specify.
+2025-12-21 11:45:15.661 INFO [main] (Config.groovy:904) - Set syncerAddress to '127.0.0.1:9190' because not specify.
+2025-12-21 11:45:15.661 INFO [main] (Config.groovy:920) - Set feCloudHttpAddress to '127.0.0.1:8876' because not specify.
+2025-12-21 11:45:15.661 INFO [main] (Config.groovy:925) - Set feCloudHttpUser to 'root' because not specify.
+2025-12-21 11:45:15.661 INFO [main] (Config.groovy:930) - Set feCloudHttpPassword to empty because not specify.
+2025-12-21 11:45:15.662 INFO [main] (Config.groovy:950) - Set cacheDataPath to 'regression-test/cacheData' because not specify.
+2025-12-21 11:45:15.662 INFO [main] (Config.groovy:1019) - Set parallel to 1 because not specify.
+2025-12-21 11:45:15.662 INFO [main] (Config.groovy:1024) - Set suiteParallel to 1 because not specify.
+2025-12-21 11:45:15.662 INFO [main] (Config.groovy:1029) - Set dockerSuiteParallel to 1 because not specify.
+2025-12-21 11:45:15.662 INFO [main] (Config.groovy:1034) - Set actionParallel to 10 because not specify.
+2025-12-21 11:45:15.664 INFO [main] (Config.groovy:370) - runMode: UNKNOWN
+2025-12-21 11:45:15.687 INFO [main] (Config.groovy:454) - feCloudHttpAddress : 127.0.0.1:8876, socketAddr : /127.0.0.1:8876
+2025-12-21 11:45:15.688 INFO [main] (Config.groovy:457) - instanceId : default_instance_id
+2025-12-21 11:45:15.688 INFO [main] (Config.groovy:460) - cloudUniqueId : cloud_unique_id_xxx
+2025-12-21 11:45:15.690 INFO [main] (Config.groovy:470) - msAddr : 127.0.0.1:5000, socketAddr : /127.0.0.1:5000
+2025-12-21 11:45:15.690 INFO [main] (Config.groovy:473) - multiClusterBes is null
+2025-12-21 11:45:15.690 INFO [main] (Config.groovy:476) - metaServiceToken is greedisgood9999
+2025-12-21 11:45:15.690 INFO [main] (Config.groovy:479) - multiClusterInstance is default_instance_id
+2025-12-21 11:45:15.690 INFO [main] (Config.groovy:482) - upgradeNewBeIp is null
+2025-12-21 11:45:15.691 INFO [main] (Config.groovy:485) - upgradeNewBeHbPort is null
+2025-12-21 11:45:15.691 INFO [main] (Config.groovy:488) - upgradeNewBeHttpPort is null
+2025-12-21 11:45:15.691 INFO [main] (Config.groovy:491) - upgradeNewBeUniqueId is null
+2025-12-21 11:45:15.691 INFO [main] (Config.groovy:494) - stageIamEndpoint is null
+2025-12-21 11:45:15.691 INFO [main] (Config.groovy:496) - stageIamRegion is null
+2025-12-21 11:45:15.691 INFO [main] (Config.groovy:498) - stageIamBucket is null
+2025-12-21 11:45:15.692 INFO [main] (Config.groovy:500) - stageIamPolicy is null
+2025-12-21 11:45:15.692 INFO [main] (Config.groovy:502) - stageIamRole is null
+2025-12-21 11:45:15.692 INFO [main] (Config.groovy:504) - stageIamArn is null
+2025-12-21 11:45:15.692 INFO [main] (Config.groovy:506) - stageIamAk is null
+2025-12-21 11:45:15.692 INFO [main] (Config.groovy:508) - stageIamSk is null
+2025-12-21 11:45:15.692 INFO [main] (Config.groovy:510) - stageIamUserId is null
+2025-12-21 11:45:15.693 INFO [main] (Config.groovy:512) - cloudVersion is null
+2025-12-21 11:45:15.693 INFO [main] (Config.groovy:515) - tdeAk is null
+2025-12-21 11:45:15.694 INFO [main] (Config.groovy:517) - tdeSk is null
+2025-12-21 11:45:15.694 INFO [main] (Config.groovy:519) - tdeKeyEndpoint is null
+2025-12-21 11:45:15.694 INFO [main] (Config.groovy:521) - tdeKeyRegion is null
+2025-12-21 11:45:15.694 INFO [main] (Config.groovy:523) - tdeKeyProvider is null
+2025-12-21 11:45:15.694 INFO [main] (Config.groovy:525) - tdeAlgorithm is null
+2025-12-21 11:45:15.695 INFO [main] (Config.groovy:527) - tdeKeyId is null
+2025-12-21 11:45:15.696 INFO [main] (Config.groovy:539) - recycleAddr : 127.0.0.1:5001, socketAddr : /127.0.0.1:5001
+2025-12-21 11:45:15.697 INFO [main] (Config.groovy:567) - randomOrder is false
+2025-12-21 11:45:15.697 INFO [main] (Config.groovy:568) - stopWhenFail is false
+2025-12-21 11:45:15.697 INFO [main] (Config.groovy:569) - withOutLoadData is false
+2025-12-21 11:45:15.697 INFO [main] (Config.groovy:570) - runNonConcurrent is true
+2025-12-21 11:45:15.697 INFO [main] (Config.groovy:571) - caseNamePrefix is 
+2025-12-21 11:45:15.697 INFO [main] (Config.groovy:572) - validateBackupPrefix is doris_validate_backup
+2025-12-21 11:45:15.697 INFO [main] (Config.groovy:573) - dryRun is false
+2025-12-21 11:45:15.697 INFO [main] (Config.groovy:576) - s3Source is aliyun
+2025-12-21 11:45:15.698 INFO [main] (Config.groovy:577) - s3Provider is OSS
+2025-12-21 11:45:15.698 INFO [main] (Config.groovy:578) - s3BucketName is doris-regression-hk
+2025-12-21 11:45:15.698 INFO [main] (Config.groovy:579) - s3Region is oss-cn-hongkong
+2025-12-21 11:45:15.698 INFO [main] (Config.groovy:580) - s3Endpoint is oss-cn-hongkong.aliyuncs.com
+2025-12-21 11:45:15.699 INFO [main] (Config.groovy:1088) - Try to create db, sql: CREATE DATABASE IF NOT EXISTS regression_test
+2025-12-21 11:45:16.006 INFO [main] (Config.groovy:1081) - Reset jdbcUrl to jdbc:mysql://127.0.0.1:9030/regression_test?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round&verifyServerCertificate=false&useSSL=true&requireSSL=false&enabledTLSProtocols=TLSv1.2&connectTimeout=5000&socketTimeout=1800000&tcpKeepAlive=true
+2025-12-21 11:45:16.154 INFO [main] (Config.groovy:1133) - show random_add_cluster_keys_for_mow config: [[Comment:, Type:boolean, Value:false, MasterOnly:true, IsMutable:true, Key:random_add_cluster_keys_for_mow]]
+2025-12-21 11:45:16.155 INFO [main] (Config.groovy:1143) - random_add_cluster_keys_for_mow in fe.conf: false
+2025-12-21 11:45:16.156 INFO [main] (RegressionTest.groovy:153) - ================================================================================
+2025-12-21 11:45:16.157 INFO [main] (RegressionTest.groovy:154) - Log file: /home/zhisheng/doris/output/regression-test/log/doris-regression-test.20251221.114513.log
+2025-12-21 11:45:16.157 INFO [main] (RegressionTest.groovy:155) - ================================================================================
+2025-12-21 11:45:16.158 INFO [main] (RegressionTest.groovy:164) - parallel = 10, suiteParallel = 10, actionParallel = 10
+2025-12-21 11:45:16.831 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_compaction_plugin.groovy
+2025-12-21 11:45:16.862 INFO [main] (cloud_compaction_plugin.groovy:110) - Added 'doCloudCompaction' function to Suite
+2025-12-21 11:45:16.863 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_compaction_plugin.groovy
+2025-12-21 11:45:17.024 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smooth_upgrade.groovy
+2025-12-21 11:45:17.026 INFO [main] (cloud_smooth_upgrade.groovy:64) - Added 'addNodeForSmoothUpgrade' function to Suite
+2025-12-21 11:45:17.027 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smooth_upgrade.groovy
+2025-12-21 11:45:17.091 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_cluster_op_plugin.groovy
+2025-12-21 11:45:17.093 INFO [main] (cloud_cluster_op_plugin.groovy:85) - Added 'cloud cluster op' function to Suite
+2025-12-21 11:45:17.094 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_cluster_op_plugin.groovy
+2025-12-21 11:45:17.168 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check.groovy
+2025-12-21 11:45:17.171 INFO [main] (plugin_check.groovy:40) - Added 'check_sql_equal' function to Suite
+2025-12-21 11:45:17.171 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check.groovy
+2025-12-21 11:45:17.462 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_query_timeout_debugger.groovy
+2025-12-21 11:45:17.522 INFO [main] (plugin_query_timeout_debugger.groovy:89) - worker started with scheduler
+2025-12-21 11:45:17.523 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_query_timeout_debugger.groovy
+2025-12-21 11:45:17.590 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 11:45:17.620 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_ranger.groovy
+2025-12-21 11:45:17.622 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:45:17.625 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_ranger.groovy
+2025-12-21 11:45:17.626 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:45:17.651 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_planner.groovy
+2025-12-21 11:45:17.654 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_planner.groovy
+2025-12-21 11:45:17.701 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/test_helper.groovy
+2025-12-21 11:45:17.704 INFO [main] (test_helper.groovy:65) - Added 'createTestTable' function to Suite
+2025-12-21 11:45:17.705 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/test_helper.groovy
+2025-12-21 11:45:18.072 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_show_data_plugin.groovy
+2025-12-21 11:45:18.080 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_show_data_plugin.groovy
+2025-12-21 11:45:18.203 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_abnormal_plugin.groovy
+2025-12-21 11:45:18.212 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_abnormal_plugin.groovy
+2025-12-21 11:45:18.241 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check_sql_single_value.groovy
+2025-12-21 11:45:18.243 INFO [main] (plugin_check_sql_single_value.groovy:51) - Added 'isSqlValueEqualToTarget' function to Suite
+2025-12-21 11:45:18.245 INFO [main] (plugin_check_sql_single_value.groovy:79) - Added 'isSqlValueGreaterThanTarget' function to Suite
+2025-12-21 11:45:18.245 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check_sql_single_value.groovy
+2025-12-21 11:45:18.416 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_compaction.groovy
+2025-12-21 11:45:18.420 INFO [main] (plugin_compaction.groovy:43) - Added 'be_run_base_compaction' function to Suite
+2025-12-21 11:45:18.421 INFO [main] (plugin_compaction.groovy:49) - Added 'be_run_cumulative_compaction' function to Suite
+2025-12-21 11:45:18.423 INFO [main] (plugin_compaction.groovy:59) - Added 'be_run_full_compaction' function to Suite
+2025-12-21 11:45:18.424 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_compaction.groovy
+2025-12-21 11:45:18.458 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_filecache_plugin.groovy
+2025-12-21 11:45:18.460 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_filecache_plugin.groovy
+2025-12-21 11:45:18.495 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_async_job_wait.groovy
+2025-12-21 11:45:18.496 INFO [main] (plugin_async_job_wait.groovy:42) - Added 'getLoadFinalState' function to Suite
+2025-12-21 11:45:18.498 INFO [main] (plugin_async_job_wait.groovy:64) - Added 'getAlterColumnFinalState' function to Suite
+2025-12-21 11:45:18.499 INFO [main] (plugin_async_job_wait.groovy:86) - Added 'getAlterRollupFinalState' function to Suite
+2025-12-21 11:45:18.499 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_async_job_wait.groovy
+2025-12-21 11:45:18.517 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_get_table_properties.groovy
+2025-12-21 11:45:18.518 INFO [main] (plugin_get_table_properties.groovy:34) - Added 'get_table_replica_num' function to Suite
+2025-12-21 11:45:18.519 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_get_table_properties.groovy
+2025-12-21 11:45:18.544 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugins_get_ids_from_proc.groovy
+2025-12-21 11:45:18.547 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugins_get_ids_from_proc.groovy
+2025-12-21 11:45:18.568 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_example.groovy
+2025-12-21 11:45:18.569 INFO [main] (plugin_example.groovy:34) - Added 'testPlugin' function to Suite
+2025-12-21 11:45:18.570 INFO [main] (plugin_example.groovy:54) - Added 'check2_doris' function to Suite
+2025-12-21 11:45:18.571 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_example.groovy
+2025-12-21 11:45:18.589 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_must_contains.groovy
+2025-12-21 11:45:18.590 INFO [main] (plugin_must_contains.groovy:30) - Added 'mustContain' function to Suite
+2025-12-21 11:45:18.591 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_must_contains.groovy
+2025-12-21 11:45:18.641 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster.groovy
+2025-12-21 11:45:18.644 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster.groovy
+2025-12-21 11:45:18.751 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugins_create_table_nested_type.groovy
+2025-12-21 11:45:18.753 INFO [main] (plugins_create_table_nested_type.groovy:109) - Added 'create_table_with_nested_type' function to Suite
+2025-12-21 11:45:18.754 INFO [main] (plugins_create_table_nested_type.groovy:147) - Added 'get_create_table_with_nested_type' function to Suite
+2025-12-21 11:45:18.755 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugins_create_table_nested_type.groovy
+2025-12-21 11:45:19.095 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_recycler_plugin.groovy
+2025-12-21 11:45:19.096 INFO [main] (cloud_recycler_plugin.groovy:72) - Added 'triggerRecycle' function to Suite
+2025-12-21 11:45:19.098 INFO [main] (cloud_recycler_plugin.groovy:207) - Added 'checkRecycleTable' function to Suite
+2025-12-21 11:45:19.099 INFO [main] (cloud_recycler_plugin.groovy:314) - Added 'checkRecycleInternalStage' function to Suite
+2025-12-21 11:45:19.100 INFO [main] (cloud_recycler_plugin.groovy:458) - Added 'checkRecycleExpiredStageObjects' function to Suite
+2025-12-21 11:45:19.101 INFO [main] (cloud_recycler_plugin.groovy:601) - Added 'checkRecycleMetrics' function to Suite
+2025-12-21 11:45:19.102 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_recycler_plugin.groovy
+2025-12-21 11:45:19.121 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_resource_plugin.groovy
+2025-12-21 11:45:19.122 INFO [main] (cloud_resource_plugin.groovy:75) - Added 'getObjStoreInfo' function to Suite
+2025-12-21 11:45:19.123 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_resource_plugin.groovy
+2025-12-21 11:45:19.313 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_stage_ram_plugin.groovy
+2025-12-21 11:45:19.314 INFO [main] (cloud_stage_ram_plugin.groovy:41) - Added 'getRoleName' function to Suite
+2025-12-21 11:45:19.316 INFO [main] (cloud_stage_ram_plugin.groovy:46) - Added 'getExternalId' function to Suite
+2025-12-21 11:45:19.317 INFO [main] (cloud_stage_ram_plugin.groovy:98) - Added 'getRole' function to Suite
+2025-12-21 11:45:19.320 INFO [main] (cloud_stage_ram_plugin.groovy:143) - Added 'attachPolicy' function to Suite
+2025-12-21 11:45:19.322 INFO [main] (cloud_stage_ram_plugin.groovy:336) - Added 'createRole' function to Suite
+2025-12-21 11:45:19.323 INFO [main] (cloud_stage_ram_plugin.groovy:371) - Added 'detachPolicy' function to Suite
+2025-12-21 11:45:19.324 INFO [main] (cloud_stage_ram_plugin.groovy:424) - Added 'deleteRole' function to Suite
+2025-12-21 11:45:19.324 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_stage_ram_plugin.groovy
+2025-12-21 11:45:19.540 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_curl_requester.groovy
+2025-12-21 11:45:19.543 INFO [main] (plugin_curl_requester.groovy:113) - Added 'http_client' function to Suite
+2025-12-21 11:45:19.544 INFO [main] (plugin_curl_requester.groovy:175) - Added 'curl' function to Suite
+2025-12-21 11:45:19.546 INFO [main] (plugin_curl_requester.groovy:181) - Added 'show_be_config' function to Suite
+2025-12-21 11:45:19.547 INFO [main] (plugin_curl_requester.groovy:187) - Added 'update_be_config' function to Suite
+2025-12-21 11:45:19.548 INFO [main] (plugin_curl_requester.groovy:202) - Added 'update_all_be_config' function to Suite
+2025-12-21 11:45:19.550 INFO [main] (plugin_curl_requester.groovy:215) - Added 'be_report_disk' function to Suite
+2025-12-21 11:45:19.551 INFO [main] (plugin_curl_requester.groovy:222) - Added 'be_report_tablet' function to Suite
+2025-12-21 11:45:19.552 INFO [main] (plugin_curl_requester.groovy:229) - Added 'be_report_task' function to Suite
+2025-12-21 11:45:19.553 INFO [main] (plugin_curl_requester.groovy:269) - Added 'check_nested_index_file' function to Suite
+2025-12-21 11:45:19.553 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_curl_requester.groovy
+2025-12-21 11:45:19.572 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smoke_plugin.groovy
+2025-12-21 11:45:19.573 INFO [main] (cloud_smoke_plugin.groovy:47) - Added 'cloud smoke' function to Suite
+2025-12-21 11:45:19.574 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smoke_plugin.groovy
+2025-12-21 11:45:19.708 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/aliyun_oss_sdk.groovy
+2025-12-21 11:45:19.741 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/aliyun_oss_sdk.groovy
+2025-12-21 11:45:19.760 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster_version.groovy
+2025-12-21 11:45:19.761 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster_version.groovy
+2025-12-21 11:45:19.814 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_index_change.groovy
+2025-12-21 11:45:19.818 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_index_change.groovy
+2025-12-21 11:45:19.818 INFO [main] (RegressionTest.groovy:105) - === run 0 time ===
+2025-12-21 11:45:19.822 INFO [main] (RegressionTest.groovy:343) - run scripts in directories: []
+2025-12-21 11:45:19.822 INFO [main] (RegressionTest.groovy:345) - Start to run load scripts
+2025-12-21 11:45:25.291 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 11:45:33.103 INFO [main] (RegressionTest.groovy:351) - Start to run scripts
+2025-12-21 11:46:23.229 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:46:23.232 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:47:01.668 INFO [script-thread-1] (SuiteScript.groovy:48) - run /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 11:47:01.679 INFO [script-thread-1] (SuiteContext.groovy:103) - packageName: query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 11:47:01.679 INFO [script-thread-1] (SuiteContext.groovy:114) - scriptFileName: test_hamming_distance.groovy
+2025-12-21 11:47:01.680 INFO [script-thread-1] (SuiteContext.groovy:98) - flowName: query_p0.sql_functions.test_hamming_distance.test_hamming_distance, flowId: query_p0/sql_functions/test_hamming_distance.groovy#test_hamming_distance
+2025-12-21 11:47:01.730 INFO [suite-thread-1] (ScriptContext.groovy:100) - Run test_hamming_distance in /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 11:47:01.757 INFO [suite-thread-1] (SuiteContext.groovy:162) - Try to create db, sql: CREATE DATABASE IF NOT EXISTS regression_test_query_p0_sql_functions
+2025-12-21 11:47:01.760 INFO [suite-thread-1] (SuiteContext.groovy:170) - connect to jdbc:mysql://127.0.0.1:9030/regression_test_query_p0_sql_functions?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round&verifyServerCertificate=false&useSSL=true&requireSSL=false&enabledTLSProtocols=TLSv1.2&connectTimeout=5000&socketTimeout=1800000&tcpKeepAlive=true
+2025-12-21 11:47:01.796 INFO [suite-thread-1] (Suite.groovy:572) - Execute sql:  drop table if exists hits_hamming_distance 
+2025-12-21 11:47:01.800 INFO [suite-thread-1] (Suite.groovy:572) - Execute sql:  create table hits_hamming_distance(
+                nothing boolean
+            )
+            properties("replication_num" = "1");
+    
+2025-12-21 11:47:26.059 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:47:26.061 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:47:34.703 ERROR [suite-thread-1] (ScriptContext.groovy:122) - Run test_hamming_distance in /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy failed
+java.sql.SQLException: errCode = 2, detailMessage = Failed to create partition[hits_hamming_distance].Timeout:30 seconds. Unfinished: (backendId = 1766285578511, tabletId = 1766285578554), (backendId = 1766285578511, tabletId = 1766285578562), (backendId = 1766285578511, tabletId = 1766285578550)
+	at com.mysql.cj.jdbc.exceptions.SQLError.createSQLException(SQLError.java:129)
+	at com.mysql.cj.jdbc.exceptions.SQLExceptionsMapping.translateException(SQLExceptionsMapping.java:122)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.executeInternal(ClientPreparedStatement.java:953)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.execute(ClientPreparedStatement.java:371)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.util.JdbcUtils$_executeToList_closure1.doCall(JdbcUtils.groovy:47)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:422)
+	at org.codehaus.groovy.runtime.IOGroovyMethods.withCloseable(IOGroovyMethods.java:1649)
+	at org.codehaus.groovy.runtime.dgm$1000.doMethodInvoke(Unknown Source)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.util.JdbcUtils.executeToList(JdbcUtils.groovy:46)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.sql_impl(Suite.groovy:573)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.jdbc_sql(Suite.groovy:581)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.sql(Suite.groovy:592)
+	at org.apache.doris.regression.suite.Suite.sql(Suite.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at org.codehaus.groovy.runtime.metaclass.TransformMetaMethod.invoke(TransformMetaMethod.java:59)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass$1.invoke(ClosureMetaClass.java:218)
+	at org.codehaus.groovy.runtime.metaclass.TransformMetaMethod.doMethodInvoke(TransformMetaMethod.java:66)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at test_hamming_distance$_run_closure1.doCall(test_hamming_distance.groovy:21)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:422)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1$_closure5.doCall(ScriptContext.groovy:108)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at org.codehaus.groovy.runtime.ConvertedClosure.invokeCustom(ConvertedClosure.java:52)
+	at org.codehaus.groovy.runtime.ConversionHandler.invoke(ConversionHandler.java:113)
+	at jdk.proxy1/jdk.proxy1.$Proxy16.apply(Unknown Source)
+	at org.apache.doris.regression.suite.SuiteContext$_start_closure5.doCall(SuiteContext.groovy:594)
+	at org.apache.doris.regression.suite.SuiteContext$_start_closure5.call(SuiteContext.groovy)
+	at org.codehaus.groovy.runtime.IOGroovyMethods.withCloseable(IOGroovyMethods.java:1616)
+	at org.apache.doris.regression.suite.SuiteContext.start(SuiteContext.groovy:591)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1.doCall(ScriptContext.groovy:99)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1.call(ScriptContext.groovy)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:47:56.676 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 11:48:31.754 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:48:31.757 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:49:37.407 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:49:37.411 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:50:43.148 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 11:50:43.151 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:50:43.154 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:51:48.755 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:51:48.758 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:52:20.297 INFO [main] (RegressionTest.groovy:357) - Start to run check hash bucket table scripts
+2025-12-21 11:52:20.800 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 11:52:20.839 INFO [main] (RegressionTest.groovy:464) - Failure suites:
+/home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy: group=default,p0, name=test_hamming_distance
+2025-12-21 11:52:20.841 INFO [main] (RegressionTest.groovy:540) - Some suites failed.
+ _____ _    ___ _     _____ ____
+|  ___/ \  |_ _| |   | ____|  _ \
+| |_ / _ \  | || |   |  _| | | | |
+|  _/ ___ \ | || |___| |___| |_| |
+|_|/_/   \_\___|_____|_____|____/
+
+2025-12-21 11:52:20.841 INFO [main] (RegressionTest.groovy:478) - Test 1 suites, failed 1 suites, fatal 0 scripts, skipped 0 scripts
+2025-12-21 11:52:20.842 INFO [main] (RegressionTest.groovy:130) - Test finished
+2025-12-21 11:52:20.843 INFO [main] (RegressionTest.groovy:153) - ================================================================================
+2025-12-21 11:52:20.843 INFO [main] (RegressionTest.groovy:154) - Log file: /home/zhisheng/doris/output/regression-test/log/doris-regression-test.20251221.114513.log
+2025-12-21 11:52:20.843 INFO [main] (RegressionTest.groovy:155) - ================================================================================
+2025-12-21 11:52:20.844 INFO [Thread-0] (plugin_query_timeout_debugger.groovy:93) - stop worker
+--- tail regression_after_be_ready.log ---
+2025-12-21 11:45:19.316 INFO [main] (cloud_stage_ram_plugin.groovy:46) - Added 'getExternalId' function to Suite
+2025-12-21 11:45:19.317 INFO [main] (cloud_stage_ram_plugin.groovy:98) - Added 'getRole' function to Suite
+2025-12-21 11:45:19.320 INFO [main] (cloud_stage_ram_plugin.groovy:143) - Added 'attachPolicy' function to Suite
+2025-12-21 11:45:19.322 INFO [main] (cloud_stage_ram_plugin.groovy:336) - Added 'createRole' function to Suite
+2025-12-21 11:45:19.323 INFO [main] (cloud_stage_ram_plugin.groovy:371) - Added 'detachPolicy' function to Suite
+2025-12-21 11:45:19.324 INFO [main] (cloud_stage_ram_plugin.groovy:424) - Added 'deleteRole' function to Suite
+2025-12-21 11:45:19.324 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_stage_ram_plugin.groovy
+2025-12-21 11:45:19.540 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_curl_requester.groovy
+2025-12-21 11:45:19.543 INFO [main] (plugin_curl_requester.groovy:113) - Added 'http_client' function to Suite
+2025-12-21 11:45:19.544 INFO [main] (plugin_curl_requester.groovy:175) - Added 'curl' function to Suite
+2025-12-21 11:45:19.546 INFO [main] (plugin_curl_requester.groovy:181) - Added 'show_be_config' function to Suite
+2025-12-21 11:45:19.547 INFO [main] (plugin_curl_requester.groovy:187) - Added 'update_be_config' function to Suite
+2025-12-21 11:45:19.548 INFO [main] (plugin_curl_requester.groovy:202) - Added 'update_all_be_config' function to Suite
+2025-12-21 11:45:19.550 INFO [main] (plugin_curl_requester.groovy:215) - Added 'be_report_disk' function to Suite
+2025-12-21 11:45:19.551 INFO [main] (plugin_curl_requester.groovy:222) - Added 'be_report_tablet' function to Suite
+2025-12-21 11:45:19.552 INFO [main] (plugin_curl_requester.groovy:229) - Added 'be_report_task' function to Suite
+2025-12-21 11:45:19.553 INFO [main] (plugin_curl_requester.groovy:269) - Added 'check_nested_index_file' function to Suite
+2025-12-21 11:45:19.553 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_curl_requester.groovy
+2025-12-21 11:45:19.572 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smoke_plugin.groovy
+2025-12-21 11:45:19.573 INFO [main] (cloud_smoke_plugin.groovy:47) - Added 'cloud smoke' function to Suite
+2025-12-21 11:45:19.574 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smoke_plugin.groovy
+2025-12-21 11:45:19.708 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/aliyun_oss_sdk.groovy
+2025-12-21 11:45:19.741 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/aliyun_oss_sdk.groovy
+2025-12-21 11:45:19.760 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster_version.groovy
+2025-12-21 11:45:19.761 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster_version.groovy
+2025-12-21 11:45:19.814 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_index_change.groovy
+2025-12-21 11:45:19.818 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_index_change.groovy
+2025-12-21 11:45:19.818 INFO [main] (RegressionTest.groovy:105) - === run 0 time ===
+2025-12-21 11:45:19.822 INFO [main] (RegressionTest.groovy:343) - run scripts in directories: []
+2025-12-21 11:45:19.822 INFO [main] (RegressionTest.groovy:345) - Start to run load scripts
+2025-12-21 11:45:25.291 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 11:45:33.103 INFO [main] (RegressionTest.groovy:351) - Start to run scripts
+2025-12-21 11:46:23.229 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:46:23.232 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:47:01.668 INFO [script-thread-1] (SuiteScript.groovy:48) - run /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 11:47:01.679 INFO [script-thread-1] (SuiteContext.groovy:103) - packageName: query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 11:47:01.679 INFO [script-thread-1] (SuiteContext.groovy:114) - scriptFileName: test_hamming_distance.groovy
+2025-12-21 11:47:01.680 INFO [script-thread-1] (SuiteContext.groovy:98) - flowName: query_p0.sql_functions.test_hamming_distance.test_hamming_distance, flowId: query_p0/sql_functions/test_hamming_distance.groovy#test_hamming_distance
+2025-12-21 11:47:01.730 INFO [suite-thread-1] (ScriptContext.groovy:100) - Run test_hamming_distance in /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 11:47:01.757 INFO [suite-thread-1] (SuiteContext.groovy:162) - Try to create db, sql: CREATE DATABASE IF NOT EXISTS regression_test_query_p0_sql_functions
+2025-12-21 11:47:01.760 INFO [suite-thread-1] (SuiteContext.groovy:170) - connect to jdbc:mysql://127.0.0.1:9030/regression_test_query_p0_sql_functions?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round&verifyServerCertificate=false&useSSL=true&requireSSL=false&enabledTLSProtocols=TLSv1.2&connectTimeout=5000&socketTimeout=1800000&tcpKeepAlive=true
+2025-12-21 11:47:01.796 INFO [suite-thread-1] (Suite.groovy:572) - Execute sql:  drop table if exists hits_hamming_distance 
+2025-12-21 11:47:01.800 INFO [suite-thread-1] (Suite.groovy:572) - Execute sql:  create table hits_hamming_distance(
+                nothing boolean
+            )
+            properties("replication_num" = "1");
+    
+2025-12-21 11:47:26.059 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:47:26.061 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:47:34.703 ERROR [suite-thread-1] (ScriptContext.groovy:122) - Run test_hamming_distance in /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy failed
+java.sql.SQLException: errCode = 2, detailMessage = Failed to create partition[hits_hamming_distance].Timeout:30 seconds. Unfinished: (backendId = 1766285578511, tabletId = 1766285578554), (backendId = 1766285578511, tabletId = 1766285578562), (backendId = 1766285578511, tabletId = 1766285578550)
+	at com.mysql.cj.jdbc.exceptions.SQLError.createSQLException(SQLError.java:129)
+	at com.mysql.cj.jdbc.exceptions.SQLExceptionsMapping.translateException(SQLExceptionsMapping.java:122)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.executeInternal(ClientPreparedStatement.java:953)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.execute(ClientPreparedStatement.java:371)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.util.JdbcUtils$_executeToList_closure1.doCall(JdbcUtils.groovy:47)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:422)
+	at org.codehaus.groovy.runtime.IOGroovyMethods.withCloseable(IOGroovyMethods.java:1649)
+	at org.codehaus.groovy.runtime.dgm$1000.doMethodInvoke(Unknown Source)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.util.JdbcUtils.executeToList(JdbcUtils.groovy:46)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.sql_impl(Suite.groovy:573)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.jdbc_sql(Suite.groovy:581)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.sql(Suite.groovy:592)
+	at org.apache.doris.regression.suite.Suite.sql(Suite.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at org.codehaus.groovy.runtime.metaclass.TransformMetaMethod.invoke(TransformMetaMethod.java:59)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass$1.invoke(ClosureMetaClass.java:218)
+	at org.codehaus.groovy.runtime.metaclass.TransformMetaMethod.doMethodInvoke(TransformMetaMethod.java:66)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at test_hamming_distance$_run_closure1.doCall(test_hamming_distance.groovy:21)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:422)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1$_closure5.doCall(ScriptContext.groovy:108)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at org.codehaus.groovy.runtime.ConvertedClosure.invokeCustom(ConvertedClosure.java:52)
+	at org.codehaus.groovy.runtime.ConversionHandler.invoke(ConversionHandler.java:113)
+	at jdk.proxy1/jdk.proxy1.$Proxy16.apply(Unknown Source)
+	at org.apache.doris.regression.suite.SuiteContext$_start_closure5.doCall(SuiteContext.groovy:594)
+	at org.apache.doris.regression.suite.SuiteContext$_start_closure5.call(SuiteContext.groovy)
+	at org.codehaus.groovy.runtime.IOGroovyMethods.withCloseable(IOGroovyMethods.java:1616)
+	at org.apache.doris.regression.suite.SuiteContext.start(SuiteContext.groovy:591)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1.doCall(ScriptContext.groovy:99)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1.call(ScriptContext.groovy)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 11:47:56.676 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 11:48:31.754 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:48:31.757 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:49:37.407 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:49:37.411 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:50:43.148 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 11:50:43.151 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:50:43.154 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:51:48.755 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:51:48.758 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 11:52:20.297 INFO [main] (RegressionTest.groovy:357) - Start to run check hash bucket table scripts
+2025-12-21 11:52:20.800 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 11:52:20.839 INFO [main] (RegressionTest.groovy:464) - Failure suites:
+/home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy: group=default,p0, name=test_hamming_distance
+2025-12-21 11:52:20.841 INFO [main] (RegressionTest.groovy:540) - Some suites failed.
+ _____ _    ___ _     _____ ____
+|  ___/ \  |_ _| |   | ____|  _ \
+| |_ / _ \  | || |   |  _| | | | |
+|  _/ ___ \ | || |___| |___| |_| |
+|_|/_/   \_\___|_____|_____|____/
+
+2025-12-21 11:52:20.841 INFO [main] (RegressionTest.groovy:478) - Test 1 suites, failed 1 suites, fatal 0 scripts, skipped 0 scripts
+2025-12-21 11:52:20.842 INFO [main] (RegressionTest.groovy:130) - Test finished
+2025-12-21 11:52:20.843 INFO [main] (RegressionTest.groovy:153) - ================================================================================
+2025-12-21 11:52:20.843 INFO [main] (RegressionTest.groovy:154) - Log file: /home/zhisheng/doris/output/regression-test/log/doris-regression-test.20251221.114513.log
+2025-12-21 11:52:20.843 INFO [main] (RegressionTest.groovy:155) - ================================================================================
+2025-12-21 11:52:20.844 INFO [Thread-0] (plugin_query_timeout_debugger.groovy:93) - stop worker

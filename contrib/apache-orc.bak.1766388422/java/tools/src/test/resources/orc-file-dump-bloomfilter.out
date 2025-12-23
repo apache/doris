@@ -1,0 +1,185 @@
+Structure for TestFileDump.testDump.orc
+File Version: 0.12 with ORC_14 by ORC Java 1.9.0-SNAPSHOT
+Rows: 21000
+Compression: ZLIB
+Compression size: 4096
+Calendar: Julian/Gregorian
+Type: struct<i:int,l:bigint,s:string>
+Attributes on root
+  test1: value1
+Attributes on root.s
+  test2: value2
+  test3: value3
+
+Stripe Statistics:
+  Stripe 1:
+    Column 0: count: 5000 hasNull: false
+    Column 1: count: 5000 hasNull: false bytesOnDisk: 20035 min: -2146021688 max: 2147223299 sum: 515792826
+    Column 2: count: 5000 hasNull: false bytesOnDisk: 40050 min: -9218592812243954469 max: 9221614132680747961
+    Column 3: count: 5000 hasNull: false bytesOnDisk: 3701 min: Darkness, max: worst sum: 19280
+  Stripe 2:
+    Column 0: count: 5000 hasNull: false
+    Column 1: count: 5000 hasNull: false bytesOnDisk: 20035 min: -2146733128 max: 2147001622 sum: 7673427
+    Column 2: count: 5000 hasNull: false bytesOnDisk: 40050 min: -9220818777591257749 max: 9222259462014003839
+    Column 3: count: 5000 hasNull: false bytesOnDisk: 3690 min: Darkness, max: worst sum: 19504
+  Stripe 3:
+    Column 0: count: 5000 hasNull: false
+    Column 1: count: 5000 hasNull: false bytesOnDisk: 20035 min: -2146993718 max: 2147378179 sum: 132660742551
+    Column 2: count: 5000 hasNull: false bytesOnDisk: 40050 min: -9218342074710552826 max: 9222303228623055266
+    Column 3: count: 5000 hasNull: false bytesOnDisk: 3702 min: Darkness, max: worst sum: 19641
+  Stripe 4:
+    Column 0: count: 5000 hasNull: false
+    Column 1: count: 5000 hasNull: false bytesOnDisk: 20035 min: -2146658006 max: 2145520931 sum: 8533549236
+    Column 2: count: 5000 hasNull: false bytesOnDisk: 40050 min: -9222758097219661129 max: 9221043130193737406
+    Column 3: count: 5000 hasNull: false bytesOnDisk: 3732 min: Darkness, max: worst sum: 19470
+  Stripe 5:
+    Column 0: count: 1000 hasNull: false
+    Column 1: count: 1000 hasNull: false bytesOnDisk: 4007 min: -2146245500 max: 2146378640 sum: 51299706363
+    Column 2: count: 1000 hasNull: false bytesOnDisk: 8010 min: -9208193203370316142 max: 9218567213558056476
+    Column 3: count: 1000 hasNull: false bytesOnDisk: 926 min: Darkness, max: worst sum: 3866
+
+File Statistics:
+  Column 0: count: 21000 hasNull: false
+  Column 1: count: 21000 hasNull: false bytesOnDisk: 84147 min: -2146993718 max: 2147378179 sum: 193017464403
+  Column 2: count: 21000 hasNull: false bytesOnDisk: 168210 min: -9222758097219661129 max: 9222303228623055266
+  Column 3: count: 21000 hasNull: false bytesOnDisk: 15751 min: Darkness, max: worst sum: 81761
+
+Stripes:
+  Stripe: offset: 3 data: 63786 rows: 5000 tail: 87 index: 1330
+    Stream: column 0 section ROW_INDEX start: 3 length 17
+    Stream: column 1 section ROW_INDEX start: 20 length 166
+    Stream: column 2 section ROW_INDEX start: 186 length 169
+    Stream: column 3 section ROW_INDEX start: 355 length 87
+    Stream: column 3 section BLOOM_FILTER_UTF8 start: 442 length 891
+    Stream: column 1 section DATA start: 1333 length 20035
+    Stream: column 2 section DATA start: 21368 length 40050
+    Stream: column 3 section DATA start: 61418 length 3543
+    Stream: column 3 section LENGTH start: 64961 length 25
+    Stream: column 3 section DICTIONARY_DATA start: 64986 length 133
+    Encoding column 0: DIRECT
+    Encoding column 1: DIRECT_V2
+    Encoding column 2: DIRECT_V2
+    Encoding column 3: DICTIONARY_V2[35]
+    Row group indices for column 3:
+      Entry 0: count: 1000 hasNull: false min: Darkness, max: worst sum: 3862 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: Darkness, max: worst sum: 3884 positions: 0,659,149
+      Entry 2: count: 1000 hasNull: false min: Darkness, max: worst sum: 3893 positions: 0,1531,3
+      Entry 3: count: 1000 hasNull: false min: Darkness, max: worst sum: 3798 positions: 0,2281,32
+      Entry 4: count: 1000 hasNull: false min: Darkness, max: worst sum: 3843 positions: 0,3033,45
+    Bloom filters for column 3:
+      Entry 0: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 1: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 2: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 3: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 4: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Stripe level merge: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+  Stripe: offset: 65206 data: 63775 rows: 5000 tail: 87 index: 1323
+    Stream: column 0 section ROW_INDEX start: 65206 length 17
+    Stream: column 1 section ROW_INDEX start: 65223 length 164
+    Stream: column 2 section ROW_INDEX start: 65387 length 168
+    Stream: column 3 section ROW_INDEX start: 65555 length 83
+    Stream: column 3 section BLOOM_FILTER_UTF8 start: 65638 length 891
+    Stream: column 1 section DATA start: 66529 length 20035
+    Stream: column 2 section DATA start: 86564 length 40050
+    Stream: column 3 section DATA start: 126614 length 3532
+    Stream: column 3 section LENGTH start: 130146 length 25
+    Stream: column 3 section DICTIONARY_DATA start: 130171 length 133
+    Encoding column 0: DIRECT
+    Encoding column 1: DIRECT_V2
+    Encoding column 2: DIRECT_V2
+    Encoding column 3: DICTIONARY_V2[35]
+    Row group indices for column 3:
+      Entry 0: count: 1000 hasNull: false min: Darkness, max: worst sum: 3923 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: Darkness, max: worst sum: 3869 positions: 0,761,12
+      Entry 2: count: 1000 hasNull: false min: Darkness, max: worst sum: 3817 positions: 0,1472,70
+      Entry 3: count: 1000 hasNull: false min: Darkness, max: worst sum: 3931 positions: 0,2250,43
+      Entry 4: count: 1000 hasNull: false min: Darkness, max: worst sum: 3964 positions: 0,2978,88
+    Bloom filters for column 3:
+      Entry 0: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 1: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 2: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 3: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 4: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Stripe level merge: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+  Stripe: offset: 130391 data: 63787 rows: 5000 tail: 87 index: 1329
+    Stream: column 0 section ROW_INDEX start: 130391 length 17
+    Stream: column 1 section ROW_INDEX start: 130408 length 163
+    Stream: column 2 section ROW_INDEX start: 130571 length 168
+    Stream: column 3 section ROW_INDEX start: 130739 length 90
+    Stream: column 3 section BLOOM_FILTER_UTF8 start: 130829 length 891
+    Stream: column 1 section DATA start: 131720 length 20035
+    Stream: column 2 section DATA start: 151755 length 40050
+    Stream: column 3 section DATA start: 191805 length 3544
+    Stream: column 3 section LENGTH start: 195349 length 25
+    Stream: column 3 section DICTIONARY_DATA start: 195374 length 133
+    Encoding column 0: DIRECT
+    Encoding column 1: DIRECT_V2
+    Encoding column 2: DIRECT_V2
+    Encoding column 3: DICTIONARY_V2[35]
+    Row group indices for column 3:
+      Entry 0: count: 1000 hasNull: false min: Darkness, max: worst sum: 3817 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: Darkness, max: worst sum: 4008 positions: 0,634,174
+      Entry 2: count: 1000 hasNull: false min: Darkness, max: worst sum: 3999 positions: 0,1469,69
+      Entry 3: count: 1000 hasNull: false min: Darkness, max: worst sum: 3817 positions: 0,2133,194
+      Entry 4: count: 1000 hasNull: false min: Darkness, max: worst sum: 4000 positions: 0,3005,43
+    Bloom filters for column 3:
+      Entry 0: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 1: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 2: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 3: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 4: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Stripe level merge: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+  Stripe: offset: 195594 data: 63817 rows: 5000 tail: 86 index: 1331
+    Stream: column 0 section ROW_INDEX start: 195594 length 17
+    Stream: column 1 section ROW_INDEX start: 195611 length 165
+    Stream: column 2 section ROW_INDEX start: 195776 length 167
+    Stream: column 3 section ROW_INDEX start: 195943 length 91
+    Stream: column 3 section BLOOM_FILTER_UTF8 start: 196034 length 891
+    Stream: column 1 section DATA start: 196925 length 20035
+    Stream: column 2 section DATA start: 216960 length 40050
+    Stream: column 3 section DATA start: 257010 length 3574
+    Stream: column 3 section LENGTH start: 260584 length 25
+    Stream: column 3 section DICTIONARY_DATA start: 260609 length 133
+    Encoding column 0: DIRECT
+    Encoding column 1: DIRECT_V2
+    Encoding column 2: DIRECT_V2
+    Encoding column 3: DICTIONARY_V2[35]
+    Row group indices for column 3:
+      Entry 0: count: 1000 hasNull: false min: Darkness, max: worst sum: 3901 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: Darkness, max: worst sum: 3900 positions: 0,431,431
+      Entry 2: count: 1000 hasNull: false min: Darkness, max: worst sum: 3909 positions: 0,1485,52
+      Entry 3: count: 1000 hasNull: false min: Darkness, max: worst sum: 3947 positions: 0,2196,104
+      Entry 4: count: 1000 hasNull: false min: Darkness, max: worst sum: 3813 positions: 0,2934,131
+    Bloom filters for column 3:
+      Entry 0: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 1: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 2: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 3: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Entry 4: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Stripe level merge: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+  Stripe: offset: 260828 data: 12943 rows: 1000 tail: 80 index: 526
+    Stream: column 0 section ROW_INDEX start: 260828 length 12
+    Stream: column 1 section ROW_INDEX start: 260840 length 38
+    Stream: column 2 section ROW_INDEX start: 260878 length 41
+    Stream: column 3 section ROW_INDEX start: 260919 length 40
+    Stream: column 3 section BLOOM_FILTER_UTF8 start: 260959 length 395
+    Stream: column 1 section DATA start: 261354 length 4007
+    Stream: column 2 section DATA start: 265361 length 8010
+    Stream: column 3 section DATA start: 273371 length 768
+    Stream: column 3 section LENGTH start: 274139 length 25
+    Stream: column 3 section DICTIONARY_DATA start: 274164 length 133
+    Encoding column 0: DIRECT
+    Encoding column 1: DIRECT_V2
+    Encoding column 2: DIRECT_V2
+    Encoding column 3: DICTIONARY_V2[35]
+    Row group indices for column 3:
+      Entry 0: count: 1000 hasNull: false min: Darkness, max: worst sum: 3866 positions: 0,0,0
+    Bloom filters for column 3:
+      Entry 0: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+      Stripe level merge: numHashFunctions: 7 bitCount: 9600 popCount: 238 loadFactor: 0.0248 expectedFpp: 5.7562566E-12
+
+File length: 275025 bytes
+Padding length: 0 bytes
+Padding ratio: 0%
+________________________________________________________________________________________________________________________
+

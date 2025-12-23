@@ -1,0 +1,417 @@
+!
+! Taken from scipy/linalg
+!
+! Shorthand notations
+!
+! <tchar=s,d,cs,zd>
+! <tchar2c=cs,zd>
+!
+! <prefix2=s,d>
+! <prefix2c=c,z>
+! <prefix3=s,sc>
+! <prefix4=d,dz>
+! <prefix6=s,d,c,z,c,z>
+!
+! <ftype2=real,double precision>
+! <ftype2c=complex,double complex>
+! <ftype3=real,complex>
+! <ftype4=double precision,double complex>
+! <ftypereal3=real,real>
+! <ftypereal4=double precision,double precision>
+! <ftype6=real,double precision,complex,double complex,\2,\3>
+! <ftype6creal=real,double precision,complex,double complex,\0,\1>
+!
+! <ctype2=float,double>
+! <ctype2c=complex_float,complex_double>
+! <ctype3=float,complex_float>
+! <ctype4=double,complex_double>
+! <ctypereal3=float,float>
+! <ctypereal4=double,double>
+! <ctype6=float,double,complex_float,complex_double,\2,\3>
+! <ctype6creal=float,double,complex_float,complex_double,\0,\1>
+!
+!
+! Level 1 BLAS
+!
+
+
+python module _flapack
+    usercode '''
+#define F_INT int
+'''
+
+interface
+
+
+subroutine <prefix>axpy(n,a,x,offx,incx,y,offy,incy)
+  ! Calculate z = a*x+y, where a is scalar.
+
+  callstatement (*f2py_func)(&n,&a,x+offx,&incx,y+offy,&incy)
+  callprotoargument F_INT*,<ctype>*,<ctype>*,F_INT*,<ctype>*,F_INT*
+
+  <ftype> dimension(*), intent(in) :: x
+  <ftype> dimension(*), intent(in,out,out=z) :: y
+  <ftype> optional, intent(in):: a=<1.0,\0,(1.0\,0.0),\2>
+  integer optional, intent(in),check(incx>0||incx<0) :: incx = 1
+  integer optional, intent(in),check(incy>0||incy<0) :: incy = 1
+  integer optional, intent(in),depend(x) :: offx=0
+  integer optional, intent(in),depend(y) :: offy=0
+  check(offx>=0 && offx<len(x)) :: offx
+  check(offy>=0 && offy<len(y)) :: offy
+  integer optional, intent(in),depend(x,incx,offx,y,incy,offy) :: &
+       n = (len(x)-offx)/abs(incx)
+  check(len(x)-offx>(n-1)*abs(incx)) :: n
+  check(len(y)-offy>(n-1)*abs(incy)) :: n
+
+end subroutine <prefix>axpy
+
+function ddot(n,x,offx,incx,y,offy,incy) result (xy)
+  ! Computes a vector-vector dot product.
+
+  callstatement ddot_return_value = (*f2py_func)(&n,x+offx,&incx,y+offy,&incy)
+  callprotoargument F_INT*,double*,F_INT*,double*,F_INT*
+  intent(c) ddot
+  fortranname F_FUNC(ddot,DDOT)
+
+  double precision dimension(*), intent(in) :: x
+  double precision dimension(*), intent(in) :: y
+  double precision ddot,xy
+  integer optional, intent(in),check(incx>0||incx<0) :: incx = 1
+  integer optional, intent(in),check(incy>0||incy<0) :: incy = 1
+  integer optional, intent(in),depend(x) :: offx=0
+  integer optional, intent(in),depend(y) :: offy=0
+  check(offx>=0 && offx<len(x)) :: offx
+  check(offy>=0 && offy<len(y)) :: offy
+  integer optional, intent(in),depend(x,incx,offx,y,incy,offy) :: &
+       n = (len(x)-offx)/abs(incx)
+  check(len(x)-offx>(n-1)*abs(incx)) :: n
+  check(len(y)-offy>(n-1)*abs(incy)) :: n
+
+end function ddot
+
+
+function <prefix4>nrm2(n,x,offx,incx) result(n2)
+
+  <ftypereal4> <prefix4>nrm2, n2
+
+  callstatement <prefix4>nrm2_return_value = (*f2py_func)(&n,x+offx,&incx)
+  callprotoargument F_INT*,<ctype4>*,F_INT*
+  intent(c) <prefix4>nrm2
+  fortranname F_FUNC(<prefix4>nrm2,<D,DZ>NRM2)
+
+  <ftype4> dimension(*),intent(in) :: x
+
+  integer optional, intent(in),check(incx>0) :: incx = 1
+
+  integer optional,intent(in),depend(x) :: offx=0
+  check(offx>=0 && offx<len(x)) :: offx
+
+  integer optional,intent(in),depend(x,incx,offx) :: n = (len(x)-offx)/abs(incx)
+  check(len(x)-offx>(n-1)*abs(incx)) :: n
+
+end function <prefix4>nrm2
+
+
+!
+! Level 2 BLAS
+!
+
+
+subroutine <prefix>gemv(m,n,alpha,a,x,beta,y,offx,incx,offy,incy,trans,rows,cols,ly)
+  ! Computes a matrix-vector product using a general matrix
+  !
+  ! y = gemv(alpha,a,x,beta=0,y=0,offx=0,incx=1,offy=0,incy=0,trans=0)
+  ! Calculate y <- alpha * op(A) * x + beta * y
+
+  callstatement (*f2py_func)((trans?(trans==2?"C":"T"):"N"),&m,&n,&alpha,a,&m, &
+       x+offx,&incx,&beta,y+offy,&incy)
+  callprotoargument char*,F_INT*,F_INT*,<ctype>*,<ctype>*,F_INT*,<ctype>*,F_INT*,<ctype>*, &
+       <ctype>*,F_INT*
+
+  integer optional, intent(in), check(trans>=0 && trans <=2) :: trans = 0
+  integer optional, intent(in), check(incx>0||incx<0) :: incx = 1
+  integer optional, intent(in), check(incy>0||incy<0) :: incy = 1
+  <ftype> intent(in) :: alpha
+  <ftype> intent(in), optional :: beta = <0.0,\0,(0.0\,0.0),\2>
+
+  <ftype> dimension(*), intent(in) :: x
+  <ftype> dimension(ly), intent(in,copy,out), depend(ly),optional :: y
+  integer intent(hide), depend(incy,rows,offy) :: ly = &
+       (y_capi==Py_None?1+offy+(rows-1)*abs(incy):-1)
+  <ftype> dimension(m,n), intent(in) :: a
+  integer depend(a), intent(hide):: m = shape(a,0)
+  integer depend(a), intent(hide):: n = shape(a,1)
+
+  integer optional, intent(in) :: offx=0
+  integer optional, intent(in) :: offy=0
+  check(offx>=0 && offx<len(x)) :: x
+  check(len(x)>offx+(cols-1)*abs(incx)) :: x
+  depend(offx,cols,incx) :: x
+
+  check(offy>=0 && offy<len(y)) :: y
+  check(len(y)>offy+(rows-1)*abs(incy)) :: y
+  depend(offy,rows,incy) :: y
+
+  integer depend(m,n,trans), intent(hide) :: rows = (trans?n:m)
+  integer depend(m,n,trans), intent(hide) :: cols = (trans?m:n)
+
+end subroutine <prefix>gemv
+
+
+subroutine <prefix>gbmv(m,n,kl,ku,alpha,a,lda,x,incx,offx,beta,y,incy,offy,trans,ly)
+  ! Performs one of the matrix-vector operations
+  !
+  !    y := alpha*A*x + beta*y,   or   y := alpha*A**T*x + beta*y,
+  !                               or   y := alpha*A**H*x + beta*y,
+  !
+  ! where alpha and beta are scalars, x and y are vectors and A is an
+  ! m by n band matrix, with kl sub-diagonals and ku super-diagonals.
+
+  callstatement (*f2py_func)((trans?(trans==2?"C":"T"):"N"),&m,&n,&kl,&ku,&alpha,a,&lda,x+offx,&incx,&beta,y+offy,&incy)
+  callprotoargument char*,F_INT*,F_INT*,F_INT*,F_INT*,<ctype>*,<ctype>*,F_INT*,<ctype>*,F_INT*,<ctype>*,<ctype>*,F_INT*
+
+  integer optional,intent(in),check(trans>=0 && trans <=2) :: trans = 0
+  integer intent(in), depend(ku,kl),check(m>=ku+kl+1) :: m
+  integer intent(in),check(n>=0&&n==shape(a,1)),depend(a) :: n
+  integer intent(in),check(kl>=0) :: kl
+  integer intent(in),check(ku>=0) :: ku
+  integer intent(hide),depend(a) :: lda = MAX(shape(a,0),1)
+  integer optional, intent(in),check(incx>0||incx<0) :: incx = 1
+  integer optional, intent(in),check(incy>0||incy<0) :: incy = 1
+  integer intent(hide),depend(m,n,incy,offy,trans) :: ly = &
+      (y_capi==Py_None?1+offy+(trans==0?m-1:n-1)*abs(incy):-1)
+  integer optional, intent(in) :: offx=0
+  integer optional, intent(in) :: offy=0
+
+  <ftype> intent(in) :: alpha
+  <ftype> intent(in),optional :: beta = <0.0,\0,(0.0\,0.0),\2>
+
+  <ftype> dimension(lda,n),intent(in) :: a
+
+  <ftype> dimension(ly), intent(in,out,copy,out=yout),depend(ly),optional :: y
+  check(offy>=0 && offy<len(y)) :: y
+  check(len(y)>offy+(trans==0?m-1:n-1)*abs(incy)) :: y
+  depend(offy,n,incy) :: y
+
+  <ftype> dimension(*), intent(in) :: x
+  check(offx>=0 && offx<len(x)) :: x
+  check(len(x)>offx+(trans==0?n-1:m-1)*abs(incx)) :: x
+  depend(offx,n,incx) :: x
+
+end subroutine <prefix>gbmv
+
+
+
+!
+! Level 3 BLAS
+!
+
+
+subroutine <prefix>gemm(m,n,k,alpha,a,b,beta,c,trans_a,trans_b,lda,ka,ldb,kb)
+  ! Computes a scalar-matrix-matrix product and adds the result to a
+  ! scalar-matrix product.
+  !
+  ! c = gemm(alpha,a,b,beta=0,c=0,trans_a=0,trans_b=0,overwrite_c=0)
+  ! Calculate C <- alpha * op(A) * op(B) + beta * C
+
+  callstatement (*f2py_func)((trans_a?(trans_a==2?"C":"T"):"N"), &
+       (trans_b?(trans_b==2?"C":"T"):"N"),&m,&n,&k,&alpha,a,&lda,b,&ldb,&beta,c,&m)
+  callprotoargument char*,char*,F_INT*,F_INT*,F_INT*,<ctype>*,<ctype>*,F_INT*,<ctype>*, &
+       F_INT*,<ctype>*,<ctype>*,F_INT*
+
+  integer optional,intent(in),check(trans_a>=0 && trans_a <=2) :: trans_a = 0
+  integer optional,intent(in),check(trans_b>=0 && trans_b <=2) :: trans_b = 0
+  <ftype> intent(in) :: alpha
+  <ftype> intent(in),optional :: beta = <0.0,\0,(0.0\,0.0),\2>
+
+  <ftype> dimension(lda,ka),intent(in) :: a
+  <ftype> dimension(ldb,kb),intent(in) :: b
+  <ftype> dimension(m,n),intent(in,out,copy),depend(m,n),optional :: c
+  check(shape(c,0)==m && shape(c,1)==n) :: c
+
+  integer depend(a),intent(hide) :: lda = shape(a,0)
+  integer depend(a),intent(hide) :: ka = shape(a,1)
+  integer depend(b),intent(hide) :: ldb = shape(b,0)
+  integer depend(b),intent(hide) :: kb = shape(b,1)
+
+  integer depend(a,trans_a,ka,lda),intent(hide):: m = (trans_a?ka:lda)
+  integer depend(a,trans_a,ka,lda),intent(hide):: k = (trans_a?lda:ka)
+  integer depend(b,trans_b,kb,ldb,k),intent(hide),check(trans_b?kb==k:ldb==k) :: &
+       n = (trans_b?ldb:kb)
+
+end subroutine <prefix>gemm
+
+
+subroutine <prefix6><sy,\0,\0,\0,he,he>rk(n,k,alpha,a,beta,c,trans,lower,lda,ka)
+  !  performs one of the symmetric rank k operations
+  !     C := alpha*A*A**T + beta*C,  or   C := alpha*A**T*A + beta*C,
+  !
+  ! c = syrk(alpha,a,beta=0,c=0,trans=0,lower=0,overwrite_c=0)
+  !
+  callstatement (*f2py_func)((lower?"L":"U"), &
+        (trans?(trans==2?"C":"T"):"N"), &n,&k,&alpha,a,&lda,&beta,c,&n)
+  callprotoargument char*,char*,F_INT*,F_INT*,<ctype6>*,<ctype6>*,F_INT*,<ctype6>*, &
+        <ctype6>*,F_INT*
+
+  integer optional, intent(in),check(lower==0||lower==1) :: lower = 0
+  integer optional,intent(in),check(trans>=0 && trans <=2) :: trans = 0
+
+  <ftype6> intent(in) :: alpha
+  <ftype6> intent(in),optional :: beta = <0.0,\0,(0.0\,0.0),\2,\2,\2>
+
+  <ftype6> dimension(lda,ka),intent(in) :: a
+  <ftype6> dimension(n,n),intent(in,out,copy),depend(n),optional :: c
+  check(shape(c,0)==n && shape(c,1)==n) :: c
+
+  integer depend(a),intent(hide) :: lda = shape(a,0)
+  integer depend(a),intent(hide) :: ka = shape(a,1)
+
+  integer depend(a, trans, ka, lda), intent(hide) :: n = (trans ? ka : lda)
+  integer depend(a, trans, ka, lda), intent(hide) :: k = (trans ? lda : ka)
+
+end subroutine <prefix6><sy,\0,\0,\0,he,he>rk
+
+
+!
+! LAPACK
+!
+
+subroutine <prefix>gesv(n,nrhs,a,piv,b,info)
+    ! lu,piv,x,info = gesv(a,b,overwrite_a=0,overwrite_b=0)
+    ! Solve A * X = B.
+    ! A = P * L * U
+    ! U is upper diagonal triangular, L is unit lower triangular,
+    ! piv pivots columns.
+
+    callstatement {F_INT i;(*f2py_func)(&n,&nrhs,a,&n,piv,b,&n,&info);for(i=0;i\<n;--piv[i++]);}
+    callprotoargument F_INT*,F_INT*,<ctype>*,F_INT*,F_INT*,<ctype>*,F_INT*,F_INT*
+
+    integer depend(a),intent(hide):: n = shape(a,0)
+    integer depend(b),intent(hide):: nrhs = shape(b,1)
+    <ftype> dimension(n,n),check(shape(a,0)==shape(a,1)) :: a
+    integer dimension(n),depend(n),intent(out) :: piv
+    <ftype> dimension(n,nrhs),check(shape(a,0)==shape(b,0)),depend(n) :: b
+    integer intent(out)::info
+    intent(in,out,copy,out=x) b
+    intent(in,out,copy,out=lu) a
+end subroutine <prefix>gesv
+
+
+subroutine <prefix2>gesdd(m,n,minmn,u0,u1,vt0,vt1,a,compute_uv,full_matrices,u,s,vt,work,lwork,iwork,info)
+    ! u,s,vt,info = gesdd(a,compute_uv=1,lwork=..,overwrite_a=0)
+    ! Compute the singular value decomposition (SVD) using divide and conquer:
+    !   A = U * SIGMA * transpose(V)
+    ! A - M x N matrix
+    ! U - M x M matrix or min(M,N) x N if full_matrices=False
+    ! SIGMA - M x N zero matrix with a main diagonal filled with min(M,N)
+    !               singular values
+    ! transpose(V) - N x N matrix or N x min(M,N) if full_matrices=False
+
+    callstatement (*f2py_func)((compute_uv?(full_matrices?"A":"S"):"N"),&m,&n,a,&m,s,u,&u0,vt,&vt0,work,&lwork,iwork,&info)
+    callprotoargument char*,F_INT*,F_INT*,<ctype2>*,F_INT*,<ctype2>*,<ctype2>*,F_INT*,<ctype2>*,F_INT*,<ctype2>*,F_INT*,F_INT*,F_INT*
+
+    integer intent(in),optional,check(compute_uv==0||compute_uv==1):: compute_uv = 1
+    integer intent(in),optional,check(full_matrices==0||full_matrices==1):: full_matrices = 1
+    integer intent(hide),depend(a):: m = shape(a,0)
+    integer intent(hide),depend(a):: n = shape(a,1)
+    integer intent(hide),depend(m,n):: minmn = MIN(m,n)
+    integer intent(hide),depend(compute_uv,minmn) :: u0 = (compute_uv?m:1)
+    integer intent(hide),depend(compute_uv,minmn, full_matrices) :: u1 = (compute_uv?(full_matrices?m:minmn):1)
+    integer intent(hide),depend(compute_uv,minmn, full_matrices) :: vt0 = (compute_uv?(full_matrices?n:minmn):1)
+    integer intent(hide),depend(compute_uv,minmn) :: vt1 = (compute_uv?n:1)
+    <ftype2> dimension(m,n),intent(in,copy,aligned8) :: a
+    <ftype2> dimension(minmn),intent(out),depend(minmn) :: s
+    <ftype2> dimension(u0,u1),intent(out),depend(u0, u1) :: u
+    <ftype2> dimension(vt0,vt1),intent(out),depend(vt0, vt1) :: vt
+    <ftype2> dimension(lwork),intent(hide,cache),depend(lwork) :: work
+    integer optional,intent(in),depend(minmn,compute_uv) &
+        :: lwork = max((compute_uv?4*minmn*minmn+MAX(m,n)+9*minmn:MAX(14*minmn+4,10*minmn+2+25*(25+8))+MAX(m,n)),1)
+    integer intent(hide,cache),dimension(8*minmn),depend(minmn) :: iwork
+    integer intent(out)::info
+
+end subroutine <prefix2>gesdd
+
+subroutine <prefix2>gesdd_lwork(m,n,minmn,u0,vt0,a,compute_uv,full_matrices,u,s,vt,work,lwork,iwork,info)
+    ! LWORK computation for (S/D)GESDD
+
+    fortranname <prefix2>gesdd
+    callstatement (*f2py_func)((compute_uv?(full_matrices?"A":"S"):"N"),&m,&n,&a,&m,&s,&u,&u0,&vt,&vt0,&work,&lwork,&iwork,&info)
+    callprotoargument char*,F_INT*,F_INT*,<ctype2>*,F_INT*,<ctype2>*,<ctype2>*,F_INT*,<ctype2>*,F_INT*,<ctype2>*,F_INT*,F_INT*,F_INT*
+
+    integer intent(in),optional,check(compute_uv==0||compute_uv==1):: compute_uv = 1
+    integer intent(in),optional,check(full_matrices==0||full_matrices==1):: full_matrices = 1
+    integer intent(in) :: m
+    integer intent(in) :: n
+    integer intent(hide),depend(m,n):: minmn = MIN(m,n)
+    integer intent(hide),depend(compute_uv,minmn) :: u0 = (compute_uv?m:1)
+    integer intent(hide),depend(compute_uv,minmn, full_matrices) :: vt0 = (compute_uv?(full_matrices?n:minmn):1)
+    <ftype2> intent(hide) :: a
+    <ftype2> intent(hide) :: s
+    <ftype2> intent(hide) :: u
+    <ftype2> intent(hide) :: vt
+    <ftype2> intent(out) :: work
+    integer intent(hide) :: lwork = -1
+    integer intent(hide) :: iwork
+    integer intent(out) :: info
+
+end subroutine <prefix2>gesdd_lwork
+
+
+subroutine <prefix2>syev(compute_v,lower,n,w,a,lda,work,lwork,info)
+    ! w,v,info = syev(a,compute_v=1,lower=0,lwork=3*n-1,overwrite_a=0)
+    ! Compute all eigenvalues and, optionally, eigenvectors of a
+    ! real symmetric matrix A.
+    !
+    ! Performance tip:
+    !   If compute_v=0 then set also overwrite_a=1.
+
+    callstatement (*f2py_func)((compute_v?"V":"N"),(lower?"L":"U"),&n,a,&lda,w,work,&lwork,&info)
+    callprotoargument char*,char*,F_INT*,<ctype2>*,F_INT*,<ctype2>*,<ctype2>*,F_INT*,F_INT*
+
+    integer optional,intent(in):: compute_v = 1
+    check(compute_v==1||compute_v==0) compute_v
+    integer optional,intent(in),check(lower==0||lower==1) :: lower = 0
+
+    integer intent(hide),depend(a):: n = shape(a,0)
+    integer intent(hide),depend(a):: lda = MAX(1,shape(a,0))
+    <ftype2> dimension(n,n),check(shape(a,0)==shape(a,1)) :: a
+    intent(in,copy,out,out=v) :: a
+
+    <ftype2> dimension(n),intent(out),depend(n) :: w
+
+    integer optional,intent(in),depend(n) :: lwork=max(3*n-1,1)
+    check(lwork>=3*n-1) :: lwork
+    <ftype2> dimension(lwork),intent(hide),depend(lwork) :: work
+
+    integer intent(out) :: info
+
+end subroutine <prefix2>syev
+
+
+subroutine <prefix2>syev_lwork(lower,n,w,a,lda,work,lwork,info)
+    ! LWORK routines for syev
+
+    fortranname <prefix2>syev
+
+    callstatement (*f2py_func)("N",(lower?"L":"U"),&n,&a,&lda,&w,&work,&lwork,&info)
+    callprotoargument char*,char*,F_INT*,<ctype2>*,F_INT*,<ctype2>*,<ctype2>*,F_INT*,F_INT*
+    
+     integer intent(in):: n
+     integer optional,intent(in),check(lower==0||lower==1) :: lower = 0
+     
+     integer intent(hide),depend(n):: lda = MAX(1, n)
+     <ftype2> intent(hide):: a
+     <ftype2> intent(hide):: w
+     integer intent(hide):: lwork = -1
+    
+     <ftype2> intent(out):: work
+     integer intent(out):: info
+     
+end subroutine <prefix2>syev_lwork
+
+end interface
+
+end python module _flapack
+
+
+

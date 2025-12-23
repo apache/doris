@@ -1,0 +1,216 @@
+---
+kind: pipeline
+name: arm64_gcc_make
+
+platform:
+  os: linux
+  arch: arm64
+
+steps:
+- name: Build and Test
+  image: ubuntu:18.04
+  environment:
+    CC: gcc
+    COMMON_FLAGS: 'DYNAMIC_ARCH=1 TARGET=ARMV8 NUM_THREADS=32'
+  commands:
+    - echo "MAKE_FLAGS:= $COMMON_FLAGS"
+    - apt-get update -y
+    - apt-get install -y make $CC gfortran perl
+    - $CC --version
+    - make QUIET_MAKE=1 $COMMON_FLAGS
+    - make -C test $COMMON_FLAGS
+    - make -C ctest $COMMON_FLAGS
+    - make -C utest $COMMON_FLAGS
+
+---
+kind: pipeline
+name: arm32_gcc_make
+
+platform:
+  os: linux
+  arch: arm
+
+steps:
+- name: Build and Test
+  image: ubuntu:18.04
+  environment:
+    CC: gcc
+    COMMON_FLAGS: 'DYNAMIC_ARCH=1 TARGET=ARMV6 NUM_THREADS=32'
+  commands:
+    - echo "MAKE_FLAGS:= $COMMON_FLAGS"
+    - apt-get update -y
+    - apt-get install -y make $CC gfortran perl
+    - $CC --version
+    - make QUIET_MAKE=1 $COMMON_FLAGS
+    - make -C test $COMMON_FLAGS
+    - make -C ctest $COMMON_FLAGS
+    - make -C utest $COMMON_FLAGS
+
+---
+kind: pipeline
+name: arm64_clang_make
+
+platform:
+  os: linux
+  arch: arm64
+
+steps:
+- name: Build and Test
+  image: ubuntu:18.04
+  environment:
+    CC: clang
+    COMMON_FLAGS: 'DYNAMIC_ARCH=1 TARGET=ARMV8 NUM_THREADS=32'
+  commands:
+    - echo "MAKE_FLAGS:= $COMMON_FLAGS"
+    - apt-get update -y
+    - apt-get install -y make $CC gfortran perl
+    - $CC --version
+    - make QUIET_MAKE=1 $COMMON_FLAGS
+    - make -C test $COMMON_FLAGS
+    - make -C ctest $COMMON_FLAGS
+    - make -C utest $COMMON_FLAGS
+
+---
+kind: pipeline
+name: arm32_clang_cmake
+
+platform:
+  os: linux
+  arch: arm
+
+steps:
+- name: Build and Test
+  image: ubuntu:18.04
+  environment:
+    CC: clang
+    CMAKE_FLAGS: '-DDYNAMIC_ARCH=1 -DTARGET=ARMV6 -DNUM_THREADS=32 -DNOFORTRAN=ON -DBUILD_WITHOUT_LAPACK=ON'
+  commands:
+    - echo "CMAKE_FLAGS:= $CMAKE_FLAGS"
+    - apt-get update -y
+    - apt-get install -y make $CC g++ perl cmake
+    - $CC --version
+    - mkdir build && cd build
+    - cmake $CMAKE_FLAGS ..
+    - make -j
+    - ctest -V
+
+---
+kind: pipeline
+name: arm64_gcc_cmake
+
+platform:
+  os: linux
+  arch: arm64
+
+steps:
+- name: Build and Test
+  image: ubuntu:18.04
+  environment:
+    CC: gcc
+    CMAKE_FLAGS: '-DDYNAMIC_ARCH=1 -DTARGET=ARMV8 -DNUM_THREADS=32 -DNOFORTRAN=ON -DBUILD_WITHOUT_LAPACK=ON'
+  commands:
+    - echo "CMAKE_FLAGS:= $CMAKE_FLAGS"
+    - apt-get update -y
+    - apt-get install -y make $CC g++ perl cmake
+    - $CC --version
+    - mkdir build && cd build
+    - cmake $CMAKE_FLAGS ..
+    - make -j
+    - ctest -V
+
+---
+kind: pipeline
+name: arm64_clang_cmake
+
+platform:
+  os: linux
+  arch: arm64
+
+steps:
+- name: Build and Test
+  image: ubuntu:18.04
+  environment:
+    CC: clang
+    CMAKE_FLAGS: '-DDYNAMIC_ARCH=1 -DTARGET=ARMV8 -DNUM_THREADS=32 -DNOFORTRAN=ON -DBUILD_WITHOUT_LAPACK=ON'
+  commands:
+    - echo "CMAKE_FLAGS:= $CMAKE_FLAGS"
+    - apt-get update -y
+    - apt-get install -y make $CC g++ perl cmake
+    - $CC --version
+    - mkdir build && cd build
+    - cmake $CMAKE_FLAGS ..
+    - make -j
+    - ctest -V
+
+---
+kind: pipeline
+name: arm64_native_test
+
+platform:
+  os: linux
+  arch: arm64
+
+steps:
+- name: Build and Test
+  image: ubuntu:18.04
+  environment:
+    CC: gcc
+    COMMON_FLAGS: 'USE_OPENMP=1'
+  commands:
+    - echo "MAKE_FLAGS:= $COMMON_FLAGS"
+    - apt-get update -y
+    - apt-get install -y make $CC gfortran perl python g++
+    - $CC --version
+    - make QUIET_MAKE=1 $COMMON_FLAGS
+    - make -C test $COMMON_FLAGS
+    - make -C ctest $COMMON_FLAGS
+    - make -C utest $COMMON_FLAGS
+    - make -C cpp_thread_test dgemm_tester
+---
+kind: pipeline
+name: epyc_native_test
+
+platform:
+  os: linux
+  arch: amd64
+
+steps:
+- name: Build and Test
+  image: ubuntu:18.04
+  environment:
+    CC: gcc
+    COMMON_FLAGS: 'USE_OPENMP=1'
+  commands:
+    - echo "MAKE_FLAGS:= $COMMON_FLAGS"
+    - apt-get update -y
+    - apt-get install -y make $CC gfortran perl python g++
+    - $CC --version
+    - make QUIET_MAKE=1 $COMMON_FLAGS
+    - make -C test $COMMON_FLAGS
+    - make -C ctest $COMMON_FLAGS
+    - make -C utest $COMMON_FLAGS
+    - make -C cpp_thread_test dgemm_tester
+---
+kind: pipeline
+name: arm64_gcc10
+
+platform:
+  os: linux
+  arch: arm64
+
+steps:
+- name: Build and Test
+  image: ubuntu:20.04
+  environment:
+    CC: gcc-10
+    FC: gfortran-10
+    COMMON_FLAGS: 'TARGET=ARMV8 DYNAMIC_ARCH=1'
+  commands:
+    - echo "MAKE_FLAGS:= $COMMON_FLAGS"
+    - apt-get update -y
+    - apt-get install -y make $CC gfortran-10 perl python g++
+    - $CC --version
+    - make QUIET_MAKE=1 $COMMON_FLAGS
+    - make -C utest $COMMON_FLAGS
+    - make -C test $COMMON_FLAGS
+    

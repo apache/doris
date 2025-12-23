@@ -1,0 +1,6 @@
+include $(KERNELDIR)/KERNEL.ARMV8SVE
+
+ifeq ($(BUILD_BFLOAT16), 1)
+SBGEMVTKERNEL = sbgemv_t_bfdot.c
+SBGEMVNKERNEL = sbgemv_n_neon.c
+endif

@@ -1,0 +1,16 @@
+# Self-Hosted Github Action Runners on AWS via Cirun.io
+# Reference: https://docs.cirun.io/reference/yaml
+runners:
+  - name: "aws-runner-graviton"
+    # Cloud Provider: AWS
+    cloud: "aws"
+    region: "us-east-1"
+    # Cheapest VM on AWS
+    instance_type: "c7g.large"
+    # Ubuntu-22.04, ami image
+    machine_image: "ami-0a0c8eebcdd6dcbd0"
+    preemptible: false
+    # Add this label in the "runs-on" param in .github/workflows/<workflow-name>.yml
+    # So that this runner is created for running the workflow
+    labels:
+      - "cirun-aws-runner-graviton"

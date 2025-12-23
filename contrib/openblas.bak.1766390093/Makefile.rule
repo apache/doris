@@ -1,0 +1,335 @@
+#
+#  Beginning of user configuration
+#
+
+# This library's version
+VERSION = 0.3.30.dev
+
+# If you set this prefix, the library name will be lib$(LIBNAMESUFFIX)openblas.a
+# and lib$(LIBNAMESUFFIX)openblas.so, with a matching soname in the shared library
+# 
+# LIBNAMEPREFIX = scipy
+
+# If you set the suffix, the library name will be libopenblas_$(LIBNAMESUFFIX).a
+# and libopenblas_$(LIBNAMESUFFIX).so. Meanwhile, the soname in shared library
+# is libopenblas_$(LIBNAMESUFFIX).so.0.
+# LIBNAMESUFFIX = omp
+
+# You can specify the target architecture, otherwise it's
+# automatically detected.
+# TARGET = PENRYN
+
+# If you want to support multiple architecture in one binary
+# DYNAMIC_ARCH = 1
+
+# If you want the full list of x86_64 architectures supported in DYNAMIC_ARCH
+# mode (including individual optimizied codes for PENRYN, DUNNINGTON, OPTERON,
+# OPTERON_SSE3, ATOM and NANO rather than fallbacks to older architectures)
+# DYNAMIC_OLDER = 1
+
+# C compiler including binary type(32bit / 64bit). Default is gcc.
+# Don't use Intel Compiler or PGI, it won't generate right codes as I expect.
+# CC = gcc
+
+# Fortran compiler. Default is g77.
+# FC = gfortran
+
+# Even you can specify cross compiler. Meanwhile, please set HOSTCC.
+
+# cross compiler for Windows
+# CC = x86_64-w64-mingw32-gcc
+# FC = x86_64-w64-mingw32-gfortran
+
+# cross compiler for 32bit ARM
+# CC = arm-linux-gnueabihf-gcc
+# FC = arm-linux-gnueabihf-gfortran
+
+# cross compiler for 64bit ARM
+# CC = aarch64-linux-gnu-gcc
+# FC = aarch64-linux-gnu-gfortran
+
+
+# If you use the cross compiler, please set this host compiler.
+# HOSTCC = gcc
+
+# If you need 32bit binary, define BINARY=32, otherwise define BINARY=64
+# Please note that AVX is not available on 32-bit.
+# Setting BINARY=32 disables AVX/AVX2/AVX-512.
+# BINARY=64
+
+# About threaded BLAS. It will be automatically detected if you don't
+# specify it.
+# For force setting for single threaded, specify USE_THREAD = 0
+# For force setting for multi  threaded, specify USE_THREAD = 1
+# USE_THREAD = 0
+
+# If you want to build a single-threaded OpenBLAS, but expect to call this
+# from several concurrent threads in some other program, comment this in for
+# thread safety. (This is done automatically for USE_THREAD=1 , and should not
+# be necessary when USE_OPENMP=1)
+# USE_LOCKING = 1
+
+# If you're going to use this library with OpenMP, please comment it in.
+# This flag is always set for POWER8. Don't set USE_OPENMP = 0 if you're targeting POWER8.
+# USE_OPENMP = 1
+
+# The OpenMP scheduler to use - by default this is "static" and you
+# will normally not want to change this unless you know that your main
+# workload will involve tasks that have highly unbalanced running times
+# for individual threads. Changing away from "static" may also adversely
+# affect memory access locality in NUMA systems. Setting to "runtime" will
+# allow you to select the scheduler from the environment variable OMP_SCHEDULE
+# CCOMMON_OPT += -DOMP_SCHED=dynamic
+
+# You can define the maximum number of threads. Basically it should be less
+# than or equal to the number of CPU threads. If you don't specify one, it's
+# automatically detected by the build system.
+# If SMT (aka. HT) is enabled on the system, it may or may not be beneficial to 
+# restrict NUM_THREADS to the number of physical cores. By default, the automatic 
+# detection includes logical CPUs, thus allowing the use of SMT.
+# Users may opt at runtime to use less than NUM_THREADS threads.
+#
+# Note for package maintainers: you can build OpenBLAS with a large NUM_THREADS
+# value (eg. 32-256) if you expect your users to use that many threads. Due to the way
+# some internal structures are allocated, using a large NUM_THREADS value has a RAM
+# footprint penalty, even if users reduce the actual number of threads at runtime.
+# NUM_THREADS = 24
+
+# If you have enabled USE_OPENMP and your application would call
+# OpenBLAS's calculation API from multiple threads, please comment this in.
+# This flag defines how many instances of OpenBLAS's calculation API can actually
+# run in parallel. If more than NUM_PARALLEL threads call OpenBLAS's calculation API,
+# they need to wait for the preceding API calls to finish or risk data corruption.
+# NUM_PARALLEL = 2
+
+# When multithreading, OpenBLAS needs to use a memory buffer for communicating
+# and collating results for individual subranges of the original matrix. Since
+# the original GotoBLAS of the early 2000s, the default size of this buffer has
+# been set at a value of 32<<20 (which is 32MB) on x86_64 , twice that on PPC.
+# If you expect to handle large problem sizes (beyond about 30000x30000) uncomment
+# this line and adjust the (32<<n) factor if necessary. Usually an insufficient value
+# manifests itself as a crash in the relevant scal kernel (sscal_k, dscal_k etc) 
+# BUFFERSIZE = 25
+
+# If you don't need to install the static library, please comment this in.
+# NO_STATIC = 1
+
+# If you don't need to generate the shared library, please comment this in.
+# NO_SHARED = 1
+
+# If you don't need the CBLAS interface, please comment this in.
+# NO_CBLAS = 1
+
+# If you only want the CBLAS interface without installing a Fortran compiler,
+# please comment this in.
+# ONLY_CBLAS = 1
+
+# If you don't need LAPACK, please comment this in.
+# If you set NO_LAPACK=1, the build system automatically sets NO_LAPACKE=1.
+# NO_LAPACK = 1
+
+# If you don't need LAPACKE (C Interface to LAPACK), please comment this in.
+# NO_LAPACKE = 1
+
+# Build LAPACK Deprecated functions since LAPACK 3.6.0
+BUILD_LAPACK_DEPRECATED = 1
+
+# The variable type assumed for the length of character arguments when passing
+# data between Fortran LAPACK and C BLAS (defaults to "size_t", but older GCC
+# versions used "int"). Mismatches will not cause runtime failures but may result
+# in build warnings or errors when building with link-time optimization (LTO)
+# LAPACK_STRLEN=int
+
+# Build RecursiveLAPACK on top of LAPACK
+# BUILD_RELAPACK = 1
+# Have RecursiveLAPACK actually replace standard LAPACK routines instead of 
+# just adding its equivalents with a RELAPACK_ prefix
+# RELAPACK_REPLACE = 1
+
+# If you want to use the legacy threaded Level 3 implementation.
+# USE_SIMPLE_THREADED_LEVEL3 = 1
+
+# If you want to use the new, still somewhat experimental code that uses
+# thread-local storage instead of a central memory buffer in memory.c
+# Note that if your system uses GLIBC, it needs to have at least glibc 2.21
+# for this to work.
+# USE_TLS = 1
+
+# If you want to drive whole 64bit region by BLAS. Not all Fortran
+# compilers support this. It's safe to keep this commented out if you
+# are not sure. (This is equivalent to the "-i8" ifort option).
+# INTERFACE64 = 1
+
+# Unfortunately most of kernel won't give us high quality buffer.
+# BLAS tries to find the best region before entering main function,
+# but it will consume time. If you don't like it, you can disable one.
+NO_WARMUP = 1
+
+# Comment this in if you want to disable OpenBLAS's CPU/Memory affinity handling.
+# This feature is only implemented on Linux, and is always disabled on other platforms.
+# Enabling affinity handling may improve performance, especially on NUMA systems, but 
+# it may conflict with certain applications that also try to manage affinity.
+# This conflict can result in threads of the application calling OpenBLAS ending up locked
+# to the same core(s) as OpenBLAS, possibly binding all threads to a single core.
+# For this reason, affinity handling is disabled by default. Can be safely enabled if nothing
+# else modifies affinity settings.
+# Note: enabling affinity has been known to cause problems with NumPy and R
+NO_AFFINITY = 1
+
+# If you are compiling for Linux and you have more than 16 numa nodes or more than 256 cpus
+# BIGNUMA = 1
+
+# If you are compiling for an embedded system ("bare metal") like Cortex M series
+# Note that you will have to provide implementations of malloc() and free() in this case
+# EMBEDDED = 1
+
+# Don't use AVX kernel on Sandy Bridge. It is compatible with old compilers
+# and OS. However, the performance is low.
+# NO_AVX = 1
+
+# Don't use Haswell optimizations if binutils is too old (e.g. RHEL6)
+# NO_AVX2 = 1
+
+# Don't use SkylakeX optimizations if binutils or compiler are too old (the build
+# system will try to determine this automatically)
+# NO_AVX512 = 1
+
+# Don't use parallel make.
+# NO_PARALLEL_MAKE = 1
+
+# Force number of make jobs. The default is the number of logical CPU of the host.
+# This is particularly useful when using distcc.
+# A negative value will disable adding a -j flag to make, allowing to use a parent
+# make -j value. This is useful to call OpenBLAS make from an other project
+# makefile
+# MAKE_NB_JOBS = 2
+
+# If you would like to know minute performance report of GotoBLAS.
+# FUNCTION_PROFILE = 1
+
+# Support for IEEE quad precision(it's *real* REAL*16)( under testing)
+# This option should not be used - it is a holdover from unfinished code present
+# in the original GotoBLAS2 library that may be usable as a starting point but
+# is not even expected to compile in its present form.
+# QUAD_PRECISION = 1
+
+# Theads are still working for a while after finishing BLAS operation
+# to reduce thread activate/deactivate overhead. You can determine
+# time out to improve performance. This number should be from 4 to 30
+# which corresponds to (1 << n) cycles. For example, if you set to 26,
+# thread will be running for (1 << 26) cycles(about 25ms on 3.0GHz
+# system). Also you can control this number by THREAD_TIMEOUT
+# CCOMMON_OPT	+= -DTHREAD_TIMEOUT=26
+
+# Using special device driver for mapping physically contiguous memory
+# to the user space. If bigphysarea is enabled, it will use it.
+# DEVICEDRIVER_ALLOCATION = 1
+
+# Use large page allocation (called hugepage support in Linux context)
+# for the thread buffers (with access by shared memory operations)
+# HUGETLB_ALLOCATION = 1
+
+# Use large page allocation called hugepages in Linux) based on mmap accessing
+# a memory-backed pseudofile (requires hugetlbfs to be mounted in the system,
+# the example below has it mounted on /hugepages. OpenBLAS will create the backing
+# file as gotoblas.processid in that path)
+# HUGETLBFILE_ALLOCATION = /hugepages
+
+# If you need to synchronize FP CSR between threads (for x86/x86_64 and aarch64 only).
+# CONSISTENT_FPCSR = 1
+
+# If any gemm argument m, n or k is less or equal this threshold, gemm will be execute
+# with single thread. (Actually in recent versions this is a factor proportional to the
+# number of floating point operations necessary for the given problem size, no longer
+# an individual dimension). You can use this setting to avoid the overhead of multi-
+# threading in small matrix sizes. The default value is 4, but values as high as 50 have 
+# been reported to be optimal for certain workloads (50 is the recommended value for Julia).
+# GEMM_MULTITHREAD_THRESHOLD = 4
+
+# If you need sanity check by comparing results to reference BLAS. It'll be very
+# slow (Not implemented yet).
+# SANITY_CHECK = 1
+
+# The installation directory.
+# PREFIX = /opt/OpenBLAS
+
+# Common Optimization Flag;
+# The default -O2 is enough.
+# Flags for POWER8 are defined in Makefile.power. Don't modify COMMON_OPT
+# COMMON_OPT = -O2
+
+# gfortran option for LAPACK to improve thread-safety
+# It is enabled by default in Makefile.system for gfortran
+# Flags for POWER8 are defined in Makefile.power. Don't modify FCOMMON_OPT
+# FCOMMON_OPT = -frecursive
+
+# Profiling flags
+COMMON_PROF = -pg
+
+# Build Debug version
+# DEBUG = 1
+
+# Set maximum stack allocation.
+# The default value is 2048. 0 disable stack allocation a may reduce GER and GEMV
+# performance. For details, https://github.com/xianyi/OpenBLAS/pull/482
+#
+# MAX_STACK_ALLOC = 0
+
+# Add a prefix or suffix to all exported symbol names in the shared library.
+# Avoid conflicts with other BLAS libraries, especially when using
+# 64 bit integer interfaces in OpenBLAS.
+# For details, https://github.com/xianyi/OpenBLAS/pull/459
+#
+# The same prefix and suffix are also added to the library name,
+# i.e. you get lib$(SYMBOLPREFIX)openblas$(SYMBOLSUFFIX) rather than libopenblas
+#
+# SYMBOLPREFIX=
+# SYMBOLSUFFIX=
+
+# Run a C++ based thread safety tester after the build is done.
+# This is mostly intended as a developer feature to spot regressions, but users and
+# package maintainers can enable this if they have doubts about the thread safety of
+# the library, given the configuration in this file.
+# By default, the thread safety tester launches 52 concurrent calculations at the same
+# time.
+#
+# Please note that the test uses ~1300 MiB of RAM for the DGEMM test.
+#
+# The test requires CBLAS to be built, a C++11 capable compiler and the presence of
+# an OpenMP implementation. If you are cross-compiling this test will probably not
+# work at all.
+#
+# CPP_THREAD_SAFETY_TEST = 1
+#
+# use this to run only the less memory-hungry GEMV test
+# CPP_THREAD_SAFETY_GEMV = 1
+
+
+# If you want to enable the experimental BFLOAT16 support
+# BUILD_BFLOAT16 = 1
+
+
+# Set the thread number threshold beyond which the job array for the threaded level3 BLAS
+# will be allocated on the heap rather than the stack. (This array alone requires 
+# NUM_THREADS*NUM_THREADS*128 bytes of memory so should not pose a problem at low cpu
+# counts, but obviously it is not the only item that ends up on the stack.
+# The default value of 32 ensures that the overall requirement is compatible
+# with the default 1MB stacksize imposed by having the Java VM loaded without use
+# of its -Xss parameter.
+# The value of 160 formerly used from about version 0.2.7 until 0.3.10 is easily compatible
+# with the common Linux stacksize of 8MB but will cause crashes with unwary use of the java
+# VM e.g. in Octave or with the java-based libhdfs in numpy or scipy code
+# BLAS3_MEM_ALLOC_THRESHOLD = 160
+
+
+
+# By default the library contains BLAS functions (and LAPACK if selected) for all input types.
+# To build a smaller library supporting e.g. only single precision real (SGEMM etc.) or only
+# the functions for complex numbers, uncomment the desired type(s) below
+# BUILD_SINGLE = 1
+# BUILD_DOUBLE = 1
+# BUILD_COMPLEX = 1
+# BUILD_COMPLEX16 = 1
+#
+#  End of user configuration
+#

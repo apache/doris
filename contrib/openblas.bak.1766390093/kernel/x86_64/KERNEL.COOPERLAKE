@@ -1,0 +1,23 @@
+include $(KERNELDIR)/KERNEL.SKYLAKEX
+ifneq ($(NO_AVX512BF16), 1)
+SBGEMM_SMALL_M_PERMIT = sbgemm_small_kernel_permit_cooperlake.c
+SBGEMM_SMALL_K_NN = sbgemm_small_kernel_nn_cooperlake.c
+SBGEMM_SMALL_K_B0_NN = sbgemm_small_kernel_nn_cooperlake.c
+SBGEMM_SMALL_K_NT = sbgemm_small_kernel_nt_cooperlake.c
+SBGEMM_SMALL_K_B0_NT = sbgemm_small_kernel_nt_cooperlake.c
+SBGEMM_SMALL_K_TN = sbgemm_small_kernel_tn_cooperlake.c
+SBGEMM_SMALL_K_B0_TN = sbgemm_small_kernel_tn_cooperlake.c
+SBGEMM_SMALL_K_TT = sbgemm_small_kernel_tt_cooperlake.c
+SBGEMM_SMALL_K_B0_TT = sbgemm_small_kernel_tt_cooperlake.c
+
+SBGEMM_BETA     = sgemm_beta_skylakex.c
+SBGEMMKERNEL    = sbgemm_kernel_16x4_cooperlake.c
+SBGEMMINCOPY    = sbgemm_ncopy_16_cooperlake.c
+SBGEMMITCOPY    = sbgemm_tcopy_16_cooperlake.c
+SBGEMMONCOPY    = sbgemm_ncopy_4_cooperlake.c
+SBGEMMOTCOPY    = sbgemm_tcopy_4_cooperlake.c
+SBGEMMINCOPYOBJ =  sbgemm_incopy$(TSUFFIX).$(SUFFIX)
+SBGEMMITCOPYOBJ =  sbgemm_itcopy$(TSUFFIX).$(SUFFIX)
+SBGEMMONCOPYOBJ =  sbgemm_oncopy$(TSUFFIX).$(SUFFIX)
+SBGEMMOTCOPYOBJ =  sbgemm_otcopy$(TSUFFIX).$(SUFFIX)
+endif

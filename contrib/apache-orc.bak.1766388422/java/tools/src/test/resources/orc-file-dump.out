@@ -1,0 +1,200 @@
+Structure for TestFileDump.testDump.orc
+File Version: 0.12 with ORC_14
+Rows: 21000
+Compression: ZLIB
+Compression size: 4096
+Calendar: Julian/Gregorian
+Type: struct<i:int,l:bigint,s:string>
+
+Stripe Statistics:
+  Stripe 1:
+    Column 0: count: 5000 hasNull: false
+    Column 1: count: 5000 hasNull: false bytesOnDisk: 20035 min: -2146021688 max: 2147223299 sum: 515792826
+    Column 2: count: 5000 hasNull: false bytesOnDisk: 40050 min: -9218592812243954469 max: 9221614132680747961
+    Column 3: count: 5000 hasNull: false bytesOnDisk: 3701 min: Darkness, max: worst sum: 19280
+  Stripe 2:
+    Column 0: count: 5000 hasNull: false
+    Column 1: count: 5000 hasNull: false bytesOnDisk: 20035 min: -2146733128 max: 2147001622 sum: 7673427
+    Column 2: count: 5000 hasNull: false bytesOnDisk: 40050 min: -9220818777591257749 max: 9222259462014003839
+    Column 3: count: 5000 hasNull: false bytesOnDisk: 3690 min: Darkness, max: worst sum: 19504
+  Stripe 3:
+    Column 0: count: 5000 hasNull: false
+    Column 1: count: 5000 hasNull: false bytesOnDisk: 20035 min: -2146993718 max: 2147378179 sum: 132660742551
+    Column 2: count: 5000 hasNull: false bytesOnDisk: 40050 min: -9218342074710552826 max: 9222303228623055266
+    Column 3: count: 5000 hasNull: false bytesOnDisk: 3702 min: Darkness, max: worst sum: 19641
+  Stripe 4:
+    Column 0: count: 5000 hasNull: false
+    Column 1: count: 5000 hasNull: false bytesOnDisk: 20035 min: -2146658006 max: 2145520931 sum: 8533549236
+    Column 2: count: 5000 hasNull: false bytesOnDisk: 40050 min: -9222758097219661129 max: 9221043130193737406
+    Column 3: count: 5000 hasNull: false bytesOnDisk: 3732 min: Darkness, max: worst sum: 19470
+  Stripe 5:
+    Column 0: count: 1000 hasNull: false
+    Column 1: count: 1000 hasNull: false bytesOnDisk: 4007 min: -2146245500 max: 2146378640 sum: 51299706363
+    Column 2: count: 1000 hasNull: false bytesOnDisk: 8010 min: -9208193203370316142 max: 9218567213558056476
+    Column 3: count: 1000 hasNull: false bytesOnDisk: 926 min: Darkness, max: worst sum: 3866
+
+File Statistics:
+  Column 0: count: 21000 hasNull: false
+  Column 1: count: 21000 hasNull: false bytesOnDisk: 84147 min: -2146993718 max: 2147378179 sum: 193017464403
+  Column 2: count: 21000 hasNull: false bytesOnDisk: 168210 min: -9222758097219661129 max: 9222303228623055266
+  Column 3: count: 21000 hasNull: false bytesOnDisk: 15751 min: Darkness, max: worst sum: 81761
+
+Stripes:
+  Stripe: offset: 3 data: 63786 rows: 5000 tail: 79 index: 439
+    Stream: column 0 section ROW_INDEX start: 3 length 17
+    Stream: column 1 section ROW_INDEX start: 20 length 166
+    Stream: column 2 section ROW_INDEX start: 186 length 169
+    Stream: column 3 section ROW_INDEX start: 355 length 87
+    Stream: column 1 section DATA start: 442 length 20035
+    Stream: column 2 section DATA start: 20477 length 40050
+    Stream: column 3 section DATA start: 60527 length 3543
+    Stream: column 3 section LENGTH start: 64070 length 25
+    Stream: column 3 section DICTIONARY_DATA start: 64095 length 133
+    Encoding column 0: DIRECT
+    Encoding column 1: DIRECT_V2
+    Encoding column 2: DIRECT_V2
+    Encoding column 3: DICTIONARY_V2[35]
+    Row group indices for column 1:
+      Entry 0: count: 1000 hasNull: false min: -2145365268 max: 2135491313 sum: 7521792925 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: -2139452528 max: 2147223299 sum: -12923774313 positions: 0,2050,488
+      Entry 2: count: 1000 hasNull: false min: -2142420586 max: 2143898386 sum: -25521983511 positions: 4099,2054,464
+      Entry 3: count: 1000 hasNull: false min: -2137233441 max: 2144267163 sum: 40993386199 positions: 8198,2058,440
+      Entry 4: count: 1000 hasNull: false min: -2146021688 max: 2146838901 sum: -9553628474 positions: 12297,2062,416
+    Row group indices for column 2:
+      Entry 0: count: 1000 hasNull: false min: -9200577545527640566 max: 9175500305011173751 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: -9203618157670445774 max: 9208123824411178101 positions: 4099,2,488
+      Entry 2: count: 1000 hasNull: false min: -9218592812243954469 max: 9221351515892923972 positions: 12297,6,464
+      Entry 3: count: 1000 hasNull: false min: -9206585617947511272 max: 9167703224425685487 positions: 20495,10,440
+      Entry 4: count: 1000 hasNull: false min: -9206645795733282496 max: 9221614132680747961 positions: 28693,14,416
+    Row group indices for column 3:
+      Entry 0: count: 1000 hasNull: false min: Darkness, max: worst sum: 3862 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: Darkness, max: worst sum: 3884 positions: 0,659,149
+      Entry 2: count: 1000 hasNull: false min: Darkness, max: worst sum: 3893 positions: 0,1531,3
+      Entry 3: count: 1000 hasNull: false min: Darkness, max: worst sum: 3798 positions: 0,2281,32
+      Entry 4: count: 1000 hasNull: false min: Darkness, max: worst sum: 3843 positions: 0,3033,45
+  Stripe: offset: 64307 data: 63775 rows: 5000 tail: 79 index: 432
+    Stream: column 0 section ROW_INDEX start: 64307 length 17
+    Stream: column 1 section ROW_INDEX start: 64324 length 164
+    Stream: column 2 section ROW_INDEX start: 64488 length 168
+    Stream: column 3 section ROW_INDEX start: 64656 length 83
+    Stream: column 1 section DATA start: 64739 length 20035
+    Stream: column 2 section DATA start: 84774 length 40050
+    Stream: column 3 section DATA start: 124824 length 3532
+    Stream: column 3 section LENGTH start: 128356 length 25
+    Stream: column 3 section DICTIONARY_DATA start: 128381 length 133
+    Encoding column 0: DIRECT
+    Encoding column 1: DIRECT_V2
+    Encoding column 2: DIRECT_V2
+    Encoding column 3: DICTIONARY_V2[35]
+    Row group indices for column 1:
+      Entry 0: count: 1000 hasNull: false min: -2143799121 max: 2145249879 sum: -6966266181 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: -2146733128 max: 2147001622 sum: -35930106333 positions: 0,2050,488
+      Entry 2: count: 1000 hasNull: false min: -2144302712 max: 2146299933 sum: 6944230435 positions: 4099,2054,464
+      Entry 3: count: 1000 hasNull: false min: -2145172948 max: 2144335014 sum: -29624404959 positions: 8198,2058,440
+      Entry 4: count: 1000 hasNull: false min: -2146428427 max: 2144067253 sum: 65584220465 positions: 12297,2062,416
+    Row group indices for column 2:
+      Entry 0: count: 1000 hasNull: false min: -9218450653857701562 max: 9189819526332228512 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: -9220818777591257749 max: 9178821722829648113 positions: 4099,2,488
+      Entry 2: count: 1000 hasNull: false min: -9220031433030423388 max: 9210838931786956852 positions: 12297,6,464
+      Entry 3: count: 1000 hasNull: false min: -9208195729739635607 max: 9222259462014003839 positions: 20495,10,440
+      Entry 4: count: 1000 hasNull: false min: -9174271499932339698 max: 9212277876771676916 positions: 28693,14,416
+    Row group indices for column 3:
+      Entry 0: count: 1000 hasNull: false min: Darkness, max: worst sum: 3923 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: Darkness, max: worst sum: 3869 positions: 0,761,12
+      Entry 2: count: 1000 hasNull: false min: Darkness, max: worst sum: 3817 positions: 0,1472,70
+      Entry 3: count: 1000 hasNull: false min: Darkness, max: worst sum: 3931 positions: 0,2250,43
+      Entry 4: count: 1000 hasNull: false min: Darkness, max: worst sum: 3964 positions: 0,2978,88
+  Stripe: offset: 128593 data: 63787 rows: 5000 tail: 79 index: 438
+    Stream: column 0 section ROW_INDEX start: 128593 length 17
+    Stream: column 1 section ROW_INDEX start: 128610 length 163
+    Stream: column 2 section ROW_INDEX start: 128773 length 168
+    Stream: column 3 section ROW_INDEX start: 128941 length 90
+    Stream: column 1 section DATA start: 129031 length 20035
+    Stream: column 2 section DATA start: 149066 length 40050
+    Stream: column 3 section DATA start: 189116 length 3544
+    Stream: column 3 section LENGTH start: 192660 length 25
+    Stream: column 3 section DICTIONARY_DATA start: 192685 length 133
+    Encoding column 0: DIRECT
+    Encoding column 1: DIRECT_V2
+    Encoding column 2: DIRECT_V2
+    Encoding column 3: DICTIONARY_V2[35]
+    Row group indices for column 1:
+      Entry 0: count: 1000 hasNull: false min: -2146993718 max: 2144179881 sum: -7829543271 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: -2144095505 max: 2144883384 sum: 51623839692 positions: 0,2050,488
+      Entry 2: count: 1000 hasNull: false min: -2144113995 max: 2143773575 sum: 56574412741 positions: 4099,2054,464
+      Entry 3: count: 1000 hasNull: false min: -2146954065 max: 2146794873 sum: 4336083432 positions: 8198,2058,440
+      Entry 4: count: 1000 hasNull: false min: -2135511523 max: 2147378179 sum: 27955949957 positions: 12297,2062,416
+    Row group indices for column 2:
+      Entry 0: count: 1000 hasNull: false min: -9211978436552246208 max: 9179058898902097152 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: -9195645160817780503 max: 9189147759444307708 positions: 4099,2,488
+      Entry 2: count: 1000 hasNull: false min: -9202888157616520823 max: 9193561362676960747 positions: 12297,6,464
+      Entry 3: count: 1000 hasNull: false min: -9216318198067839390 max: 9221286760675829363 positions: 20495,10,440
+      Entry 4: count: 1000 hasNull: false min: -9218342074710552826 max: 9222303228623055266 positions: 28693,14,416
+    Row group indices for column 3:
+      Entry 0: count: 1000 hasNull: false min: Darkness, max: worst sum: 3817 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: Darkness, max: worst sum: 4008 positions: 0,634,174
+      Entry 2: count: 1000 hasNull: false min: Darkness, max: worst sum: 3999 positions: 0,1469,69
+      Entry 3: count: 1000 hasNull: false min: Darkness, max: worst sum: 3817 positions: 0,2133,194
+      Entry 4: count: 1000 hasNull: false min: Darkness, max: worst sum: 4000 positions: 0,3005,43
+  Stripe: offset: 192897 data: 63817 rows: 5000 tail: 79 index: 440
+    Stream: column 0 section ROW_INDEX start: 192897 length 17
+    Stream: column 1 section ROW_INDEX start: 192914 length 165
+    Stream: column 2 section ROW_INDEX start: 193079 length 167
+    Stream: column 3 section ROW_INDEX start: 193246 length 91
+    Stream: column 1 section DATA start: 193337 length 20035
+    Stream: column 2 section DATA start: 213372 length 40050
+    Stream: column 3 section DATA start: 253422 length 3574
+    Stream: column 3 section LENGTH start: 256996 length 25
+    Stream: column 3 section DICTIONARY_DATA start: 257021 length 133
+    Encoding column 0: DIRECT
+    Encoding column 1: DIRECT_V2
+    Encoding column 2: DIRECT_V2
+    Encoding column 3: DICTIONARY_V2[35]
+    Row group indices for column 1:
+      Entry 0: count: 1000 hasNull: false min: -2141355639 max: 2145520931 sum: 2726719912 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: -2138324170 max: 2140167376 sum: -23606674002 positions: 0,2050,488
+      Entry 2: count: 1000 hasNull: false min: -2146658006 max: 2144329742 sum: -41530109703 positions: 4099,2054,464
+      Entry 3: count: 1000 hasNull: false min: -2144207593 max: 2139456355 sum: 13559842458 positions: 8198,2058,440
+      Entry 4: count: 1000 hasNull: false min: -2145744719 max: 2145417153 sum: 57383770571 positions: 12297,2062,416
+    Row group indices for column 2:
+      Entry 0: count: 1000 hasNull: false min: -9222731174895935707 max: 9214167447015056056 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: -9222758097219661129 max: 9221043130193737406 positions: 4099,2,488
+      Entry 2: count: 1000 hasNull: false min: -9174483776261243438 max: 9208134757538374043 positions: 12297,6,464
+      Entry 3: count: 1000 hasNull: false min: -9174329712613510612 max: 9197412874152820822 positions: 20495,10,440
+      Entry 4: count: 1000 hasNull: false min: -9221162005892422758 max: 9220625004936875965 positions: 28693,14,416
+    Row group indices for column 3:
+      Entry 0: count: 1000 hasNull: false min: Darkness, max: worst sum: 3901 positions: 0,0,0
+      Entry 1: count: 1000 hasNull: false min: Darkness, max: worst sum: 3900 positions: 0,431,431
+      Entry 2: count: 1000 hasNull: false min: Darkness, max: worst sum: 3909 positions: 0,1485,52
+      Entry 3: count: 1000 hasNull: false min: Darkness, max: worst sum: 3947 positions: 0,2196,104
+      Entry 4: count: 1000 hasNull: false min: Darkness, max: worst sum: 3813 positions: 0,2934,131
+  Stripe: offset: 257233 data: 12943 rows: 1000 tail: 71 index: 131
+    Stream: column 0 section ROW_INDEX start: 257233 length 12
+    Stream: column 1 section ROW_INDEX start: 257245 length 38
+    Stream: column 2 section ROW_INDEX start: 257283 length 41
+    Stream: column 3 section ROW_INDEX start: 257324 length 40
+    Stream: column 1 section DATA start: 257364 length 4007
+    Stream: column 2 section DATA start: 261371 length 8010
+    Stream: column 3 section DATA start: 269381 length 768
+    Stream: column 3 section LENGTH start: 270149 length 25
+    Stream: column 3 section DICTIONARY_DATA start: 270174 length 133
+    Encoding column 0: DIRECT
+    Encoding column 1: DIRECT_V2
+    Encoding column 2: DIRECT_V2
+    Encoding column 3: DICTIONARY_V2[35]
+    Row group indices for column 1:
+      Entry 0: count: 1000 hasNull: false min: -2146245500 max: 2146378640 sum: 51299706363 positions: 0,0,0
+    Row group indices for column 2:
+      Entry 0: count: 1000 hasNull: false min: -9208193203370316142 max: 9218567213558056476 positions: 0,0,0
+    Row group indices for column 3:
+      Entry 0: count: 1000 hasNull: false min: Darkness, max: worst sum: 3866 positions: 0,0,0
+
+File length: 271049 bytes
+Padding length: 0 bytes
+Padding ratio: 0%
+
+User Metadata:
+  hive.acid.key.index=1,1,1;2,3,5;
+  some.user.property=foo#bar$baz&
+________________________________________________________________________________________________________________________
+

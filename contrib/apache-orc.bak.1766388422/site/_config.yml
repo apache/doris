@@ -1,0 +1,20 @@
+markdown: kramdown
+highlighter: rouge
+permalink: /news/:year/:month/:day/:title/
+excerpt_separator: ""
+encoding: utf-8
+
+repository: https://github.com/apache/orc
+jira: https://issues.apache.org/jira/browse
+dist: https://downloads.apache.org/orc
+dist_mirror: https://www.apache.org/dyn/closer.cgi/orc
+tag_url: https://github.com/apache/orc/releases/tag/rel
+dist_archive: https://archive.apache.org/dist/orc
+destination: target
+exclude: [README.md, Gemfile*, Dockerfile]
+keep_files: [.git, .asf.yaml, api, talks/ORC-Deep-Dive-2020.pptx]
+highlight_color: "#67cf56"
+
+collections:
+  docs:
+    output: true

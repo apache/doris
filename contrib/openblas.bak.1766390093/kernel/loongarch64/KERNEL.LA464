@@ -1,0 +1,180 @@
+ifndef NO_LASX
+
+SDOTKERNEL  = dot_lasx.S
+DSDOTKERNEL = dot_lasx.S
+DDOTKERNEL  = dot_lasx.S
+CDOTKERNEL  = cdot_lasx.S
+ZDOTKERNEL  = cdot_lasx.S
+
+SSCALKERNEL  = scal_lasx.S
+DSCALKERNEL  = scal_lasx.S
+CSCALKERNEL  = cscal_lasx.S
+ZSCALKERNEL  = cscal_lasx.S
+
+SAMAXKERNEL =  amax_lasx.S
+DAMAXKERNEL =  amax_lasx.S
+CAMAXKERNEL =  camax_lasx.S
+ZAMAXKERNEL =  camax_lasx.S
+
+SAMINKERNEL =  amin_lasx.S
+DAMINKERNEL =  amin_lasx.S
+CAMINKERNEL =  camin_lasx.S
+ZAMINKERNEL =  camin_lasx.S
+
+SMAXKERNEL  =  max_lsx.S
+DMAXKERNEL =   max_lsx.S
+
+SMINKERNEL =   min_lsx.S
+DMINKERNEL =   min_lsx.S
+
+ISMAXKERNEL =  imax_lasx.S
+IDMAXKERNEL =  imax_lasx.S
+
+ISMINKERNEL =  imin_lasx.S
+IDMINKERNEL =  imin_lasx.S
+
+ISAMAXKERNEL = iamax_lasx.S
+IDAMAXKERNEL = iamax_lasx.S
+ICAMAXKERNEL = icamax_lasx.S
+IZAMAXKERNEL = icamax_lasx.S
+
+ISAMINKERNEL = iamin_lasx.S
+IDAMINKERNEL = iamin_lasx.S
+ICAMINKERNEL = icamin_lasx.S
+IZAMINKERNEL = icamin_lasx.S
+
+SCOPYKERNEL =  copy_lasx.S
+DCOPYKERNEL =  copy_lasx.S
+CCOPYKERNEL =  ccopy_lasx.S
+ZCOPYKERNEL =  ccopy_lasx.S
+
+SSWAPKERNEL =  swap_lasx.S
+DSWAPKERNEL =  swap_lasx.S
+
+SAXPYKERNEL =  axpy_lasx.S
+DAXPYKERNEL =  axpy_lasx.S
+CAXPYKERNEL =  caxpy_lasx.S
+ZAXPYKERNEL =  caxpy_lasx.S
+
+SAXPBYKERNEL = axpby_lasx.S
+DAXPBYKERNEL = axpby_lasx.S
+CAXPBYKERNEL = caxpby_lasx.S
+ZAXPBYKERNEL = caxpby_lasx.S
+
+SSUMKERNEL  =  sum_lasx.S
+DSUMKERNEL  =  sum_lasx.S
+
+SASUMKERNEL =  asum_lasx.S
+DASUMKERNEL =  asum_lasx.S
+CASUMKERNEL =  casum_lasx.S
+ZASUMKERNEL =  casum_lasx.S
+
+SROTKERNEL  =  rot_lasx.S
+DROTKERNEL  =  rot_lasx.S
+CROTKERNEL  =  crot_lasx.S
+ZROTKERNEL  =  crot_lasx.S
+
+SNRM2KERNEL =  snrm2_lasx.S
+DNRM2KERNEL =  dnrm2_lasx.S
+CNRM2KERNEL =  cnrm2_lasx.S
+ZNRM2KERNEL =  znrm2_lasx.S
+
+CSWAPKERNEL = cswap_lasx.S
+ZSWAPKERNEL = cswap_lasx.S
+
+CSUMKERNEL = csum_lasx.S
+ZSUMKERNEL = csum_lasx.S
+
+DGEMMKERNEL    = dgemm_kernel_16x6.S
+DGEMMINCOPY    = dgemm_ncopy_16.S
+DGEMMITCOPY    = dgemm_tcopy_16.S
+DGEMMONCOPY    = gemm_ncopy_6.prefx.c
+DGEMMOTCOPY    = dgemm_tcopy_6.S
+DGEMMINCOPYOBJ = dgemm_incopy$(TSUFFIX).$(SUFFIX)
+DGEMMITCOPYOBJ = dgemm_itcopy$(TSUFFIX).$(SUFFIX)
+DGEMMONCOPYOBJ = dgemm_oncopy$(TSUFFIX).$(SUFFIX)
+DGEMMOTCOPYOBJ = dgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+DGEMVNKERNEL = dgemv_n_8_lasx.S
+DGEMVTKERNEL = dgemv_t_8_lasx.S
+
+DSYMV_U_KERNEL = dsymv_U_lasx.S
+DSYMV_L_KERNEL = dsymv_L_lasx.S
+
+SGEMMKERNEL  = sgemm_kernel_16x8_lasx.S
+SGEMMINCOPY  = sgemm_ncopy_16_lasx.S
+SGEMMITCOPY  = sgemm_tcopy_16_lasx.S
+SGEMMONCOPY  = sgemm_ncopy_8_lasx.S
+SGEMMOTCOPY  = sgemm_tcopy_8_lasx.S
+SGEMMINCOPYOBJ = sgemm_incopy$(TSUFFIX).$(SUFFIX)
+SGEMMITCOPYOBJ = sgemm_itcopy$(TSUFFIX).$(SUFFIX)
+SGEMMONCOPYOBJ = sgemm_oncopy$(TSUFFIX).$(SUFFIX)
+SGEMMOTCOPYOBJ = sgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+SGEMVNKERNEL = sgemv_n_8_lasx.S
+SGEMVTKERNEL = sgemv_t_8_lasx.S
+
+SSYMV_U_KERNEL = ssymv_U_lasx.S
+SSYMV_L_KERNEL = ssymv_L_lasx.S
+
+CGEMMKERNEL  = cgemm_kernel_16x4_lasx.S
+CGEMMINCOPY  = cgemm_ncopy_16_lasx.S
+CGEMMITCOPY  = cgemm_tcopy_16_lasx.S
+CGEMMONCOPY  = cgemm_ncopy_4_lasx.S
+CGEMMOTCOPY  = cgemm_tcopy_4_lasx.S
+CGEMMINCOPYOBJ = cgemm_incopy$(TSUFFIX).$(SUFFIX)
+CGEMMITCOPYOBJ = cgemm_itcopy$(TSUFFIX).$(SUFFIX)
+CGEMMONCOPYOBJ = cgemm_oncopy$(TSUFFIX).$(SUFFIX)
+CGEMMOTCOPYOBJ = cgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+CGEMVNKERNEL = cgemv_n_8_lasx.S
+CGEMVTKERNEL = cgemv_t_8_lasx.S
+
+CTRSMKERNEL_LN  = ../generic/trsm_kernel_LN.c
+CTRSMKERNEL_LT  = ../generic/trsm_kernel_LT.c
+CTRSMKERNEL_RN  = ../generic/trsm_kernel_RN.c
+CTRSMKERNEL_RT  = ../generic/trsm_kernel_RT.c
+
+ZGEMMKERNEL  = zgemm_kernel_8x4_lasx.S
+ZGEMMINCOPY  = zgemm_ncopy_8_lasx.S
+ZGEMMITCOPY  = zgemm_tcopy_8_lasx.S
+ZGEMMONCOPY  = zgemm_ncopy_4_lasx.S
+ZGEMMOTCOPY  = zgemm_tcopy_4_lasx.S
+ZGEMMINCOPYOBJ = zgemm_incopy$(TSUFFIX).$(SUFFIX)
+ZGEMMITCOPYOBJ = zgemm_itcopy$(TSUFFIX).$(SUFFIX)
+ZGEMMONCOPYOBJ = zgemm_oncopy$(TSUFFIX).$(SUFFIX)
+ZGEMMOTCOPYOBJ = zgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+ZGEMVNKERNEL = zgemv_n_4_lasx.S
+ZGEMVTKERNEL = zgemv_t_4_lasx.S
+
+ZTRSMKERNEL_LN  = ../generic/trsm_kernel_LN.c
+ZTRSMKERNEL_LT  = ../generic/trsm_kernel_LT.c
+ZTRSMKERNEL_RN  = ../generic/trsm_kernel_RN.c
+ZTRSMKERNEL_RT  = ../generic/trsm_kernel_RT.c
+
+DTRSMKERNEL_LN  = trsm_kernel_LN_UNROLLN6.c
+DTRSMKERNEL_LT  = trsm_kernel_LT_UNROLLN6.c
+DTRSMKERNEL_RN  = trsm_kernel_RN_UNROLLN6.c
+DTRSMKERNEL_RT  = trsm_kernel_RT_UNROLLN6.c
+
+STRSMKERNEL_LN  = ../generic/trsm_kernel_LN.c
+STRSMKERNEL_LT  = ../generic/trsm_kernel_LT.c
+STRSMKERNEL_RN  = ../generic/trsm_kernel_RN.c
+STRSMKERNEL_RT  = ../generic/trsm_kernel_RT.c
+
+DGEMM_SMALL_M_PERMIT = dgemm_small_matrix_permit.c
+DGEMM_SMALL_K_NN = dgemm_small_kernel_nn_lasx.S
+DGEMM_SMALL_K_B0_NN = dgemm_small_kernel_nn_lasx.S
+DGEMM_SMALL_K_NT = dgemm_small_kernel_nt_lasx.S
+DGEMM_SMALL_K_B0_NT = dgemm_small_kernel_nt_lasx.S
+DGEMM_SMALL_K_TN = dgemm_small_kernel_tn_lasx.S
+DGEMM_SMALL_K_B0_TN = dgemm_small_kernel_tn_lasx.S
+DGEMM_SMALL_K_TT = dgemm_small_kernel_tt_lasx.S
+DGEMM_SMALL_K_B0_TT = dgemm_small_kernel_tt_lasx.S
+
+SOMATCOPY_RT = somatcopy_rt_lasx.c
+SOMATCOPY_RN = somatcopy_rn_lasx.c
+SOMATCOPY_CT = somatcopy_ct_lasx.c
+SOMATCOPY_CN = somatcopy_cn_lasx.c
+endif

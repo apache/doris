@@ -1,0 +1,577 @@
+# List the releases in reverse logical order
+# Only one release should be tagged latest
+1.8.3:
+  date: 2023-03-15
+  state: latest
+  tar: orc-1.8.3.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: a78678ec425c8129d63370cb8a9bacb54186aa66af1e2bec01ce92e7eaf72e20
+  known-issues:
+
+1.8.2:
+  date: 2023-01-13
+  state: archived
+  tar: orc-1.8.2.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: 5e14501212abcb739ab0f3bdedf230c47e5138d9bf9f0e89e9a84b18bd084052
+  known-issues:
+
+1.8.1:
+  date: 2022-12-02
+  state: archived
+  tar: orc-1.8.1.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: ba5877bd737e1fbc69822d3861b8e84854640bf2439b7ddad536d6303dd3638d
+  known-issues:
+
+1.8.0:
+  date: 2022-09-03
+  state: archived
+  tar: orc-1.8.0.tar.gz
+  signed-by: William Hyun (DECDFA29)
+  sha256: 859d78bfded98405c32ccb2847b565a57bcc53f473a74087c1f750aeb5932e62
+  known-issues:
+
+1.7.8:
+  date: 2023-01-21
+  state: stable
+  tar: orc-1.7.8.tar.gz
+  signed-by: William Hyun (DECDFA29)
+  sha256: 4e92db5380d6596e86b280cbc25df712c38b0c77cbc9d77df4b6b2a791280d64
+  known-issues:
+
+1.7.7:
+  date: 2022-11-17
+  state: archived
+  tar: orc-1.7.7.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: 52cbcd892c0bf07c3cb7e49f3c027d93deeb28ae6e2df5c698b80194612cf490
+  known-issues:
+
+1.7.6:
+  date: 2022-08-17
+  state: archived
+  tar: orc-1.7.6.tar.gz
+  signed-by: William Hyun (DECDFA29)
+  sha256: a75e0cccaaf5e03f1699bb804f640246bec4d134cb57957125707b0b2822160d
+  known-issues:
+
+1.7.5:
+  date: 2022-06-16
+  state: archived
+  tar: orc-1.7.5.tar.gz
+  signed-by: William Hyun (DECDFA29)
+  sha256: b90cae5853e3ea0e5bf64e3883d09d871ec280536e0bb2cc52d08f79f0be0010
+  known-issues:
+
+1.7.4:
+  date: 2022-04-15
+  state: archived
+  tar: orc-1.7.4.tar.gz
+  signed-by: William Hyun (DECDFA29)
+  sha256: 0a70c5e877b1ff268e768c94392574a084092f8aa7f97796c13de276103d8272
+  known-issues:
+
+1.7.3:
+  date: 2022-02-09
+  state: archived
+  tar: orc-1.7.3.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: 535c4d7588172e85b8fc941cd0575d67f2155a55e4cd65d87d5b194b0bb28a31
+  known-issues:
+
+1.7.2:
+  date: 2021-12-20
+  state: archived
+  tar: orc-1.7.2.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: ef39bae755116fecb07fb4334656f984ba8ce7cdb1c64de078d3ed186b286007
+  known-issues:
+
+1.7.1:
+  date: 2021-11-07
+  state: archived
+  tar: orc-1.7.1.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: 65d71e571238cbcb7c3cbb9a10f7ad988f452d17c58479154be3b9d6ec27d005
+  known-issues:
+    ORC-1041: Use memcpy during LZO decompression
+
+1.7.0:
+  date: 2021-09-15
+  state: archived
+  tar: orc-1.7.0.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: cab8cea768b391b173ad5ba839baf20ba9abc42570e3d661783c9c52e0430ab3
+  known-issues:
+    ORC-1002: Add java17 profile
+
+1.6.14:
+  date: 2022-04-14
+  state: archived
+  tar: orc-1.6.14.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: f2701d27d197a0b483727790414c1c3b50cbe4506dae947d3e6dc3d951f1ee09
+  known-issues:
+    ORC-1041: Use memcpy during LZO decompression
+
+1.6.13:
+  date: 2022-01-20
+  state: archived
+  tar: orc-1.6.13.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: ff69f9e0b5b01dfc6ef596e83bc12913875ad977af415d7592f9df5b405b8148
+  known-issues:
+    ORC-1041: Use memcpy during LZO decompression
+
+1.6.12:
+  date: 2021-11-07
+  state: archived
+  tar: orc-1.6.12.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: ff69f9e0b5b01dfc6ef596e83bc12913875ad977af415d7592f9df5b405b8148
+  known-issues:
+    ORC-1041: Use memcpy during LZO decompression
+
+1.6.11:
+  date: 2021-09-15
+  state: archived
+  tar: orc-1.6.11.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: 67c17c012bd588fc5e8195b23fe92c2cb59aa6e20d57ed3dceb3a5f0b0b4c459
+  known-issues:
+
+1.6.10:
+  date: 2021-08-10
+  state: archived
+  tar: orc-1.6.10.tar.gz
+  signed-by: Owen O’Malley (AD1C5877)
+  sha256: 3a7347c85d18e44dece97d98320313848ec1d60aa635136a5187eafec7632ad2
+  known-issues:
+
+1.6.9:
+  date: 2021-07-02
+  state: archived
+  tar: orc-1.6.9.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: d19af60cd81cdb17872aa99b3687e471683e22c6fae73a21d5fc5aed636ebbb8
+  known-issues:
+
+1.6.8:
+  date: 2021-05-21
+  state: archived
+  tar: orc-1.6.8.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: 93d2e5f7c9f76ea5cdf29073c73a00a37c54281a5c02bcc6395f1cf521ea246c
+  known-issues:
+
+1.6.7:
+  date: 2021-01-22
+  state: archived
+  tar: orc-1.6.7.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: 93d2e5f7c9f76ea5cdf29073c73a00a37c54281a5c02bcc6395f1cf521ea246c
+  known-issues:
+
+1.6.6:
+  date: 2020-12-10
+  state: archived
+  tar: orc-1.6.6.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: 93d2e5f7c9f76ea5cdf29073c73a00a37c54281a5c02bcc6395f1cf521ea246c
+  known-issues:
+
+1.6.5:
+  date: 2020-10-01
+  state: archived
+  tar: orc-1.6.5.tar.gz
+  signed-by: Owen O’Malley (AD1C5877)
+  sha256: 1e77840861a5c5c80173b39a32f4fba97fb3ed9d0cd492d8eae65e53bd496e98
+  known-issues:
+
+1.6.4:
+  date: 2020-09-14
+  state: archived
+  tar: orc-1.6.4.tar.gz
+  signed-by: Owen O’Malley (AD1C5877)
+  sha256: ceea9849277354cffb37853b7f47ea96898c3e716e0803a597ca657cdb59e43c
+  known-issues:
+    ORC-667: Positional mapping for nested struct types should not applied by default
+
+1.6.3:
+  date: 2020-04-26
+  state: archived
+  tar: orc-1.6.3.tar.gz
+  signed-by: Owen O’Malley (AD1C5877)
+  sha256: 38b9da9ca771d26877cae5b8da55aa1d1bf1ed515723f9cfdcba49d619396bc4 
+  known-issues:
+
+1.6.2:
+  date: 2019-11-24
+  state: archived
+  tar: orc-1.6.2.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 5c394603faba3c50a295b44933f2c1b3532da48391d56764a1b2a2d67b610eed
+  known-issues:
+
+1.6.1:
+  date: 2019-10-26
+  state: archived
+  tar: orc-1.6.1.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 56a7622629f0101f12bf9470065c8283390a1967e4969975756b8d2dc03383c8
+  known-issues:
+    ORC-562: Don't wrap the readerSchema with ACID fields, if it already is
+    ORC-569: The first index entry may have empty positions
+    ORC-571: ArrayIndexOutOfBoundsException in StripePlanner.readRowIndex
+    
+1.6.0:
+  date: 2019-09-03
+  state: archived
+  tar: orc-1.6.0.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 2d864000c60025f54631e0dff1a943380e7578277688a4e333ad7d9ac7d29747
+  known-issues:
+    ORC-414: ORC files with malformed protobuf objects can crash C++ reader
+    ORC-555: IllegalArgumentException when reading files with large footers
+    ORC-562: Don't wrap the readerSchema with ACID fields, if it already is
+    ORC-569: The first index entry may have empty positions
+    ORC-571: ArrayIndexOutOfBoundsException in StripePlanner.readRowIndex
+
+1.5.13:
+  date: 2021-09-15
+  state: archived
+  tar: orc-1.5.13.tar.gz
+  signed-by: Dongjoon Hyun (34F0FC5C)
+  sha256: 45274afce558b93f001b729bd3d68bc5462fdc17b726e4dcd41339cd2e1eb645
+  known-issues:
+
+1.5.12:
+  date: 2020-09-30
+  state: archived
+  tar: orc-1.5.12.tar.gz
+  signed-by: Owen O’Malley (AD1C5877)
+  sha256: 938e48eca6c83fcd807b08054fb4a8e34e9ebfc58aa19bfd52ac246da5639bce
+  known-issues:
+
+1.5.11:
+  date: 2020-09-14
+  state: archived
+  tar: orc-1.5.11.tar.gz
+  signed-by: Owen O’Malley (AD1C5877)
+  sha256: 636af3a39aa8cdfcc578c21543f3f985df0d61a5abfd4c245e314e7b6edb575b
+  known-issues:
+    ORC-667: Positional mapping for nested struct types should not applied by default
+
+1.5.10:
+  date: 2020-04-26
+  state: archived
+  tar: orc-1.5.10.tar.gz
+  signed-by: Owen O’Malley (AD1C5877)
+  sha256: c2ca21fd2f77afbe1c09193a66c0272b78e2fd65ebeb39fa29b41f0ed7a4666b
+  known-issues:
+
+1.5.9:
+  date: 2020-01-30
+  state: archived
+  tar: orc-1.5.9.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 75c534555df8a93284e1f4567e7404da12fecb86282e974c678e6ec822c8a504
+  known-issues:
+
+1.5.8:
+  date: 2019-11-24
+  state: archived
+  tar: orc-1.5.8.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 2caf689132168d349917daee4c4d8025e8273434a72cdd4f5abe32c40281f859
+  known-issues:
+
+1.5.7:
+  date: 2019-10-26
+  state: archived
+  tar: orc-1.5.7.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 0fbc5c6da16be89e5429376c0f75e64ddd5ab9425eb1d43d16c0d25281dde5b7
+  known-issues:
+    ORC-562: Don't wrap the readerSchema with ACID fields, if it already is
+    ORC-569: The first index entry may have empty positions
+
+1.5.6:
+  date: 2019-06-27
+  state: archived
+  tar: orc-1.5.6.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: e0588bfd96103bc1904166c63c84e769bf7259eee99f409629ad871ea5600e77
+  known-issues:
+    ORC-525: Users must close ORC Readers after use
+    ORC-414: ORC files with malformed protobuf objects can crash C++ reader
+    ORC-562: Don't wrap the readerSchema with ACID fields, if it already is
+    ORC-569: The first index entry may have empty positions
+
+1.5.5:
+  date: 2019-03-14
+  state: archived
+  tar: orc-1.5.5.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 486bbf0765a5b8c2e0155d3b1b8e3e1bd182dc597cb09d559d736d9881021d86
+  known-issues:
+    ORC-414: ORC files with malformed protobuf objects can crash C++ reader
+    ORC-562: Don't wrap the readerSchema with ACID fields, if it already is
+    ORC-569: The first index entry may have empty positions
+
+1.5.4:
+  date: 2018-12-21
+  state: archived
+  tar: orc-1.5.4.tar.gz
+  signed-by: Vaibhav Gumashta (F60037FB)
+  sha256: 75cfba40d3574c144afb4a6b0ad2e947520fd471a699f35da2357b5b1e6d85df
+  known-issues:
+    ORC-414: ORC files with malformed protobuf objects can crash C++ reader
+    ORC-562: Don't wrap the readerSchema with ACID fields, if it already is
+    ORC-569: The first index entry may have empty positions
+
+1.5.3:
+  date: 2018-09-25
+  state: archived
+  tar: orc-1.5.3.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 96da3cccd2b396dc7813949d3c459a5d6995778928d344f4553cf890f171521c
+  known-issues:
+    ORC-414: ORC files with malformed protobuf objects can crash C++ reader
+    ORC-562: Don't wrap the readerSchema with ACID fields, if it already is
+    ORC-569: The first index entry may have empty positions
+
+1.5.2:
+  date: 2018-06-29
+  state: archived
+  tar: orc-1.5.2.tar.gz
+  signed-by: Prasanth Jayachandran (65C468A3)
+  sha256: 4b73de720f54448d84aa0fc8b5fddf69f5cc41990ee65e9ae4a976eb86daa161
+  known-issues:
+    ORC-414: ORC files with malformed protobuf objects can crash C++ reader
+    ORC-562: Don't wrap the readerSchema with ACID fields, if it already is
+    ORC-569: The first index entry may have empty positions
+
+1.5.1:
+  date: 2018-05-25
+  state: archived
+  tar: orc-1.5.1.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 14b93916ac6dce659845766edbeee2d9cdb9648a8761011bf713d36bb36f0eaa
+  known-issues:
+    ORC-414: ORC files with malformed protobuf objects can crash C++ reader
+    ORC-562: Don't wrap the readerSchema with ACID fields, if it already is
+    ORC-569: The first index entry may have empty positions
+
+1.5.0:
+  date: 2018-05-14
+  state: archived
+  tar: orc-1.5.0.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 28369ea8e24cac6d46c72f91a877b3a526017490aea936d0f689e45b6e8dd603
+  known-issues:
+    ORC-367: Boolean columns are read incorrectly when using seek.
+    ORC-414: ORC files with malformed protobuf objects can crash C++ reader
+    ORC-562: Don't wrap the readerSchema with ACID fields, if it already is
+    ORC-569: The first index entry may have empty positions
+
+1.4.5:
+  date: 2019-12-09
+  state: archived
+  tar: orc-1.4.5.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 6b30272d4c4cbccc4f019590aa0b770214ff154c8204018a640a61ae0b29e9cb
+  known-issues:
+
+1.4.4:
+  date: 2018-05-14
+  state: archived
+  tar: orc-1.4.4.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 9df0f59ba4046d2a565e740d04c70a16ed15152ed98b34cf5d6f494a6e26f6d7
+  known-issues:
+
+1.4.3:
+  date: 2018-02-09
+  state: archived
+  tar: orc-1.4.3.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 0310d6ed20d95b7c27de79bea9cf08a152565c64fd7f95b61877b2b2b2774d83
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+
+1.4.2:
+  date: 2018-01-23
+  state: archived
+  tar: orc-1.4.2.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 4c32e30a2b93953c287fb6879894bec20c59c79617e5a8a103a76d8dd2a5ee89
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.4.1:
+  date: 2017-10-16
+  state: archived
+  tar: orc-1.4.1.tar.gz
+  signed-by: Prasanth Jayachandran (65C468A3)
+  sha256: bf9f107c61ecd6a9f08f439ad6a3870fbabbfeb1b68d9430b1258e5df03a5bb2
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.4.0:
+  date: 2017-05-08
+  state: archived
+  tar: orc-1.4.0.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 0f96b2096dd053b6e7559472c7eff8061f8e4459f914adf6c81c3d1eb83d3b0f
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.3.4:
+  date: 2017-10-16
+  state: archived
+  tar: orc-1.3.4.tar.gz
+  signed-by: Prasanth Jayachandran (65C468A3)
+  sha256: 55269430aea7b825e9bd67a75d41c808dd649bda962c6a040ef9137ddfe993c0
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.3.3:
+  date: 2017-02-21
+  state: archived
+  tar: orc-1.3.3.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 48cf9f47ab13f4baeb1770d8f773ae69712ce1c3a1010b2515dfcc22c5b6acf9
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.3.2:
+  date: 2017-02-13
+  state: archived
+  tar: orc-1.3.2.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 929b70f63e2caf3e1566911c72fac23209319e76631c3cd072117cb195e473a0
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.3.1:
+  date: 2017-02-03
+  state: archived
+  tar: orc-1.3.1.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: d16c55f20f9fe217b7f206420447635647f2ff24dd9ac61b68af556aac5cc131
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-135: Predicate push down is incorrect on timestamps when moved between timezones
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.3.0:
+  date: 2017-01-23
+  state: archived
+  tar: orc-1.3.0.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: d19a5b5cc1df5797e4595ba76b52a3bc5481fba3ca9fcc437e073b002970aebb
+  known-issues:
+    ORC-135: Predicate push down is incorrect on timestamps when moved between timezones
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.2.3:
+  date: 2016-12-12
+  state: archived
+  tar: orc-1.2.3.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: a86a335052553bc51f30d80f4f3b5bc70cb99f77430d062c73e8ffe00ab15562
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-135: Predicate push down is incorrect on timestamps when moved between timezones
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.2.2:
+  date: 2016-12-01
+  state: archived
+  tar: orc-1.2.2.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 6aa87390f0f03c436d9be6973414ed310b78b7fcc5072fe78a25251a1f547083
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-135: Predicate push down is incorrect on timestamps when moved between timezones
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.2.1:
+  date: 2016-10-05
+  state: archived
+  tar: orc-1.2.1.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 793bcc0419574fba727e4587fee282642ce1dd5b8fca580cb3c4ec06f2dba001
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-135: Predicate push down is incorrect on timestamps when moved between timezones
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.2.0:
+  date: 2016-08-25
+  state: archived
+  tar: orc-1.2.0.tar.gz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 5c394c7ed3a31d20726ded55ed9c5a0eeff1bd5b85b1cb2ee6c3c1a94560578c
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-101: Bloom filters for string and decimal use inconsistent encoding
+    ORC-135: Predicate push down is incorrect on timestamps when moved between timezones
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.1.2:
+  date: 2016-07-08
+  state: archived
+  tar: orc-1.1.2.tgz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 5d14df7d48126dd846cc9688e71462703ccaa66354fa247017c0aa0a354a4770
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    HIVE-14214: Schema evolution and predicate pushdown don't work together.
+    ORC-101: Bloom filters for string and decimal use inconsistent encoding
+    ORC-135: Predicate push down is incorrect on timestamps when moved between timezones
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.1.1:
+  date: 2016-06-13
+  state: archived
+  tar: orc-1.1.1.tgz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 19292a1848672c9c6dca4ccb8cb1173bffbe1c43e78663b4b9656ecf439a52c6
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    HIVE-14214: Schema evolution and predicate pushdown don't work together.
+    ORC-101: Bloom filters for string and decimal use inconsistent encoding
+    ORC-135: Predicate push down is incorrect on timestamps when moved between timezones
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.1.0:
+  date: 2016-06-10
+  state: archived
+  tar: orc-1.1.0.tgz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 8beea2be064baf37fcd5d2cc56bf002a48e19edb238a1502418b7368dcc8587c
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    HIVE-14214: Schema evolution and predicate pushdown don't work together.
+    ORC-101: Bloom filters for string and decimal use inconsistent encoding
+    ORC-135: Predicate push down is incorrect on timestamps when moved between timezones
+    ORC-285: Empty vector batches of floats or doubles cause EOFException
+
+1.0.0:
+  date: 2016-01-25
+  state: archived
+  tar: orc-1.0.0.tgz
+  signed-by: Owen O’Malley (3D0C92B9)
+  sha256: 8ad5111f0ca3b72fd4e3d539e51fc8df204c43bc4469a8e79f951519b728303e
+  known-issues:
+    CVE-2018-8015: ORC files with malformed types cause stack overflow.
+    ORC-10: When moving ORC files between timezones, different daylight savings rules will cause timestamps to shift in the C++ reader.

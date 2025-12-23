@@ -1,0 +1,70 @@
+--- TIME ---
+Sun Dec 21 11:07:27 CST 2025
+--- PROCS BEFORE ---
+8289 /usr/bin/bash -O extglob -c snap=$(command cat <&3) && builtin shopt -s extglob && builtin eval -- "$snap" && { builtin set +u 2>/dev/null || true; builtin export PWD="$(builtin pwd)"; builtin eval "$1" < /dev/null; }; COMMAND_EXIT_CODE=$?; dump_bash_state >&4; builtin exit $COMMAND_EXIT_CODE -- set -euo pipefail cd /home/zhisheng/doris || exit 1 export DORIS_HOME="$PWD" export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 export LD_LIBRARY_PATH="$JAVA_HOME/lib/server:$JAVA_HOME/lib:${LD_LIBRARY_PATH:-}" OUT=/home/zhisheng/doris/restart_be_and_rerun.out rm -f "$OUT" register_be_after_be_restart.log regression_after_be_restart.log || true {   echo "--- TIME ---"; date   echo "--- PROCS BEFORE ---"; pgrep -a -f doris_be || true   echo "--- PORTS BEFORE ---"; ss -tnlp | egrep '9050|9030' || true   echo "--- BE LOG BEFORE ---"; tail -n 200 log/be.out || true    echo "--- Killing existing BE processes ---"   pkill -9 -f doris_be || true   sleep 2    echo "--- Start BE daemon ---"   bash bin/start_be.sh --daemon || true    echo "--- Waiting for 9050 to listen (30s) ---"   for i in {1..30}; do     if ss -tnlp | grep -q "[:.]9050"; then       echo "--- 9050 LISTENING after ${i}s ---"       break     fi     sleep 1     if [ "$i" -eq 30 ]; then       echo "--- 9050 NOT LISTENING after 30s ---"     fi   done    echo "--- PROCS AFTER ---"; pgrep -a -f doris_be || true   echo "--- PORTS AFTER ---"; ss -tnlp | egrep '9050|9030' || true    # Register BE   echo "--- REGISTER BE ---"   if [ -f register_be.py ]; then     echo "found register_be.py, running"     python3 register_be.py 2>&1 | tee register_be_after_be_restart.log || true   elif command -v mysql >/dev/null 2>&1; then     echo "using mysql client to ALTER SYSTEM ADD BACKEND"     mysql -h127.0.0.1 -P9030 -uroot -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:9050'; SHOW BACKENDS;" 2>&1 | tee register_be_after_be_restart.log || true   else     echo "no register_be.py and mysql client missing" | tee register_be_after_be_restart.log   fi    # Run regression for only test_hamming_distance   echo "--- RUN REGRESSION: test_hamming_distance ---"   REG_PATH=""   for p in ./run-regression-test.sh ./doris/run-regression-test.sh ./regression-test/run-regression-test.sh; do     if [ -x "$p" ]; then       REG_PATH="$p"       break     fi   done   if [ -n "$REG_PATH" ]; then     echo "running $REG_PATH --run -s test_hamming_distance"     "$REG_PATH" --run -s test_hamming_distance 2>&1 | tee regression_after_be_restart.log || true   else     echo "run-regression-test.sh not found" | tee regression_after_be_restart.log   fi    echo "--- TAILS ---"   echo "--- register_be_after_be_restart.log ---"; tail -n 200 register_be_after_be_restart.log || true   echo "--- regression_after_be_restart.log ---"; tail -n 200 regression_after_be_restart.log || true   echo "--- fe.log tail ---"; tail -n 200 log/fe.log || true   echo "--- be.out tail ---"; tail -n 200 log/be.out || true  } 2>&1 | tee "$OUT"  echo "WROTE_OUTPUT:$OUT" 
+8294 /usr/bin/bash -O extglob -c snap=$(command cat <&3) && builtin shopt -s extglob && builtin eval -- "$snap" && { builtin set +u 2>/dev/null || true; builtin export PWD="$(builtin pwd)"; builtin eval "$1" < /dev/null; }; COMMAND_EXIT_CODE=$?; dump_bash_state >&4; builtin exit $COMMAND_EXIT_CODE -- set -euo pipefail cd /home/zhisheng/doris || exit 1 export DORIS_HOME="$PWD" export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 export LD_LIBRARY_PATH="$JAVA_HOME/lib/server:$JAVA_HOME/lib:${LD_LIBRARY_PATH:-}" OUT=/home/zhisheng/doris/restart_be_and_rerun.out rm -f "$OUT" register_be_after_be_restart.log regression_after_be_restart.log || true {   echo "--- TIME ---"; date   echo "--- PROCS BEFORE ---"; pgrep -a -f doris_be || true   echo "--- PORTS BEFORE ---"; ss -tnlp | egrep '9050|9030' || true   echo "--- BE LOG BEFORE ---"; tail -n 200 log/be.out || true    echo "--- Killing existing BE processes ---"   pkill -9 -f doris_be || true   sleep 2    echo "--- Start BE daemon ---"   bash bin/start_be.sh --daemon || true    echo "--- Waiting for 9050 to listen (30s) ---"   for i in {1..30}; do     if ss -tnlp | grep -q "[:.]9050"; then       echo "--- 9050 LISTENING after ${i}s ---"       break     fi     sleep 1     if [ "$i" -eq 30 ]; then       echo "--- 9050 NOT LISTENING after 30s ---"     fi   done    echo "--- PROCS AFTER ---"; pgrep -a -f doris_be || true   echo "--- PORTS AFTER ---"; ss -tnlp | egrep '9050|9030' || true    # Register BE   echo "--- REGISTER BE ---"   if [ -f register_be.py ]; then     echo "found register_be.py, running"     python3 register_be.py 2>&1 | tee register_be_after_be_restart.log || true   elif command -v mysql >/dev/null 2>&1; then     echo "using mysql client to ALTER SYSTEM ADD BACKEND"     mysql -h127.0.0.1 -P9030 -uroot -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:9050'; SHOW BACKENDS;" 2>&1 | tee register_be_after_be_restart.log || true   else     echo "no register_be.py and mysql client missing" | tee register_be_after_be_restart.log   fi    # Run regression for only test_hamming_distance   echo "--- RUN REGRESSION: test_hamming_distance ---"   REG_PATH=""   for p in ./run-regression-test.sh ./doris/run-regression-test.sh ./regression-test/run-regression-test.sh; do     if [ -x "$p" ]; then       REG_PATH="$p"       break     fi   done   if [ -n "$REG_PATH" ]; then     echo "running $REG_PATH --run -s test_hamming_distance"     "$REG_PATH" --run -s test_hamming_distance 2>&1 | tee regression_after_be_restart.log || true   else     echo "run-regression-test.sh not found" | tee regression_after_be_restart.log   fi    echo "--- TAILS ---"   echo "--- register_be_after_be_restart.log ---"; tail -n 200 register_be_after_be_restart.log || true   echo "--- regression_after_be_restart.log ---"; tail -n 200 regression_after_be_restart.log || true   echo "--- fe.log tail ---"; tail -n 200 log/fe.log || true   echo "--- be.out tail ---"; tail -n 200 log/be.out || true  } 2>&1 | tee "$OUT"  echo "WROTE_OUTPUT:$OUT" 
+--- PORTS BEFORE ---
+LISTEN 0      1024                     *:9030             *:*    users:(("java",pid=5736,fd=681))
+--- BE LOG BEFORE ---
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-17 15:29:57,384 Start time: Wed Dec 17 15:29:57 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:38:12,996 Start time: Sat Dec 20 16:38:12 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:38:47,695 Start time: Sat Dec 20 16:38:47 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:45:23,316 Start time: Sat Dec 20 16:45:23 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 18:30:42,492 Start time: Sat Dec 20 18:30:42 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 23:03:19,855 Start time: Sat Dec 20 23:03:19 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 23:58:54,784 Start time: Sat Dec 20 23:58:54 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+--- Killing existing BE processes ---

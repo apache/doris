@@ -1,0 +1,270 @@
+--- PROCS BEFORE ---
+4227 /usr/bin/bash -O extglob -c snap=$(command cat <&3) && builtin shopt -s extglob && builtin eval -- "$snap" && { builtin set +u 2>/dev/null || true; builtin export PWD="$(builtin pwd)"; builtin eval "$1" < /dev/null; }; COMMAND_EXIT_CODE=$?; dump_bash_state >&4; builtin exit $COMMAND_EXIT_CODE -- set -euo pipefail cd /home/zhisheng/doris || exit 1 export DORIS_HOME="$PWD" export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 export LD_LIBRARY_PATH="$JAVA_HOME/lib/server:$JAVA_HOME/lib:${LD_LIBRARY_PATH:-}"  OUT=/home/zhisheng/doris/agent_restart_and_test.out rm -f "$OUT"  {   echo "--- PROCS BEFORE ---"   pgrep -a -f org.apache.doris.DorisFE || true   pgrep -a -f doris_be || true   echo "--- PORTS BEFORE ---"   ss -tnlp | egrep '9030|9050' || true    echo "--- FE LOG BEFORE ---"   tail -n 200 log/fe.log || true   echo "--- BE OUT BEFORE ---"   tail -n 200 log/be.out || true    echo "--- Killing FE/BE ---"   pkill -9 -f org.apache.doris.DorisFE || true   pkill -9 -f doris_be || true   sleep 2    echo "--- Start FE ---"   bash bin/start_fe.sh --daemon || true   sleep 4   echo "--- Start BE ---"   bash bin/start_be.sh --daemon || true   sleep 6    echo "--- PROCS AFTER ---"   pgrep -a -f org.apache.doris.DorisFE || true   pgrep -a -f doris_be || true   echo "--- PORTS AFTER ---"   ss -tnlp | egrep '9030|9050' || true    # Register BE   if [ -f register_be.py ]; then     echo "--- running register_be.py ---"     python3 register_be.py 2>&1 | tee register_be_after_restart.log || true   elif command -v mysql >/dev/null 2>&1; then     echo "--- register via mysql ---"     mysql -h127.0.0.1 -P9030 -uroot -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:9050'; SHOW BACKENDS;" 2>&1 | tee register_be_after_restart.log || true   else     echo "--- no register_be.py and mysql client missing; skipping register step ---" | tee register_be_after_restart.log   fi    # Run regression test (single suite)   REG_PATH=""   for p in ./run-regression-test.sh ./doris/run-regression-test.sh ./regression-test/run-regression-test.sh; do     if [ -x "$p" ]; then       REG_PATH="$p"       break     fi   done    if [ -n "$REG_PATH" ]; then     echo "--- running regression for test_hamming_distance ---"     "$REG_PATH" --run -s test_hamming_distance 2>&1 | tee regression_after_restart.log || true   else     echo "run-regression-test.sh not found in known locations" | tee regression_after_restart.log   fi    echo "--- REGRESSION SUMMARY (grep) ---"   grep -E "Failure suites|failed [0-9]+ suites|test_hamming_distance" regression_after_restart.log || true    echo "--- fe.log tail AFTER ---"; tail -n 200 log/fe.log || true   echo "--- be.out tail AFTER ---"; tail -n 200 log/be.out || true  } 2>&1 | tee "$OUT"  echo "WROTE_OUTPUT:$OUT" 
+4242 /usr/bin/bash -O extglob -c snap=$(command cat <&3) && builtin shopt -s extglob && builtin eval -- "$snap" && { builtin set +u 2>/dev/null || true; builtin export PWD="$(builtin pwd)"; builtin eval "$1" < /dev/null; }; COMMAND_EXIT_CODE=$?; dump_bash_state >&4; builtin exit $COMMAND_EXIT_CODE -- set -euo pipefail cd /home/zhisheng/doris || exit 1 export DORIS_HOME="$PWD" export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 export LD_LIBRARY_PATH="$JAVA_HOME/lib/server:$JAVA_HOME/lib:${LD_LIBRARY_PATH:-}"  OUT=/home/zhisheng/doris/agent_restart_and_test.out rm -f "$OUT"  {   echo "--- PROCS BEFORE ---"   pgrep -a -f org.apache.doris.DorisFE || true   pgrep -a -f doris_be || true   echo "--- PORTS BEFORE ---"   ss -tnlp | egrep '9030|9050' || true    echo "--- FE LOG BEFORE ---"   tail -n 200 log/fe.log || true   echo "--- BE OUT BEFORE ---"   tail -n 200 log/be.out || true    echo "--- Killing FE/BE ---"   pkill -9 -f org.apache.doris.DorisFE || true   pkill -9 -f doris_be || true   sleep 2    echo "--- Start FE ---"   bash bin/start_fe.sh --daemon || true   sleep 4   echo "--- Start BE ---"   bash bin/start_be.sh --daemon || true   sleep 6    echo "--- PROCS AFTER ---"   pgrep -a -f org.apache.doris.DorisFE || true   pgrep -a -f doris_be || true   echo "--- PORTS AFTER ---"   ss -tnlp | egrep '9030|9050' || true    # Register BE   if [ -f register_be.py ]; then     echo "--- running register_be.py ---"     python3 register_be.py 2>&1 | tee register_be_after_restart.log || true   elif command -v mysql >/dev/null 2>&1; then     echo "--- register via mysql ---"     mysql -h127.0.0.1 -P9030 -uroot -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:9050'; SHOW BACKENDS;" 2>&1 | tee register_be_after_restart.log || true   else     echo "--- no register_be.py and mysql client missing; skipping register step ---" | tee register_be_after_restart.log   fi    # Run regression test (single suite)   REG_PATH=""   for p in ./run-regression-test.sh ./doris/run-regression-test.sh ./regression-test/run-regression-test.sh; do     if [ -x "$p" ]; then       REG_PATH="$p"       break     fi   done    if [ -n "$REG_PATH" ]; then     echo "--- running regression for test_hamming_distance ---"     "$REG_PATH" --run -s test_hamming_distance 2>&1 | tee regression_after_restart.log || true   else     echo "run-regression-test.sh not found in known locations" | tee regression_after_restart.log   fi    echo "--- REGRESSION SUMMARY (grep) ---"   grep -E "Failure suites|failed [0-9]+ suites|test_hamming_distance" regression_after_restart.log || true    echo "--- fe.log tail AFTER ---"; tail -n 200 log/fe.log || true   echo "--- be.out tail AFTER ---"; tail -n 200 log/be.out || true  } 2>&1 | tee "$OUT"  echo "WROTE_OUTPUT:$OUT" 
+4227 /usr/bin/bash -O extglob -c snap=$(command cat <&3) && builtin shopt -s extglob && builtin eval -- "$snap" && { builtin set +u 2>/dev/null || true; builtin export PWD="$(builtin pwd)"; builtin eval "$1" < /dev/null; }; COMMAND_EXIT_CODE=$?; dump_bash_state >&4; builtin exit $COMMAND_EXIT_CODE -- set -euo pipefail cd /home/zhisheng/doris || exit 1 export DORIS_HOME="$PWD" export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 export LD_LIBRARY_PATH="$JAVA_HOME/lib/server:$JAVA_HOME/lib:${LD_LIBRARY_PATH:-}"  OUT=/home/zhisheng/doris/agent_restart_and_test.out rm -f "$OUT"  {   echo "--- PROCS BEFORE ---"   pgrep -a -f org.apache.doris.DorisFE || true   pgrep -a -f doris_be || true   echo "--- PORTS BEFORE ---"   ss -tnlp | egrep '9030|9050' || true    echo "--- FE LOG BEFORE ---"   tail -n 200 log/fe.log || true   echo "--- BE OUT BEFORE ---"   tail -n 200 log/be.out || true    echo "--- Killing FE/BE ---"   pkill -9 -f org.apache.doris.DorisFE || true   pkill -9 -f doris_be || true   sleep 2    echo "--- Start FE ---"   bash bin/start_fe.sh --daemon || true   sleep 4   echo "--- Start BE ---"   bash bin/start_be.sh --daemon || true   sleep 6    echo "--- PROCS AFTER ---"   pgrep -a -f org.apache.doris.DorisFE || true   pgrep -a -f doris_be || true   echo "--- PORTS AFTER ---"   ss -tnlp | egrep '9030|9050' || true    # Register BE   if [ -f register_be.py ]; then     echo "--- running register_be.py ---"     python3 register_be.py 2>&1 | tee register_be_after_restart.log || true   elif command -v mysql >/dev/null 2>&1; then     echo "--- register via mysql ---"     mysql -h127.0.0.1 -P9030 -uroot -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:9050'; SHOW BACKENDS;" 2>&1 | tee register_be_after_restart.log || true   else     echo "--- no register_be.py and mysql client missing; skipping register step ---" | tee register_be_after_restart.log   fi    # Run regression test (single suite)   REG_PATH=""   for p in ./run-regression-test.sh ./doris/run-regression-test.sh ./regression-test/run-regression-test.sh; do     if [ -x "$p" ]; then       REG_PATH="$p"       break     fi   done    if [ -n "$REG_PATH" ]; then     echo "--- running regression for test_hamming_distance ---"     "$REG_PATH" --run -s test_hamming_distance 2>&1 | tee regression_after_restart.log || true   else     echo "run-regression-test.sh not found in known locations" | tee regression_after_restart.log   fi    echo "--- REGRESSION SUMMARY (grep) ---"   grep -E "Failure suites|failed [0-9]+ suites|test_hamming_distance" regression_after_restart.log || true    echo "--- fe.log tail AFTER ---"; tail -n 200 log/fe.log || true   echo "--- be.out tail AFTER ---"; tail -n 200 log/be.out || true  } 2>&1 | tee "$OUT"  echo "WROTE_OUTPUT:$OUT" 
+4242 /usr/bin/bash -O extglob -c snap=$(command cat <&3) && builtin shopt -s extglob && builtin eval -- "$snap" && { builtin set +u 2>/dev/null || true; builtin export PWD="$(builtin pwd)"; builtin eval "$1" < /dev/null; }; COMMAND_EXIT_CODE=$?; dump_bash_state >&4; builtin exit $COMMAND_EXIT_CODE -- set -euo pipefail cd /home/zhisheng/doris || exit 1 export DORIS_HOME="$PWD" export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 export LD_LIBRARY_PATH="$JAVA_HOME/lib/server:$JAVA_HOME/lib:${LD_LIBRARY_PATH:-}"  OUT=/home/zhisheng/doris/agent_restart_and_test.out rm -f "$OUT"  {   echo "--- PROCS BEFORE ---"   pgrep -a -f org.apache.doris.DorisFE || true   pgrep -a -f doris_be || true   echo "--- PORTS BEFORE ---"   ss -tnlp | egrep '9030|9050' || true    echo "--- FE LOG BEFORE ---"   tail -n 200 log/fe.log || true   echo "--- BE OUT BEFORE ---"   tail -n 200 log/be.out || true    echo "--- Killing FE/BE ---"   pkill -9 -f org.apache.doris.DorisFE || true   pkill -9 -f doris_be || true   sleep 2    echo "--- Start FE ---"   bash bin/start_fe.sh --daemon || true   sleep 4   echo "--- Start BE ---"   bash bin/start_be.sh --daemon || true   sleep 6    echo "--- PROCS AFTER ---"   pgrep -a -f org.apache.doris.DorisFE || true   pgrep -a -f doris_be || true   echo "--- PORTS AFTER ---"   ss -tnlp | egrep '9030|9050' || true    # Register BE   if [ -f register_be.py ]; then     echo "--- running register_be.py ---"     python3 register_be.py 2>&1 | tee register_be_after_restart.log || true   elif command -v mysql >/dev/null 2>&1; then     echo "--- register via mysql ---"     mysql -h127.0.0.1 -P9030 -uroot -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:9050'; SHOW BACKENDS;" 2>&1 | tee register_be_after_restart.log || true   else     echo "--- no register_be.py and mysql client missing; skipping register step ---" | tee register_be_after_restart.log   fi    # Run regression test (single suite)   REG_PATH=""   for p in ./run-regression-test.sh ./doris/run-regression-test.sh ./regression-test/run-regression-test.sh; do     if [ -x "$p" ]; then       REG_PATH="$p"       break     fi   done    if [ -n "$REG_PATH" ]; then     echo "--- running regression for test_hamming_distance ---"     "$REG_PATH" --run -s test_hamming_distance 2>&1 | tee regression_after_restart.log || true   else     echo "run-regression-test.sh not found in known locations" | tee regression_after_restart.log   fi    echo "--- REGRESSION SUMMARY (grep) ---"   grep -E "Failure suites|failed [0-9]+ suites|test_hamming_distance" regression_after_restart.log || true    echo "--- fe.log tail AFTER ---"; tail -n 200 log/fe.log || true   echo "--- be.out tail AFTER ---"; tail -n 200 log/be.out || true  } 2>&1 | tee "$OUT"  echo "WROTE_OUTPUT:$OUT" 
+--- PORTS BEFORE ---
+--- FE LOG BEFORE ---
+2025-12-21 00:26:43,447 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:26:43,560 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:26:43,560 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:26:43,562 INFO (thrift-server-pool-2|357) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 00:26:43,562 INFO (report-thread|181) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 0 ms.
+2025-12-21 00:26:43,796 INFO (thrift-server-pool-0|189) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:26:48,441 INFO (binlog-gcer|53) [BinlogManager.gc():654] begin gc binlog
+2025-12-21 00:26:48,441 INFO (binlog-gcer|53) [BinlogManager.gc():665] gc binlog, dbBinlogMap is null
+2025-12-21 00:26:48,441 INFO (binlog-gcer|53) [BinlogGcer.runAfterCatalogReady():63] no gc binlog
+2025-12-21 00:26:48,561 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:26:48,561 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:26:52,501 INFO (thrift-server-pool-3|358) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TABLET, report version 176624633400045, current queue size: 1
+2025-12-21 00:26:52,501 INFO (report-thread|181) [ReportHandler.storagePolicyReport():398] backend[1766220400802] reports policies [], report resources: []
+2025-12-21 00:26:52,501 INFO (report-thread|181) [ReportHandler.tabletReport():587] backend[1766220400802] reports 102 tablet(s). report version: 176624633400045
+2025-12-21 00:26:52,503 INFO (report-thread|181) [TabletInvertedIndex.logTabletReportSummary():520] finished to do tablet diff with backend[1766220400802]. fe tablet num: 102, backend tablet num: 102. sync: 0, metaDel: 0, foundInMeta: 102, migration: 0, backend partition num: 14, backend need update: 0, found invalid transactions 0(partitions: 0), found republish transactions 0(partitions: 0), tabletToUpdate: 0, need recovery: 0, cost: 0 ms
+2025-12-21 00:26:52,503 INFO (report-thread|181) [ReportHandler.tabletReport():693] finished to handle tablet report from backend[1766220400802] cost: 2 ms
+2025-12-21 00:26:53,378 INFO (colocate group clone checker|103) [ColocateTableCheckerAndBalancer.matchGroups():594] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/0/0/0/0/0, cost: 0 ms
+2025-12-21 00:26:53,448 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:26:53,502 INFO (tablet checker|37) [TabletChecker.checkTablets():351] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/42/0/0/0/0,cost: 0 ms
+2025-12-21 00:26:53,562 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:26:53,562 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:26:53,797 INFO (thrift-server-pool-2|357) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:26:56,563 INFO (report-thread|181) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 0 ms.
+2025-12-21 00:26:56,563 INFO (thrift-server-pool-0|189) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 00:26:58,563 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:26:58,563 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:03,438 INFO (recycle bin|67) [CatalogRecycleBin.erasePartition():522] erasePartition eraseNum: 0 cost: 0ms
+2025-12-21 00:27:03,438 INFO (recycle bin|67) [CatalogRecycleBin.eraseTable():403] eraseTable eraseNum: 0 cost: 0ms
+2025-12-21 00:27:03,438 INFO (recycle bin|67) [CatalogRecycleBin.eraseDatabase():270] eraseDatabase eraseNum: 0 cost: 0ms
+2025-12-21 00:27:03,441 INFO (binlog-gcer|53) [BinlogManager.gc():654] begin gc binlog
+2025-12-21 00:27:03,441 INFO (binlog-gcer|53) [BinlogManager.gc():665] gc binlog, dbBinlogMap is null
+2025-12-21 00:27:03,441 INFO (binlog-gcer|53) [BinlogGcer.runAfterCatalogReady():63] no gc binlog
+2025-12-21 00:27:03,448 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:27:03,508 INFO (TopicPublisher|56) [TopicPublisherThread.runAfterCatalogReady():66] [topic_publish]begin publish topic info
+2025-12-21 00:27:03,509 INFO (topic-publish-thread-1|244) [TopicPublisherThread$TopicPublishWorker.run():163] [topic_publish]publish topic info to be 172.30.95.46 success, time cost=1 ms, details: WORKLOAD_GROUP=1  WORKLOAD_SCHED_POLICY=0 
+2025-12-21 00:27:03,564 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:03,564 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:03,798 INFO (thrift-server-pool-3|358) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:27:06,055 INFO (report-thread|181) [ReportHandler.diskReport():771] begin to handle disk report from backend 1766220400802
+2025-12-21 00:27:06,055 INFO (thrift-server-pool-2|357) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: DISK, report version -1, current queue size: 1
+2025-12-21 00:27:06,055 INFO (report-thread|181) [ReportHandler.diskReport():782] finished to handle disk report from backend: 1766220400802, disk size: 1, bad disk: [], cost: 0 ms
+2025-12-21 00:27:06,055 INFO (report-thread|181) [ReportHandler.cpuReport():787] begin to handle cpu report from backend 1766220400802
+2025-12-21 00:27:06,055 INFO (report-thread|181) [ReportHandler.cpuReport():801] finished to handle cpu report from backend 1766220400802, cost: 0 ms
+2025-12-21 00:27:08,565 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:08,565 INFO (report-thread|181) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 1 ms.
+2025-12-21 00:27:08,565 INFO (thrift-server-pool-0|189) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 00:27:08,565 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:15,842 INFO (colocate group clone checker|103) [ColocateTableCheckerAndBalancer.matchGroups():594] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/0/0/0/0/0, cost: 0 ms
+2025-12-21 00:27:15,912 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:27:15,966 INFO (tablet checker|37) [TabletChecker.checkTablets():351] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/42/0/0/0/0,cost: 1 ms
+2025-12-21 00:27:16,029 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:16,029 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:16,262 INFO (thrift-server-pool-3|358) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:27:20,905 INFO (binlog-gcer|53) [BinlogManager.gc():654] begin gc binlog
+2025-12-21 00:27:20,905 INFO (binlog-gcer|53) [BinlogManager.gc():665] gc binlog, dbBinlogMap is null
+2025-12-21 00:27:20,905 INFO (binlog-gcer|53) [BinlogGcer.runAfterCatalogReady():63] no gc binlog
+2025-12-21 00:27:21,030 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:21,030 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:25,912 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:27:26,029 INFO (thrift-server-pool-2|357) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 00:27:26,029 INFO (report-thread|181) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 0 ms.
+2025-12-21 00:27:26,030 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:26,031 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:26,263 INFO (thrift-server-pool-0|189) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:27:31,031 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:31,032 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:35,842 INFO (colocate group clone checker|103) [ColocateTableCheckerAndBalancer.matchGroups():594] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/0/0/0/0/0, cost: 0 ms
+2025-12-21 00:27:35,902 INFO (recycle bin|67) [CatalogRecycleBin.erasePartition():522] erasePartition eraseNum: 0 cost: 0ms
+2025-12-21 00:27:35,902 INFO (recycle bin|67) [CatalogRecycleBin.eraseTable():403] eraseTable eraseNum: 0 cost: 0ms
+2025-12-21 00:27:35,902 INFO (recycle bin|67) [CatalogRecycleBin.eraseDatabase():270] eraseDatabase eraseNum: 0 cost: 0ms
+2025-12-21 00:27:35,905 INFO (binlog-gcer|53) [BinlogManager.gc():654] begin gc binlog
+2025-12-21 00:27:35,905 INFO (binlog-gcer|53) [BinlogManager.gc():665] gc binlog, dbBinlogMap is null
+2025-12-21 00:27:35,905 INFO (binlog-gcer|53) [BinlogGcer.runAfterCatalogReady():63] no gc binlog
+2025-12-21 00:27:35,912 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:27:35,967 INFO (tablet checker|37) [TabletChecker.checkTablets():351] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/42/0/0/0/0,cost: 0 ms
+2025-12-21 00:27:35,973 INFO (TopicPublisher|56) [TopicPublisherThread.runAfterCatalogReady():66] [topic_publish]begin publish topic info
+2025-12-21 00:27:35,974 INFO (topic-publish-thread-2|293) [TopicPublisherThread$TopicPublishWorker.run():163] [topic_publish]publish topic info to be 172.30.95.46 success, time cost=1 ms, details: WORKLOAD_GROUP=1  WORKLOAD_SCHED_POLICY=0 
+2025-12-21 00:27:35,981 INFO (tablet stat mgr|34) [TabletStatMgr.runAfterCatalogReady():299] OlapTable num=5, partition num=8, tablet num=42, max tablet byte size=23118(tablet_id=1766220400844), min tablet byte size=0(tablet_id=1766247603554), avg tablet byte size=2448, max partition byte size=45594(partition_id=1766220400841), min partition byte size=0(partition_id=1766247603558), avg partition byte size=12852, max table byte size=81676(table_id=1766220400839), min table byte size=0(table_id=1766247603559), avg table byte size=20564
+2025-12-21 00:27:35,981 INFO (tablet stat mgr|34) [TabletStatMgr.runAfterCatalogReady():316] finished to update index row num of all databases. cost: 0 ms
+2025-12-21 00:27:36,032 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:36,033 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:36,264 INFO (thrift-server-pool-3|358) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:27:36,268 INFO (leaderCheckpointer|100) [BDBJEJournal.getFinalizedJournalId():642] database names: 1507 1582 1621 1633 
+2025-12-21 00:27:36,268 INFO (leaderCheckpointer|100) [Checkpoint.doCheckpoint():109] last checkpoint journal id: 1632, current finalized journal id: 1632
+2025-12-21 00:27:36,495 INFO (Automatic Analyzer|46) [StatisticsAutoCollector.readyToSample():199] Table arg1_hamming_distance is empty, remove its old stats and skip auto analyze it.
+2025-12-21 00:27:36,495 INFO (Automatic Analyzer|46) [StatisticsAutoCollector.collect():98] No auto analyze jobs to process.
+2025-12-21 00:27:38,519 INFO (thrift-server-pool-2|357) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: DISK, report version -1, current queue size: 1
+2025-12-21 00:27:38,519 INFO (report-thread|181) [ReportHandler.diskReport():771] begin to handle disk report from backend 1766220400802
+2025-12-21 00:27:38,519 INFO (report-thread|181) [ReportHandler.diskReport():782] finished to handle disk report from backend: 1766220400802, disk size: 1, bad disk: [], cost: 0 ms
+2025-12-21 00:27:38,519 INFO (report-thread|181) [ReportHandler.cpuReport():787] begin to handle cpu report from backend 1766220400802
+2025-12-21 00:27:38,519 INFO (report-thread|181) [ReportHandler.cpuReport():801] finished to handle cpu report from backend 1766220400802, cost: 0 ms
+2025-12-21 00:27:40,030 INFO (thrift-server-pool-0|189) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 00:27:40,030 INFO (report-thread|181) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 0 ms.
+2025-12-21 00:27:41,033 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:41,034 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:45,914 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:27:46,034 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:46,036 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:46,265 INFO (thrift-server-pool-3|358) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:27:53,424 INFO (binlog-gcer|53) [BinlogManager.gc():654] begin gc binlog
+2025-12-21 00:27:53,424 INFO (binlog-gcer|53) [BinlogManager.gc():665] gc binlog, dbBinlogMap is null
+2025-12-21 00:27:53,424 INFO (binlog-gcer|53) [BinlogGcer.runAfterCatalogReady():63] no gc binlog
+2025-12-21 00:27:53,553 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:53,554 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:55,548 INFO (thrift-server-pool-2|357) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 00:27:55,549 INFO (report-thread|181) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 1 ms.
+2025-12-21 00:27:58,359 INFO (colocate group clone checker|103) [ColocateTableCheckerAndBalancer.matchGroups():594] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/0/0/0/0/0, cost: 0 ms
+2025-12-21 00:27:58,431 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:27:58,485 INFO (tablet checker|37) [TabletChecker.checkTablets():351] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/42/0/0/0/0,cost: 2 ms
+2025-12-21 00:27:58,554 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:27:58,555 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:27:58,784 INFO (thrift-server-pool-0|189) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:28:00,484 INFO (report-thread|181) [ReportHandler.storagePolicyReport():398] backend[1766220400802] reports policies [], report resources: []
+2025-12-21 00:28:00,484 INFO (thrift-server-pool-3|358) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TABLET, report version 176624633400046, current queue size: 1
+2025-12-21 00:28:00,484 INFO (report-thread|181) [ReportHandler.tabletReport():587] backend[1766220400802] reports 102 tablet(s). report version: 176624633400046
+2025-12-21 00:28:00,486 INFO (report-thread|181) [TabletInvertedIndex.logTabletReportSummary():520] finished to do tablet diff with backend[1766220400802]. fe tablet num: 102, backend tablet num: 102. sync: 0, metaDel: 0, foundInMeta: 102, migration: 0, backend partition num: 14, backend need update: 0, found invalid transactions 0(partitions: 0), found republish transactions 0(partitions: 0), tabletToUpdate: 0, need recovery: 0, cost: 2 ms
+2025-12-21 00:28:00,486 INFO (report-thread|181) [ReportHandler.tabletReport():693] finished to handle tablet report from backend[1766220400802] cost: 2 ms
+2025-12-21 00:28:03,555 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:28:03,556 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:28:07,549 INFO (thrift-server-pool-2|357) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 00:28:07,549 INFO (report-thread|181) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 0 ms.
+2025-12-21 00:28:08,420 INFO (recycle bin|67) [CatalogRecycleBin.erasePartition():522] erasePartition eraseNum: 0 cost: 0ms
+2025-12-21 00:28:08,420 INFO (recycle bin|67) [CatalogRecycleBin.eraseTable():403] eraseTable eraseNum: 0 cost: 0ms
+2025-12-21 00:28:08,420 INFO (recycle bin|67) [CatalogRecycleBin.eraseDatabase():270] eraseDatabase eraseNum: 0 cost: 0ms
+2025-12-21 00:28:08,424 INFO (binlog-gcer|53) [BinlogManager.gc():654] begin gc binlog
+2025-12-21 00:28:08,424 INFO (binlog-gcer|53) [BinlogManager.gc():665] gc binlog, dbBinlogMap is null
+2025-12-21 00:28:08,424 INFO (binlog-gcer|53) [BinlogGcer.runAfterCatalogReady():63] no gc binlog
+2025-12-21 00:28:08,431 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:28:08,493 INFO (TopicPublisher|56) [TopicPublisherThread.runAfterCatalogReady():66] [topic_publish]begin publish topic info
+2025-12-21 00:28:08,495 INFO (topic-publish-thread-3|354) [TopicPublisherThread$TopicPublishWorker.run():163] [topic_publish]publish topic info to be 172.30.95.46 success, time cost=1 ms, details: WORKLOAD_GROUP=1  WORKLOAD_SCHED_POLICY=0 
+2025-12-21 00:28:08,556 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:28:08,557 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:28:08,784 INFO (thrift-server-pool-0|189) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:28:11,037 INFO (report-thread|181) [ReportHandler.diskReport():771] begin to handle disk report from backend 1766220400802
+2025-12-21 00:28:11,037 INFO (thrift-server-pool-3|358) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: DISK, report version -1, current queue size: 1
+2025-12-21 00:28:11,037 INFO (report-thread|181) [ReportHandler.diskReport():782] finished to handle disk report from backend: 1766220400802, disk size: 1, bad disk: [], cost: 0 ms
+2025-12-21 00:28:11,037 INFO (report-thread|181) [ReportHandler.cpuReport():787] begin to handle cpu report from backend 1766220400802
+2025-12-21 00:28:11,037 INFO (report-thread|181) [ReportHandler.cpuReport():801] finished to handle cpu report from backend 1766220400802, cost: 0 ms
+2025-12-21 00:28:13,557 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:28:13,558 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:28:18,360 INFO (colocate group clone checker|103) [ColocateTableCheckerAndBalancer.matchGroups():594] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/0/0/0/0/0, cost: 0 ms
+2025-12-21 00:28:18,431 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:28:18,486 INFO (tablet checker|37) [TabletChecker.checkTablets():351] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/42/0/0/0/0,cost: 1 ms
+2025-12-21 00:28:18,558 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:28:18,559 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:28:18,785 INFO (thrift-server-pool-2|357) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:28:21,550 INFO (thrift-server-pool-0|189) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 00:28:21,550 INFO (report-thread|181) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 0 ms.
+2025-12-21 00:28:25,875 INFO (binlog-gcer|53) [BinlogManager.gc():654] begin gc binlog
+2025-12-21 00:28:25,875 INFO (binlog-gcer|53) [BinlogManager.gc():665] gc binlog, dbBinlogMap is null
+2025-12-21 00:28:25,875 INFO (binlog-gcer|53) [BinlogGcer.runAfterCatalogReady():63] no gc binlog
+2025-12-21 00:28:26,009 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:28:26,010 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:28:30,882 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:28:31,011 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:28:31,011 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:28:31,237 INFO (thrift-server-pool-3|358) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:28:35,002 INFO (thrift-server-pool-2|357) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 00:28:35,002 INFO (report-thread|181) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 0 ms.
+2025-12-21 00:28:36,011 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:28:36,012 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:28:40,811 INFO (colocate group clone checker|103) [ColocateTableCheckerAndBalancer.matchGroups():594] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/0/0/0/0/0, cost: 0 ms
+2025-12-21 00:28:40,871 INFO (recycle bin|67) [CatalogRecycleBin.erasePartition():522] erasePartition eraseNum: 0 cost: 0ms
+2025-12-21 00:28:40,871 INFO (recycle bin|67) [CatalogRecycleBin.eraseTable():403] eraseTable eraseNum: 0 cost: 0ms
+2025-12-21 00:28:40,871 INFO (recycle bin|67) [CatalogRecycleBin.eraseDatabase():270] eraseDatabase eraseNum: 0 cost: 0ms
+2025-12-21 00:28:40,875 INFO (binlog-gcer|53) [BinlogManager.gc():654] begin gc binlog
+2025-12-21 00:28:40,875 INFO (binlog-gcer|53) [BinlogManager.gc():665] gc binlog, dbBinlogMap is null
+2025-12-21 00:28:40,875 INFO (binlog-gcer|53) [BinlogGcer.runAfterCatalogReady():63] no gc binlog
+2025-12-21 00:28:40,882 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:28:40,917 INFO (stream_load_record_manager|39) [StreamLoadRecordMgr.runAfterCatalogReady():352] finished to pull stream load records of all backends. record size: 0, cost: 1 ms
+2025-12-21 00:28:40,938 INFO (tablet checker|37) [TabletChecker.checkTablets():351] finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: 0/42/0/0/0/0,cost: 1 ms
+2025-12-21 00:28:40,946 INFO (TopicPublisher|56) [TopicPublisherThread.runAfterCatalogReady():66] [topic_publish]begin publish topic info
+2025-12-21 00:28:40,947 INFO (topic-publish-thread-4|367) [TopicPublisherThread$TopicPublishWorker.run():163] [topic_publish]publish topic info to be 172.30.95.46 success, time cost=1 ms, details: WORKLOAD_GROUP=1  WORKLOAD_SCHED_POLICY=0 
+2025-12-21 00:28:40,951 INFO (tablet stat mgr|34) [TabletStatMgr.runAfterCatalogReady():299] OlapTable num=5, partition num=8, tablet num=42, max tablet byte size=23118(tablet_id=1766220400844), min tablet byte size=0(tablet_id=1766247603554), avg tablet byte size=2448, max partition byte size=45594(partition_id=1766220400841), min partition byte size=0(partition_id=1766247603558), avg partition byte size=12852, max table byte size=81676(table_id=1766220400839), min table byte size=0(table_id=1766247603559), avg table byte size=20564
+2025-12-21 00:28:40,951 INFO (tablet stat mgr|34) [TabletStatMgr.runAfterCatalogReady():316] finished to update index row num of all databases. cost: 0 ms
+2025-12-21 00:28:41,012 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:28:41,013 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:28:41,237 INFO (leaderCheckpointer|100) [BDBJEJournal.getFinalizedJournalId():642] database names: 1507 1582 1621 1633 
+2025-12-21 00:28:41,237 INFO (leaderCheckpointer|100) [Checkpoint.doCheckpoint():109] last checkpoint journal id: 1632, current finalized journal id: 1632
+2025-12-21 00:28:41,238 INFO (thrift-server-pool-0|189) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 00:28:41,463 INFO (Automatic Analyzer|46) [StatisticsAutoCollector.readyToSample():199] Table arg1_hamming_distance is empty, remove its old stats and skip auto analyze it.
+2025-12-21 00:28:41,463 INFO (Automatic Analyzer|46) [StatisticsAutoCollector.collect():98] No auto analyze jobs to process.
+2025-12-21 00:28:43,488 INFO (report-thread|181) [ReportHandler.diskReport():771] begin to handle disk report from backend 1766220400802
+2025-12-21 00:28:43,488 INFO (thrift-server-pool-3|358) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: DISK, report version -1, current queue size: 1
+2025-12-21 00:28:43,488 INFO (report-thread|181) [ReportHandler.diskReport():782] finished to handle disk report from backend: 1766220400802, disk size: 1, bad disk: [], cost: 0 ms
+2025-12-21 00:28:43,488 INFO (report-thread|181) [ReportHandler.cpuReport():787] begin to handle cpu report from backend 1766220400802
+2025-12-21 00:28:43,488 INFO (report-thread|181) [ReportHandler.cpuReport():801] finished to handle cpu report from backend 1766220400802, cost: 0 ms
+2025-12-21 00:28:46,003 INFO (report-thread|181) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 0 ms.
+2025-12-21 00:28:46,003 INFO (thrift-server-pool-2|357) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 00:28:46,013 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:28:46,014 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:28:50,883 INFO (InsertOverwriteDropDirtyPartitions|72) [InsertOverwriteManager.runAfterCatalogReady():372] start clean insert overwrite temp partitions
+2025-12-21 00:28:51,014 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 00:28:51,014 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 00:28:51,238 INFO (thrift-server-pool-0|189) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: INDEX_POLICY, report version -1, current queue size: 1
+2025-12-21 10:28:16,372 INFO (binlog-gcer|53) [BinlogManager.gc():654] begin gc binlog
+2025-12-21 10:28:16,372 INFO (binlog-gcer|53) [BinlogManager.gc():665] gc binlog, dbBinlogMap is null
+2025-12-21 10:28:16,372 INFO (binlog-gcer|53) [BinlogGcer.runAfterCatalogReady():63] no gc binlog
+2025-12-21 10:28:16,511 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 10:28:16,512 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+--- BE OUT BEFORE ---
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-17 15:29:57,384 Start time: Wed Dec 17 15:29:57 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:38:12,996 Start time: Sat Dec 20 16:38:12 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:38:47,695 Start time: Sat Dec 20 16:38:47 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:45:23,316 Start time: Sat Dec 20 16:45:23 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 18:30:42,492 Start time: Sat Dec 20 18:30:42 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 23:03:19,855 Start time: Sat Dec 20 23:03:19 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 23:58:54,784 Start time: Sat Dec 20 23:58:54 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+--- Killing FE/BE ---

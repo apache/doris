@@ -1,0 +1,4 @@
+MSA_FLAGS = -mmsa -mfp64 -mload-store-pairs
+ifdef BINARY64
+else
+endif

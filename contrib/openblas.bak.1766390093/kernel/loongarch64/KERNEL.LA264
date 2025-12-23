@@ -1,0 +1,146 @@
+ifndef NO_LSX
+
+SDOTKERNEL  = dot_lsx.S
+DSDOTKERNEL = dot_lsx.S
+DDOTKERNEL  = dot_lsx.S
+CDOTKERNEL  = cdot_lsx.S
+ZDOTKERNEL  = cdot_lsx.S
+
+SSCALKERNEL  = scal_lsx.S
+DSCALKERNEL  = scal_lsx.S
+CSCALKERNEL  = cscal_lsx.S
+ZSCALKERNEL  = cscal_lsx.S
+
+SAMAXKERNEL =  amax_lsx.S
+DAMAXKERNEL =  amax_lsx.S
+CAMAXKERNEL =  camax_lsx.S
+ZAMAXKERNEL =  camax_lsx.S
+
+SAMINKERNEL =  amin_lsx.S
+DAMINKERNEL =  amin_lsx.S
+CAMINKERNEL =  camin_lsx.S
+ZAMINKERNEL =  camin_lsx.S
+
+SMAXKERNEL  =  max_lsx.S
+DMAXKERNEL  =  max_lsx.S
+
+SMINKERNEL  =  min_lsx.S
+DMINKERNEL  =  min_lsx.S
+
+ISMAXKERNEL =  imax_lsx.S
+IDMAXKERNEL =  imax_lsx.S
+
+ISMINKERNEL =  imin_lsx.S
+IDMINKERNEL =  imin_lsx.S
+
+ISAMAXKERNEL = iamax_lsx.S
+IDAMAXKERNEL = iamax_lsx.S
+ICAMAXKERNEL = icamax_lsx.S
+IZAMAXKERNEL = icamax_lsx.S
+
+ISAMINKERNEL = iamin_lsx.S
+IDAMINKERNEL = iamin_lsx.S
+ICAMINKERNEL = icamin_lsx.S
+IZAMINKERNEL = icamin_lsx.S
+
+SCOPYKERNEL =  copy_lsx.S
+DCOPYKERNEL =  copy_lsx.S
+CCOPYKERNEL =  ccopy_lsx.S
+ZCOPYKERNEL =  ccopy_lsx.S
+
+SSWAPKERNEL =  swap_lsx.S
+DSWAPKERNEL =  swap_lsx.S
+
+SAXPYKERNEL =  axpy_lsx.S
+DAXPYKERNEL =  axpy_lsx.S
+CAXPYKERNEL =  caxpy_lsx.S
+ZAXPYKERNEL =  caxpy_lsx.S
+
+SAXPBYKERNEL = axpby_lsx.S
+DAXPBYKERNEL = axpby_lsx.S
+CAXPBYKERNEL = caxpby_lsx.S
+ZAXPBYKERNEL = caxpby_lsx.S
+
+SSUMKERNEL  =  sum_lsx.S
+DSUMKERNEL  =  sum_lsx.S
+
+SASUMKERNEL =  asum_lsx.S
+DASUMKERNEL =  asum_lsx.S
+CASUMKERNEL =  casum_lsx.S
+ZASUMKERNEL =  casum_lsx.S
+
+SROTKERNEL  =  rot_lsx.S
+DROTKERNEL  =  rot_lsx.S
+CROTKERNEL  =  crot_lsx.S
+ZROTKERNEL  =  crot_lsx.S
+
+SNRM2KERNEL =  snrm2_lsx.S
+DNRM2KERNEL =  dnrm2_lsx.S
+CNRM2KERNEL =  cnrm2_lsx.S
+ZNRM2KERNEL =  znrm2_lsx.S
+
+CSWAPKERNEL = cswap_lsx.S
+ZSWAPKERNEL = cswap_lsx.S
+
+CSUMKERNEL = csum_lsx.S
+ZSUMKERNEL = csum_lsx.S
+
+SGEMVNKERNEL = sgemv_n_lsx.S
+SGEMVTKERNEL = sgemv_t_lsx.S
+
+SSYMV_U_KERNEL = ssymv_U_lsx.S
+SSYMV_L_KERNEL = ssymv_L_lsx.S
+
+DGEMVNKERNEL = dgemv_n_lsx.S
+DGEMVTKERNEL = dgemv_t_lsx.S
+
+DSYMV_U_KERNEL = dsymv_U_lsx.S
+DSYMV_L_KERNEL = dsymv_L_lsx.S
+
+DGEMMKERNEL    = dgemm_kernel_8x4.S
+DGEMMINCOPY    = dgemm_ncopy_8_lsx.S
+DGEMMITCOPY    = dgemm_tcopy_8_lsx.S
+DGEMMONCOPY    = dgemm_ncopy_4_lsx.S
+DGEMMOTCOPY    = dgemm_tcopy_4_lsx.S
+DGEMMINCOPYOBJ = dgemm_incopy$(TSUFFIX).$(SUFFIX)
+DGEMMITCOPYOBJ = dgemm_itcopy$(TSUFFIX).$(SUFFIX)
+DGEMMONCOPYOBJ = dgemm_oncopy$(TSUFFIX).$(SUFFIX)
+DGEMMOTCOPYOBJ = dgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+DTRSMKERNEL_LN  = ../generic/trsm_kernel_LN.c
+DTRSMKERNEL_LT  = ../generic/trsm_kernel_LT.c
+DTRSMKERNEL_RN  = ../generic/trsm_kernel_RN.c
+DTRSMKERNEL_RT  = ../generic/trsm_kernel_RT.c
+
+CGEMVNKERNEL = cgemv_n_4_lsx.S
+CGEMVTKERNEL = cgemv_t_4_lsx.S
+
+CGEMMKERNEL  = cgemm_kernel_8x4_lsx.S
+CGEMMINCOPY  = cgemm_ncopy_8_lsx.S
+CGEMMITCOPY  = cgemm_tcopy_8_lsx.S
+CGEMMONCOPY  = cgemm_ncopy_4_lsx.S
+CGEMMOTCOPY  = cgemm_tcopy_4_lsx.S
+CGEMMINCOPYOBJ = cgemm_incopy$(TSUFFIX).$(SUFFIX)
+CGEMMITCOPYOBJ = cgemm_itcopy$(TSUFFIX).$(SUFFIX)
+CGEMMONCOPYOBJ = cgemm_oncopy$(TSUFFIX).$(SUFFIX)
+CGEMMOTCOPYOBJ = cgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+CTRSMKERNEL_LN  = ../generic/trsm_kernel_LN.c
+CTRSMKERNEL_LT  = ../generic/trsm_kernel_LT.c
+CTRSMKERNEL_RN  = ../generic/trsm_kernel_RN.c
+CTRSMKERNEL_RT  = ../generic/trsm_kernel_RT.c
+
+ZGEMVNKERNEL = zgemv_n_2_lsx.S
+ZGEMVTKERNEL = zgemv_t_2_lsx.S
+
+ZGEMMKERNEL  = zgemm_kernel_4x4_lsx.S
+ZGEMMONCOPY  = zgemm_ncopy_4_lsx.S
+ZGEMMOTCOPY  = zgemm_tcopy_4_lsx.S
+ZGEMMONCOPYOBJ = zgemm_oncopy$(TSUFFIX).$(SUFFIX)
+ZGEMMOTCOPYOBJ = zgemm_otcopy$(TSUFFIX).$(SUFFIX)
+
+ZTRSMKERNEL_LN  = ../generic/trsm_kernel_LN.c
+ZTRSMKERNEL_LT  = ../generic/trsm_kernel_LT.c
+ZTRSMKERNEL_RN  = ../generic/trsm_kernel_RN.c
+ZTRSMKERNEL_RT  = ../generic/trsm_kernel_RT.c
+endif

@@ -1,0 +1,16 @@
+pipeline {
+    agent { 
+        docker {
+            image 'osuosl/ubuntu-ppc64le:18.04'
+        }
+    }
+    stages {
+        stage('Build') {
+            steps {
+                sh 'sudo apt update'
+                sh 'sudo apt install gfortran -y'
+                sh 'make clean && make'
+            }
+        }
+    }
+}

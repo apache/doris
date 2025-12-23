@@ -1,0 +1,1953 @@
+#
+# Include user definition
+#
+
+# TO suppress recursive includes
+INCLUDED = 1
+
+ifndef TOPDIR
+TOPDIR = . 
+endif
+
+ifndef RELAPACK_REPLACE
+RELAPACK_REPLACE=0
+endif
+
+# we need to use the host system's architecture for getarch compile options even especially when cross-compiling
+HOSTARCH := $(shell uname -m)
+ifeq ($(HOSTARCH), amd64)
+HOSTARCH=x86_64
+endif
+
+# Catch conflicting usage of ARCH in some BSD environments
+ifeq ($(ARCH), amd64)
+override ARCH=x86_64
+else ifeq ($(ARCH), powerpc64)
+override ARCH=power
+else ifeq ($(ARCH), powerpc64le)
+override ARCH=power
+else ifeq ($(ARCH), powerpc)
+override ARCH=power
+else ifeq ($(ARCH), i386)
+override ARCH=x86
+else ifeq ($(ARCH), armv6)
+override ARCH=arm
+else ifeq ($(ARCH), armv7)
+override ARCH=arm
+else ifeq ($(ARCH), aarch64)
+override ARCH=arm64
+else ifeq ($(ARCH), mipsel)
+override ARCH=mips
+else ifeq ($(ARCH), mips64el)
+override ARCH=mips64
+else ifeq ($(ARCH), zarch)
+override ARCH=zarch
+endif
+
+NETLIB_LAPACK_DIR = $(TOPDIR)/lapack-netlib
+
+# Default C compiler
+# - Only set if not specified on the command line or inherited from the environment.
+# - CC is an implicit variable so neither '?=' or 'ifndef' can be used.
+#   http://stackoverflow.com/questions/4029274/mingw-and-make-variables
+# - Default value is 'cc' which is not always a valid command (e.g. MinGW).
+ifeq ($(origin CC),default)
+
+# Check if $(CC) refers to a valid command and set the value to gcc if not
+ifneq ($(findstring cmd.exe,$(SHELL)),)
+ifeq ($(shell where $(CC) 2>NUL),)
+CC = gcc
+endif
+else # POSIX-ish
+ifeq ($(shell command -v $(CC) 2>/dev/null),)
+ifeq ($(shell uname -s),Darwin)
+CC = clang
+# EXTRALIB += -Wl,-no_compact_unwind
+else
+CC = gcc
+endif # Darwin
+endif # CC exists
+endif # Shell is sane
+
+endif # CC is set to default
+
+# Default Fortran compiler (FC) is selected by f_check.
+
+ifndef MAKEFILE_RULE
+include $(TOPDIR)/Makefile.rule
+else
+include $(TOPDIR)/$(MAKEFILE_RULE)
+endif
+
+#
+#  Beginning of system configuration
+#
+ifneq ($(BUILD_SINGLE),1)
+ifneq ($(BUILD_DOUBLE),1)
+ifneq ($(BUILD_COMPLEX),1)
+ifneq ($(BUILD_COMPLEX16),1)
+override BUILD_SINGLE=1
+override BUILD_DOUBLE=1
+override BUILD_COMPLEX=1
+override BUILD_COMPLEX16=1
+endif
+endif
+endif
+endif
+
+ifndef HOSTCC
+HOSTCC	 = $(CC)
+endif
+
+ifdef TARGET
+GETARCH_FLAGS := -DFORCE_$(TARGET)
+GETARCH_FLAGS += -DUSER_TARGET
+ifeq ($(TARGET), GENERIC)
+ifeq ($(DYNAMIC_ARCH), 1)
+override NO_EXPRECISION=1
+export NO_EXPRECISION
+endif
+endif
+endif
+
+# Force fallbacks for 32bit
+
+ifeq ($(BINARY), 32)
+ifeq ($(TARGET), HASWELL)
+GETARCH_FLAGS := -DFORCE_NEHALEM
+endif
+ifeq ($(TARGET), SKYLAKEX)
+GETARCH_FLAGS := -DFORCE_NEHALEM
+endif
+ifeq ($(TARGET), COOPERLAKE)
+GETARCH_FLAGS := -DFORCE_NEHALEM
+endif
+ifeq ($(TARGET), SAPPHIRERAPIDS)
+GETARCH_FLAGS := -DFORCE_NEHALEM
+endif
+ifeq ($(TARGET), SANDYBRIDGE)
+GETARCH_FLAGS := -DFORCE_NEHALEM
+endif
+ifeq ($(TARGET), BULLDOZER)
+GETARCH_FLAGS := -DFORCE_BARCELONA
+endif
+ifeq ($(TARGET), PILEDRIVER)
+GETARCH_FLAGS := -DFORCE_BARCELONA
+endif
+ifeq ($(TARGET), STEAMROLLER)
+GETARCH_FLAGS := -DFORCE_BARCELONA
+endif
+ifeq ($(TARGET), EXCAVATOR)
+GETARCH_FLAGS := -DFORCE_BARCELONA
+endif
+ifeq ($(TARGET), ZEN)
+GETARCH_FLAGS := -DFORCE_BARCELONA
+endif
+ifeq ($(TARGET), ARMV8)
+GETARCH_FLAGS := -DFORCE_ARMV7
+endif
+ifeq ($(TARGET), POWER8)
+GETARCH_FLAGS := -DFORCE_POWER6
+endif
+ifeq ($(TARGET), POWER9)
+GETARCH_FLAGS := -DFORCE_POWER6
+endif
+ifeq ($(TARGET), POWER10)
+GETARCH_FLAGS := -DFORCE_POWER6
+endif
+endif
+
+#TARGET_CORE will override TARGET which is used in DYNAMIC_ARCH=1.
+#
+ifdef TARGET_CORE
+GETARCH_FLAGS := -DFORCE_$(TARGET_CORE)
+endif
+
+# Force fallbacks for 32bit
+
+ifeq ($(BINARY), 32)
+ifeq ($(TARGET_CORE), HASWELL)
+GETARCH_FLAGS := -DFORCE_NEHALEM
+endif
+ifeq ($(TARGET_CORE), SKYLAKEX)
+GETARCH_FLAGS := -DFORCE_NEHALEM
+endif
+ifeq ($(TARGET_CORE), COOPERLAKE)
+GETARCH_FLAGS := -DFORCE_NEHALEM
+endif
+ifeq ($(TARGET_CORE), SAPPHIRERAPIDS)
+GETARCH_FLAGS := -DFORCE_NEHALEM
+endif
+ifeq ($(TARGET_CORE), SANDYBRIDGE)
+GETARCH_FLAGS := -DFORCE_NEHALEM
+endif
+ifeq ($(TARGET_CORE), BULLDOZER)
+GETARCH_FLAGS := -DFORCE_BARCELONA
+endif
+ifeq ($(TARGET_CORE), PILEDRIVER)
+GETARCH_FLAGS := -DFORCE_BARCELONA
+endif
+ifeq ($(TARGET_CORE), STEAMROLLER)
+GETARCH_FLAGS := -DFORCE_BARCELONA
+endif
+ifeq ($(TARGET_CORE), EXCAVATOR)
+GETARCH_FLAGS := -DFORCE_BARCELONA
+endif
+ifeq ($(TARGET_CORE), ZEN)
+GETARCH_FLAGS := -DFORCE_BARCELONA
+endif
+endif
+
+
+# On x86_64 build getarch with march=native unless the compiler is PGI. This is required to detect AVX512 support in getarch.
+ifeq ($(HOSTARCH), x86_64)
+ifeq ($(findstring pgcc,$(HOSTCC))$(findstring nvc,$(HOSTCC)),)
+GETARCH_FLAGS += -march=native
+endif
+endif
+
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+GETARCH_FLAGS	+= -DUSE64BITINT
+endif
+endif
+
+ifndef GEMM_MULTITHREAD_THRESHOLD
+GEMM_MULTITHREAD_THRESHOLD=4
+endif
+GETARCH_FLAGS	+= -DGEMM_MULTITHREAD_THRESHOLD=$(GEMM_MULTITHREAD_THRESHOLD)
+
+ifeq ($(NO_AVX), 1)
+GETARCH_FLAGS	+= -DNO_AVX
+endif
+
+ifeq ($(BINARY), 32)
+GETARCH_FLAGS	+= -DNO_AVX -DNO_AVX2 -DNO_AVX512
+NO_AVX512 = 1
+endif
+
+ifeq ($(NO_AVX2), 1)
+GETARCH_FLAGS	+= -DNO_AVX2
+endif
+
+ifeq ($(NO_AVX512), 1)
+GETARCH_FLAGS	+= -DNO_AVX512
+endif
+
+ifeq ($(DEBUG), 1)
+GETARCH_FLAGS	+= -g
+endif
+
+ifeq ($(QUIET_MAKE), 1)
+MAKE += -s
+endif
+
+ifndef NO_PARALLEL_MAKE
+NO_PARALLEL_MAKE=0
+endif
+GETARCH_FLAGS	+= -DNO_PARALLEL_MAKE=$(NO_PARALLEL_MAKE)
+
+ifdef MAKE_NB_JOBS
+GETARCH_FLAGS += -DMAKE_NB_JOBS=$(MAKE_NB_JOBS)
+endif
+
+ifeq ($(HOSTCC), loongcc)
+GETARCH_FLAGS  += -static
+endif
+
+#if don't use Fortran, it will only compile CBLAS.
+ifeq ($(ONLY_CBLAS), 1)
+NO_LAPACK = 1
+else
+ONLY_CBLAS = 0
+endif
+
+#For small matrix optimization
+ifeq ($(ARCH), x86_64)
+SMALL_MATRIX_OPT = 1
+else ifeq ($(ARCH), power)
+SMALL_MATRIX_OPT = 1
+BUILD_BFLOAT16 = 1
+else ifeq ($(ARCH), arm64)
+SMALL_MATRIX_OPT = 1
+endif
+ifeq ($(ARCH), loongarch64)
+SMALL_MATRIX_OPT = 1
+endif
+ifeq ($(ARCH), arm64)
+GEMM_GEMV_FORWARD = 1
+GEMM_GEMV_FORWARD_BF16 = 1
+endif
+ifeq ($(ARCH), riscv)
+GEMM_GEMV_FORWARD = 1
+endif
+ifeq ($(ARCH), power)
+GEMM_GEMV_FORWARD = 1
+GEMM_GEMV_FORWARD_BF16 = 1
+endif
+
+ifeq ($(SMALL_MATRIX_OPT), 1)
+CCOMMON_OPT += -DSMALL_MATRIX_OPT
+endif
+ifneq ($(ONLY_CBLAS), 1)
+ifeq ($(GEMM_GEMV_FORWARD), 1)
+CCOMMON_OPT += -DGEMM_GEMV_FORWARD
+endif
+ifeq ($(GEMM_GEMV_FORWARD_BF16), 1)
+CCOMMON_OPT += -DGEMM_GEMV_FORWARD_BF16
+endif
+endif
+
+# This operation is expensive, so execution should be once.
+ifndef GOTOBLAS_MAKEFILE
+export GOTOBLAS_MAKEFILE = 1
+
+# Generating Makefile.conf and config.h
+DUMMY := $(shell $(MAKE) -C $(TOPDIR) -f Makefile.prebuild CC="$(CC)" FC="$(FC)" HOSTCC="$(HOSTCC)" HOST_CFLAGS="$(GETARCH_FLAGS)" CFLAGS="$(CFLAGS)" BINARY=$(BINARY) USE_OPENMP=$(USE_OPENMP) DYNAMIC_ARCH=$(DYNAMIC_ARCH) TARGET_CORE=$(TARGET_CORE) ONLY_CBLAS=$(ONLY_CBLAS) TARGET=$(TARGET) all)
+
+endif
+
+ifndef TARGET_CORE
+-include $(TOPDIR)/Makefile.conf
+else
+HAVE_NEON=
+HAVE_VFP=
+HAVE_VFPV3=
+HAVE_VFPV4=
+HAVE_MMX=
+HAVE_SSE=
+HAVE_SSE2=
+HAVE_SSE3=
+HAVE_SSSE3=
+HAVE_SSE4_1=
+HAVE_SSE4_2=
+HAVE_SSE4A=
+HAVE_SSE5=
+HAVE_AVX=
+HAVE_AVX2=
+HAVE_FMA3=
+include $(TOPDIR)/Makefile_kernel.conf
+endif
+
+
+ifndef NUM_PARALLEL
+NUM_PARALLEL = 1
+endif
+
+ifndef NUM_THREADS
+NUM_THREADS = $(NUM_CORES)
+endif
+
+ifeq ($(NUM_THREADS), 1)
+override USE_THREAD = 0
+override USE_OPENMP = 0
+endif
+
+ifdef USE_THREAD
+ifeq ($(USE_THREAD), 0)
+SMP =
+else
+SMP = 1
+endif
+else
+ifeq ($(NUM_THREADS), 1)
+SMP =
+else
+SMP = 1
+endif
+endif
+
+ifeq ($(SMP), 1)
+USE_LOCKING = 
+endif
+
+ifndef NEED_PIC
+NEED_PIC = 1
+endif
+
+ARFLAGS	=
+CPP	= $(COMPILER) -E
+AR	?= $(CROSS_SUFFIX)ar
+AS	?= $(CROSS_SUFFIX)as
+LD	?= $(CROSS_SUFFIX)ld
+RANLIB	?= $(CROSS_SUFFIX)ranlib
+NM	= $(CROSS_SUFFIX)nm
+DLLWRAP = $(CROSS_SUFFIX)dllwrap
+OBJCOPY = $(CROSS_SUFFIX)objcopy
+OBJCONV = $(CROSS_SUFFIX)objconv
+
+
+# When fortran support was either not detected or actively deselected, only build BLAS.
+ifeq ($(NOFORTRAN), 1)
+C_LAPACK = 1
+override FEXTRALIB = 
+endif
+
+ifeq ($(C_COMPILER), GCC)
+GCCVERSIONGTEQ4 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \>= 4)
+GCCVERSIONGT4 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \> 4)
+GCCVERSIONGT5 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \> 5)
+GCCVERSIONGTEQ7 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \>= 7)
+GCCVERSIONGTEQ8 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \>= 8)
+GCCVERSIONGTEQ9 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \>= 9)
+GCCVERSIONGTEQ10 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \>= 10)
+GCCVERSIONGTEQ11 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \>= 11)
+GCCVERSIONGTEQ12 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \>= 12)
+# Note that the behavior of -dumpversion is compile-time-configurable for
+# gcc-7.x and newer. Use -dumpfullversion there
+ifeq ($(GCCVERSIONGTEQ7),1)
+	GCCDUMPVERSION_PARAM := -dumpfullversion
+else
+	GCCDUMPVERSION_PARAM := -dumpversion
+endif
+GCCMINORVERSIONGTEQ1 := $(shell expr `$(CC) $(GCCDUMPVERSION_PARAM) | cut -f2 -d.` \>= 1)
+GCCMINORVERSIONGTEQ2 := $(shell expr `$(CC) $(GCCDUMPVERSION_PARAM) | cut -f2 -d.` \>= 2)
+GCCMINORVERSIONGTEQ4 := $(shell expr `$(CC) $(GCCDUMPVERSION_PARAM) | cut -f2 -d.` \>= 4)
+GCCMINORVERSIONGTEQ7 := $(shell expr `$(CC) $(GCCDUMPVERSION_PARAM) | cut -f2 -d.` \>= 7)
+endif
+
+ifeq ($(C_COMPILER), CLANG)
+CLANGVERSIONGTEQ9 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \>= 9)
+CLANGVERSIONGTEQ12 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \>= 12)
+endif
+
+#
+#  OS dependent settings
+#
+
+ifeq ($(OSNAME), Darwin)
+ifndef MACOSX_DEPLOYMENT_TARGET
+ifeq ($(ARCH), arm64)
+export MACOSX_DEPLOYMENT_TARGET=11.0
+ifeq ($(C_COMPILER), GCC)
+export NO_SVE = 1
+export NO_SME = 1
+endif
+else
+export MACOSX_DEPLOYMENT_TARGET=10.8
+endif
+endif
+MD5SUM = md5 -r
+XCVER = $(shell pkgutil --pkg-info=com.apple.pkg.Xcode |awk '/version:/ {print $2}'|cut -d: -f2|cut -f1 -d.)
+ifeq (x$(XCVER)x,xx)
+XCVER = $(shell pkgutil --pkg-info=com.apple.pkg.CLTools_Executables |awk '/version:/ {print $2}'|cut -d: -f2|cut -f1 -d.)
+endif
+ifeq (x$(XCVER), x 15)
+CCOMMON_OPT += -Wl,-ld_classic
+FCOMMON_OPT += -Wl,-ld_classic
+endif
+ifeq (x$(XCVER), x 16)
+ifeq ($(F_COMPILER), GFORTRAN)
+override CEXTRALIB := $(filter-out(-lto_library, $(CEXTRALIB))) 
+endif
+endif
+endif
+
+ifneq (,$(findstring $(OSNAME), FreeBSD OpenBSD DragonFly))
+MD5SUM = md5 -r
+endif
+
+ifeq ($(OSNAME), NetBSD)
+MD5SUM = md5 -n
+endif
+
+ifeq ($(OSNAME), Linux)
+EXTRALIB	+= -lm
+#NO_EXPRECISION = 1
+endif
+
+ifeq ($(OSNAME), Android)
+EXTRALIB	+= -lm
+endif
+
+ifeq ($(OSNAME), AIX)
+EXTRALIB	+= -lm
+endif
+
+ifeq ($(OSNAME), $(filter $(OSNAME),FreeBSD OpenBSD NetBSD DragonFly))
+ifeq ($(ARCH), $(filter $(ARCH),arm arm64))
+EXTRALIB	+= -lm
+endif
+endif
+
+ifeq ($(OSNAME), WINNT)
+NEED_PIC = 0
+NO_EXPRECISION = 1
+
+EXTRALIB        += -defaultlib:advapi32
+
+SUFFIX  = obj
+PSUFFIX = pobj
+LIBSUFFIX = a
+
+ifeq ($(C_COMPILER), CLANG)
+CCOMMON_OPT	+= -DMS_ABI
+endif
+
+#Version tests for supporting specific features (MS_ABI, POWER9 intrinsics)
+ifeq ($(GCCVERSIONGT4), 1)
+# GCC Major version > 4
+# It is compatible with MSVC ABI.
+CCOMMON_OPT	+= -DMS_ABI
+endif
+
+ifeq ($(GCCVERSIONGTEQ4), 1)
+ifeq ($(GCCMINORVERSIONGTEQ7), 1)
+# GCC Version >=4.7
+# It is compatible with MSVC ABI.
+CCOMMON_OPT	+= -DMS_ABI
+endif
+endif
+
+# Ensure the correct stack alignment on Win32
+# http://permalink.gmane.org/gmane.comp.lib.openblas.general/97
+ifeq ($(ARCH), x86)
+CCOMMON_OPT += -mincoming-stack-boundary=2
+FCOMMON_OPT += -mincoming-stack-boundary=2
+endif
+
+endif
+
+ifeq ($(OSNAME), Interix)
+NEED_PIC = 0
+NO_EXPRECISION = 1
+
+INTERIX_TOOL_DIR = /opt/gcc.3.3/i586-pc-interix3/bin
+endif
+
+ifeq ($(OSNAME), CYGWIN_NT)
+NEED_PIC = 0
+NO_EXPRECISION = 1
+OS_CYGWIN_NT = 1
+endif
+
+ifneq ($(OSNAME), WINNT)
+ifneq ($(OSNAME), CYGWIN_NT)
+ifneq ($(OSNAME), Interix)
+ifneq ($(OSNAME), Android)
+ifdef SMP
+EXTRALIB   += -lpthread
+endif
+endif
+endif
+endif
+endif
+
+# ifeq logical or
+ifeq ($(OSNAME), $(filter $(OSNAME),WINNT CYGWIN_NT Interix))
+OS_WINDOWS=1
+endif
+
+ifdef QUAD_PRECISION
+CCOMMON_OPT	+= -DQUAD_PRECISION
+NO_EXPRECISION = 1
+endif
+
+ifneq ($(ARCH), x86)
+ifneq ($(ARCH), x86_64)
+NO_EXPRECISION = 1
+endif
+endif
+
+ifdef UTEST_CHECK
+CCOMMON_OPT	+= -DUTEST_CHECK
+SANITY_CHECK = 1
+endif
+
+ifdef SANITY_CHECK
+CCOMMON_OPT	+= -DSANITY_CHECK -DREFNAME=$(*F)f$(BU)
+endif
+
+MAX_STACK_ALLOC ?= 2048
+ifneq ($(MAX_STACK_ALLOC), 0)
+CCOMMON_OPT	+= -DMAX_STACK_ALLOC=$(MAX_STACK_ALLOC)
+endif
+
+ifdef USE_LOCKING
+ifneq ($(USE_LOCKING), 0)
+CCOMMON_OPT	+= -DUSE_LOCKING
+endif
+endif
+
+#
+#  Architecture dependent settings
+#
+
+ifeq ($(ARCH), x86)
+ifndef BINARY
+NO_BINARY_MODE	= 1
+endif
+
+ifeq ($(CORE), generic)
+#NO_EXPRECISION = 1
+endif
+
+ifndef NO_EXPRECISION
+ifeq ($(F_COMPILER), GFORTRAN)
+# ifeq logical or. GCC or LSB
+ifeq ($(C_COMPILER), $(filter $(C_COMPILER),GCC LSB))
+EXPRECISION	= 1
+CCOMMON_OPT	+= -DEXPRECISION -m128bit-long-double
+FCOMMON_OPT	+= -m128bit-long-double
+endif
+ifeq ($(C_COMPILER), CLANG)
+EXPRECISION	= 1
+CCOMMON_OPT	+= -DEXPRECISION
+FCOMMON_OPT	+= -m128bit-long-double
+endif
+endif
+endif
+endif
+
+ifeq ($(ARCH), x86_64)
+
+ifeq ($(CORE), generic)
+#NO_EXPRECISION = 1
+endif
+
+ifndef NO_EXPRECISION
+ifeq ($(F_COMPILER), GFORTRAN)
+# ifeq logical or. GCC or LSB
+ifeq ($(C_COMPILER), $(filter $(C_COMPILER),GCC LSB))
+EXPRECISION	= 1
+CCOMMON_OPT	+= -DEXPRECISION -m128bit-long-double
+FCOMMON_OPT	+= -m128bit-long-double
+endif
+ifeq ($(C_COMPILER), CLANG)
+EXPRECISION	= 1
+CCOMMON_OPT	+= -DEXPRECISION
+FCOMMON_OPT	+= -m128bit-long-double
+endif
+endif
+endif
+endif
+
+ifeq ($(C_COMPILER), INTEL)
+CCOMMON_OPT    += -wd981
+endif
+
+
+ifeq ($(USE_OPENMP), 1)
+
+#check
+ifeq ($(USE_THREAD), 0)
+$(error OpenBLAS: Cannot set both USE_OPENMP=1 and USE_THREAD=0. The USE_THREAD=0 is only for building single thread version.)
+endif
+
+# ifeq logical or. GCC or LSB
+ifeq ($(C_COMPILER), $(filter $(C_COMPILER),GCC LSB))
+CCOMMON_OPT    += -fopenmp
+endif
+
+ifeq ($(C_COMPILER), CLANG)
+CCOMMON_OPT    += -fopenmp
+ifeq ($(F_COMPILER), GFORTRAN)
+FEXTRALIB := $(subst -lgomp,-lomp,$(FEXTRALIB))
+endif
+endif
+
+ifeq ($(C_COMPILER), INTEL)
+CCOMMON_OPT    += -fopenmp
+endif
+
+ifeq ($(C_COMPILER), PGI)
+CCOMMON_OPT    += -mp
+endif
+
+ifeq ($(C_COMPILER), OPEN64)
+CCOMMON_OPT    += -mp
+CEXTRALIB   += -lstdc++
+endif
+
+ifeq ($(C_COMPILER), PATHSCALE)
+CCOMMON_OPT    += -mp
+endif
+endif
+
+
+ifeq ($(DYNAMIC_ARCH), 1)
+ifeq ($(ARCH), x86)
+DYNAMIC_CORE = KATMAI COPPERMINE NORTHWOOD PRESCOTT BANIAS \
+	       CORE2 PENRYN DUNNINGTON NEHALEM ATHLON OPTERON OPTERON_SSE3 BARCELONA BOBCAT ATOM NANO
+endif
+
+ifeq ($(ARCH), x86_64)
+DYNAMIC_CORE = PRESCOTT CORE2 
+ifeq ($(DYNAMIC_OLDER), 1)
+DYNAMIC_CORE += PENRYN DUNNINGTON 
+endif
+DYNAMIC_CORE += NEHALEM 
+ifeq ($(DYNAMIC_OLDER), 1)
+DYNAMIC_CORE += OPTERON OPTERON_SSE3 
+endif
+DYNAMIC_CORE += BARCELONA 
+ifeq ($(DYNAMIC_OLDER), 1)
+DYNAMIC_CORE += BOBCAT ATOM NANO
+endif
+ifneq ($(NO_AVX), 1)
+DYNAMIC_CORE += SANDYBRIDGE BULLDOZER PILEDRIVER STEAMROLLER EXCAVATOR
+endif
+ifneq ($(NO_AVX2), 1)
+DYNAMIC_CORE += HASWELL ZEN
+endif
+ifneq ($(NO_AVX512), 1)
+ifneq ($(NO_AVX2), 1)
+DYNAMIC_CORE += SKYLAKEX COOPERLAKE SAPPHIRERAPIDS
+endif
+endif
+endif
+
+ifdef DYNAMIC_LIST
+override DYNAMIC_CORE = PRESCOTT $(DYNAMIC_LIST)
+XCCOMMON_OPT = -DDYNAMIC_LIST -DDYN_PRESCOTT
+XCCOMMON_OPT += $(foreach dcore,$(DYNAMIC_LIST),-DDYN_$(dcore))
+CCOMMON_OPT += $(XCCOMMON_OPT)
+#CCOMMON_OPT	+= -DDYNAMIC_LIST='$(DYNAMIC_LIST)'
+endif
+
+ifeq ($(ARCH), arm64)
+DYNAMIC_CORE =  ARMV8
+DYNAMIC_CORE += CORTEXA53
+DYNAMIC_CORE += CORTEXA57
+DYNAMIC_CORE += NEOVERSEN1
+ifneq ($(NO_SVE), 1)
+DYNAMIC_CORE += NEOVERSEV1
+DYNAMIC_CORE += NEOVERSEN2
+DYNAMIC_CORE += ARMV8SVE
+DYNAMIC_CORE += A64FX
+endif
+ifneq ($(NO_SME), 1)
+DYNAMIC_CORE += ARMV9SME
+endif
+DYNAMIC_CORE += THUNDERX
+DYNAMIC_CORE += THUNDERX2T99
+DYNAMIC_CORE += TSV110
+DYNAMIC_CORE += EMAG8180
+DYNAMIC_CORE += THUNDERX3T110
+ifdef DYNAMIC_LIST
+override DYNAMIC_CORE = ARMV8 $(DYNAMIC_LIST)
+XCCOMMON_OPT = -DDYNAMIC_LIST -DDYN_ARMV8
+XCCOMMON_OPT += $(foreach dcore,$(DYNAMIC_LIST),-DDYN_$(dcore))
+endif
+endif
+
+ifeq ($(ARCH), mips64)
+DYNAMIC_CORE = LOONGSON3R3 LOONGSON3R4 MIPS64_GENERIC
+ifdef DYNAMIC_LIST
+override DYNAMIC_CORE = MIPS64_GENERIC $(DYNAMIC_LIST)
+XCCOMMON_OPT = -DDYNAMIC_LIST -DDYN_MIPS64_GENERIC
+XCCOMMON_OPT += $(foreach dcore,$(DYNAMIC_LIST),-DDYN_$(dcore))
+endif
+endif
+
+ifeq ($(ARCH), loongarch64)
+DYNAMIC_CORE = LA64_GENERIC LA264 LA464
+endif
+
+ifeq ($(ARCH), riscv64)
+DYNAMIC_CORE = RISCV64_GENERIC
+DYNAMIC_CORE += RISCV64_ZVL128B
+DYNAMIC_CORE += RISCV64_ZVL256B
+ifdef DYNAMIC_LIST
+override DYNAMIC_CORE = RISCV64_GENERIC $(DYNAMIC_LIST)
+XCCOMMON_OPT = -DDYNAMIC_LIST -DDYN_RISCV64_GENERIC
+XCCOMMON_OPT += $(foreach dcore,$(DYNAMIC_LIST),-DDYN_$(dcore))
+endif
+endif
+
+ifeq ($(ARCH), zarch)
+DYNAMIC_CORE = ZARCH_GENERIC
+
+# if the compiler accepts -march=arch11 or -march=z13 and can compile a file
+# with z13-specific inline assembly, then we can include support for Z13.
+# note: -march=z13 is equivalent to -march=arch11 yet some compiler releases
+# only support one or the other.
+# note: LLVM version 6.x supported -march=z13 yet could not handle vector
+# registers in inline assembly, so the check for supporting the -march flag is
+# not enough.
+ZARCH_TEST_COMPILE=-c $(TOPDIR)/kernel/zarch/damin_z13.c -I$(TOPDIR) -o /dev/null > /dev/null 2> /dev/null
+ZARCH_CC_SUPPORTS_ARCH11=$(shell $(CC) -march=arch11 $(ZARCH_TEST_COMPILE) && echo 1)
+ZARCH_CC_SUPPORTS_Z13=$(shell $(CC) -march=z13 $(ZARCH_TEST_COMPILE) && echo 1)
+
+ifeq ($(or $(ZARCH_CC_SUPPORTS_ARCH11), $(ZARCH_CC_SUPPORTS_Z13)), 1)
+DYNAMIC_CORE += Z13
+CCOMMON_OPT += -DDYN_Z13
+else
+$(info OpenBLAS: Not building Z13 kernels because the compiler $(CC) does not support it)
+endif
+
+# as above for z13, check for -march=arch12 and z14 support in the compiler.
+ZARCH_CC_SUPPORTS_ARCH12=$(shell $(CC) -march=arch12 $(ZARCH_TEST_COMPILE) && echo 1)
+ZARCH_CC_SUPPORTS_Z14=$(shell $(CC) -march=z14 $(ZARCH_TEST_COMPILE) && echo 1)
+ifeq ($(or $(ZARCH_CC_SUPPORTS_ARCH12), $(ZARCH_CC_SUPPORTS_Z14)), 1)
+DYNAMIC_CORE += Z14
+CCOMMON_OPT += -DDYN_Z14
+else
+$(info OpenBLAS: Not building Z14 kernels because the compiler $(CC) does not support it)
+endif
+
+endif # ARCH zarch
+
+ifeq ($(ARCH), power)
+ifneq ($(C_COMPILER), PGI)
+DYNAMIC_CORE = POWER6
+DYNAMIC_CORE += POWER8
+ifneq ($(C_COMPILER), GCC)
+DYNAMIC_CORE += POWER9
+DYNAMIC_CORE += POWER10
+CCOMMON_OPT += -DHAVE_P10_SUPPORT
+endif
+ifeq ($(C_COMPILER), GCC)
+ifeq ($(GCCVERSIONGT5), 1)
+DYNAMIC_CORE += POWER9
+else
+$(info, OpenBLAS: Your gcc version is too old to build the POWER9 kernels.)
+endif
+ifeq ($(OSNAME), AIX)
+LDVERSIONGTEQ35 := 1
+else
+LDVERSIONGTEQ35 := $(shell expr `$(CC) -Wl,--version 2> /dev/null | head -1 | cut -f2 -d "." | cut -f1 -d "-"` \>= 35)
+endif
+ifeq ($(GCCVERSIONGTEQ11)$(LDVERSIONGTEQ35), 11)
+DYNAMIC_CORE += POWER10
+CCOMMON_OPT += -DHAVE_P10_SUPPORT
+else ifeq ($(GCCVERSIONGTEQ10), 1)
+ifeq ($(GCCMINORVERSIONGTEQ2)$(LDVERSIONGTEQ35), 11)
+DYNAMIC_CORE += POWER10
+CCOMMON_OPT += -DHAVE_P10_SUPPORT
+endif
+else
+$(info, OpenBLAS: Your gcc version is too old to build the POWER10 kernels.)
+endif
+endif
+else
+DYNAMIC_CORE = POWER8
+DYNAMIC_CORE += POWER9
+endif
+endif
+
+# If DYNAMIC_CORE is not set, DYNAMIC_ARCH cannot do anything, so force it to empty
+ifndef DYNAMIC_CORE
+override DYNAMIC_ARCH=
+endif
+endif
+
+ifeq ($(ARCH), ia64)
+NO_BINARY_MODE	= 1
+BINARY_DEFINED	= 1
+
+ifeq ($(F_COMPILER), GFORTRAN)
+ifeq ($(C_COMPILER), GCC)
+EXPRECISION	= 1
+CCOMMON_OPT	+= -DEXPRECISION
+endif
+endif
+endif
+
+ifeq ($(ARCH), $(filter $(ARCH),mips64 mips))
+NO_BINARY_MODE	= 1
+endif
+
+ifeq ($(ARCH), alpha)
+NO_BINARY_MODE	= 1
+BINARY_DEFINED	= 1
+endif
+
+ifeq ($(ARCH), arm)
+NO_BINARY_MODE  = 1
+BINARY_DEFINED  = 1
+
+ifneq ($(EMBEDDED), 1)
+CCOMMON_OPT += -marm
+FCOMMON_OPT += -marm
+else
+CCOMMON_OPT += -DOS_EMBEDDED -mthumb -mcpu=cortex-m4 -mfloat-abi=hard -mfpu=fpv4-sp-d16
+endif
+
+# If softfp abi is mentioned on the command line, force it.
+ifeq ($(ARM_SOFTFP_ABI), 1)
+CCOMMON_OPT += -mfloat-abi=softfp
+FCOMMON_OPT += -mfloat-abi=softfp
+endif
+
+ifeq ($(OSNAME), Android)
+ifeq ($(ARM_SOFTFP_ABI), 1)
+EXTRALIB	+= -lm
+else
+EXTRALIB	+= -Wl,-lm_hard
+endif
+endif
+endif
+
+ifeq ($(ARCH), arm64)
+NO_BINARY_MODE  = 1
+BINARY_DEFINED  = 1
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+ifeq ($(F_COMPILER), GFORTRAN)
+FCOMMON_OPT +=  -fdefault-integer-8
+endif
+ifeq ($(F_COMPILER), FLANG)
+FCOMMON_OPT += -i8
+endif
+endif
+endif
+endif
+
+ifeq ($(ARCH), riscv64)
+NO_BINARY_MODE  = 1
+BINARY_DEFINED  = 1
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+ifeq ($(F_COMPILER), GFORTRAN)
+FCOMMON_OPT +=  -fdefault-integer-8
+endif
+ifeq ($(F_COMPILER), FLANG)
+FCOMMON_OPT += -i8
+endif
+endif
+endif
+endif
+
+ifeq ($(ARCH), loongarch64)
+NO_BINARY_MODE  = 1
+BINARY_DEFINED  = 1
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+ifeq ($(F_COMPILER), GFORTRAN)
+FCOMMON_OPT +=  -fdefault-integer-8
+endif
+ifeq ($(F_COMPILER), FLANG)
+FCOMMON_OPT += -i8
+endif
+endif
+endif
+endif
+
+ifeq ($(ARCH), csky)
+NO_BINARY_MODE	= 1
+BINARY_DEFINED	= 1
+endif
+
+#
+#  C Compiler dependent settings
+#
+
+
+# ifeq logical or. GCC or CLANG or LSB
+# http://stackoverflow.com/questions/7656425/makefile-ifeq-logical-or
+ifeq ($(C_COMPILER), $(filter $(C_COMPILER),GCC CLANG LSB))
+CCOMMON_OPT += -Wall
+COMMON_PROF += -fno-inline
+NO_UNINITIALIZED_WARN =  -Wno-uninitialized
+
+ifeq ($(QUIET_MAKE), 1)
+CCOMMON_OPT += $(NO_UNINITIALIZED_WARN) -Wno-unused
+endif
+
+ifdef NO_BINARY_MODE
+
+ifeq ($(ARCH), $(filter $(ARCH),mips64))
+ifdef BINARY64
+CCOMMON_OPT += -mabi=64
+else
+CCOMMON_OPT += -mabi=n32
+endif
+BINARY_DEFINED = 1
+else ifeq ($(ARCH), $(filter $(ARCH),mips))
+CCOMMON_OPT += -mabi=32
+BINARY_DEFINED = 1
+endif
+
+ifneq (, $(filter $(CORE), MIPS64_GENERIC))
+CCOMMON_OPT += -DNO_MSA
+FCOMMON_OPT += -DNO_MSA
+endif
+
+ifneq (, $(filter $(CORE),LOONGSON3R3 LOONGSON3R4))
+CCOMMON_OPT += -march=loongson3a
+FCOMMON_OPT += -march=loongson3a
+endif
+
+ifeq ($(CORE), MIPS24K)
+CCOMMON_OPT += -mips32r2 -mtune=24kc  $(MSA_FLAGS)
+FCOMMON_OPT += -mips32r2 -mtune=24kc  $(MSA_FLAGS)
+endif
+
+ifeq ($(CORE), MIPS1004K)
+CCOMMON_OPT += -mips32r2   $(MSA_FLAGS)
+FCOMMON_OPT += -mips32r2   $(MSA_FLAGS)
+endif
+
+ifeq ($(CORE), P5600)
+CCOMMON_OPT += -mips32r5 -mnan=2008 -mtune=p5600  $(MSA_FLAGS)
+FCOMMON_OPT += -mips32r5 -mnan=2008 -mtune=p5600  $(MSA_FLAGS)
+endif
+
+ifeq ($(CORE), I6400)
+CCOMMON_OPT += -mips64r6 -mnan=2008 -mtune=i6400 $(MSA_FLAGS)
+FCOMMON_OPT += -mips64r6 -mnan=2008 -mtune=i6400 $(MSA_FLAGS)
+endif
+
+ifeq ($(CORE), P6600)
+CCOMMON_OPT += -mips64r6 -mnan=2008 -mtune=p6600 $(MSA_FLAGS)
+FCOMMON_OPT += -mips64r6 -mnan=2008 -mtune=p6600 $(MSA_FLAGS)
+endif
+
+ifeq ($(CORE), I6500)
+CCOMMON_OPT += -mips64r6 -mnan=2008 -mtune=i6400 $(MSA_FLAGS)
+FCOMMON_OPT += -mips64r6 -mnan=2008 -mtune=i6400 $(MSA_FLAGS)
+endif
+
+ifeq ($(OSNAME), AIX)
+BINARY_DEFINED = 1
+endif
+
+ifeq ($(ARCH), loongarch64)
+LA64_ABI=$(shell $(CC) -mabi=lp64d -c $(TOPDIR)/cpuid_loongarch64.c -o /dev/null > /dev/null 2> /dev/null && echo lp64d)
+LA64_ARCH=$(shell $(CC) -march=loongarch64 -c $(TOPDIR)/cpuid_loongarch64.c -o /dev/null > /dev/null 2> /dev/null && echo loongarch64)
+ifneq ($(LA64_ABI), lp64d)
+LA64_ABI=lp64
+endif
+ifneq ($(LA64_ARCH), loongarch64)
+CCOMMON_OPT += -mabi=$(LA64_ABI)
+FCOMMON_OPT += -mabi=$(LA64_ABI)
+else
+CCOMMON_OPT += -march=loongarch64 -mabi=$(LA64_ABI)
+FCOMMON_OPT += -march=loongarch64 -mabi=$(LA64_ABI)
+endif
+endif
+
+endif
+
+ifndef BINARY_DEFINED
+ifneq ($(OSNAME), AIX)
+ifdef BINARY64
+ifneq ($(ARCH), riscv64)
+CCOMMON_OPT += -m64
+endif
+else
+CCOMMON_OPT += -m32
+endif
+endif
+endif
+
+endif
+
+ifeq ($(C_COMPILER), PGI)
+PGCVERSIONGT20 := $(shell expr `$(CC) --version|sed -n "2p" |sed -e "s/[^0-9.]//g" |cut -d "." -f 1` \> 20)
+PGCVERSIONEQ20 := $(shell expr `$(CC) --version|sed -n "2p" |sed -e "s/[^0-9.]//g" |cut -d "." -f 1` == 20)
+PGCMINORVERSIONGE11 := $(shell expr `$(CC) --version|sed -n "2p" |cut -d "-" -f 1 |sed -e "s/[^0-9.]//g" |cut -c 4-5` \>= 11)
+PGCVERSIONCHECK := $(PGCVERSIONGT20)$(PGCVERSIONEQ20)$(PGCMINORVERSIONGE11)
+ifeq ($(PGCVERSIONCHECK), $(filter $(PGCVERSIONCHECK), 100 101 011))
+NEWPGI := 1
+PGCVERSIONGT21 := $(shell expr `$(CC) --version|sed -n "2p" |sed -e "s/[^0-9.]//g" |cut -d "." -f 1` \> 21)
+PGCVERSIONEQ21 := $(shell expr `$(CC) --version|sed -n "2p" |sed -e "s/[^0-9.]//g" |cut -d "." -f 1` == 21)
+PGCVERSIONCHECK2 := $(PGCVERSIONGT21)$(PGCVERSIONEQ21)$(PGCMINORVERSIONGE11)
+ifeq ($(PGCVERSIONCHECK2), $(filter $(PGCVERSIONCHECK2), 100 101 011))
+NEWPGI2 := 1
+endif
+endif
+ifdef BINARY64
+ifeq ($(ARCH), x86_64)
+ifeq (,$(findstring tp,$(CFLAGS)))
+ifneq ($(NEWPGI2),1)
+CCOMMON_OPT += -tp p7-64
+else
+CCOMMON_OPT += -tp px
+endif
+endif
+ifneq ($(NEWPGI),1)
+CCOMMON_OPT +=  -D__MMX__ -Mnollvm
+endif
+else
+ifeq ($(ARCH), power)
+ifeq (,$(findstring tp,$(CFLAGS)))
+ifeq ($(CORE), POWER8)
+CCOMMON_OPT += -tp pwr8
+endif
+ifeq ($(CORE), POWER9)
+CCOMMON_OPT += -tp pwr9
+endif
+endif
+endif
+endif
+else
+ifneq ($(NEWPGI2),1)
+ifeq (,$(findstring tp,$(CFLAGS)))
+CCOMMON_OPT += -tp p7
+else
+CCOMMON_OPT += -tp px
+endif
+endif
+endif
+endif
+
+ifeq ($(C_COMPILER), PATHSCALE)
+ifdef BINARY64
+CCOMMON_OPT += -m64
+else
+CCOMMON_OPT += -m32
+endif
+endif
+
+#
+#  Fortran Compiler dependent settings
+#
+
+ifeq ($(F_COMPILER), NAG)
+FCOMMON_OPT += -dcfuns -recursive -ieee=full -w=obs -thread_safe
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+FCOMMON_OPT += -i8
+endif
+endif
+ifeq ($(USE_OPENMP), 1)
+FCOMMON_OPT += -openmp
+endif
+endif
+
+ifeq ($(F_COMPILER), FLANG)
+CCOMMON_OPT += -DF_INTERFACE_FLANG
+FCOMMON_OPT += -Mrecursive -Kieee
+ifeq ($(OSNAME), Linux)
+ifeq ($(ARCH), x86_64)
+FLANG_VENDOR := $(shell $(FC) --version|head -1 |cut -f 1 -d " ")
+ifeq ($(FLANG_VENDOR), AMD)
+FCOMMON_OPT += -fno-unroll-loops
+endif
+endif
+endif
+ifdef BINARY64
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+FCOMMON_OPT += -i8
+endif
+endif
+FCOMMON_OPT += -Wall
+else
+FCOMMON_OPT += -Wall
+endif
+ifeq ($(USE_OPENMP), 1)
+FCOMMON_OPT += -fopenmp
+endif
+endif
+
+ifeq ($(F_COMPILER), G77)
+CCOMMON_OPT += -DF_INTERFACE_G77
+FCOMMON_OPT += -Wall
+ifndef NO_BINARY_MODE
+ifneq ($(OSNAME), AIX)
+ifdef BINARY64
+FCOMMON_OPT += -m64
+else
+FCOMMON_OPT += -m32
+endif
+endif
+endif
+endif
+
+ifeq ($(F_COMPILER), G95)
+CCOMMON_OPT += -DF_INTERFACE_G95
+FCOMMON_OPT += -Wall
+ifneq ($(OSNAME), AIX)
+ifndef NO_BINARY_MODE
+ifdef BINARY64
+FCOMMON_OPT += -m64
+else
+FCOMMON_OPT += -m32
+endif
+endif
+ifneq ($(NO_LAPACKE), 1)
+FCOMMON_OPT += -fno-second-underscore
+endif
+endif
+endif
+
+ifeq ($(F_COMPILER), $(filter $(F_COMPILER),GFORTRAN FLANGNEW))
+CCOMMON_OPT += -DF_INTERFACE_GFORT
+ifeq ($(F_COMPILER), GFORTRAN)
+FCOMMON_OPT += -Wall
+# make single-threaded LAPACK calls thread-safe #1847
+FCOMMON_OPT += -frecursive
+# work around ABI problem with passing single-character arguments
+FCOMMON_OPT += -fno-optimize-sibling-calls
+#Don't include -lgfortran, when NO_LAPACK=1 or lsbcc
+ifneq ($(NOFORTRAN), 1)
+ifneq ($(NOFORTRAN), 2)
+ifneq ($(NO_LAPACK), 1)
+EXTRALIB += -lgfortran
+endif
+endif
+endif
+endif
+ifdef NO_BINARY_MODE
+ifeq ($(ARCH), $(filter $(ARCH),mips64))
+ifdef BINARY64
+FCOMMON_OPT += -mabi=64
+else
+FCOMMON_OPT += -mabi=n32
+endif
+else ifeq ($(ARCH), $(filter $(ARCH),mips))
+FCOMMON_OPT += -mabi=32
+endif
+else
+ifdef BINARY64
+ifneq ($(OSNAME), AIX)
+ifneq ($(ARCH), riscv64)
+FCOMMON_OPT += -m64
+endif
+endif
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+FCOMMON_OPT +=  -fdefault-integer-8
+endif
+endif
+else
+ifneq ($(OSNAME), AIX)
+FCOMMON_OPT += -m32
+endif
+endif
+endif
+ifeq ($(USE_OPENMP), 1)
+FCOMMON_OPT += -fopenmp
+endif
+endif
+
+ifeq ($(F_COMPILER), INTEL)
+CCOMMON_OPT += -DF_INTERFACE_INTEL
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+FCOMMON_OPT += -i8
+endif
+endif
+FCOMMON_OPT += -recursive -fp-model strict -assume protect-parens
+ifeq ($(USE_OPENMP), 1)
+FCOMMON_OPT += -fopenmp
+endif
+endif
+
+ifeq ($(F_COMPILER), FUJITSU)
+CCOMMON_OPT += -DF_INTERFACE_FUJITSU
+ifeq ($(USE_OPENMP), 1)
+FCOMMON_OPT += -openmp
+endif
+endif
+
+ifeq ($(F_COMPILER), IBM)
+CCOMMON_OPT += -DF_INTERFACE_IBM
+FEXTRALIB += -lxlf90
+ifeq ($(C_COMPILER), $(filter $(C_COMPILER),GCC CLANG))
+FCOMMON_OPT += -qextname -qzerosize
+endif
+# FCOMMON_OPT	+= -qarch=440
+ifdef BINARY64
+FCOMMON_OPT += -q64
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+FCOMMON_OPT += -qintsize=8
+endif
+endif
+else
+FCOMMON_OPT += -q32
+endif
+endif
+
+ifeq ($(F_COMPILER), PGI)
+CCOMMON_OPT  += -DF_INTERFACE_PGI
+COMMON_PROF +=  -DPGICOMPILER
+ifdef BINARY64
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+FCOMMON_OPT += -i8
+endif
+endif
+ifeq ($(ARCH), x86_64)
+ifneq ($(NEWPGI2),1)
+FCOMMON_OPT += -tp p7-64
+else
+FCOMMON_OPT += -tp px
+endif
+else
+ifeq ($(ARCH), power)
+ifeq ($(CORE), POWER6)
+$(warning NVIDIA HPC compilers do not support POWER6.)
+endif
+ifeq ($(CORE), POWER8)
+FCOMMON_OPT += -tp pwr8
+endif
+ifeq ($(CORE), POWER9)
+FCOMMON_OPT += -tp pwr9
+endif
+ifeq ($(CORE), POWER10)
+$(warning NVIDIA HPC compilers do not support POWER10.)
+endif
+endif
+endif
+else
+FCOMMON_OPT += -tp p7
+endif
+FCOMMON_OPT += -Mrecursive -Kieee
+ifeq ($(USE_OPENMP), 1)
+FCOMMON_OPT += -mp
+endif
+endif
+
+ifeq ($(F_COMPILER), PATHSCALE)
+CCOMMON_OPT  += -DF_INTERFACE_PATHSCALE
+ifdef BINARY64
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+FCOMMON_OPT += -i8
+endif
+endif
+endif
+ 
+ifeq ($(USE_OPENMP), 1)
+FCOMMON_OPT += -mp
+endif
+endif
+
+ifeq ($(F_COMPILER), OPEN64)
+CCOMMON_OPT  += -DF_INTERFACE_OPEN64
+ifdef BINARY64
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+FCOMMON_OPT += -i8
+endif
+endif
+endif
+ifeq ($(ARCH), $(filter $(ARCH),mips64 mips))
+ifndef BINARY64
+FCOMMON_OPT += -n32
+else
+FCOMMON_OPT += -n64
+endif
+ifeq ($(CORE), LOONGSON3R3)
+FCOMMON_OPT += -loongson3 -static
+endif
+ifeq ($(CORE), LOONGSON3R4)
+FCOMMON_OPT += -loongson3 -static
+endif
+else
+ifndef BINARY64
+FCOMMON_OPT += -m32
+else
+FCOMMON_OPT += -m64
+endif
+endif
+ifeq ($(USE_OPENMP), 1)
+FEXTRALIB   += -lstdc++
+FCOMMON_OPT += -mp
+endif
+endif
+
+ifeq ($(C_COMPILER), OPEN64)
+ifeq ($(ARCH), $(filter $(ARCH),mips64 mips))
+ifndef BINARY64
+CCOMMON_OPT += -n32
+else
+CCOMMON_OPT += -n64
+endif
+ifeq ($(CORE), LOONGSON3R3)
+CCOMMON_OPT += -loongson3 -static
+endif
+ifeq ($(CORE), LOONGSON3R4)
+CCOMMON_OPT += -loongson3 -static
+endif
+else
+ifndef BINARY64
+CCOMMON_OPT += -m32
+else
+CCOMMON_OPT += -m64
+endif
+endif
+endif
+
+ifeq ($(C_COMPILER), SUN)
+CCOMMON_OPT  += -w
+ifeq ($(ARCH), x86)
+CCOMMON_OPT  += -m32
+else
+ifdef BINARY64
+CCOMMON_OPT  += -m64
+else
+CCOMMON_OPT  += -m32
+endif
+endif
+endif
+
+ifeq ($(F_COMPILER), SUN)
+CCOMMON_OPT  += -DF_INTERFACE_SUN
+FCOMMON_OPT  += -ftrap=%none -xrecursive
+ifeq ($(ARCH), x86)
+FCOMMON_OPT  += -m32
+else
+ifdef BINARY64
+FCOMMON_OPT  += -m64
+else
+FCOMMON_OPT  += -m32
+endif
+endif
+ifeq ($(USE_OPENMP), 1)
+FCOMMON_OPT += -xopenmp=parallel
+endif
+endif
+
+ifeq ($(F_COMPILER), COMPAQ)
+CCOMMON_OPT  += -DF_INTERFACE_COMPAQ
+ifeq ($(USE_OPENMP), 1)
+FCOMMON_OPT += -openmp
+endif
+endif
+
+ifeq ($(F_COMPILER), CRAY)
+CCOMMON_OPT += -DF_INTERFACE_INTEL
+FCOMMON_OPT += -hnopattern
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+FCOMMON_OPT += -s integer64
+endif
+endif
+ifneq ($(USE_OPENMP), 1)
+FCOMMON_OPT += -O noomp
+endif
+endif
+
+ifdef BINARY64
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+CCOMMON_OPT	+=
+#-DUSE64BITINT
+endif
+endif
+endif
+
+ifeq ($(NEED_PIC), 1)
+ifeq ($(C_COMPILER), IBM)
+CCOMMON_OPT += -qpic=large
+else
+CCOMMON_OPT += -fPIC
+endif
+ifeq ($(F_COMPILER), SUN)
+FCOMMON_OPT  += -pic
+else ifeq ($(F_COMPILER), NAG)
+FCOMMON_OPT += -PIC
+else ifeq ($(F_COMPILER), IBM)
+FCOMMON_OPT += -qpic=large
+else
+FCOMMON_OPT += -fPIC
+endif
+endif
+
+ifeq ($(DYNAMIC_ARCH), 1)
+CCOMMON_OPT	+= -DDYNAMIC_ARCH
+endif
+
+ifeq ($(DYNAMIC_OLDER), 1)
+CCOMMON_OPT	+= -DDYNAMIC_OLDER
+endif
+
+ifeq ($(C_LAPACK), 1)
+CCOMMON_OPT	+= -DC_LAPACK
+endif
+
+ifeq ($(NO_LAPACK), 1)
+CCOMMON_OPT	+= -DNO_LAPACK
+#Disable LAPACK C interface
+NO_LAPACKE = 1
+endif
+
+ifeq ($(NO_LAPACKE), 1)
+CCOMMON_OPT	+= -DNO_LAPACKE
+endif
+
+ifeq ($(NO_AVX), 1)
+CCOMMON_OPT	+= -DNO_AVX
+endif
+
+ifeq ($(ARCH), x86)
+CCOMMON_OPT	+= -DNO_AVX
+endif
+
+ifeq ($(NO_AVX2), 1)
+CCOMMON_OPT	+= -DNO_AVX2
+endif
+
+ifeq ($(NO_AVX512), 1)
+CCOMMON_OPT	+= -DNO_AVX512
+endif
+
+ifeq ($(NO_SVE), 1)
+CCOMMON_OPT     += -DNO_SVE
+endif
+
+ifeq ($(NO_SME), 1)
+CCOMMON_OPT     += -DNO_SME
+endif
+
+ifdef SMP
+CCOMMON_OPT	+= -DSMP_SERVER
+
+ifeq ($(ARCH), mips64)
+USE_SIMPLE_THREADED_LEVEL3 = 1
+endif
+
+ifeq ($(USE_OPENMP), 1)
+# USE_SIMPLE_THREADED_LEVEL3 = 1
+# NO_AFFINITY = 1
+CCOMMON_OPT	+= -DUSE_OPENMP
+endif
+
+ifeq ($(BIGNUMA), 1)
+CCOMMON_OPT	+= -DBIGNUMA
+endif
+
+endif
+
+ifeq ($(NO_WARMUP), 1)
+CCOMMON_OPT	+= -DNO_WARMUP
+endif
+
+ifeq ($(CONSISTENT_FPCSR), 1)
+CCOMMON_OPT	+= -DCONSISTENT_FPCSR
+endif
+
+# Only for development
+# CCOMMON_OPT	 += -DPARAMTEST
+# CCOMMON_OPT	 += -DPREFETCHTEST
+# CCOMMON_OPT	 += -DNO_SWITCHING
+# USE_PAPI = 1
+
+ifdef USE_PAPI
+CCOMMON_OPT	 += -DUSE_PAPI
+EXTRALIB	 += -lpapi -lperfctr
+endif
+
+ifdef BUFFERSIZE
+CCOMMON_OPT	 += -DBUFFERSIZE=$(BUFFERSIZE)
+endif
+
+ifdef DYNAMIC_THREADS
+CCOMMON_OPT	 += -DDYNAMIC_THREADS
+endif
+
+CCOMMON_OPT	+= -DMAX_CPU_NUMBER=$(NUM_THREADS)
+
+CCOMMON_OPT	+= -DMAX_PARALLEL_NUMBER=$(NUM_PARALLEL)
+
+ifdef USE_SIMPLE_THREADED_LEVEL3
+CCOMMON_OPT	+= -DUSE_SIMPLE_THREADED_LEVEL3
+endif
+
+ifeq ($(USE_TLS), 1)
+CCOMMON_OPT += -DUSE_TLS
+endif
+
+ifeq ($(BUILD_BFLOAT16), 1)
+CCOMMON_OPT += -DBUILD_BFLOAT16
+endif
+ifeq ($(BUILD_SINGLE), 1)
+CCOMMON_OPT += -DBUILD_SINGLE=1
+endif
+ifeq ($(BUILD_DOUBLE), 1)
+CCOMMON_OPT += -DBUILD_DOUBLE=1
+endif
+ifeq ($(BUILD_COMPLEX), 1)
+CCOMMON_OPT += -DBUILD_COMPLEX=1
+endif
+ifeq ($(BUILD_COMPLEX16), 1)
+CCOMMON_OPT += -DBUILD_COMPLEX16=1
+endif
+
+CCOMMON_OPT += -DVERSION=\"$(VERSION)\"
+
+ifndef SYMBOLPREFIX
+SYMBOLPREFIX =
+endif
+
+ifndef SYMBOLSUFFIX
+SYMBOLSUFFIX =
+endif
+
+ifndef LIBSONAMEBASE
+LIBSONAMEBASE = openblas
+endif
+
+ifndef LIBNAMEPREFIX
+LIBNAMEPREFIX =
+endif
+
+SYMPREFIX=$(SYMBOLPREFIX)
+ifeq ($(SYMBOLPREFIX),$(LIBNAMEPREFIX))
+SYMPREFIX=
+endif
+SYMSUFFIX=$(SYMBOLSUFFIX)
+ifeq ($(SYMBOLSUFFIX),$(LIBNAMESUFFIX))
+SYMSUFFIX=
+endif
+ifndef LIBNAMESUFFIX
+LIBNAMEBASE = $(SYMPREFIX)$(LIBSONAMEBASE)$(SYMSUFFIX)
+else
+LIBNAMEBASE = $(SYMPREFIX)$(LIBSONAMEBASE)$(SYMSUFFIX)$(LIBNAMESUFFIX)
+endif
+
+ifeq ($(OSNAME), CYGWIN_NT)
+LIBPREFIX = cyg$(LIBNAMEPREFIX)$(LIBNAMEBASE)
+else
+LIBPREFIX = lib$(LIBNAMEPREFIX)$(LIBNAMEBASE)
+endif
+
+KERNELDIR	= $(TOPDIR)/kernel/$(ARCH)
+
+include $(TOPDIR)/Makefile.$(ARCH)
+
+ifneq ($(C_COMPILER), PGI)
+ifneq ($(C_COMPILER), SUN)
+CCOMMON_OPT     += -UASMNAME -UASMFNAME -UNAME -UCNAME -UCHAR_NAME -UCHAR_CNAME
+endif
+endif
+CCOMMON_OPT	+= -DASMNAME=$(FU)$(*F) -DASMFNAME=$(FU)$(*F)$(BU) -DNAME=$(*F)$(BU) -DCNAME=$(*F) -DCHAR_NAME=\"$(*F)$(BU)\" -DCHAR_CNAME=\"$(*F)\"
+
+ifeq ($(CORE), PPC440)
+CCOMMON_OPT	+= -DALLOC_QALLOC
+endif
+
+ifeq ($(CORE), PPC440FP2)
+STATIC_ALLOCATION = 1
+endif
+
+ifneq ($(OSNAME), Linux)
+NO_AFFINITY = 1
+endif
+
+ifneq ($(ARCH), x86_64)
+ifneq ($(ARCH), x86)
+NO_AFFINITY = 1
+endif
+endif
+
+ifeq ($(ARCH), POWER)
+ifeq ($(DEBUG), 1)
+CCOMMON_OPT := $(filter-out -O%, $(CCOMMON_OPT)) -O0
+FCOMMON_OPT := $(filter-out -O%, $(FCOMMON_OPT)) -O0
+endif
+endif
+
+ifdef NO_AFFINITY
+ifeq ($(NO_AFFINITY), 0)
+override undefine NO_AFFINITY
+else
+CCOMMON_OPT	+= -DNO_AFFINITY
+endif
+endif
+
+ifdef FUNCTION_PROFILE
+CCOMMON_OPT	+= -DFUNCTION_PROFILE
+endif
+
+ifdef SHMEM_ALLOCATION
+ifneq ($(SHMEM_ALLOCATION), 0)
+CCOMMON_OPT	+= -DALLOC_SHM
+endif
+endif
+
+ifdef HUGETLB_ALLOCATION
+ifneq ($(HUGETLB_ALLOCATION), 0)
+CCOMMON_OPT	+= -DALLOC_HUGETLB
+endif
+endif
+
+ifdef HUGETLBFILE_ALLOCATION
+ifneq ($(HUGETLBFILE_ALLOCATION), 0)
+CCOMMON_OPT	+= -DALLOC_HUGETLBFILE -DHUGETLB_FILE_NAME=$(HUGETLBFILE_ALLOCATION)
+endif
+endif
+
+ifdef STATIC_ALLOCATION
+CCOMMON_OPT	+= -DALLOC_STATIC
+endif
+
+ifdef DEVICEDRIVER_ALLOCATION
+CCOMMON_OPT	+= -DALLOC_DEVICEDRIVER -DDEVICEDRIVER_NAME=\"/dev/mapper\"
+endif
+
+ifdef MIXED_MEMORY_ALLOCATION
+CCOMMON_OPT	+= -DMIXED_MEMORY_ALLOCATION
+endif
+
+ifeq ($(OSNAME), SunOS)
+TAR	= gtar
+PATCH	= gpatch
+GREP	= ggrep
+AWK	= nawk
+else
+TAR	= tar
+PATCH	= patch
+GREP	= grep
+AWK	= awk
+endif
+
+ifndef MD5SUM
+MD5SUM	= md5sum
+endif
+
+
+REVISION = -r$(VERSION)
+MAJOR_VERSION = $(word 1,$(subst ., ,$(VERSION)))
+
+ifeq ($(DEBUG), 1)
+COMMON_OPT += -g
+endif
+
+ifeq ($(DEBUG), 1)
+FCOMMON_OPT += -g
+endif
+
+ifndef COMMON_OPT
+COMMON_OPT = -O2
+endif
+
+ifndef FCOMMON_OPT
+FCOMMON_OPT = -O2 -frecursive
+endif
+
+override CFLAGS     += $(COMMON_OPT) $(CCOMMON_OPT) -I$(TOPDIR)
+override PFLAGS     += $(COMMON_OPT) $(CCOMMON_OPT) -I$(TOPDIR) -DPROFILE $(COMMON_PROF)
+override FFLAGS     += $(COMMON_OPT) $(FCOMMON_OPT)
+override FPFLAGS    += $(FCOMMON_OPT) $(COMMON_PROF)
+#MAKEOVERRIDES =
+
+ifeq ($(NEED_PIC), 1)
+ifeq (,$(findstring PIC,$(FFLAGS)))
+ifneq ($(F_COMPILER),IBM)
+override FFLAGS += -fPIC
+endif
+endif
+endif
+
+#For LAPACK Fortran codes.
+#Disable -fopenmp for LAPACK Fortran codes on Windows.
+ifdef OS_WINDOWS
+LAPACK_FFLAGS := $(filter-out -fopenmp -mp -openmp -xopenmp=parallel,$(FFLAGS))
+LAPACK_FPFLAGS := $(filter-out -fopenmp -mp -openmp -xopenmp=parallel,$(FPFLAGS))
+else
+LAPACK_FFLAGS := $(FFLAGS)
+LAPACK_FPFLAGS := $(FPFLAGS)
+endif
+
+ifeq ($(F_COMPILER),NAG)
+LAPACK_FFLAGS := $(filter-out -msse3 -mssse3 -msse4.1 -mavx -mavx2 -mskylake-avx512 ,$(FFLAGS))
+override FFLAGS := $(filter-out -msse3 -mssse3 -msse4.1 -mavx -mavx2 -mskylake-avx512 ,$(FFLAGS))
+endif
+ifeq ($(F_COMPILER),CRAY)
+LAPACK_FFLAGS := $(filter-out -msse3 -mssse3 -msse4.1 -mavx -mavx2 -mskylake-avx512 ,$(FFLAGS))
+override FFLAGS := $(filter-out -msse3 -mssse3 -msse4.1 -mavx -mavx2 -mskylake-avx512 ,$(FFLAGS))
+endif
+ifeq ($(F_COMPILER),FLANGNEW)
+LAPACK_FFLAGS := $(filter-out -m32 -m64 -msse3 -mssse3 -msse4.1 -mavx -mavx2 -mskylake-avx512 -mtune=% -mabi=% ,$(FFLAGS))
+override FFLAGS := $(filter-out -m32 -m64 -msse3 -mssse3 -msse4.1 -mavx -mavx2 -mskylake-avx512 -mtune=% -mabi=% ,$(FFLAGS))
+endif
+
+LAPACK_CFLAGS = $(CFLAGS)
+LAPACK_CFLAGS += -DHAVE_LAPACK_CONFIG_H
+ifdef INTERFACE64
+ifneq ($(INTERFACE64), 0)
+LAPACK_CFLAGS +=  -DLAPACK_ILP64
+endif
+endif
+
+ifdef OS_WINDOWS
+LAPACK_CFLAGS +=  -DOPENBLAS_OS_WINDOWS
+LAPACK_CFLAGS +=  -DLAPACK_COMPLEX_STRUCTURE
+endif
+ifeq ($(C_COMPILER), LSB)
+LAPACK_CFLAGS +=  -DLAPACK_COMPLEX_STRUCTURE
+endif
+
+ifndef SUFFIX
+SUFFIX  = o
+endif
+
+ifndef PSUFFIX
+PSUFFIX = po
+endif
+
+ifndef LIBSUFFIX
+LIBSUFFIX = a
+endif
+
+ifneq ($(DYNAMIC_ARCH), 1)
+ifndef SMP
+LIBNAME		= $(LIBPREFIX)_$(LIBCORE)$(REVISION).$(LIBSUFFIX)
+LIBNAME_P	= $(LIBPREFIX)_$(LIBCORE)$(REVISION)_p.$(LIBSUFFIX)
+else
+LIBNAME		= $(LIBPREFIX)_$(LIBCORE)p$(REVISION).$(LIBSUFFIX)
+LIBNAME_P	= $(LIBPREFIX)_$(LIBCORE)p$(REVISION)_p.$(LIBSUFFIX)
+endif
+else
+ifndef SMP
+LIBNAME		= $(LIBPREFIX)$(REVISION).$(LIBSUFFIX)
+LIBNAME_P	= $(LIBPREFIX)$(REVISION)_p.$(LIBSUFFIX)
+else
+LIBNAME		= $(LIBPREFIX)p$(REVISION).$(LIBSUFFIX)
+LIBNAME_P	= $(LIBPREFIX)p$(REVISION)_p.$(LIBSUFFIX)
+endif
+endif
+
+ifeq ($(FIXED_LIBNAME),1)
+	LIBNAME = lib$(LIBNAMEPREFIX)$(LIBSONAMEBASE)$(LIBNAMESUFFIX).$(LIBSUFFIX)
+	LIBNAME_P = lib$(LIBNAMEPREFIX)$(LISOBNAMEBASE)$(LIBNAMESUFFIX)_p.$(LIBSUFFIX)
+endif
+
+LIBDLLNAME   = $(LIBPREFIX).dll
+IMPLIBNAME   = lib$(LIBNAMEBASE).dll.a
+LIBSONAME    = $(LIBNAME:.$(LIBSUFFIX)=.so)
+LIBDYNNAME   = $(LIBNAME:.$(LIBSUFFIX)=.dylib)
+LIBDEFNAME   = $(LIBNAME:.$(LIBSUFFIX)=.def)
+LIBEXPNAME   = $(LIBNAME:.$(LIBSUFFIX)=.exp)
+LIBZIPNAME   = $(LIBNAME:.$(LIBSUFFIX)=.zip)
+
+LIBS		= $(TOPDIR)/$(LIBNAME)
+LIBS_P		= $(TOPDIR)/$(LIBNAME_P)
+
+
+LIB_COMPONENTS = BLAS
+ifneq ($(NO_CBLAS), 1)
+LIB_COMPONENTS += CBLAS
+endif
+
+ifneq ($(NO_LAPACK), 1)
+LIB_COMPONENTS += LAPACK
+ifneq ($(NO_LAPACKE), 1)
+LIB_COMPONENTS += LAPACKE
+endif
+ifeq ($(BUILD_RELAPACK), 1)
+LIB_COMPONENTS += ReLAPACK
+endif
+endif
+
+ifeq ($(ONLY_CBLAS), 1)
+LIB_COMPONENTS = CBLAS
+endif
+
+export OSNAME
+export ARCH
+export CORE
+export LIBCORE
+export __BYTE_ORDER__
+export ELF_VERSION
+export PGCPATH
+export CONFIG
+export CC
+export FC
+export BU
+export FU
+export NEED2UNDERSCORES
+export USE_THREAD
+export NUM_THREADS
+export NUM_CORES
+export SMP
+export MAKEFILE_RULE
+export NEED_PIC
+export BINARY
+export BINARY32
+export BINARY64
+export F_COMPILER
+export C_COMPILER
+export USE_OPENMP
+export CROSS
+export CROSS_SUFFIX
+export NOFORTRAN
+export C_LAPACK
+export NO_FBLAS
+export EXTRALIB
+export CEXTRALIB
+export FEXTRALIB
+export HAVE_SSE
+export HAVE_SSE2
+export HAVE_SSE3
+export HAVE_SSSE3
+export HAVE_SSE4_1
+export HAVE_SSE4_2
+export HAVE_SSE4A
+export HAVE_SSE5
+export HAVE_AVX
+export HAVE_AVX2
+export HAVE_FMA3
+export HAVE_VFP
+export HAVE_VFPV3
+export HAVE_VFPV4
+export HAVE_NEON
+ifndef NO_MSA
+  export HAVE_MSA
+  export MSA_FLAGS
+endif
+export KERNELDIR
+export FUNCTION_PROFILE
+export TARGET_CORE
+export NO_AVX512
+export NO_AVX2
+export BUILD_BFLOAT16
+export NO_LSX
+export NO_LASX
+
+export SBGEMM_UNROLL_M
+export SBGEMM_UNROLL_N
+export SGEMM_UNROLL_M
+export SGEMM_UNROLL_N
+export DGEMM_UNROLL_M
+export DGEMM_UNROLL_N
+export QGEMM_UNROLL_M
+export QGEMM_UNROLL_N
+export CGEMM_UNROLL_M
+export CGEMM_UNROLL_N
+export ZGEMM_UNROLL_M
+export ZGEMM_UNROLL_N
+export XGEMM_UNROLL_M
+export XGEMM_UNROLL_N
+export CGEMM3M_UNROLL_M
+export CGEMM3M_UNROLL_N
+export ZGEMM3M_UNROLL_M
+export ZGEMM3M_UNROLL_N
+export XGEMM3M_UNROLL_M
+export XGEMM3M_UNROLL_N
+
+
+ifdef USE_CUDA
+export CUDADIR
+export CUCC
+export CUFLAGS
+export CULIB
+endif
+
+.SUFFIXES: .$(PSUFFIX) .$(SUFFIX) .f
+
+.f.$(SUFFIX):
+	$(FC) $(FFLAGS) -c $<  -o $(@F)
+
+.f.$(PSUFFIX):
+	$(FC) $(FPFLAGS) -pg -c $<  -o $(@F)
+
+
+ifdef BINARY64
+PATHSCALEPATH	= /opt/pathscale/lib/3.1
+PGIPATH		= /opt/pgi/linux86-64/7.1-5/lib
+else
+PATHSCALEPATH	= /opt/pathscale/lib/3.1/32
+PGIPATH		= /opt/pgi/linux86/7.1-5/lib
+endif
+
+ACMLPATH	= /opt/acml/4.3.0
+ifneq ($(OSNAME), Darwin)
+MKLPATH         = /opt/intel/mkl/10.2.2.025/lib
+else
+MKLPATH         = /Library/Frameworks/Intel_MKL.framework/Versions/10.0.1.014/lib
+endif
+ATLASPATH	= /opt/atlas/3.9.17/opteron
+FLAMEPATH	= $(HOME)/flame/lib
+ifneq ($(OSNAME), SunOS)
+SUNPATH		= /opt/sunstudio12.1
+else
+SUNPATH		= /opt/SUNWspro
+endif

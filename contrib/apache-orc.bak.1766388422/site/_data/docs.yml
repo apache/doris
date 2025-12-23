@@ -1,0 +1,42 @@
+- title: Overview
+  docs:
+  - index
+  - adopters
+  - types
+  - indexes
+  - acid
+
+- title: Installing
+  docs:
+  - building
+
+- title: Using in Spark
+  docs:
+  - spark-ddl
+  - spark-config
+
+- title: Using in Python
+  docs:
+  - pyarrow
+  - dask
+
+- title: Using in Hive
+  docs:
+  - hive-ddl
+  - hive-config
+
+- title: Using in MapReduce
+  docs:
+  - mapred
+  - mapreduce
+
+- title: Using ORC Core
+  docs:
+  - core-java
+  - core-cpp
+
+- title: Tools
+  docs:
+  - cpp-tools
+  - java-tools
+

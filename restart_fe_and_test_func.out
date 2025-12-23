@@ -1,0 +1,216 @@
+--- TIME ---
+Sun Dec 21 13:43:48 CST 2025
+--- stop FE ---
+Waiting for fe process with PID 5736 to terminate
+stop java and remove PID file
+--- start FE daemon ---
+--- wait for FE port 9030 ---
+LISTEN 0      1024                     *:9030             *:*    users:(("java",pid=33193,fd=718))    
+LISTEN 0      1024                     *:9030             *:*    users:(("java",pid=33193,fd=718))    
+--- SHOW BACKENDS ---
+BackendId	Host	HeartbeatPort	BePort	HttpPort	BrpcPort	ArrowFlightSqlPort	LastStartTime	LastHeartbeat	Alive	SystemDecommissioned	TabletNum	DataUsedCapacity	TrashUsedCapacity	AvailCapacity	TotalCapacity	UsedPct	MaxDiskUsedPct	RemoteUsedCapacity	Tag	ErrMsg	Version	Status	HeartbeatFailureCounter	NodeRole	CpuCores	Memory	LiveSince	RunningTasks
+1766220400802	172.30.95.46	9050	9060	8040	8060	8050	2025-12-21 13:01:20	2025-12-21 13:44:01	true	true	61	0.000 	0.000 	864.456 GB	1006.854 GB	14.14 %	14.14 %	0.000 	{"location" : "default"}		doris-0.0.0-Unknown	{"lastStreamLoadTime":-1,"isQueryDisabled":false,"isLoadDisabled":false,"isActive":true,"isShutdown":false,"currentFragmentNum":0,"lastFragmentUpdateTime":1766295744092}	0	mix	8	15.31 GB	2025-12-21 13:44:01	0
+1766285578511	127.0.0.1	9050	9060	8040	8060	8050	2025-12-21 13:01:20	2025-12-21 13:44:01	true	false	62	0.000 	0.000 	864.464 GB	1006.854 GB	14.14 %	14.14 %	0.000 	{"location" : "default"}		doris-0.0.0-Unknown	{"lastSuccessReportTabletsTime":"2025-12-21 13:44:03","lastStreamLoadTime":-1,"isQueryDisabled":false,"isLoadDisabled":false,"isActive":true,"isShutdown":false,"currentFragmentNum":0,"lastFragmentUpdateTime":1766295744092}	0	mix	8	15.31 GB	2025-12-21 13:44:01	0
+--- test hamming_distance ---
+ERROR 1105 (HY000) at line 1: errCode = 2, detailMessage = Can not found function 'hamming_distance'
+--- tail fe.log ---
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalFilter(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalFilter.accept(PhysicalFilter.java:114)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalProject(PhysicalPlanTranslator.java:2094)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalProject(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalProject.accept(PhysicalProject.java:153)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalTopN(PhysicalPlanTranslator.java:2443)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalTopN(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalTopN.accept(PhysicalTopN.java:109)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalDistribute(PhysicalPlanTranslator.java:339)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalDistribute(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute.accept(PhysicalDistribute.java:90)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalTopN(PhysicalPlanTranslator.java:2443)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalTopN(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalTopN.accept(PhysicalTopN.java:109)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalProject(PhysicalPlanTranslator.java:2094)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalProject(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalProject.accept(PhysicalProject.java:153)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalResultSink(PhysicalPlanTranslator.java:461)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalResultSink(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink.accept(PhysicalResultSink.java:72)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.translatePlan(PhysicalPlanTranslator.java:297)
+	at org.apache.doris.nereids.NereidsPlanner.splitFragments(NereidsPlanner.java:592)
+	at org.apache.doris.nereids.NereidsPlanner.distribute(NereidsPlanner.java:686)
+	at org.apache.doris.nereids.NereidsPlanner.lambda$plan$0(NereidsPlanner.java:166)
+	at org.apache.doris.nereids.NereidsPlanner.planWithLock(NereidsPlanner.java:264)
+	at org.apache.doris.nereids.NereidsPlanner.plan(NereidsPlanner.java:162)
+	at org.apache.doris.qe.StmtExecutor.executeInternalQuery(StmtExecutor.java:1907)
+	at org.apache.doris.statistics.util.StatisticsUtil.execStatisticQuery(StatisticsUtil.java:167)
+	at org.apache.doris.statistics.util.StatisticsUtil.execStatisticQuery(StatisticsUtil.java:149)
+	at org.apache.doris.statistics.StatisticsRepository.fetchStatsFullName(StatisticsRepository.java:431)
+	at org.apache.doris.statistics.StatisticsCleaner.findExpiredStats(StatisticsCleaner.java:263)
+	at org.apache.doris.statistics.StatisticsCleaner.clearStats(StatisticsCleaner.java:100)
+	at org.apache.doris.statistics.StatisticsCleaner.clear(StatisticsCleaner.java:85)
+	at org.apache.doris.statistics.StatisticsCleaner.runAfterCatalogReady(StatisticsCleaner.java:76)
+	at org.apache.doris.common.util.MasterDaemon.runOneCycle(MasterDaemon.java:58)
+	at org.apache.doris.common.util.Daemon.run(Daemon.java:119)
+Caused by: org.apache.doris.common.UserException: errCode = 2, detailMessage = Failed to get scan range, no queryable replica found in tablet: 1766220400808. Reason: Visible Replicas:Visible version: 6, Replicas: [replicaId=1766220400809, backendId=1766220400802, backendAlive=true, backendDecommission=true, version=6, isBad=true, state=NORMAL].
+	at org.apache.doris.planner.OlapScanNode.addScanRangeLocations(OlapScanNode.java:525)
+	at org.apache.doris.planner.OlapScanNode.computeTabletInfo(OlapScanNode.java:921)
+	at org.apache.doris.planner.OlapScanNode.createScanRangeLocations(OlapScanNode.java:733)
+	at org.apache.doris.planner.OlapScanNode.init(OlapScanNode.java:318)
+	at org.apache.doris.nereids.util.Utils.execWithUncheckedException(Utils.java:98)
+	... 41 more
+2025-12-21 13:44:04,203 ERROR (Statistics Table Cleaner|45) [Daemon.run():121] daemon thread got exception. name: Statistics Table Cleaner
+java.lang.RuntimeException: Failed to execute internal SQL. org.apache.doris.common.UserException: errCode = 2, detailMessage = Failed to get scan range, no queryable replica found in tablet: 1766220400808. Reason: Visible Replicas:Visible version: 6, Replicas: [replicaId=1766220400809, backendId=1766220400802, backendAlive=true, backendDecommission=true, version=6, isBad=true, state=NORMAL].
+	at org.apache.doris.qe.StmtExecutor.executeInternalQuery(StmtExecutor.java:1910)
+	at org.apache.doris.statistics.util.StatisticsUtil.execStatisticQuery(StatisticsUtil.java:167)
+	at org.apache.doris.statistics.util.StatisticsUtil.execStatisticQuery(StatisticsUtil.java:149)
+	at org.apache.doris.statistics.StatisticsRepository.fetchStatsFullName(StatisticsRepository.java:431)
+	at org.apache.doris.statistics.StatisticsCleaner.findExpiredStats(StatisticsCleaner.java:263)
+	at org.apache.doris.statistics.StatisticsCleaner.clearStats(StatisticsCleaner.java:100)
+	at org.apache.doris.statistics.StatisticsCleaner.clear(StatisticsCleaner.java:85)
+	at org.apache.doris.statistics.StatisticsCleaner.runAfterCatalogReady(StatisticsCleaner.java:76)
+	at org.apache.doris.common.util.MasterDaemon.runOneCycle(MasterDaemon.java:58)
+	at org.apache.doris.common.util.Daemon.run(Daemon.java:119)
+Caused by: java.lang.RuntimeException: errCode = 2, detailMessage = Failed to get scan range, no queryable replica found in tablet: 1766220400808. Reason: Visible Replicas:Visible version: 6, Replicas: [replicaId=1766220400809, backendId=1766220400802, backendAlive=true, backendDecommission=true, version=6, isBad=true, state=NORMAL].
+	at org.apache.doris.nereids.util.Utils.execWithUncheckedException(Utils.java:100)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.computePhysicalOlapScan(PhysicalPlanTranslator.java:954)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalOlapScan(PhysicalPlanTranslator.java:842)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalOlapScan(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan.accept(PhysicalOlapScan.java:290)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalFilter(PhysicalPlanTranslator.java:1441)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalFilter(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalFilter.accept(PhysicalFilter.java:114)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalProject(PhysicalPlanTranslator.java:2094)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalProject(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalProject.accept(PhysicalProject.java:153)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalTopN(PhysicalPlanTranslator.java:2443)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalTopN(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalTopN.accept(PhysicalTopN.java:109)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalDistribute(PhysicalPlanTranslator.java:339)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalDistribute(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute.accept(PhysicalDistribute.java:90)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalTopN(PhysicalPlanTranslator.java:2443)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalTopN(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalTopN.accept(PhysicalTopN.java:109)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalProject(PhysicalPlanTranslator.java:2094)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalProject(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalProject.accept(PhysicalProject.java:153)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalResultSink(PhysicalPlanTranslator.java:461)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.visitPhysicalResultSink(PhysicalPlanTranslator.java:269)
+	at org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink.accept(PhysicalResultSink.java:72)
+	at org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.translatePlan(PhysicalPlanTranslator.java:297)
+	at org.apache.doris.nereids.NereidsPlanner.splitFragments(NereidsPlanner.java:592)
+	at org.apache.doris.nereids.NereidsPlanner.distribute(NereidsPlanner.java:686)
+	at org.apache.doris.nereids.NereidsPlanner.lambda$plan$0(NereidsPlanner.java:166)
+	at org.apache.doris.nereids.NereidsPlanner.planWithLock(NereidsPlanner.java:264)
+	at org.apache.doris.nereids.NereidsPlanner.plan(NereidsPlanner.java:162)
+	at org.apache.doris.qe.StmtExecutor.executeInternalQuery(StmtExecutor.java:1907)
+	... 9 more
+Caused by: org.apache.doris.common.UserException: errCode = 2, detailMessage = Failed to get scan range, no queryable replica found in tablet: 1766220400808. Reason: Visible Replicas:Visible version: 6, Replicas: [replicaId=1766220400809, backendId=1766220400802, backendAlive=true, backendDecommission=true, version=6, isBad=true, state=NORMAL].
+	at org.apache.doris.planner.OlapScanNode.addScanRangeLocations(OlapScanNode.java:525)
+	at org.apache.doris.planner.OlapScanNode.computeTabletInfo(OlapScanNode.java:921)
+	at org.apache.doris.planner.OlapScanNode.createScanRangeLocations(OlapScanNode.java:733)
+	at org.apache.doris.planner.OlapScanNode.init(OlapScanNode.java:318)
+	at org.apache.doris.nereids.util.Utils.execWithUncheckedException(Utils.java:98)
+	... 41 more
+2025-12-21 13:44:04,862 INFO (tablet scheduler|36) [TabletScheduler.updateWorkingSlots():206] backend 172.30.95.46:9060 with id 1766220400802 doesn't have path info.
+2025-12-21 13:44:04,863 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 13:44:05,327 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [JettyServletWebServerFactory.getWebServer():176] Server initialized with port: 8030
+2025-12-21 13:44:05,341 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [Server.doStart():555] jetty-12.0.29; built: 2025-10-16T15:15:43.982Z; git: 8dbd9865cc7407d735084a181cc3f21205872b70; jvm 17.0.17+10-Ubuntu-124.04
+2025-12-21 13:44:05,417 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [ServletContextHandler$ServletContextApi.log():2934] Initializing Spring embedded WebApplicationContext
+2025-12-21 13:44:05,419 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [ServletWebServerApplicationContext.prepareWebApplicationContext():301] Root WebApplicationContext: initialization completed in 2337 ms
+2025-12-21 13:44:05,549 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [DefaultSessionIdManager.doStart():328] Session workerName=node0
+2025-12-21 13:44:05,561 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [ContextHandler.doStart():789] Started osbwej.JettyEmbeddedWebAppContext@246ee6d8{application,/,b=file:/tmp/jetty-docbase.8030.188914654384970784/,a=AVAILABLE,h=oeje10s.SessionHandler@33e69162{STARTED}}
+2025-12-21 13:44:05,562 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [ServletContextHandler.doStart():1055] Started osbwej.JettyEmbeddedWebAppContext@246ee6d8{application,/,b=file:/tmp/jetty-docbase.8030.188914654384970784/,a=AVAILABLE,h=oeje10s.SessionHandler@33e69162{STARTED}}
+2025-12-21 13:44:05,564 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [Server.doStart():612] Started oejs.Server@62ae5180{STARTING}[12.0.29,sto=0] @11695ms
+2025-12-21 13:44:05,862 INFO (tablet scheduler|36) [TabletScheduler.updateWorkingSlots():206] backend 172.30.95.46:9060 with id 1766220400802 doesn't have path info.
+2025-12-21 13:44:05,863 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 13:44:05,974 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [WelcomePageHandlerMapping.<init>():59] Adding welcome page: class path resource [static/index.html]
+2025-12-21 13:44:06,620 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [AbstractContextSource.afterPropertiesSet():419] Property 'userDn' not set - anonymous context will be used for read-only operations
+2025-12-21 13:44:06,709 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [ServletContextHandler$ServletContextApi.log():2934] Initializing Spring DispatcherServlet 'dispatcherServlet'
+2025-12-21 13:44:06,709 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [FrameworkServlet.initServletBean():532] Initializing Servlet 'dispatcherServlet'
+2025-12-21 13:44:06,712 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [FrameworkServlet.initServletBean():554] Completed initialization in 3 ms
+2025-12-21 13:44:06,724 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [AbstractConnector.doStart():326] Started ServerConnector@4bb70d87{HTTP/1.1, (http/1.1)}{0.0.0.0:8030}
+2025-12-21 13:44:06,726 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [JettyWebServer.start():169] Jetty started on port 8030 (http/1.1) with context path '/'
+2025-12-21 13:44:06,739 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [StartupInfoLogger.logStarted():59] Started DorisFE in 4.335 seconds (process running for 12.87)
+2025-12-21 13:44:06,758 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [Xnio.<clinit>():95] XNIO version 3.8.14.Final
+2025-12-21 13:44:06,777 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [NioXnio.<clinit>():58] XNIO NIO Implementation Version 3.8.14.Final
+2025-12-21 13:44:06,809 WARN (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [QeService.start():58] Help module failed. ignore it.
+java.io.IOException: Can not find help zip file: help-resource.zip
+	at org.apache.doris.qe.help.HelpModule.setUpModule(HelpModule.java:271)
+	at org.apache.doris.qe.QeService.start(QeService.java:56)
+	at org.apache.doris.DorisFE.start(DorisFE.java:256)
+	at org.apache.doris.DorisFE.main(DorisFE.java:109)
+2025-12-21 13:44:06,817 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [MysqlServer.start():86] Open mysql server success on 9030
+2025-12-21 13:44:06,830 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [BaseAllocator.<clinit>():62] Debug mode disabled. Enable with the VM option -Darrow.memory.debug.allocator=true.
+2025-12-21 13:44:06,834 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [DefaultAllocationManagerOption.getDefaultAllocationManagerFactory():91] allocation manager type not specified, using netty as the default type
+2025-12-21 13:44:06,836 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [CheckAllocator.reportResult():99] Using DefaultAllocationManager at memory-netty-17.0.0.jar!/org/apache/arrow/memory/netty/DefaultAllocationManagerFactory.class
+2025-12-21 13:44:06,863 INFO (tablet scheduler|36) [TabletScheduler.updateWorkingSlots():206] backend 172.30.95.46:9060 with id 1766220400802 doesn't have path info.
+2025-12-21 13:44:06,863 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 13:44:09,492 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-21 13:44:09,493 INFO (Dictionary Manager|73) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-21 13:44:09,512 INFO (thrift-server-pool-0|201) [ReportHandler.handleReport():239] receive report from be 1766285578511. type: TASK, report version -1, current queue size: 1
+2025-12-21 13:44:09,512 INFO (report-thread|188) [ReportHandler.taskReport():761] finished to handle task report from backend 1766285578511-127.0.0.1, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 0 ms.
+2025-12-21 13:44:09,543 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [DorisFlightSqlService.<init>():60] Arrow Flight SQL service is created, port: 8070, arrow_flight_max_connections: 4096，arrow_flight_token_alive_time_second: 86400
+2025-12-21 13:44:09,557 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [DorisFlightSqlService.start():70] Arrow Flight SQL service is started.
+2025-12-21 13:44:09,557 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [QeService.start():75] QE service start.
+2025-12-21 13:44:10,023 INFO (mysql-nio-pool-0|225) [StmtExecutor.handleQueryWithRetry():915] Query d06f5a4efd974de4-9f20ea04aa219c3c finished
+2025-12-21 13:44:10,128 INFO (mysql-nio-pool-0|225) [StmtExecutor.handleQueryWithRetry():915] Query 9a27ee8b83b84148-af3139b982e88bb4 finished
+2025-12-21 13:44:10,174 WARN (mysql-nio-pool-0|225) [StmtExecutor.executeByNereids():745] Nereids plan query failed:
+SELECT hamming_distance('abc','axc') AS hd
+org.apache.doris.nereids.exceptions.AnalysisException: Can not found function 'hamming_distance'
+	at org.apache.doris.catalog.FunctionRegistry.findFunctionBuilder(FunctionRegistry.java:160)
+	at org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer.visitUnboundFunction(ExpressionAnalyzer.java:537)
+	at org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer.visitUnboundFunction(ExpressionAnalyzer.java:130)
+	at org.apache.doris.nereids.analyzer.UnboundFunction.accept(UnboundFunction.java:149)
+	at org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer.visitUnboundAlias(ExpressionAnalyzer.java:257)
+	at org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer.visitUnboundAlias(ExpressionAnalyzer.java:130)
+	at org.apache.doris.nereids.analyzer.UnboundAlias.accept(UnboundAlias.java:119)
+	at org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer.analyze(ExpressionAnalyzer.java:200)
+	at org.apache.doris.nereids.rules.analysis.BindExpression.lambda$buildSimpleExprAnalyzer$28(BindExpression.java:1605)
+	at org.apache.doris.nereids.rules.analysis.BindExpression$SimpleExprAnalyzer.analyzeToList(BindExpression.java:1629)
+	at org.apache.doris.nereids.rules.analysis.BindExpression.bindOneRowRelation(BindExpression.java:373)
+	at org.apache.doris.nereids.pattern.PatternMatcher$1.transform(PatternMatcher.java:96)
+	at org.apache.doris.nereids.rules.AppliedAwareRule.transform(AppliedAwareRule.java:55)
+	at org.apache.doris.nereids.jobs.rewrite.BottomUpVisitorRewriteJob.doRewrite(BottomUpVisitorRewriteJob.java:130)
+	at org.apache.doris.nereids.jobs.rewrite.BottomUpVisitorRewriteJob.rewrite(BottomUpVisitorRewriteJob.java:107)
+	at org.apache.doris.nereids.jobs.rewrite.BottomUpVisitorRewriteJob.rewrite(BottomUpVisitorRewriteJob.java:97)
+	at org.apache.doris.nereids.jobs.rewrite.BottomUpVisitorRewriteJob.execute(BottomUpVisitorRewriteJob.java:60)
+	at org.apache.doris.nereids.jobs.rewrite.AdaptiveBottomUpRewriteJob.execute(AdaptiveBottomUpRewriteJob.java:41)
+	at org.apache.doris.nereids.jobs.executor.AbstractBatchJobExecutor.execute(AbstractBatchJobExecutor.java:167)
+	at org.apache.doris.nereids.jobs.executor.Analyzer.lambda$execute$0(Analyzer.java:98)
+	at org.apache.doris.nereids.util.MoreFieldsThread.keepFunctionSignature(MoreFieldsThread.java:127)
+	at org.apache.doris.nereids.jobs.executor.Analyzer.execute(Analyzer.java:97)
+	at org.apache.doris.nereids.jobs.executor.Analyzer.analyze(Analyzer.java:92)
+	at org.apache.doris.nereids.NereidsPlanner.lambda$analyze$4(NereidsPlanner.java:414)
+	at org.apache.doris.nereids.NereidsPlanner.keepOrShowPlanProcess(NereidsPlanner.java:1109)
+	at org.apache.doris.nereids.NereidsPlanner.analyze(NereidsPlanner.java:414)
+	at org.apache.doris.nereids.NereidsPlanner.planWithoutLock(NereidsPlanner.java:288)
+	at org.apache.doris.nereids.NereidsPlanner.planWithLock(NereidsPlanner.java:263)
+	at org.apache.doris.nereids.NereidsPlanner.plan(NereidsPlanner.java:162)
+	at org.apache.doris.qe.StmtExecutor.executeByNereids(StmtExecutor.java:742)
+	at org.apache.doris.qe.StmtExecutor.execute(StmtExecutor.java:541)
+	at org.apache.doris.qe.StmtExecutor.queryRetry(StmtExecutor.java:500)
+	at org.apache.doris.qe.StmtExecutor.execute(StmtExecutor.java:485)
+	at org.apache.doris.qe.ConnectProcessor.executeQuery(ConnectProcessor.java:311)
+	at org.apache.doris.qe.ConnectProcessor.handleQuery(ConnectProcessor.java:198)
+	at org.apache.doris.qe.MysqlConnectProcessor.handleQuery(MysqlConnectProcessor.java:231)
+	at org.apache.doris.qe.MysqlConnectProcessor.dispatch(MysqlConnectProcessor.java:259)
+	at org.apache.doris.qe.MysqlConnectProcessor.processOnce(MysqlConnectProcessor.java:403)
+	at org.apache.doris.mysql.ReadListener.lambda$handleEvent$0(ReadListener.java:52)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 13:44:10,174 WARN (mysql-nio-pool-0|225) [StmtExecutor.execute():546] Analyze failed. stmt[4, 30d618c342f94406-be10c5493c02b0d8]
+org.apache.doris.common.NereidsException: errCode = 2, detailMessage = Can not found function 'hamming_distance'
+	at org.apache.doris.qe.StmtExecutor.executeByNereids(StmtExecutor.java:746)
+	at org.apache.doris.qe.StmtExecutor.execute(StmtExecutor.java:541)
+	at org.apache.doris.qe.StmtExecutor.queryRetry(StmtExecutor.java:500)
+	at org.apache.doris.qe.StmtExecutor.execute(StmtExecutor.java:485)
+	at org.apache.doris.qe.ConnectProcessor.executeQuery(ConnectProcessor.java:311)
+	at org.apache.doris.qe.ConnectProcessor.handleQuery(ConnectProcessor.java:198)
+	at org.apache.doris.qe.MysqlConnectProcessor.handleQuery(MysqlConnectProcessor.java:231)
+	at org.apache.doris.qe.MysqlConnectProcessor.dispatch(MysqlConnectProcessor.java:259)
+	at org.apache.doris.qe.MysqlConnectProcessor.processOnce(MysqlConnectProcessor.java:403)
+	at org.apache.doris.mysql.ReadListener.lambda$handleEvent$0(ReadListener.java:52)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)

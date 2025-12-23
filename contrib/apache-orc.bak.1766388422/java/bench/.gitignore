@@ -1,0 +1,5 @@
+.*.crc
+*.json.gz
+*.avro
+*.parquet
+*.orc

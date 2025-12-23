@@ -1,0 +1,16 @@
+
+ifeq ($(CORE), Z13)
+CCOMMON_OPT += -march=z13 -mzvector
+FCOMMON_OPT += -march=z13 -mzvector
+endif
+
+ifeq ($(CORE), Z14)
+CCOMMON_OPT += -march=z14 -mzvector -O3
+FCOMMON_OPT += -march=z14 -mzvector
+endif
+
+# Enable floating-point expression contraction for clang, since it is the
+# default for gcc
+ifeq ($(C_COMPILER), CLANG)
+CCOMMON_OPT += -ffp-contract=on
+endif

@@ -1,0 +1,974 @@
+/**
+
+@defgroup lapack_top                LAPACK
+@{
+    @defgroup solve_top             Linear solve, AX = B
+    @{
+        @defgroup gesv_driver_grp   LU: General matrix, driver
+        @{
+            @defgroup gesv_driver   --- full ---
+            @defgroup gesv          gesv:           factor and solve
+            @defgroup gesvx         gesvx:          factor and solve, expert
+            @defgroup gesvxx        gesvxx:         factor and solve, extra precise
+            @defgroup gesv_mixed    gesv:           factor and solve, mixed precision
+
+            @defgroup gbsv_driver   --- banded ---
+            @defgroup gbsv          gbsv:           factor and solve
+            @defgroup gbsvx         gbsvx:          factor and solve, expert
+            @defgroup gbsvxx        gbsvxx:         factor and solve, extra precise
+
+            @defgroup gtsv_driver   --- tridiagonal ---
+            @defgroup gtsv          gtsv:           factor and solve
+            @defgroup gtsvx         gtsvx:          factor and solve, expert
+        @}
+
+        @defgroup gesv_comp_grp     LU: computational routines (factor, cond, etc.)
+        @{
+            @defgroup gesv_comp     --- full ---
+            @defgroup gecon         gecon:          condition number estimate
+            @defgroup getrf         getrf:          triangular factor
+            @defgroup getrf2        getrf2:         triangular factor panel, recursive?
+            @defgroup getf2         getf2:          triangular factor panel, level 2
+            @defgroup getrs         getrs:          triangular solve using factor
+            @defgroup getri         getri:          triangular inverse
+            @defgroup gerfs         gerfs:          iterative refinement
+            @defgroup gerfsx        gerfsx:         iterative refinement, expert
+            @defgroup geequ         geequ:          equilibration
+            @defgroup geequb        geequb:         equilibration, power of 2
+            @defgroup laqge         laqge:          row/col scale matrix
+            @defgroup laswp         laswp:          swap permutation
+
+            @defgroup getc2         getc2:          triangular factor, with complete pivoting
+            @defgroup gesc2         gesc2:          triangular solve using factor, with complete pivoting
+            @defgroup latdf         latdf:          Dif-estimate with complete pivoting LU, step in tgsen
+
+            @defgroup la_gercond    la_gercond: Skeel condition number estimate
+            @defgroup la_gerpvgrw   la_gerpvgrw: reciprocal pivot growth
+            @defgroup la_gerfsx_extended  la_gerfsx_extended:  step in gerfsx
+
+            @defgroup gbsv_comp     --- banded ---
+            @defgroup gbcon         gbcon:          condition number estimate
+            @defgroup gbtrf         gbtrf:          triangular factor
+            @defgroup gbtf2         gbtf2:          triangular factor, level 2
+            @defgroup gbtrs         gbtrs:          triangular solve using factor
+            @defgroup gbrfs         gbrfs:          iterative refinement
+            @defgroup gbrfsx        gbrfsx:         iterative refinement, expert
+            @defgroup gbequ         gbequ:          equilibration
+            @defgroup gbequb        gbequb:         equilibration, power of 2
+            @defgroup laqgb         laqgb:          row/col scale matrix
+            @defgroup la_gbrcond    la_gbrcond:     Skeel condition number estimate
+            @defgroup la_gbrpvgrw   la_gbrpvgrw:    reciprocal pivot growth
+            @defgroup la_gbrfsx_extended  la_gbrfsx_extended:  step in gbrfsx
+
+            @defgroup gtsv_comp     --- tridiagonal ---
+            @defgroup gtcon         gtcon:          condition number estimate
+            @defgroup gttrf         gttrf:          triangular factor
+            @defgroup gttrs         gttrs:          triangular solve using factor
+            @defgroup gtts2         gtts2:          triangular solve using factor
+            @defgroup gtrfs         gtrfs:          iterative refinement
+        @}
+
+        @defgroup posv_driver_grp   Cholesky: Hermitian/symmetric positive definite matrix, driver
+        @{
+            @defgroup posv_driver   --- full ---
+            @defgroup posv          posv:           factor and solve
+            @defgroup posvx         posvx:          factor and solve, expert
+            @defgroup posvxx        posvxx:         factor and solve, extra precise
+            @defgroup posv_mixed    posv:           factor and solve, mixed precision
+
+            @defgroup ppsv_driver   --- packed ---
+            @defgroup ppsv          ppsv:           factor and solve
+            @defgroup ppsvx         ppsvx:          factor and solve, expert
+
+            @defgroup pfsv_driver   --- rectangular full packed (RFP) ---
+            @defgroup pfsv          pfsv:           factor and solve [not available]
+
+            @defgroup pbsv_driver   --- banded ---
+            @defgroup pbsv          pbsv:           factor and solve
+            @defgroup pbsvx         pbsvx:          factor and solve, expert
+
+            @defgroup ptsv_driver   --- tridiagonal ---
+            @defgroup ptsv          ptsv:           factor and solve
+            @defgroup ptsvx         ptsvx:          factor and solve, expert
+        @}
+
+        @defgroup posv_comp_grp     Cholesky: computational routines (factor, cond, etc.)
+        @{
+            @defgroup posv_comp     --- full ---
+            @defgroup pocon         pocon:          condition number estimate
+            @defgroup potrf         potrf:          triangular factor
+            @defgroup potrf2        potrf2:         triangular factor panel, recursive?
+            @defgroup potf2         potf2:          triangular factor panel, level 2
+            @defgroup pstrf         pstrf:          triangular factor, with pivoting
+            @defgroup pstf2         pstf2:          triangular factor, with pivoting panel, level 2
+            @defgroup potrs         potrs:          triangular solve using factor
+            @defgroup potri         potri:          triangular inverse
+            @defgroup porfs         porfs:          iterative refinement
+            @defgroup porfsx        porfsx:         iterative refinement, expert
+            @defgroup poequ         poequ:          equilibration
+            @defgroup poequb        poequb:         equilibration, power of 2
+            @defgroup laqhe         laqhe:          row/col scale matrix
+            @defgroup la_porcond    la_porcond:     Skeel condition number estimate
+            @defgroup la_porpvgrw   la_porpvgrw:    reciprocal pivot growth
+            @defgroup la_porfsx_extended  la_porfsx_extended:  step in porfsx
+
+            @defgroup ppsv_comp     --- packed ---
+            @defgroup ppcon         ppcon:          condition number estimate
+            @defgroup pptrf         pptrf:          triangular factor
+            @defgroup pptrs         pptrs:          triangular solve using factor
+            @defgroup pptri         pptri:          triangular inverse
+            @defgroup pprfs         pprfs:          iterative refinement
+            @defgroup ppequ         ppequ:          equilibration
+            @defgroup laqhp         laqhp:          row/col scale matrix
+
+            @defgroup pfsv_comp     --- rectangular full packed (RFP) ---
+            @defgroup pftrf         pftrf:          triangular factor
+            @defgroup pftrs         pftrs:          triangular solve using factor
+            @defgroup pftri         pftri:          triangular inverse
+
+            @defgroup pbsv_comp     --- banded ---
+            @defgroup pbcon         pbcon:          condition number estimate
+            @defgroup pbtrf         pbtrf:          triangular factor
+            @defgroup pbtf2         pbtf2:          triangular factor panel, level 2
+            @defgroup pbtrs         pbtrs:          triangular solve using factor
+            @defgroup pbrfs         pbrfs:          iterative refinement
+            @defgroup pbequ         pbequ:          equilibration
+            @defgroup laqhb         laqhb:          row/col scale matrix
+
+            @defgroup ptsv_comp     --- tridiagonal ---
+            @defgroup ptcon         ptcon:          condition number estimate
+            @defgroup pttrf         pttrf:          triangular factor
+            @defgroup pttrs         pttrs:          triangular solve using factor
+            @defgroup ptts2         ptts2:          triangular solve using factor, unblocked
+            @defgroup ptrfs         ptrfs:          iterative refinement
+        @}
+
+        @defgroup hesv_driver_grp   LDL: Hermitian/symmetric indefinite matrix, driver
+        @{
+            @defgroup hesv_driver   --- full, rook pivoting ---
+            @defgroup hesv          {he,sy}sv:      rook (v1)
+            @defgroup hesv_rook     {he,sy}sv_rook: rook (v2)
+            @defgroup hesv_rk       {he,sy}sv_rk:   rook (v3)
+            @defgroup hesvx         {he,sy}svx:     rook (v1, expert)
+            @defgroup hesvxx        {he,sy}svxx:    rook (v1, expert)
+
+            @defgroup hpsv_driver   --- packed, rook pivoting ---
+            @defgroup hpsv          {hp,sp}sv:      factor and solve
+            @defgroup hpsvx         {hp,sp}svx:     factor and solve, expert
+
+            @defgroup hesv_aa_driver  --- full, Aasen ---
+            @defgroup hesv_aa       {he,sy}sv_aa:   Aasen
+            @defgroup hesv_aa_2stage  {he,sy}sv_aa_2stage:  Aasen, blocked 2-stage
+        @}
+
+        @defgroup hesv_comp_grp     LDL: computational routines (factor, cond, etc.)
+        @{
+            @defgroup hesv_comp_v1  --- full, rook v1 ---
+            @defgroup hecon         {he,sy}con:     condition number estimate
+            @defgroup hetrf         {he,sy}trf:     triangular factor
+            @defgroup lahef         la{he,sy}f:     step in hetrf
+            @defgroup hetf2         {he,sy}tf2:     triangular factor, level 2
+            @defgroup hetrs         {he,sy}trs:     triangular solve using factor
+            @defgroup hetri         {he,sy}tri:     triangular inverse
+            @defgroup herfs         {he,sy}rfs:     iterative refinement
+            @defgroup herfsx        {he,sy}rfsx:    iterative refinement, expert
+            @defgroup heequb        {he,sy}equb:    equilibration, power of 2
+            @defgroup syconv        syconv:         convert to/from L and D from hetrf
+
+            @defgroup hecon_3       {he,sy}con_3:   condition number estimate
+            @defgroup hetri2        {he,sy}tri2:    inverse
+            @defgroup hetri2x       {he,sy}tri2x:   inverse
+            @defgroup hetri_3       {he,sy}tri_3:   inverse
+            @defgroup hetri_3x      {he,sy}tri_3x:  inverse
+            @defgroup hetrs2        {he,sy}trs2:    solve using factor
+            @defgroup hetrs_3       {he,sy}trs_3:   solve using factor
+
+            @defgroup heswapr             {he,sy}swapr:         apply 2-sided permutation
+            @defgroup la_hercond          la_hercond:           Skeel condition number estimate
+            @defgroup la_herfsx_extended  la_herfsx_extended:   step in herfsx
+            @defgroup la_herpvgrw         la_herpvgrw:          reciprocal pivot growth
+
+            @defgroup hpsv_comp     --- packed, rook v1 ---
+            @defgroup hpcon         {hp,sp}con:     condition number estimate
+            @defgroup hptrf         {hp,sp}trf:     triangular factor
+            @defgroup hptrs         {hp,sp}trs:     triangular solve using factor
+            @defgroup hptri         {hp,sp}tri:     triangular inverse
+            @defgroup hprfs         {hp,sp}rfs:     iterative refinement
+
+            @defgroup hesv_comp_v2  --- full, rook v2 ---
+            @defgroup hecon_rook    {he,sy}con_rook:  condition number estimate
+            @defgroup hetrf_rook    {he,sy}trf_rook:  triangular factor
+            @defgroup lahef_rook    la{he,sy}f_rook:  triangular factor step
+            @defgroup hetf2_rook    {he,sy}tf2_rook:  triangular factor, level 2
+            @defgroup hetrs_rook    {he,sy}trs_rook:  triangular solve using factor
+            @defgroup hetri_rook    {he,sy}tri_rook:  triangular inverse
+
+            @defgroup hesv_comp_v3  --- full, rook v3 ---
+            @defgroup hetrf_rk      {he,sy}trf_rk:  triangular factor
+            @defgroup lahef_rk      la{he,sy}f_rk:  triangular factor step
+            @defgroup hetf2_rk      {he,sy}tf2_rk:  triangular factor, level 2
+            @defgroup syconvf       syconvf:        convert to/from hetrf      to hetrf_rk format
+            @defgroup syconvf_rook  syconvf_rook:   convert to/from hetrf_rook to hetrf_rk format
+
+            @defgroup hesv_comp_aasen  --- full, Aasen ---
+            @defgroup hetrf_aa      {he,sy}trf_aa:  triangular factor
+            @defgroup lahef_aa      la{he,sy}f_aa:  triangular factor partial factor
+            @defgroup hetrs_aa      {he,sy}trs_aa:  triangular solve using factor
+
+            @defgroup hesv_comp_aasen2 --- full, Aasen, blocked 2-stage ---
+            @defgroup hetrf_aa_2stage  {he,sy}trf_aa_2stage:  triangular factor
+            @defgroup hetrs_aa_2stage  {he,sy}trs_aa_2stage:  triangular solve using factor
+        @}
+
+        @defgroup trsv_comp_grp     Triangular computational routines (solve, cond, etc.)
+        @{
+            @defgroup trsv_comp     --- full ---
+            @defgroup trcon         trcon:          condition number estimate
+            @defgroup trtrs         trtrs:          triangular solve
+            @defgroup latrs         latrs:          triangular solve with robust scaling
+            @defgroup latrs3        latrs3:         triangular solve with robust scaling, level 3
+            @defgroup trtri         trtri:          triangular inverse
+            @defgroup trti2         trti2:          triangular inverse, level 2
+            @defgroup trrfs         trrfs:          triangular iterative refinement
+            @defgroup lauum         lauum:          triangular multiply: U^H U
+            @defgroup lauu2         lauu2:          triangular multiply: U^H U, level 2
+
+            @defgroup tpsv_comp     --- packed ---
+            @defgroup tpcon         tpcon:          condition number estimate
+            @defgroup tptrs         tptrs:          triangular solve
+            @defgroup latps         latps:          triangular solve with robust scaling
+            @defgroup tptri         tptri:          triangular inverse
+            @defgroup tprfs         tprfs:          triangular iterative refinement
+
+            @defgroup tfsv_comp     --- rectangular full packed (RFP) ---
+            @defgroup tftri         tftri:          triangular inverse, RFP
+
+            @defgroup tbsv_comp     --- banded ---
+            @defgroup tbcon         tbcon:          condition number estimate
+            @defgroup tbtrs         tbtrs:          triangular solve
+            @defgroup latbs         latbs:          triangular solve with scaling
+            @defgroup tbrfs         tbrfs:          triangular iterative refinement
+        @}
+
+        @defgroup solve_aux_grp     Auxiliary routines
+        @{
+            @defgroup lacn2         lacn2:          1-norm estimate, e.g., || A^{-1} ||_1 in gecon
+            @defgroup lacon         lacon:          1-norm estimate, e.g., || A^{-1} ||_1 in gecon, old
+            @defgroup la_lin_berr   la_lin_berr:    backward error
+        @}
+    @}
+
+    @defgroup gels_top Least squares
+    @{
+        @defgroup gels_driver_grp   Standard least squares, min || Ax - b ||_2
+        @{
+            @defgroup gels          gels:           least squares using QR/LQ
+            @defgroup gelst         gelst:          least squares using QR/LQ with T matrix
+            @defgroup gelss         gelss:          least squares using SVD, QR iteration
+            @defgroup gelsd         gelsd:          least squares using SVD, divide and conquer
+            @defgroup gelsy         gelsy:          least squares using complete orthogonal factor
+            @defgroup getsls        getsls:         least squares using tall-skinny QR/LQ
+        @}
+
+        @defgroup ggls_driver_grp   Constrained least squares
+        @{
+            @defgroup gglse         gglse:          equality-constrained least squares
+            @defgroup ggglm         ggglm:          Gauss-Markov linear model
+        @}
+
+        @defgroup gels_aux_grp      Auxiliary routines
+        @{
+            @defgroup laic1         laic1:          condition estimate, step in gelsy
+            @defgroup lals0         lals0:          back multiplying factors, step in gelsd
+            @defgroup lalsa         lalsa:          SVD of coefficient matrix, step in gelsd
+            @defgroup lalsd         lalsd:          uses SVD for least squares, step in gelsd
+        @}
+    @}
+
+    @defgroup unitary_top Orthogonal/unitary factors (QR, CS, etc.)
+    @{
+        @defgroup geqr_comp_grp     QR
+        @{
+            @defgroup geqr_comp1    --- flexible ---
+            @defgroup geqr          geqr:           QR factor, flexible
+            @defgroup gemqr         gemqr:          multiply by Q from geqr
+
+            @defgroup geqr_comp2    --- classic ---
+            @defgroup geqrf         geqrf:          QR factor
+            @defgroup geqr2         geqr2:          QR factor, level 2
+            @defgroup ungqr         {un,or}gqr:     generate explicit Q from geqrf
+            @defgroup ung2r         {un,or}g2r:     generate explicit Q from geqrf, level 2
+            @defgroup unmqr         {un,or}mqr:     multiply by Q from geqrf
+            @defgroup unm2r         {un,or}m2r:     multiply by Q from geqrf, level 2
+
+            @defgroup geqr_comp3    --- with T ---
+            @defgroup geqrt         geqrt:          QR factor, with T
+            @defgroup geqrt2        geqrt2:         QR factor, with T, level 2
+            @defgroup geqrt3        geqrt3:         QR factor, with T, recursive panel
+            @defgroup gemqrt        gemqrt:         multiply by Q from geqrt
+
+            @defgroup geqr_comp4    --- positive ---
+            @defgroup geqrfp        geqrfp:         QR factor, diag( R ) ≥ 0
+            @defgroup geqr2p        geqr2p:         QR factor, diag( R ) ≥ 0, level 2
+        @}
+
+        @defgroup geqpf_comp_grp    QR with pivoting
+        @{
+            @defgroup geqp3         geqp3:          QR factor with pivoting, level 3
+            @defgroup laqp2         laqp2:          step of geqp3
+            @defgroup laqps         laqps:          step of geqp3
+        @}
+
+        @defgroup getsqr_comp_grp   QR, tall-skinny
+        @{
+            @defgroup latsqr        latsqr:         tall-skinny QR factor
+            @defgroup ungtsqr       {un,or}gtsqr:   generate Q from latsqr
+            @defgroup ungtsqr_row   {un,or}gtsqr_row:   generate Q from latsqr
+            @defgroup larfb_gett    larfb_gett:     step in ungtsqr_row
+            @defgroup lamtsqr       lamtsqr:        multiply by Q from latsqr
+            @defgroup getsqrhrt     getsqrhrt:      tall-skinny QR factor, with Householder reconstruction
+            @defgroup unhr_col      {un,or}hr_col:  Householder reconstruction
+            @defgroup launhr_col_getrfnp   la{un,or}hr_col_getrfnp:   LU factor without pivoting
+            @defgroup launhr_col_getrfnp2  la{un,or}hr_col_getrfnp2:  LU factor without pivoting, level 2
+        @}
+
+        @defgroup tpqr_comp_grp     QR, triangular-pentagonal
+        @{
+            @defgroup tpqrt         tpqrt:          QR factor
+            @defgroup tpqrt2        tpqrt2:         QR factor, level 2
+            @defgroup tpmqrt        tpmqrt:         applies Q
+            @defgroup tprfb         tprfb:          applies Q (like larfb)
+        @}
+
+        @defgroup ggqr_comp_grp     Generalized QR
+        @{
+            @defgroup ggqrf         ggqrf:          Generalized QR factor
+        @}
+
+        @defgroup gelq_comp_grp     LQ
+        @{
+            @defgroup gelq_comp1    --- flexible ---
+            @defgroup gelq          gelq:           LQ factor, flexible
+            @defgroup gemlq         gemlq:          multiply by Q from gelq
+
+            @defgroup gelq_comp2    --- classic ---
+            @defgroup gelqf         gelqf:          LQ factor
+            @defgroup gelq2         gelq2:          LQ factor, level 2
+            @defgroup unglq         {un,or}glq:     generate explicit Q from gelqf
+            @defgroup ungl2         {un,or}gl2:     generate explicit Q, level 2, step in unglq
+            @defgroup unmlq         {un,or}mlq:     multiply by Q from gelqf
+            @defgroup unml2         {un,or}ml2:     multiply by Q, level 2, step in unmlq
+
+            @defgroup gelq_comp3    --- with T ---
+            @defgroup gelqt         gelqt:          LQ factor, with T
+            @defgroup gelqt3        gelqt3:         LQ factor, with T, recursive
+            @defgroup gemlqt        gemlqt:         multiply by Q from gelqt
+        @}
+
+        @defgroup geswlq_comp_grp   LQ, short-wide
+        @{
+            @defgroup laswlq        laswlq:         short-wide LQ factor
+            @defgroup lamswlq       lamswlq:        multiply by Q from laswlq
+        @}
+
+        @defgroup tplq_comp_grp     LQ, triangular-pentagonal
+        @{
+            @defgroup tplqt         tplqt:          QR factor
+            @defgroup tplqt2        tplqt2:         QR factor, level 2
+            @defgroup tpmlqt        tpmlqt:         applies Q
+        @}
+
+        @defgroup geql_comp_grp     QL
+        @{
+            @defgroup geqlf         geqlf:          QL factor
+            @defgroup geql2         geql2:          QL factor, level 2
+            @defgroup ungql         {un,or}gql:     generate explicit Q from geqlf
+            @defgroup unmql         {un,or}mql:     multiply by Q from geqlf
+            @defgroup ung2l         {un,or}g2l:     step in ungql
+            @defgroup unm2l         {un,or}m2l:     step in unmql
+        @}
+
+        @defgroup gerq_comp_grp     RQ
+        @{
+            @defgroup gerqf         gerqf:          RQ factor
+            @defgroup gerq2         gerq2:          RQ factor, level 2
+            @defgroup ungrq         {un,or}grq:     generate explicit Q from gerqf
+            @defgroup unmrq         {un,or}mrq:     multiply by Q from gerqf
+            @defgroup unmr2         {un,or}mr2:     step in unmrq
+            @defgroup ungr2         {un,or}gr2:     step in ungrq
+        @}
+
+        @defgroup ggrq_comp_grp     Generalized RQ
+        @{
+            @defgroup ggrqf         ggrqf:          Generalized RQ factor
+        @}
+
+        @defgroup gerz_comp_grp     RZ
+        @{
+            @defgroup tzrzf         tzrzf:          RZ factor
+            @defgroup latrz         latrz:          RZ factor step
+            @defgroup unmrz         {un,or}mrz:     multiply by Z from tzrzf
+            @defgroup unmr3         {un,or}mr3:     step in unmrz
+            @defgroup larz          larz:           apply reflector
+            @defgroup larzb         larzb:          apply block reflector
+            @defgroup larzt         larzt:          generate T matrix
+        @}
+
+        @defgroup gecs_comp_grp     Cosine-Sine (CS) decomposition
+        @{
+            @defgroup bbcsd         bbcsd:          ??
+            @defgroup uncsd         {un,or}csd:     ??
+            @defgroup uncsd2by1     {un,or}csd2by1: ??
+            @defgroup unbdb         {un,or}bdb:     bidiagonalize partitioned unitary matrix, step in uncsd
+            @defgroup unbdb1        {un,or}bdb1:    step in uncsd2by1
+            @defgroup unbdb2        {un,or}bdb2:    step in uncsd2by1
+            @defgroup unbdb3        {un,or}bdb3:    step in uncsd2by1
+            @defgroup unbdb4        {un,or}bdb4:    step in uncsd2by1
+            @defgroup unbdb5        {un,or}bdb5:    step in uncsd2by1
+            @defgroup unbdb6        {un,or}bdb6:    step in uncsd2by1
+
+            @defgroup lapmr         lapmr:          permute rows
+            @defgroup lapmt         lapmt:          permute cols
+        @}
+
+        @defgroup reflector_aux_grp Householder reflectors
+        @{
+            @defgroup larf          larf:           apply Householder reflector
+            @defgroup larfx         larfx:          apply Householder reflector, unrolled
+            @defgroup larfy         larfy:          apply Householder reflector symmetrically (2-sided)
+            @defgroup larfb         larfb:          apply block Householder reflector
+            @defgroup larfg         larfg:          generate Householder reflector
+            @defgroup larfgp        larfgp:         generate Householder reflector, beta ≥ 0
+            @defgroup larft         larft:          generate T matrix
+        @}
+
+        @defgroup rot_aux_grp       Givens/Jacobi plane rotations
+        @{
+            @defgroup lartg         lartg:          generate plane rotation, more accurate than BLAS rot
+            @defgroup lartgp        lartgp:         generate plane rotation, more accurate than BLAS rot
+            @defgroup lasr          lasr:           apply series of plane rotations
+            @defgroup largv         largv:          generate vector of plane rotations
+            @defgroup lartv         lartv:          apply vector of plane rotations to vectors
+            @defgroup lar2v         lar2v:          apply vector of plane rotations to 2x2 matrices
+            @defgroup lacrt         lacrt:          apply plane rotation (unused?)
+        @}
+    @}
+
+    @defgroup geev_top              Non-symmetric eigenvalues
+    @{
+        @defgroup geev_driver_grp   Standard eig driver, AV = VΛ
+        @{
+            @defgroup geev          geev:           eig
+            @defgroup geevx         geevx:          eig, expert
+
+            @defgroup gees          gees:           Schur form
+            @defgroup geesx         geesx:          Schur form, expert
+        @}
+
+        @defgroup ggev_driver_grp   Generalized eig driver
+        @{
+            @defgroup ggev3         ggev3:          eig
+            @defgroup ggev          ggev:           eig, unblocked
+            @defgroup ggevx         ggevx:          eig, expert
+
+            @defgroup gges3         gges3:          Schur form
+            @defgroup gges          gges:           Schur form, unblocked
+            @defgroup ggesx         ggesx:          Schur form, expert
+        @}
+
+        @defgroup gedmd             DMD driver, Dynamic Mode Decomposition
+
+        @defgroup geev_comp_grp     Eig computational routines
+        @{
+            @defgroup gebal         gebal:          balance matrix
+            @defgroup gehrd         gehrd:          reduction to Hessenberg
+            @defgroup gehd2         gehd2:          reduction to Hessenberg, level 2
+            @defgroup lahr2         lahr2:          step in gehrd
+            @defgroup unghr         {un,or}ghr:     generate Q from gehrd
+            @defgroup unmhr         {un,or}mhr:     multiply by Q from gehrd
+            @defgroup gebak         gebak:          back-transform eigvec
+            @defgroup hseqr         hseqr:          Hessenberg eig, QR iteration
+            @defgroup hsein         hsein:          Hessenberg inverse iteration for eigvec
+            @defgroup trevc         trevc:          eigenvectors of triangular Schur form, old
+            @defgroup trevc3        trevc3:         eigenvectors of triangular Schur form, blocked
+            @defgroup laln2         laln2:          1x1 or 2x2 solve, step in trevc
+
+            @defgroup trsyl         trsyl:          Sylvester equation
+            @defgroup trsyl3        trsyl3:         Sylvester equation, level 3
+            @defgroup lasy2         lasy2:          Sylvester equation
+
+            @defgroup trsna         trsna:          eig condition numbers
+            @defgroup laqtr         laqtr:          quasi-triangular solve
+
+            @defgroup trexc         trexc:          reorder Schur form
+            @defgroup trsen         trsen:          reorder Schur form
+            @defgroup laexc         laexc:          reorder Schur form
+
+            @defgroup lanv2         lanv2:          2x2 Schur factor
+
+            @defgroup laqr_group    --- hseqr auxiliary ---
+            @defgroup laein         laein:          eigvec by Hessenberg inverse iteration
+            @defgroup lahqr         lahqr:          eig of Hessenberg, step in hseqr
+            @defgroup laqr0         laqr0:          eig of Hessenberg, step in hseqr
+            @defgroup laqr1         laqr1:          step in hseqr
+            @defgroup laqr2         laqr2:          step in hseqr
+            @defgroup laqr3         laqr3:          step in hseqr
+            @defgroup laqr4         laqr4:          eig of Hessenberg, step in hseqr
+            @defgroup laqr5         laqr5:          step in hseqr
+
+            @defgroup iparmq        iparmq:         set parameters for hseqr
+
+            @defgroup laqz_group    --- ggev3, gges3 auxiliary ---
+            @defgroup laqz0         laqz0:          step in ggev3, gges3
+            @defgroup laqz1         laqz1:          step in ggev3, gges3
+            @defgroup laqz2         laqz2:          step in ggev3, gges3
+            @defgroup laqz3         laqz3:          step in ggev3, gges3
+            @defgroup laqz4         laqz4:          step in ggev3, gges3
+        @}
+
+        @defgroup ggev_comp_grp     Generalized eig computational routines
+        @{
+            @defgroup ggbal         ggbal:          balance matrix
+            @defgroup gghrd         gghrd:          reduction to Hessenberg
+            @defgroup gghd3         gghd3:          reduction to Hessenberg, level 3
+            @defgroup hgeqz         hgeqz:          generalized Hessenberg eig
+            @defgroup ggbak         ggbak:          back-transform eigvec
+            @defgroup tgsen         tgsen:          reorder generalized Schur form
+            @defgroup tgsna         tgsna:          reciprocal cond est
+            @defgroup tgsyl         tgsyl:          Sylvester equation
+            @defgroup tgsy2         tgsy2:          Sylvester equation panel (?)
+            @defgroup unm22         {un,or}m22:     multiply by banded Q, step in gghd3
+            @defgroup lagv2         lagv2:          2x2 generalized Schur factor
+            @defgroup tgevc         tgevc:          eigvec of pair of matrices
+            @defgroup tgexc         tgexc:          reorder generalized Schur form
+            @defgroup tgex2         tgex2:          reorder generalized Schur form
+        @}
+    @}
+
+    @defgroup heev_top              Hermitian/symmetric eigenvalues
+    @{
+        @defgroup heev_driver_grp   Standard eig driver, AV = VΛ
+        @{
+            @defgroup heev_driver   --- full ---
+            @defgroup heev          {he,sy}ev:      eig, QR iteration
+            @defgroup heevd         {he,sy}evd:     eig, divide and conquer
+            @defgroup heevr         {he,sy}evr:     eig, MRRR
+            @defgroup heevx         {he,sy}evx:     eig, bisection
+
+            @defgroup heev_driver2  --- full, 2-stage ---
+            @defgroup heev_2stage   {he,sy}ev_2stage:   eig, QR iteration
+            @defgroup heevd_2stage  {he,sy}evd_2stage:  eig, divide and conquer
+            @defgroup heevr_2stage  {he,sy}evr_2stage:  eig, MRRR
+            @defgroup heevx_2stage  {he,sy}evx_2stage:  eig, bisection
+
+            @defgroup hpev_driver   --- packed ---
+            @defgroup hpev          {hp,sp}ev:      eig, QR iteration
+            @defgroup hpevd         {hp,sp}evd:     eig, divide and conquer
+            @defgroup hpevx         {hp,sp}evx:     eig, bisection
+
+            @defgroup hbev_driver   --- banded ---
+            @defgroup hbev          {hb,sb}ev:      eig, QR iteration
+            @defgroup hbevd         {hb,sb}evd:     eig, divide and conquer
+            @defgroup hbevx         {hb,sb}evx:     eig, bisection
+
+            @defgroup hbev_driver2  --- banded, 2nd-stage ---
+            @defgroup hbev_2stage   {hb,sb}ev_2stage:   eig, QR iteration
+            @defgroup hbevd_2stage  {hb,sb}evd_2stage:  eig, divide and conquer
+            @defgroup hbevx_2stage  {hb,sb}evx_2stage:  eig, bisection
+
+            @defgroup stev_driver   --- tridiagonal ---
+            @defgroup stev          stev:           eig, QR iteration
+            @defgroup stevd         stevd:          eig, divide and conquer
+            @defgroup stevr         stevr:          eig, MRRR
+            @defgroup stevx         stevx:          eig, bisection
+            @defgroup pteqr         pteqr:          eig, positive definite tridiagonal
+
+            @defgroup stebz         stebz:          eig, Kahan
+            @defgroup sterf         sterf:          eig, QR iteration
+            @defgroup stedc         stedc:          eig, divide and conquer
+            @defgroup stegr         stegr:          eig, bisection, see stemr
+            @defgroup stein         stein:          eig, inverse iteration
+            @defgroup stemr         stemr:          eig, relatively robust representation (RRR)
+            @defgroup steqr         steqr:          eig, QR iteration
+        @}
+
+        @defgroup hegv_driver_grp   Generalized eig driver, AV = BVΛ, etc.
+        @{
+            @defgroup hegv_driver   --- full ---
+            @defgroup hegv          {he,sy}gv:      eig, QR iteration
+            @defgroup hegv_2stage   {he,sy}gv_2stage: eig, QR iteration, 2-stage
+            @defgroup hegvd         {he,sy}gvd:     eig, divide and conquer
+            @defgroup hegvx         {he,sy}gvx:     eig, bisection
+
+            @defgroup hpgv_driver   --- packed ---
+            @defgroup hpgv          {hp,sp}gv:      eig, QR iteration
+            @defgroup hpgvd         {hp,sp}gvd:     eig, divide and conquer
+            @defgroup hpgvx         {hp,sp}gvx:     eig, bisection
+
+            @defgroup hbgv_driver   --- banded ---
+            @defgroup hbgv          {hb,sb}gv:      eig, QR iteration
+            @defgroup hbgvd         {hb,sb}gvd:     eig, divide and conquer
+            @defgroup hbgvx         {hb,sb}gvx:     eig, bisection
+        @}
+
+        @defgroup heev_comp_grp     Eig computational routines
+        @{
+            @defgroup heev_comp     --- full ---
+            @defgroup disna         disna:          eig condition numbers
+            @defgroup hetrd         {he,sy}trd:     reduction to tridiagonal
+            @defgroup hetd2         {he,sy}td2:     reduction to tridiagonal, level 2
+            @defgroup latrd         latrd:          step in hetrd
+            @defgroup ungtr         {un,or}gtr:     generate Q from hetrd
+            @defgroup unmtr         {un,or}mtr:     multiply by Q from hetrd
+
+            @defgroup hetrd_2stage  {he,sy}trd_2stage: reduction to tridiagonal, 2-stage
+            @defgroup hetrd_he2hb   {he,sy}trd_he2hb:   full to band (1st stage)
+            @defgroup hetrd_hb2st   {he,sy}trd_hb2st:   band to tridiagonal (2nd stage)
+            @defgroup hb2st_kernels {hb,sb}2st_kernels: band to tridiagonal (2nd stage)
+
+            @defgroup lae2          lae2:           2x2 eig, step in steqr, stemr
+            @defgroup laesy         laesy:          2x2 eig
+            @defgroup laev2         laev2:          2x2 eig
+            @defgroup lagtf         lagtf:          LU factor of (T - λI)
+            @defgroup lagts         lagts:          LU solve  of (T - λI) x = y
+
+            @defgroup hpev_comp     --- packed ---
+            @defgroup hptrd         {hp,sp}trd:     reduction to tridiagonal
+            @defgroup upgtr         {up,op}gtr:     generate Q from hetrd
+            @defgroup upmtr         {up,op}mtr:     multiply by Q from hptrd
+
+            @defgroup hbev_comp     --- banded ---
+            @defgroup hbtrd         {hb,sb}trd:     reduction to tridiagonal
+        @}
+
+        @defgroup hegv_comp_grp     Generalized eig computational routines
+        @{
+            @defgroup hegst         {he,sy}gst:     reduction to standard form
+            @defgroup hegs2         {he,sy}gs2:     reduction to standard form, level 2
+            @defgroup hpgst         {hp,sp}gst:     reduction to standard form, packed
+            @defgroup hbgst         {hb,sb}gst:     reduction to standard form, banded
+            @defgroup pbstf         pbstf:          split Cholesky factor, use with hbgst
+            @defgroup lag2          lag2:           2x2 eig
+        @}
+
+        @defgroup stev_comp_grp     tridiag bisection routines
+        @{
+            @defgroup laebz         laebz:          counts eigvals <= value
+            @defgroup laneg         laneg:          Sturm count
+        @}
+
+        @defgroup laed_comp_grp     tridiag divide and conquer (D&C) routines
+        @{
+            @defgroup laed0         laed0:          D&C step: top level solver
+            @defgroup laed1         laed1:          D&C step: merge subproblems
+            @defgroup laed2         laed2:          D&C step: deflation
+            @defgroup laed3         laed3:          D&C step: secular equation
+            @defgroup laed4         laed4:          D&C step: secular equation nonlinear solver
+            @defgroup laed5         laed5:          D&C step: secular equation, 2x2
+            @defgroup laed6         laed6:          D&C step: secular equation Newton step
+            @defgroup lamrg         lamrg:          permutation to merge 2 sorted lists
+
+            @defgroup laed_comp2    --- eig value only or update Q ---
+            @defgroup laed7         laed7:          D&C step: merge subproblems
+            @defgroup laed8         laed8:          D&C step: deflation
+            @defgroup laed9         laed9:          D&C step: secular equation
+            @defgroup laeda         laeda:          D&C step: z vector
+        @}
+
+        @defgroup larr_comp_grp     tridiag RRR routines
+        @{
+            @defgroup larra         larra:          step in stemr
+            @defgroup larrb         larrb:          step in stemr
+            @defgroup larrc         larrc:          step in stemr
+            @defgroup larrd         larrd:          step in stemr, tridiag eig
+            @defgroup larre         larre:          step in stemr
+            @defgroup larrf         larrf:          step in stemr, find relative robust representation (RRR)
+            @defgroup larrj         larrj:          step in stemr, refine eigval estimates
+            @defgroup larrk         larrk:          step in stemr, compute one eigval
+            @defgroup larrr         larrr:          step in stemr, test to do expensive tridiag eig algorithm
+            @defgroup larrv         larrv:          eig tridiagonal, step in stemr & stegr
+            @defgroup lar1v         lar1v:          step in larrv, hence stemr & stegr
+        @}
+    @}
+
+    @defgroup svd_top               Singular Value Decomposition (SVD)
+    @{
+        @defgroup svd_driver_grp    Standard SVD driver, A = UΣV^H
+        @{
+            @defgroup gesvd_driver  --- full ---
+            @defgroup gesvd         gesvd:          SVD, QR iteration
+            @defgroup gesvdq        gesvdq:         SVD, QR with pivoting
+            @defgroup gesdd         gesdd:          SVD, divide and conquer
+            @defgroup gesvdx        gesvdx:         SVD, bisection
+            @defgroup gejsv         gejsv:          SVD, Jacobi, high-level
+            @defgroup gesvj         gesvj:          SVD, Jacobi, low-level
+
+            @defgroup bdsvd_driver  --- bidiagonal ---
+            @defgroup bdsqr         bdsqr:          bidiagonal SVD, QR iteration (dqds)
+            @defgroup bdsdc         bdsdc:          bidiagonal SVD, divide and conquer
+            @defgroup bdsvdx        bdsvdx:         bidiagonal SVD, bisection
+        @}
+
+        @defgroup ggsvd_driver_grp  Generalized SVD driver
+        @{
+            @defgroup ggsvd3        ggsvd3:         SVD, QR iteration
+        @}
+
+        @defgroup gesvd_comp_grp    SVD computational routines
+        @{
+            @defgroup gebrd         gebrd:          reduction to bidiagonal
+            @defgroup gebd2         gebd2:          reduction to bidiagonal, level 2
+            @defgroup labrd         labrd:          step in gebrd
+            @defgroup gbbrd         gbbrd:          band to bidiagonal
+            @defgroup ungbr         {un,or}gbr:     generate Q, P from gebrd
+            @defgroup unmbr         {un,or}mbr:     multiply by Q, P from gebrd
+
+            @defgroup gesvd_aux     --- auxiliary routines ---
+            @defgroup gsvj0         gsvj0:          step in gesvj
+            @defgroup gsvj1         gsvj1:          step in gesvj
+            @defgroup las2          las2:           2x2 triangular SVD
+            @defgroup lasv2         lasv2:          2x2 triangular SVD
+            @defgroup lartgs        lartgs:         generate plane rotation for bidiag SVD
+        @}
+
+        @defgroup ggsvd_comp_grp    Generalized SVD computational routines
+        @{
+            @defgroup ggsvp3        ggsvp3:         step in ggsvd
+            @defgroup tgsja         tgsja:          generalized SVD of trapezoidal matrices, step in ggsvd3
+            @defgroup lags2         lags2:          2x2 orthogonal factor, step in tgsja
+            @defgroup lapll         lapll:          linear dependence of 2 vectors
+        @}
+
+        @defgroup lasq_comp_grp     bidiag QR iteration routines
+        @{
+            @defgroup lasq1         lasq1:          dqds step
+            @defgroup lasq2         lasq2:          dqds step
+            @defgroup lasq3         lasq3:          dqds step
+            @defgroup lasq4         lasq4:          dqds step
+            @defgroup lasq5         lasq5:          dqds step
+            @defgroup lasq6         lasq6:          dqds step
+        @}
+
+        @defgroup lasd_comp_grp     bidiag D&C routines
+        @{
+            @defgroup lasd0         lasd0:          D&C step: top level solver
+            @defgroup lasdt         lasdt:          D&C step: tree
+            @defgroup lasd1         lasd1:          D&C step: merge subproblems
+            @defgroup lasd2         lasd2:          D&C step: deflation
+            @defgroup lasd3         lasd3:          D&C step: secular equation
+            @defgroup lasd4         lasd4:          D&C step: secular equation nonlinear solver
+            @defgroup lasd5         lasd5:          D&C step: secular equation, 2x2
+            @defgroup lasdq         lasdq:          D&C step: leaf using bdsqr
+
+            @defgroup lasd_comp2    --- singular values only or factored form ---
+            @defgroup lasda         lasda:          D&C step: top level solver
+            @defgroup lasd6         lasd6:          D&C step: merge subproblems
+            @defgroup lasd7         lasd7:          D&C step: deflation
+            @defgroup lasd8         lasd8:          D&C step: secular equation
+        @}
+    @}
+
+    @defgroup blas_like_top         BLAS-like
+    @{
+        @defgroup set_grp           Initialize, copy, convert
+        @{
+            @defgroup laset         laset:          set matrix
+            @defgroup larnv         larnv:          random vector
+            @defgroup laruv         laruv:          random uniform vector
+
+            @defgroup lacpy         lacpy:          copy matrix
+
+            @defgroup lacp2         lacp2:          general matrix, convert real to complex
+            @defgroup _lag2_        _lag2_:         general matrix, convert double <=> single
+            @defgroup _lat2_        _lat2_:         triangular matrix, convert double <=> single
+
+            @defgroup tfttp         tfttp:          triangular matrix, RFP    (tf) to packed (tp)
+            @defgroup tfttr         tfttr:          triangular matrix, RFP    (tf) to full   (tr)
+            @defgroup tpttf         tpttf:          triangular matrix, packed (tp) to RFP    (tf)
+            @defgroup tpttr         tpttr:          triangular matrix, packed (tp) to full   (tr)
+            @defgroup trttf         trttf:          triangular matrix, full   (tr) to RFP    (tf)
+            @defgroup trttp         trttp:          triangular matrix, full   (tr) to packed (tp)
+        @}
+
+        @defgroup norm_grp          Matrix norm
+        @{
+            @defgroup lange         lange:          general matrix
+            @defgroup langb         langb:          general matrix, banded
+            @defgroup langt         langt:          general matrix, tridiagonal
+
+            @defgroup lanhs         lanhs:          Hessenberg
+
+            @defgroup lanhe         lan{he,sy}:     Hermitian/symmetric matrix
+            @defgroup lanhf         lan{hf,sf}:     Hermitian/symmetric matrix, RFP
+            @defgroup lanhp         lan{hp,sp}:     Hermitian/symmetric matrix, packed
+            @defgroup lanhb         lan{hb,sb}:     Hermitian/symmetric matrix, banded
+            @defgroup lanht         lan{ht,st}:     Hermitian/symmetric matrix, tridiagonal
+
+            @defgroup lantr         lantr:          triangular matrix
+            @defgroup lantp         lantp:          triangular matrix, packed
+            @defgroup lantb         lantb:          triangular matrix, banded
+        @}
+
+        @defgroup blas0_like_grp    Scalar operations
+        @{
+            @defgroup isnan         isnan:          test for NaN
+            @defgroup laisnan       laisnan:        test for NaN, unoptimized
+            @defgroup ladiv         ladiv:          complex divide
+            @defgroup lapy2         lapy2:          robust sqrt( x^2 + y^2 )
+            @defgroup lapy3         lapy3:          robust sqrt( x^2 + y^2 + z^2 )
+            @defgroup larmm         larmm:          scale factor to avoid overflow, step in latrs
+        @}
+
+        @defgroup blas1_like_grp    Level 1 BLAS-like vector ops
+        @{
+            @defgroup lacgv         lacgv:          conjugate vector
+            @defgroup lasrt         lasrt:          sort vector
+            @defgroup lassq         lassq:          sum-of-squares, avoiding over/underflow
+            @defgroup rscl          rscl:           scale vector by reciprocal
+        @}
+
+        @defgroup blas2_like_grp    Level 2 BLAS-like matrix-vector ops
+        @{
+            @defgroup ilalc         ilalc:          find non-zero col
+            @defgroup ilalr         ilalr:          find non-zero row
+            @defgroup lascl         lascl:          scale matrix
+            @defgroup la_geamv      la_geamv:       matrix-vector multiply |A| * |x|, general
+            @defgroup la_gbamv      la_gbamv:       matrix-vector multiply |A| * |x|, general banded
+            @defgroup la_heamv      la_heamv:       matrix-vector multiply |A| * |x|, Hermitian/symmetric
+            @defgroup lascl2        lascl2:         diagonal scale matrix, A = D A
+            @defgroup larscl2       larscl2:        reciprocal diagonal scale matrix, A = D^{-1} A
+            @defgroup la_wwaddw     la_wwaddw:      add to double-double or single-single vector
+        @}
+
+        @defgroup blas3_like_grp    Level 3 BLAS-like matrix-matrix ops
+        @{
+            @defgroup lagtm         lagtm:          tridiagonal matrix-matrix multiply
+            @defgroup lacrm         lacrm:          complex * real matrix-matrix multiply
+            @defgroup larcm         larcm:          real * complex matrix-matrix multiply
+            @defgroup hfrk          hfrk:           Hermitian rank-k update, RFP format
+            @defgroup tfsm          tfsm:           triangular-matrix solve, RFP format
+        @}
+    @}
+
+    @defgroup aux_top               Auxiliary routines
+    @{
+        @defgroup aux_grp           Other auxiliary routines
+        @{
+            @defgroup lsame         lsame:          string comparison
+            @defgroup lsamen        lsamen:         string comparison
+            @defgroup roundup_lwork roundup_lwork:  fix rounding integer to float
+            @defgroup second        second:         wall clock timer
+        @}
+
+        @defgroup params_grp        Parameters
+        @{
+            @defgroup lamch         lamch:          machine parameters
+            @defgroup lamc1         lamc1:          ??
+            @defgroup lamc2         lamc2:          ??
+            @defgroup lamc3         lamc3:          ??
+            @defgroup lamc4         lamc4:          ??
+            @defgroup lamc5         lamc5:          ??
+            @defgroup labad         labad:          over/underflow on obsolete pre-IEEE machines
+            @defgroup ilaver        ilaver:         LAPACK version
+            @defgroup ilaenv        ilaenv:         tuning parameters
+            @defgroup ilaenv2stage  ilaenv2stage:   tuning parameters for 2-stage eig
+            @defgroup iparam2stage  iparam2stage:   sets parameters for 2-stage eig
+            @defgroup ieeeck        ieeeck:         verify inf and NaN are safe
+            @defgroup la_constants  la_constants:   Fortran 95 module of constants
+
+            @defgroup blast_aux     --- BLAST constants ---
+            @defgroup iladiag       iladiag:        diag      string to BLAST const
+            @defgroup ilaprec       ilaprec:        precision string to BLAST const
+            @defgroup ilatrans      ilatrans:       trans     string to BLAST const
+            @defgroup ilauplo       ilauplo:        uplo      string to BLAST const
+            @defgroup la_transtype  la_transtype:   BLAST const to string
+        @}
+
+        @defgroup xerbla_grp        Error reporting
+        @{
+            @defgroup xerbla        xerbla:         error reporting
+            @defgroup xerbla_array  xerbla_array:   error reporting, callable from C
+        @}
+    @}
+@}
+
+@defgroup blas_top BLAS
+BLAS are defined by three papers:
+Basic linear algebra subprograms for {FORTRAN} usage, Lawson et al, 1979.
+An extended set of {FORTRAN} basic linear algebra subprograms, Dongarra et al, 1988.
+A set of level 3 basic linear algebra subprograms, Dongarra et al, 1990.
+Some BLAS-like routines (e.g., csymv, crot, csum1, icmax1) exist in
+LAPACK rather than the classic BLAS.
+These were extended by the Extra Precision BLAS (XBLAS, not documented here)
+https://www.netlib.org/xblas/
+
+@{
+        @defgroup scalar_grp        Scalar operations
+        @{
+            @defgroup abs1          abs1:           | real( x ) | + | imag( x ) |
+        @}
+
+        @defgroup blas1_grp         Level 1 BLAS: vector ops
+        @{
+            @defgroup asum          asum:           sum | real( x_i ) | + | imag( x_i ) |
+            @defgroup sum1          sum1:           sum | x_i | (in LAPACK)
+            @defgroup axpy          axpy:           y = ax + y
+            @defgroup copy          copy:           y = x
+            @defgroup dot           dot:            x^H x and x^T x
+            @defgroup iamax         iamax:          argmax_i | real( x_i ) | + | imag( x_i ) |
+            @defgroup imax1         imax1:          argmax_i | x_i | (in LAPACK)
+            @defgroup nrm2          nrm2:           || x ||_2
+            @defgroup scal          scal:           x = alpha x
+            @defgroup swap          swap:           x <=> y
+
+            @defgroup rot_comp      --- Givens/Jacobi plane rotations ---
+            @defgroup rot           rot:            apply plane rotation ([cz]rot in LAPACK)
+            @defgroup rotg          rotg:           generate plane rotation (cf. lartg)
+            @defgroup rotm          rotm:           apply modified (fast) plane rotation
+            @defgroup rotmg         rotmg:          generate modified (fast) plane rotation
+        @}
+
+        @defgroup blas2_grp         Level 2 BLAS: matrix-vector ops
+        @{
+            @defgroup blas2_full    --- full ---
+            @defgroup gemv          gemv:           general matrix-vector multiply
+            @defgroup ger           ger:            general matrix rank-1 update
+
+            @defgroup hemv          {he,sy}mv:      Hermitian/symmetric matrix-vector multiply ([cz]symv in LAPACK)
+            @defgroup her           {he,sy}r:       Hermitian/symmetric rank-1 update
+            @defgroup her2          {he,sy}r2:      Hermitian/symmetric rank-2 update
+
+            @defgroup trmv          trmv:           triangular matrix-vector multiply
+            @defgroup trsv          trsv:           triangular matrix-vector solve
+
+            @defgroup blas2_packed  --- packed ---
+            @defgroup hpmv          {hp,sp}mv:      Hermitian/symmetric matrix-vector multiply
+            @defgroup hpr           {hp,sp}r:       Hermitian/symmetric rank-1 update
+            @defgroup hpr2          {hp,sp}r2:      Hermitian/symmetric rank-2 update
+
+            @defgroup tpmv          tpmv:           triangular matrix-vector multiply
+            @defgroup tpsv          tpsv:           triangular matrix-vector solve
+
+            @defgroup blas2_banded  --- banded ---
+            @defgroup gbmv          gbmv:           general matrix-vector multiply
+
+            @defgroup hbmv          {hb,sb}mv:      Hermitian/symmetric matrix-vector multiply
+
+            @defgroup tbmv          tbmv:           triangular matrix-vector multiply
+            @defgroup tbsv          tbsv:           triangular matrix-vector solve
+        @}
+
+        @defgroup blas3_grp         Level 3 BLAS: matrix-matrix ops
+        @{
+            @defgroup gemm          gemm:           general matrix-matrix multiply
+
+            @defgroup hemm          {he,sy}mm:      Hermitian/symmetric matrix-matrix multiply
+            @defgroup herk          {he,sy}rk:      Hermitian/symmetric rank-k update
+            @defgroup her2k         {he,sy}r2k:     Hermitian/symmetric rank-2k update
+
+            @defgroup trmm          trmm:           triangular matrix-matrix multiply
+            @defgroup trsm          trsm:           triangular matrix-matrix solve
+        @}
+@}
+
+**/

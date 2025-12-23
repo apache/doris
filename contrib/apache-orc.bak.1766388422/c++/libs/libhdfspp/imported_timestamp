@@ -1,0 +1,10 @@
+Wed Aug 30 10:56:51 EDT 2017
+HDFS-10787
+commit 9587bb04a818a2661e264f619b09c15ce10ff38e
+Author: Anatoli Shein <anatoli.shein@hpe.com>
+Date:   Wed Aug 30 10:49:42 2017 -0400
+
+    fixed warnings3
+diffs: --------------
+       --------------
+Wed Aug 30 10:56:51 EDT 2017

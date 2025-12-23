@@ -1,0 +1,330 @@
+trigger:
+  # start a new build for every push
+  batch: False
+  branches:
+    include:
+      - develop
+resources:
+  containers:
+      - container: oneapi-hpckit
+        image: intel/oneapi-hpckit:latest
+        options: '-v /usr/bin/sudo:/usr/bin/sudo -v /usr/lib/sudo/libsudo_util.so.0:/usr/lib/sudo/libsudo_util.so.0 -v /usr/lib/sudo/sudoers.so:/usr/lib/sudo/sudoers.so'
+      - container: oneapi-basekit
+        image: intel/oneapi-basekit:latest
+        options: '-v /usr/bin/sudo:/usr/bin/sudo -v /usr/lib/sudo/libsudo_util.so.0:/usr/lib/sudo/libsudo_util.so.0 -v /usr/lib/sudo/sudoers.so:/usr/lib/sudo/sudoers.so'
+ 
+jobs:
+# manylinux1 is useful to test because the
+# standard Docker container uses an old version
+# of gcc / glibc
+- job: manylinux1_gcc
+  pool:
+    vmImage: 'ubuntu-latest'
+  steps:
+  - script: |
+      echo "FROM quay.io/pypa/manylinux1_x86_64
+        COPY . /tmp/openblas
+        RUN cd /tmp/openblas                                      &&  \
+            CC=gcc && \
+            make QUIET_MAKE=1 BINARY=64 DYNAMIC_ARCH=1 TARGET=NEHALEM NUM_THREADS=32 && \
+            make -C test BINARY=64 DYNAMIC_ARCH=1 TARGET=NEHALEM NUM_THREADS=32 && \
+            make -C ctest BINARY=64 DYNAMIC_ARCH=1 TARGET=NEHALEM NUM_THREADS=32 && \
+            make -C utest BINARY=64 DYNAMIC_ARCH=1 TARGET=NEHALEM NUM_THREADS=32" > Dockerfile
+      docker build .
+    displayName: Run manylinux1 docker build
+- job: manylinux_32bit
+  pool:
+    vmImage: 'ubuntu-latest'
+  steps:
+  - script: |
+      echo "FROM quay.io/pypa/manylinux2014_i686
+        COPY . /tmp/openblas
+        RUN cd /tmp/openblas                                      &&  \
+            CC=gcc && \
+            make QUIET_MAKE=1 BINARY=32 TARGET=NEHALEM NUM_THREADS=32 && \
+            make -C test BINARY=32 TARGET=NEHALEM NUM_THREADS=32 && \
+            make -C ctest BINARY=32 TARGET=NEHALEM NUM_THREADS=32 && \
+            make -C utest BINARY=32 TARGET=NEHALEM NUM_THREADS=32" > Dockerfile
+      docker build .
+    displayName: Run manylinux 32bit docker build
+- job: Intel_SDE_skx
+  pool:
+    vmImage: 'ubuntu-latest'
+  steps:
+  - script: |
+      # at the time of writing the available Azure Ubuntu vm image
+      # does not support AVX512VL, so use more recent LTS version
+      echo "FROM ubuntu:bionic
+      COPY . /tmp/openblas
+      RUN apt-get -y update && apt-get -y install \\
+          cmake \\
+          gfortran \\
+          make \\
+          wget
+      RUN mkdir /tmp/SDE && cd /tmp/SDE && \\
+          mkdir sde-external-8.35.0-2019-03-11-lin && \\
+          wget --quiet -O sde-external-8.35.0-2019-03-11-lin.tar.bz2 https://www.dropbox.com/s/fopsnzj67572sj5/sde-external-8.35.0-2019-03-11-lin.tar.bz2?dl=0 && \\
+          tar -xjvf sde-external-8.35.0-2019-03-11-lin.tar.bz2 -C /tmp/SDE/sde-external-8.35.0-2019-03-11-lin --strip-components=1
+      RUN cd /tmp/openblas && CC=gcc make QUIET_MAKE=1 DYNAMIC_ARCH=1 NUM_THREADS=32 BINARY=64
+      CMD cd /tmp/openblas && echo 0 > /proc/sys/kernel/yama/ptrace_scope && CC=gcc OPENBLAS_VERBOSE=2 /tmp/SDE/sde-external-8.35.0-2019-03-11-lin/sde64 -cpuid_in /tmp/SDE/sde-external-8.35.0-2019-03-11-lin/misc/cpuid/skx/cpuid.def -- make -C utest DYNAMIC_ARCH=1 NUM_THREADS=32 BINARY=64" > Dockerfile
+      docker build -t intel_sde .
+      # we need a privileged docker run for sde process attachment
+      docker run --privileged intel_sde
+    displayName: 'Run AVX512 SkylakeX docker build / test'
+
+- job: Windows_cl
+  pool:
+     vmImage: 'windows-latest'
+  steps:   
+  - task: CMake@1
+    inputs:
+      workingDirectory: 'build' # Optional
+      cmakeArgs: '-G "Visual Studio 17 2022" ..'
+  - task: CMake@1
+    inputs:
+      cmakeArgs: '--build . --config Release'
+      workingDirectory: 'build'
+  - script: |
+      cd build
+      cd utest
+      dir
+      openblas_utest.exe
+
+- job: Windows_mingw_gmake
+  pool:
+     vmImage: 'windows-latest'
+  steps:   
+  - script: |
+      mingw32-make CC=gcc FC=gfortran DYNAMIC_ARCH=1 DYNAMIC_LIST="SANDYBRIDGE"
+
+- job: Windows_clang_cmake
+  pool:
+     vmImage: 'windows-latest'
+  steps:
+  - script: |
+      set "PATH=C:\Miniconda\Scripts;C:\Miniconda\Library\bin;C:\Miniconda\Library\usr\bin;C:\Miniconda\condabin;%PATH%"
+      set "LIB=C:\Miniconda\Library\lib;%LIB%"
+      set "CPATH=C:\Miniconda\Library\include;%CPATH%
+      conda config --add channels conda-forge --force
+      conda config --set auto_update_conda false
+      conda install --yes ninja
+      call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+      mkdir build 
+      cd build
+      cmake -G "Ninja" -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_MT=mt -DCMAKE_BUILD_TYPE=Release -DNOFORTRAN=1 -DMSVC_STATIC_CRT=ON ..
+      cmake --build . --config Release
+      ctest
+
+- job: Windows_flang_clang
+  pool:
+     vmImage: 'windows-2022'
+  steps:
+  - script: |
+      set "PATH=C:\Miniconda\Scripts;C:\Miniconda\Library\bin;C:\Miniconda\Library\usr\bin;C:\Miniconda\condabin;%PATH%"
+      set "LIB=C:\Miniconda\Library\lib;%LIB%"
+      set "CPATH=C:\Miniconda\Library\include;%CPATH%"
+      conda config --add channels conda-forge --force
+      conda config --set auto_update_conda false
+      conda install --yes --quiet ninja flang
+      mkdir build 
+      cd build
+      call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+      cmake -G "Ninja" -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_Fortran_COMPILER="flang -I C:\Miniconda\Library\include\flang" -DBUILD_TESTING=OFF -DCMAKE_MT=mt -DCMAKE_BUILD_TYPE=Release -DMSVC_STATIC_CRT=ON ..
+      cmake --build . --config Release
+      ctest
+
+- job: Windows_cl_flang
+  pool:
+     vmImage: 'windows-2022'
+  steps:
+  - script: |
+      set "PATH=C:\Miniconda\Scripts;C:\Miniconda\Library\bin;C:\Miniconda\Library\usr\bin;C:\Miniconda\condabin;%PATH%"
+      set "LIB=C:\Miniconda\Library\lib;%LIB%"
+      set "CPATH=C:\Miniconda\Library\include;%CPATH%"
+      conda config --add channels conda-forge --force
+      conda config --set auto_update_conda false
+      conda install --yes --quiet ninja flang
+      mkdir build 
+      cd build
+      call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+      cmake -G "Ninja" -DCMAKE_C_COMPILER=cl -DCMAKE_Fortran_COMPILER=flang-new -DC_LAPACK=1 -DCMAKE_MT=mt -DCMAKE_BUILD_TYPE=Release -DMSVC_STATIC_CRT=ON ..
+      cmake --build . --config Release
+      ctest
+      ctest --rerun-failed --output-on-failure
+
+
+- job: OSX_OpenMP
+  pool:
+     vmImage: 'macOS-13'
+  steps:   
+  - script: |
+      brew update
+      make TARGET=CORE2 DYNAMIC_ARCH=1 USE_OPENMP=1 INTERFACE64=1 CC=gcc-13 FC=gfortran-13
+      make TARGET=CORE2 DYNAMIC_ARCH=1 USE_OPENMP=1 INTERFACE64=1 CC=gcc-13 FC=gfortran-13 PREFIX=../blasinst install
+      ls -lR ../blasinst
+     
+- job: OSX_GCC_Nothreads
+  pool:
+     vmImage: 'macOS-13'
+  steps:   
+  - script: |
+      brew update
+      make USE_THREADS=0 CC=gcc-13 FC=gfortran-13
+     
+- job: OSX_GCC12
+  pool:
+     vmImage: 'macOS-latest'
+  steps:   
+  - script: |
+      brew update
+      make CC=gcc-12 FC=gfortran-12
+
+- job: OSX_LLVM_flangnew
+  pool:
+     vmImage: 'macOS-latest'
+  variables:
+     LD_LIBRARY_PATH: /usr/local/opt/llvm/lib
+     LIBRARY_PATH: /usr/local/opt/llvm/lib
+  steps:   
+  - script: |
+      brew update
+      brew install llvm flang
+      make TARGET=NEHALEM CC=/usr/local/opt/llvm/bin/clang FC=/usr/local/opt/flang/bin/flang NO_SHARED=1
+
+- job: OSX_OpenMP_Clang
+  pool:
+     vmImage: 'macOS-latest'
+  variables:
+     LD_LIBRARY_PATH: /usr/local/opt/llvm/lib
+     LIBRARY_PATH: /usr/local/opt/llvm/lib
+  steps:   
+  - script: |
+      brew update
+      brew install llvm libomp
+      make TARGET=CORE2 USE_OPENMP=1 DYNAMIC_ARCH=1 CC=/usr/local/opt/llvm/bin/clang NOFORTRAN=1
+
+- job: OSX_OpenMP_Clang_cmake
+  pool:
+     vmImage: 'macOS-latest'
+  variables:
+     LD_LIBRARY_PATH: /usr/local/opt/llvm/lib
+     LIBRARY_PATH: /usr/local/opt/llvm/lib
+  steps:   
+  - script: |
+      brew update
+      brew install llvm libomp
+      mkdir build
+      cd build
+      cmake -DTARGET=CORE2 -DUSE_OPENMP=1 -DINTERFACE64=1 -DDYNAMIC_ARCH=1 -DCMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang -DNOFORTRAN=1 -DNO_AVX512=1 ..
+      make
+      ctest
+      
+- job: OSX_dynarch_cmake
+  pool:
+     vmImage: 'macOS-13'
+  variables:
+     LD_LIBRARY_PATH: /usr/local/opt/llvm/lib
+     LIBRARY_PATH: /usr/local/opt/llvm/lib
+  steps:   
+  - script: |
+      mkdir build
+      cd build
+      cmake -DTARGET=CORE2 -DDYNAMIC_ARCH=1 -DDYNAMIC_LIST='NEHALEM HASWELL SKYLAKEX' -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_Fortran_COMPILER=gfortran-13 -DBUILD_SHARED_LIBS=ON ..
+      cmake --build .
+      ctest
+
+- job: OSX_Ifort_Clang
+  pool:
+     vmImage: 'macOS-latest'
+  variables:
+     LD_LIBRARY_PATH: /usr/local/opt/llvm/lib
+     MACOS_HPCKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/edb4dc2f-266f-47f2-8d56-21bc7764e119/m_HPCKit_p_2023.2.0.49443.dmg
+     LIBRARY_PATH: /usr/local/opt/llvm/lib
+     MACOS_FORTRAN_COMPONENTS: intel.oneapi.mac.ifort-compiler
+  steps:   
+  - script: |
+      brew update
+      brew install llvm libomp
+      sudo mkdir -p /opt/intel
+      sudo chown $USER /opt/intel
+    displayName: prepare for cache restore
+  - task: Cache@2
+    inputs:
+      path: /opt/intel/oneapi
+      key: '"install" | "$(MACOS_HPCKIT_URL)" | "$(MACOS_FORTRAN_COMPONENTS)"'
+      cacheHitVar: CACHE_RESTORED
+  - script: | 
+      curl --output webimage.dmg --url $(MACOS_HPCKIT_URL) --retry 5 --retry-delay 5
+      hdiutil attach webimage.dmg
+      sudo /Volumes/"$(basename "$(MACOS_HPCKIT_URL)" .dmg)"/bootstrapper.app/Contents/MacOS/bootstrapper -s --action install --components="$(MACOS_FORTRAN_COMPONENTS)" --eula=accept --continue-with-optional-error=yes --log-dir=.
+      installer_exit_code=$?
+      hdiutil detach /Volumes/"$(basename "$URL" .dmg)" -quiet
+      exit $installer_exit_code
+    displayName: install
+    condition: ne(variables.CACHE_RESTORED, 'true')
+  - script: | 
+      source /opt/intel/oneapi/setvars.sh
+      make CC=/usr/local/opt/llvm/bin/clang FC=ifort
+ 
+- job: OSX_NDK_ARMV7
+  pool:
+     vmImage: 'macOS-13'
+  steps:   
+  - script: | 
+      brew update
+      brew install --cask android-ndk
+      export ANDROID_NDK_HOME=/usr/local/share/android-ndk
+      make TARGET=ARMV7 ONLY_CBLAS=1 CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi21-clang AR=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar HOSTCC=gcc ARM_SOFTFP_ABI=1 -j4
+
+- job: OSX_IOS_ARMV8
+  pool:
+     vmImage: 'macOS-13'
+  variables:
+     CC: /Applications/Xcode_14.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
+     CFLAGS: -O2 -Wno-macro-redefined -isysroot /Applications/Xcode_14.2.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS16.2.sdk -arch arm64 -miphoneos-version-min=10.0
+  steps:
+  - script: |
+     make TARGET=ARMV8 DYNAMIC_ARCH=1 NUM_THREADS=32 HOSTCC=clang NOFORTRAN=1
+
+- job: OSX_IOS_ARMV7
+  pool:
+     vmImage: 'macOS-13'
+  variables:
+     CC: /Applications/Xcode_14.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
+     CFLAGS: -O2 -mno-thumb -Wno-macro-redefined -isysroot /Applications/Xcode_14.2.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS16.2.sdk -arch armv7 -miphoneos-version-min=5.1
+  steps:
+  - script: |
+     make TARGET=ARMV7 DYNAMIC_ARCH=1 NUM_THREADS=32 HOSTCC=clang NOFORTRAN=1
+
+- job: OSX_xbuild_DYNAMIC_ARM64
+  pool:
+     vmImage: 'macOS-13'
+  variables:
+     CC: /Applications/Xcode_14.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
+     CFLAGS: -O2 -Wno-macro-redefined -isysroot /Applications/Xcode_14.2.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX13.1.sdk -arch arm64
+  steps:
+  - script: |
+     ls /Applications/Xcode_14.2.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs
+     /Applications/Xcode_12.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -arch arm64 --print-supported-cpus
+     /Applications/Xcode_14.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang --version
+     make TARGET=ARMV8 DYNAMIC_ARCH=1 NUM_THREADS=32 HOSTCC=clang NOFORTRAN=1
+
+- job: ALPINE_MUSL
+  pool:
+     vmImage: 'ubuntu-latest'
+  steps:
+  - script: |
+        wget https://raw.githubusercontent.com/alpinelinux/alpine-chroot-install/v0.14.0/alpine-chroot-install \
+        && echo 'ccbf65f85cdc351851f8ad025bb3e65bae4d5b06  alpine-chroot-install' | sha1sum -c \
+        || exit 1
+        alpine() { /alpine/enter-chroot -u "$USER" "$@"; }
+        sudo sh alpine-chroot-install -p 'build-base gfortran perl linux-headers sudo'
+        alpine make DYNAMIC_ARCH=1 BINARY=64
+        alpine make DYNAMIC_ARCH=1 BINARY=64 PREFIX=mytestdir install
+        alpine ls -l mytestdir/include
+        alpine echo "// tests that inclusion of openblas_config.h works with musl" >test_install.c
+        alpine echo "#include <openblas_config.h>" >>test_install.c
+        alpine echo "int main(){" >> test_install.c
+        alpine echo "cpu_set_t* cpu_set = NULL;}" >>test_install.c
+        alpine gcc -Imytestdir/include test_install.c -Lmytestdir/lib -lopenblas -lpthread -lgfortran -o test_install
+        

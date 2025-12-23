@@ -1,0 +1,21 @@
+struct<
+  VendorID: bigint,
+  tpep_pickup_datetime: timestamp,
+  tpep_dropoff_datetime: timestamp,
+  passenger_count: bigint,
+  trip_distance: double,
+  RatecodeID: bigint,
+  store_and_fwd_flag: string,
+  PULocationID: bigint,
+  DOLocationID: bigint,
+  payment_type: bigint,
+  fare_amount: decimal(8,2),
+  extra: decimal(8,2),
+  mta_tax: decimal(8,2),
+  tip_amount: decimal(8,2),
+  tolls_amount: decimal(8,2),
+  improvement_surcharge: decimal(8,2),
+  total_amount: decimal(8,2),
+  congestion_surcharge: int,
+  airport_fee: int
+>

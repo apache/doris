@@ -1,0 +1,216 @@
+CAXPYKERNEL = ../mips/zaxpy.c
+ZAXPYKERNEL = ../mips/zaxpy.c
+SROTKERNEL  = ../mips/rot.c
+DROTKERNEL  = ../mips/rot.c
+CROTKERNEL  = ../mips/zrot.c
+ZROTKERNEL  = ../mips/zrot.c
+CSWAPKERNEL = ../mips/zswap.c
+ZSWAPKERNEL = ../mips/zswap.c
+
+CSCALKERNEL = ../mips/zscal.c
+ZSCALKERNEL = ../mips/zscal.c
+                                                                                        
+                                                                                                                                          
+ifndef SNRM2KERNEL
+SNRM2KERNEL = snrm2.S
+endif
+
+ifndef DNRM2KERNEL
+DNRM2KERNEL = dnrm2.S
+endif
+
+ifndef CNRM2KERNEL
+CNRM2KERNEL = cnrm2.S
+endif
+
+ifndef ZNRM2KERNEL
+ZNRM2KERNEL = znrm2.S
+endif
+
+ifndef SCABS_KERNEL
+SCABS_KERNEL	= ../generic/cabs.c
+endif
+
+ifndef DCABS_KERNEL
+DCABS_KERNEL	= ../generic/cabs.c
+endif
+
+ifndef QCABS_KERNEL
+QCABS_KERNEL	= ../generic/cabs.c
+endif
+
+ifndef LSAME_KERNEL
+LSAME_KERNEL	= ../generic/lsame.c
+endif
+
+ifndef SGEMMKERNEL
+SGEMMKERNEL    =  gemm_kernel.S
+ifneq ($(SGEMM_UNROLL_M), $(SGEMM_UNROLL_N))
+SGEMMINCOPY    = ../generic/gemm_ncopy_2.c
+SGEMMITCOPY    = ../generic/gemm_tcopy_2.c
+SGEMMINCOPYOBJ =  sgemm_incopy$(TSUFFIX).$(SUFFIX)
+SGEMMITCOPYOBJ =  sgemm_itcopy$(TSUFFIX).$(SUFFIX)
+endif
+SGEMMONCOPY    = ../generic/gemm_ncopy_8.c
+SGEMMOTCOPY    = ../generic/gemm_tcopy_8.c
+SGEMMONCOPYOBJ =  sgemm_oncopy$(TSUFFIX).$(SUFFIX)
+SGEMMOTCOPYOBJ =  sgemm_otcopy$(TSUFFIX).$(SUFFIX)
+endif
+
+ifndef DGEMMKERNEL
+DGEMMKERNEL    =  gemm_kernel.S
+ifneq ($(DGEMM_UNROLL_M), $(DGEMM_UNROLL_N))
+DGEMMINCOPY    = ../generic/gemm_ncopy_2.c
+DGEMMITCOPY    = ../generic/gemm_tcopy_2.c
+DGEMMINCOPYOBJ =  dgemm_incopy$(TSUFFIX).$(SUFFIX)
+DGEMMITCOPYOBJ =  dgemm_itcopy$(TSUFFIX).$(SUFFIX)
+endif
+DGEMMONCOPY    = ../generic/gemm_ncopy_8.c
+DGEMMOTCOPY    = ../generic/gemm_tcopy_8.c
+DGEMMONCOPYOBJ =  dgemm_oncopy$(TSUFFIX).$(SUFFIX)
+DGEMMOTCOPYOBJ =  dgemm_otcopy$(TSUFFIX).$(SUFFIX)
+endif
+
+ifndef CGEMMKERNEL
+CGEMMKERNEL    =  zgemm_kernel.S
+ifneq ($(CGEMM_UNROLL_M), $(CGEMM_UNROLL_N))
+CGEMMINCOPY    = ../generic/zgemm_ncopy_1.c
+CGEMMITCOPY    = ../generic/zgemm_tcopy_1.c
+CGEMMINCOPYOBJ =  cgemm_incopy$(TSUFFIX).$(SUFFIX)
+CGEMMITCOPYOBJ =  cgemm_itcopy$(TSUFFIX).$(SUFFIX)
+endif
+CGEMMONCOPY    = ../generic/zgemm_ncopy_4.c
+CGEMMOTCOPY    = ../generic/zgemm_tcopy_4.c
+CGEMMONCOPYOBJ =  cgemm_oncopy$(TSUFFIX).$(SUFFIX)
+CGEMMOTCOPYOBJ =  cgemm_otcopy$(TSUFFIX).$(SUFFIX)
+endif
+
+ifndef ZGEMMKERNEL
+ZGEMMKERNEL    =  zgemm_kernel.S
+ifneq ($(ZGEMM_UNROLL_M), $(ZGEMM_UNROLL_N))
+ZGEMMINCOPY    = ../generic/zgemm_ncopy_1.c
+ZGEMMITCOPY    = ../generic/zgemm_tcopy_1.c
+ZGEMMINCOPYOBJ =  zgemm_incopy$(TSUFFIX).$(SUFFIX)
+ZGEMMITCOPYOBJ =  zgemm_itcopy$(TSUFFIX).$(SUFFIX)
+endif
+ZGEMMONCOPY    = ../generic/zgemm_ncopy_4.c
+ZGEMMOTCOPY    = ../generic/zgemm_tcopy_4.c
+ZGEMMONCOPYOBJ =  zgemm_oncopy$(TSUFFIX).$(SUFFIX)
+ZGEMMOTCOPYOBJ =  zgemm_otcopy$(TSUFFIX).$(SUFFIX)
+endif
+
+ifndef SGEMM_BETA
+SGEMM_BETA = ../generic/gemm_beta.c
+endif
+ifndef DGEMM_BETA
+DGEMM_BETA = ../generic/gemm_beta.c
+endif
+ifndef CGEMM_BETA
+CGEMM_BETA = ../generic/zgemm_beta.c
+endif
+ifndef ZGEMM_BETA
+ZGEMM_BETA = ../generic/zgemm_beta.c
+endif
+
+ifndef	STRSMKERNEL_LN
+STRSMKERNEL_LN	=  trsm_kernel_LN.S
+endif
+
+ifndef	STRSMKERNEL_LT
+STRSMKERNEL_LT	=  trsm_kernel_LT.S
+endif
+
+ifndef	STRSMKERNEL_RN
+STRSMKERNEL_RN	=  trsm_kernel_LT.S
+endif
+
+ifndef	STRSMKERNEL_RT
+STRSMKERNEL_RT	=  trsm_kernel_RT.S
+endif
+
+ifndef DTRSMKERNEL_LN
+DTRSMKERNEL_LN	=  trsm_kernel_LN.S
+endif
+
+ifndef DTRSMKERNEL_LT
+DTRSMKERNEL_LT	=  trsm_kernel_LT.S
+endif
+
+ifndef DTRSMKERNEL_RN
+DTRSMKERNEL_RN	=  trsm_kernel_LT.S
+endif
+
+ifndef DTRSMKERNEL_RT
+DTRSMKERNEL_RT	=  trsm_kernel_RT.S
+endif
+
+ifndef	CTRSMKERNEL_LN
+CTRSMKERNEL_LN	=  ztrsm_kernel_LT.S
+endif
+
+ifndef	CTRSMKERNEL_LT
+CTRSMKERNEL_LT	=  ztrsm_kernel_LT.S
+endif
+
+ifndef	CTRSMKERNEL_RN
+CTRSMKERNEL_RN	=  ztrsm_kernel_LT.S
+endif
+
+ifndef	CTRSMKERNEL_RT
+CTRSMKERNEL_RT	=  ztrsm_kernel_RT.S
+endif
+
+ifndef	ZTRSMKERNEL_LN
+ZTRSMKERNEL_LN	=  ztrsm_kernel_LT.S
+endif
+
+ifndef	ZTRSMKERNEL_LT
+ZTRSMKERNEL_LT	=  ztrsm_kernel_LT.S
+endif
+
+ifndef	ZTRSMKERNEL_RN
+ZTRSMKERNEL_RN	=  ztrsm_kernel_LT.S
+endif
+
+ifndef	ZTRSMKERNEL_RT
+ZTRSMKERNEL_RT	=  ztrsm_kernel_RT.S
+endif
+
+CGEMM3MKERNEL    =  zgemm3m_kernel.S
+ZGEMM3MKERNEL    =  zgemm3m_kernel.S
+
+ifndef ISMINKERNEL
+ISMINKERNEL = imin.S
+endif
+
+ifndef IDMINKERNEL
+IDMINKERNEL = imin.S
+endif
+
+ifndef IQMINKERNEL
+IQMINKERNEL = imin.S
+endif
+
+ifndef ISMAXKERNEL
+ISMAXKERNEL = imax.S
+endif
+
+ifndef IDMAXKERNEL
+IDMAXKERNEL = imax.S
+endif
+
+ifndef IQMAXKERNEL
+IQMAXKERNEL = imax.S
+endif
+
+ifndef SROTMKERNEL
+SROTMKERNEL = ../generic/rotm.c
+endif
+
+ifndef DROTMKERNEL
+DROTMKERNEL = ../generic/rotm.c
+endif
+
+ifndef QROTMKERNEL
+QROTMKERNEL = ../generic/rotm.c
+endif

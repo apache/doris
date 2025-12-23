@@ -1,0 +1,6 @@
+include $(KERNELDIR)/KERNEL
+
+STRMMKERNEL    =  gemm_kernel.S
+DTRMMKERNEL    =  gemm_kernel.S
+CTRMMKERNEL    =  zgemm_kernel.S
+ZTRMMKERNEL    =  zgemm_kernel.S

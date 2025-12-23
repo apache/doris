@@ -1,0 +1,4183 @@
+/*****************************************************************************
+Copyright (c) 2011-2023, The OpenBLAS Project
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   1. Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+
+   2. Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in
+      the documentation and/or other materials provided with the
+      distribution.
+   3. Neither the name of the OpenBLAS project nor the names of 
+      its contributors may be used to endorse or promote products 
+      derived from this software without specific prior written 
+      permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
+USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+**********************************************************************************/
+
+/*********************************************************************/
+/* Copyright 2009, 2010 The University of Texas at Austin.           */
+/* All rights reserved.                                              */
+/*                                                                   */
+/* Redistribution and use in source and binary forms, with or        */
+/* without modification, are permitted provided that the following   */
+/* conditions are met:                                               */
+/*                                                                   */
+/*   1. Redistributions of source code must retain the above         */
+/*      copyright notice, this list of conditions and the following  */
+/*      disclaimer.                                                  */
+/*                                                                   */
+/*   2. Redistributions in binary form must reproduce the above      */
+/*      copyright notice, this list of conditions and the following  */
+/*      disclaimer in the documentation and/or other materials       */
+/*      provided with the distribution.                              */
+/*                                                                   */
+/*    THIS  SOFTWARE IS PROVIDED  BY THE  UNIVERSITY OF  TEXAS AT    */
+/*    AUSTIN  ``AS IS''  AND ANY  EXPRESS OR  IMPLIED WARRANTIES,    */
+/*    INCLUDING, BUT  NOT LIMITED  TO, THE IMPLIED  WARRANTIES OF    */
+/*    MERCHANTABILITY  AND FITNESS FOR  A PARTICULAR  PURPOSE ARE    */
+/*    DISCLAIMED.  IN  NO EVENT SHALL THE UNIVERSITY  OF TEXAS AT    */
+/*    AUSTIN OR CONTRIBUTORS BE  LIABLE FOR ANY DIRECT, INDIRECT,    */
+/*    INCIDENTAL,  SPECIAL, EXEMPLARY,  OR  CONSEQUENTIAL DAMAGES    */
+/*    (INCLUDING, BUT  NOT LIMITED TO,  PROCUREMENT OF SUBSTITUTE    */
+/*    GOODS  OR  SERVICES; LOSS  OF  USE,  DATA,  OR PROFITS;  OR    */
+/*    BUSINESS INTERRUPTION) HOWEVER CAUSED  AND ON ANY THEORY OF    */
+/*    LIABILITY, WHETHER  IN CONTRACT, STRICT  LIABILITY, OR TORT    */
+/*    (INCLUDING NEGLIGENCE OR OTHERWISE)  ARISING IN ANY WAY OUT    */
+/*    OF  THE  USE OF  THIS  SOFTWARE,  EVEN  IF ADVISED  OF  THE    */
+/*    POSSIBILITY OF SUCH DAMAGE.                                    */
+/*                                                                   */
+/* The views and conclusions contained in the software and           */
+/* documentation are those of the authors and should not be          */
+/* interpreted as representing official policies, either expressed   */
+/* or implied, of The University of Texas at Austin.                 */
+/*********************************************************************/
+
+#ifndef PARAM_H
+#define PARAM_H
+
+
+#define SBGEMM_DEFAULT_UNROLL_N 4
+#define SBGEMM_DEFAULT_UNROLL_M 8
+#define SBGEMM_DEFAULT_UNROLL_MN 32
+#define SBGEMM_DEFAULT_P 256
+#define SBGEMM_DEFAULT_R 256
+#define SBGEMM_DEFAULT_Q 256
+#define SBGEMM_ALIGN_K 1  // must be 2^x
+
+#ifdef OPTERON
+
+#define SNUMOPT		4
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A  64
+#define GEMM_DEFAULT_OFFSET_B 256
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x01ffffUL
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#else
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#endif
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define DGEMM_DEFAULT_P dgemm_p
+#define QGEMM_DEFAULT_P qgemm_p
+#define CGEMM_DEFAULT_P cgemm_p
+#define ZGEMM_DEFAULT_P zgemm_p
+#define XGEMM_DEFAULT_P xgemm_p
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#ifdef ALLOC_HUGETLB
+
+#define SGEMM_DEFAULT_Q 248
+#define DGEMM_DEFAULT_Q 248
+#define QGEMM_DEFAULT_Q 248
+#define CGEMM_DEFAULT_Q 248
+#define ZGEMM_DEFAULT_Q 248
+#define XGEMM_DEFAULT_Q 248
+
+#else
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 240
+#define QGEMM_DEFAULT_Q 240
+#define CGEMM_DEFAULT_Q 240
+#define ZGEMM_DEFAULT_Q 240
+#define XGEMM_DEFAULT_Q 240
+
+#endif
+
+
+#define SYMV_P	16
+#define HAVE_EXCLUSIVE_CACHE
+
+#endif
+
+#if defined(BARCELONA) || defined(SHANGHAI) || defined(BOBCAT)
+
+#define SNUMOPT		8
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A  64
+#define GEMM_DEFAULT_OFFSET_B 832
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0fffUL
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#else
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#endif
+
+#if 0
+#define SGEMM_DEFAULT_P 496
+#define DGEMM_DEFAULT_P 248
+#define QGEMM_DEFAULT_P 124
+#define CGEMM_DEFAULT_P 248
+#define ZGEMM_DEFAULT_P 124
+#define XGEMM_DEFAULT_P  62
+
+#define SGEMM_DEFAULT_Q 248
+#define DGEMM_DEFAULT_Q 248
+#define QGEMM_DEFAULT_Q 248
+#define CGEMM_DEFAULT_Q 248
+#define ZGEMM_DEFAULT_Q 248
+#define XGEMM_DEFAULT_Q 248
+
+#else
+
+#define SGEMM_DEFAULT_P 448
+#define DGEMM_DEFAULT_P 224
+#define QGEMM_DEFAULT_P 112
+#define CGEMM_DEFAULT_P 224
+#define ZGEMM_DEFAULT_P 112
+#define XGEMM_DEFAULT_P  56
+
+#define SGEMM_DEFAULT_Q 224
+#define DGEMM_DEFAULT_Q 224
+#define QGEMM_DEFAULT_Q 224
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 224
+#define XGEMM_DEFAULT_Q 224
+
+#endif
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define QGEMM_DEFAULT_R qgemm_r
+#define DGEMM_DEFAULT_R dgemm_r
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SYMV_P	16
+#define HAVE_EXCLUSIVE_CACHE
+
+#define GEMM_THREAD gemm_thread_mn
+
+#endif
+
+
+#ifdef BULLDOZER
+
+#define SNUMOPT		8
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A  64
+#define GEMM_DEFAULT_OFFSET_B 832
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0fffUL
+
+
+
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#else
+#define SGEMM_DEFAULT_UNROLL_N 2
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define DGEMM_DEFAULT_UNROLL_M 8
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#define CGEMM3M_DEFAULT_UNROLL_N 4
+#define CGEMM3M_DEFAULT_UNROLL_M 8
+#define ZGEMM3M_DEFAULT_UNROLL_N 4
+#define ZGEMM3M_DEFAULT_UNROLL_M 4
+
+#define DGEMM_DEFAULT_UNROLL_MN 16
+#define GEMV_UNROLL 8
+#endif
+
+
+#if defined(ARCH_X86_64)
+#define SGEMM_DEFAULT_P 768
+#define DGEMM_DEFAULT_P 384
+#else
+#define SGEMM_DEFAULT_P 448
+#define DGEMM_DEFAULT_P 224
+#endif
+
+#define QGEMM_DEFAULT_P 112
+#define CGEMM_DEFAULT_P 224
+#define ZGEMM_DEFAULT_P 112
+#define XGEMM_DEFAULT_P  56
+
+#if defined(ARCH_X86_64)
+#define SGEMM_DEFAULT_Q 168
+#define DGEMM_DEFAULT_Q 168
+#else
+#define SGEMM_DEFAULT_Q 224
+#define DGEMM_DEFAULT_Q 224
+#endif
+
+#define QGEMM_DEFAULT_Q 224
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 224
+#define XGEMM_DEFAULT_Q 224
+
+#define CGEMM3M_DEFAULT_P 448
+#define ZGEMM3M_DEFAULT_P 224
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 224
+#define ZGEMM3M_DEFAULT_Q 224
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define QGEMM_DEFAULT_R qgemm_r
+#define DGEMM_DEFAULT_R dgemm_r
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SYMV_P	16
+#define HAVE_EXCLUSIVE_CACHE
+
+#define GEMM_THREAD gemm_thread_mn
+
+#endif
+
+#ifdef PILEDRIVER
+#define SNUMOPT         8
+#define DNUMOPT         4
+
+#define GEMM_DEFAULT_OFFSET_A  64
+#define GEMM_DEFAULT_OFFSET_B 832
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0fffUL
+
+
+
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#else
+#define SGEMM_DEFAULT_UNROLL_N 2
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define DGEMM_DEFAULT_UNROLL_M 8
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#define CGEMM3M_DEFAULT_UNROLL_N 4
+#define CGEMM3M_DEFAULT_UNROLL_M 8
+#define ZGEMM3M_DEFAULT_UNROLL_N 4
+#define ZGEMM3M_DEFAULT_UNROLL_M 4
+#define GEMV_UNROLL 8
+#endif
+
+#if defined(ARCH_X86_64)
+#define SGEMM_DEFAULT_P 768
+#define DGEMM_DEFAULT_P 768
+#define ZGEMM_DEFAULT_P 384
+#define CGEMM_DEFAULT_P 768
+#else
+#define SGEMM_DEFAULT_P 448
+#define DGEMM_DEFAULT_P 480
+#define ZGEMM_DEFAULT_P 112
+#define CGEMM_DEFAULT_P 224
+#endif
+#define QGEMM_DEFAULT_P 112
+#define XGEMM_DEFAULT_P  56
+
+#if defined(ARCH_X86_64)
+#define SGEMM_DEFAULT_Q 192
+#define DGEMM_DEFAULT_Q 168
+#define ZGEMM_DEFAULT_Q 168
+#define CGEMM_DEFAULT_Q 168
+#else
+#define SGEMM_DEFAULT_Q 224
+#define DGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 224
+#define CGEMM_DEFAULT_Q 224
+#endif
+#define QGEMM_DEFAULT_Q 224
+#define XGEMM_DEFAULT_Q 224
+
+#define CGEMM3M_DEFAULT_P 448
+#define ZGEMM3M_DEFAULT_P 224
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 224
+#define ZGEMM3M_DEFAULT_Q 224
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+#define SGEMM_DEFAULT_R 12288
+#define QGEMM_DEFAULT_R qgemm_r
+#define DGEMM_DEFAULT_R 12288
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SYMV_P  16
+#define HAVE_EXCLUSIVE_CACHE
+
+#define GEMM_THREAD gemm_thread_mn
+
+#endif
+
+#ifdef STEAMROLLER
+#define SNUMOPT         8
+#define DNUMOPT         4
+
+#define GEMM_DEFAULT_OFFSET_A  64
+#define GEMM_DEFAULT_OFFSET_B 832
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0fffUL
+
+
+
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#else
+#define SGEMM_DEFAULT_UNROLL_N 2
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define DGEMM_DEFAULT_UNROLL_M 8
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#define CGEMM3M_DEFAULT_UNROLL_N 4
+#define CGEMM3M_DEFAULT_UNROLL_M 8
+#define ZGEMM3M_DEFAULT_UNROLL_N 4
+#define ZGEMM3M_DEFAULT_UNROLL_M 4
+#define GEMV_UNROLL 8
+#endif
+
+#if defined(ARCH_X86_64)
+#define SGEMM_DEFAULT_P 768
+#define DGEMM_DEFAULT_P 576
+#define ZGEMM_DEFAULT_P 288
+#define CGEMM_DEFAULT_P 576
+#else
+#define SGEMM_DEFAULT_P 448
+#define DGEMM_DEFAULT_P 480
+#define ZGEMM_DEFAULT_P 112
+#define CGEMM_DEFAULT_P 224
+#endif
+#define QGEMM_DEFAULT_P 112
+#define XGEMM_DEFAULT_P  56
+
+#if defined(ARCH_X86_64)
+#define SGEMM_DEFAULT_Q 192
+#define DGEMM_DEFAULT_Q 160
+#define ZGEMM_DEFAULT_Q 160
+#define CGEMM_DEFAULT_Q 160
+#else
+#define SGEMM_DEFAULT_Q 224
+#define DGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 224
+#define CGEMM_DEFAULT_Q 224
+#endif
+#define QGEMM_DEFAULT_Q 224
+#define XGEMM_DEFAULT_Q 224
+
+#define CGEMM3M_DEFAULT_P 448
+#define ZGEMM3M_DEFAULT_P 224
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 224
+#define ZGEMM3M_DEFAULT_Q 224
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+#define SGEMM_DEFAULT_R 12288
+#define QGEMM_DEFAULT_R qgemm_r
+#define DGEMM_DEFAULT_R 12288
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SYMV_P  16
+#define HAVE_EXCLUSIVE_CACHE
+
+#define GEMM_THREAD gemm_thread_mn
+
+#endif
+
+
+#ifdef EXCAVATOR
+#define SNUMOPT         8
+#define DNUMOPT         4
+
+#define GEMM_DEFAULT_OFFSET_A  64
+#define GEMM_DEFAULT_OFFSET_B 832
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0fffUL
+
+
+
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#else
+#define SGEMM_DEFAULT_UNROLL_N 2
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define DGEMM_DEFAULT_UNROLL_M 8
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#define CGEMM3M_DEFAULT_UNROLL_N 4
+#define CGEMM3M_DEFAULT_UNROLL_M 8
+#define ZGEMM3M_DEFAULT_UNROLL_N 4
+#define ZGEMM3M_DEFAULT_UNROLL_M 4
+#define GEMV_UNROLL 8
+#endif
+
+#if defined(ARCH_X86_64)
+#define SGEMM_DEFAULT_P 768
+#define DGEMM_DEFAULT_P 576
+#define ZGEMM_DEFAULT_P 288
+#define CGEMM_DEFAULT_P 576
+#else
+#define SGEMM_DEFAULT_P 448
+#define DGEMM_DEFAULT_P 480
+#define ZGEMM_DEFAULT_P 112
+#define CGEMM_DEFAULT_P 224
+#endif
+#define QGEMM_DEFAULT_P 112
+#define XGEMM_DEFAULT_P  56
+
+#if defined(ARCH_X86_64)
+#define SGEMM_DEFAULT_Q 192
+#define DGEMM_DEFAULT_Q 160
+#define ZGEMM_DEFAULT_Q 160
+#define CGEMM_DEFAULT_Q 160
+#else
+#define SGEMM_DEFAULT_Q 224
+#define DGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 224
+#define CGEMM_DEFAULT_Q 224
+#endif
+#define QGEMM_DEFAULT_Q 224
+#define XGEMM_DEFAULT_Q 224
+
+#define CGEMM3M_DEFAULT_P 448
+#define ZGEMM3M_DEFAULT_P 224
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 224
+#define ZGEMM3M_DEFAULT_Q 224
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+#define SGEMM_DEFAULT_R 12288
+#define QGEMM_DEFAULT_R qgemm_r
+#define DGEMM_DEFAULT_R 12288
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SYMV_P  16
+#define HAVE_EXCLUSIVE_CACHE
+
+#define GEMM_THREAD gemm_thread_mn
+
+#endif
+
+#ifdef ZEN
+#define SNUMOPT         16
+#define DNUMOPT         8
+
+#define GEMM_DEFAULT_OFFSET_A     0
+#define GEMM_DEFAULT_OFFSET_B     0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SYMV_P  8
+
+#if defined(XDOUBLE) || defined(DOUBLE)
+#define SWITCH_RATIO            4
+#define GEMM_PREFERED_SIZE      4
+#else
+#define SWITCH_RATIO            8
+#define GEMM_PREFERED_SIZE      8
+#endif
+
+#ifdef ARCH_X86
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#else
+
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define ZGEMM_DEFAULT_UNROLL_M 4
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 8
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+/*
+#define SGEMM_DEFAULT_UNROLL_MN 32
+#define DGEMM_DEFAULT_UNROLL_MN 32
+*/
+#endif
+
+#ifdef ARCH_X86
+
+#define SGEMM_DEFAULT_P 512
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_P 512
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_R 1024
+#define ZGEMM_DEFAULT_P 512
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+#define SGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 192
+#define XGEMM_DEFAULT_Q 128
+
+#else
+
+#define SGEMM_DEFAULT_P 320
+#define DGEMM_DEFAULT_P 512
+#define CGEMM_DEFAULT_P 256
+#define ZGEMM_DEFAULT_P 192
+
+#ifdef WINDOWS_ABI
+#define SGEMM_DEFAULT_Q 320
+#define DGEMM_DEFAULT_Q 128
+#else
+#define SGEMM_DEFAULT_Q 320
+#define DGEMM_DEFAULT_Q 256
+#endif
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 192
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R 13824
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define QGEMM_DEFAULT_Q 128
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+#define XGEMM_DEFAULT_Q 128
+
+#define CGEMM3M_DEFAULT_UNROLL_N 4
+#define CGEMM3M_DEFAULT_UNROLL_M 8
+#define ZGEMM3M_DEFAULT_UNROLL_N 4
+#define ZGEMM3M_DEFAULT_UNROLL_M 4
+
+#define CGEMM3M_DEFAULT_P 320
+#define ZGEMM3M_DEFAULT_P 256
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 320
+#define ZGEMM3M_DEFAULT_Q 256
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+#endif
+
+#endif
+
+#ifdef ATHLON
+
+#define SNUMOPT		4
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A   0
+#define GEMM_DEFAULT_OFFSET_B 384
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0ffffUL
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_UNROLL_M 2
+#define DGEMM_DEFAULT_UNROLL_M 1
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 1
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_P 208
+#define DGEMM_DEFAULT_P 104
+#define QGEMM_DEFAULT_P  56
+#define CGEMM_DEFAULT_P 104
+#define ZGEMM_DEFAULT_P  56
+#define XGEMM_DEFAULT_P  28
+
+#define SGEMM_DEFAULT_Q 208
+#define DGEMM_DEFAULT_Q 208
+#define QGEMM_DEFAULT_Q 208
+#define CGEMM_DEFAULT_Q 208
+#define ZGEMM_DEFAULT_Q 208
+#define XGEMM_DEFAULT_Q 208
+
+#define SYMV_P	16
+#define HAVE_EXCLUSIVE_CACHE
+#endif
+
+#ifdef VIAC3
+
+#define SNUMOPT		2
+#define DNUMOPT		1
+
+#define GEMM_DEFAULT_OFFSET_A   0
+#define GEMM_DEFAULT_OFFSET_B 256
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0ffffUL
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_UNROLL_M 2
+#define DGEMM_DEFAULT_UNROLL_M 1
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 1
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_P 128
+#define DGEMM_DEFAULT_P 128
+#define QGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+#define XGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q 512
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 256
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 128
+#define XGEMM_DEFAULT_Q 128
+
+#define SYMV_P	16
+#endif
+
+#ifdef NANO
+
+#define SNUMOPT		4
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A  64
+#define GEMM_DEFAULT_OFFSET_B 256
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x01ffffUL
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#else
+#define SGEMM_DEFAULT_UNROLL_N 8
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#endif
+
+#define SGEMM_DEFAULT_P 288
+#define DGEMM_DEFAULT_P 288
+#define QGEMM_DEFAULT_P 288
+#define CGEMM_DEFAULT_P 288
+#define ZGEMM_DEFAULT_P 288
+#define XGEMM_DEFAULT_P 288
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 128
+#define QGEMM_DEFAULT_Q  64
+#define CGEMM_DEFAULT_Q 128
+#define ZGEMM_DEFAULT_Q  64
+#define XGEMM_DEFAULT_Q  32
+
+#define SYMV_P	16
+#define HAVE_EXCLUSIVE_CACHE
+
+#endif
+
+#if defined(PENTIUM) || defined(PENTIUM2) || defined(PENTIUM3)
+
+#ifdef HAVE_SSE
+#define SNUMOPT		2
+#else
+#define SNUMOPT		1
+#endif
+#define DNUMOPT		1
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0ffffUL
+
+#ifdef HAVE_SSE
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define CGEMM_DEFAULT_UNROLL_M 4
+#else
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define CGEMM_DEFAULT_UNROLL_M 2
+#endif
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define SGEMM_DEFAULT_UNROLL_N 2
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 1
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define ZGEMM_DEFAULT_UNROLL_N 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define SGEMM_DEFAULT_Q 256
+#define SGEMM_DEFAULT_R sgemm_r
+
+#define DGEMM_DEFAULT_P dgemm_p
+#define DGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_R dgemm_r
+
+#define QGEMM_DEFAULT_P qgemm_p
+#define QGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_R qgemm_r
+
+#define CGEMM_DEFAULT_P cgemm_p
+#define CGEMM_DEFAULT_Q 256
+#define CGEMM_DEFAULT_R cgemm_r
+
+#define ZGEMM_DEFAULT_P zgemm_p
+#define ZGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define XGEMM_DEFAULT_P xgemm_p
+#define XGEMM_DEFAULT_Q 256
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SYMV_P	4
+
+#endif
+
+#ifdef PENTIUMM
+
+#define SNUMOPT		2
+#define DNUMOPT		1
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0ffffUL
+
+#ifdef CORE_YONAH
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_N 1
+#else
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define SGEMM_DEFAULT_UNROLL_N 2
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define CGEMM_DEFAULT_UNROLL_N 1
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define ZGEMM_DEFAULT_UNROLL_N 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#endif
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define SGEMM_DEFAULT_Q 256
+#define SGEMM_DEFAULT_R sgemm_r
+
+#define DGEMM_DEFAULT_P dgemm_p
+#define DGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_R dgemm_r
+
+#define QGEMM_DEFAULT_P qgemm_p
+#define QGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_R qgemm_r
+
+#define CGEMM_DEFAULT_P cgemm_p
+#define CGEMM_DEFAULT_Q 256
+#define CGEMM_DEFAULT_R cgemm_r
+
+#define ZGEMM_DEFAULT_P zgemm_p
+#define ZGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define XGEMM_DEFAULT_P xgemm_p
+#define XGEMM_DEFAULT_Q 256
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SYMV_P	4
+#endif
+
+#ifdef CORE_NORTHWOOD
+
+#define SNUMOPT		4
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A      0
+#define GEMM_DEFAULT_OFFSET_B     32
+
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0ffffUL
+
+#define SYMV_P	8
+
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 2
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 1
+#define ZGEMM_DEFAULT_UNROLL_N 1
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define SGEMM_DEFAULT_R sgemm_r
+
+#define DGEMM_DEFAULT_P dgemm_p
+#define DGEMM_DEFAULT_R dgemm_r
+
+#define QGEMM_DEFAULT_P qgemm_p
+#define QGEMM_DEFAULT_R qgemm_r
+
+#define CGEMM_DEFAULT_P cgemm_p
+#define CGEMM_DEFAULT_R cgemm_r
+
+#define ZGEMM_DEFAULT_P zgemm_p
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define XGEMM_DEFAULT_P xgemm_p
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_Q 128
+#define DGEMM_DEFAULT_Q 128
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 128
+#define ZGEMM_DEFAULT_Q 128
+#define XGEMM_DEFAULT_Q 128
+#endif
+
+#ifdef CORE_PRESCOTT
+
+#define SNUMOPT		4
+#define DNUMOPT		2
+
+#ifndef __64BIT__
+#define GEMM_DEFAULT_OFFSET_A    128
+#define GEMM_DEFAULT_OFFSET_B    192
+#else
+#define GEMM_DEFAULT_OFFSET_A      0
+#define GEMM_DEFAULT_OFFSET_B    256
+#endif
+
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0ffffUL
+
+#define SYMV_P	8
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#else
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#endif
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define SGEMM_DEFAULT_R sgemm_r
+
+#define DGEMM_DEFAULT_P dgemm_p
+#define DGEMM_DEFAULT_R dgemm_r
+
+#define QGEMM_DEFAULT_P qgemm_p
+#define QGEMM_DEFAULT_R qgemm_r
+
+#define CGEMM_DEFAULT_P cgemm_p
+#define CGEMM_DEFAULT_R cgemm_r
+
+#define ZGEMM_DEFAULT_P zgemm_p
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define XGEMM_DEFAULT_P xgemm_p
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_Q 128
+#define DGEMM_DEFAULT_Q 128
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 128
+#define ZGEMM_DEFAULT_Q 128
+#define XGEMM_DEFAULT_Q 128
+#endif
+
+#ifdef CORE2
+
+#define SNUMOPT		8
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A    448
+#define GEMM_DEFAULT_OFFSET_B    128
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SYMV_P	8
+
+#define SWITCH_RATIO	4
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 2
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 1
+#define ZGEMM_DEFAULT_UNROLL_N 1
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define MASK(a, b) ((((a) + (b) - 1) / (b)) * (b))
+
+#else
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+#endif
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define SGEMM_DEFAULT_R sgemm_r
+
+#define DGEMM_DEFAULT_P dgemm_p
+#define DGEMM_DEFAULT_R dgemm_r
+
+#define QGEMM_DEFAULT_P qgemm_p
+#define QGEMM_DEFAULT_R qgemm_r
+
+#define CGEMM_DEFAULT_P cgemm_p
+#define CGEMM_DEFAULT_R cgemm_r
+
+#define ZGEMM_DEFAULT_P zgemm_p
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define XGEMM_DEFAULT_P xgemm_p
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 256
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 256
+#define XGEMM_DEFAULT_Q 256
+
+#endif
+
+#ifdef PENRYN
+
+#define SNUMOPT		8
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A   128
+#define GEMM_DEFAULT_OFFSET_B     0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SYMV_P	8
+
+#define SWITCH_RATIO	4
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+#else
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+#endif
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define SGEMM_DEFAULT_R sgemm_r
+
+#define DGEMM_DEFAULT_P dgemm_p
+#define DGEMM_DEFAULT_R dgemm_r
+
+#define QGEMM_DEFAULT_P qgemm_p
+#define QGEMM_DEFAULT_R qgemm_r
+
+#define CGEMM_DEFAULT_P cgemm_p
+#define CGEMM_DEFAULT_R cgemm_r
+
+#define ZGEMM_DEFAULT_P zgemm_p
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define XGEMM_DEFAULT_P xgemm_p
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_Q 512
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 512
+#define ZGEMM_DEFAULT_Q 256
+#define XGEMM_DEFAULT_Q 128
+
+#define GETRF_FACTOR 0.75
+#endif
+
+#ifdef DUNNINGTON
+
+#define SNUMOPT		8
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A   128
+#define GEMM_DEFAULT_OFFSET_B     0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SYMV_P	8
+
+#define SWITCH_RATIO	4
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+#else
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+#endif
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define SGEMM_DEFAULT_R sgemm_r
+
+#define DGEMM_DEFAULT_P dgemm_p
+#define DGEMM_DEFAULT_R dgemm_r
+
+#define QGEMM_DEFAULT_P qgemm_p
+#define QGEMM_DEFAULT_R qgemm_r
+
+#define CGEMM_DEFAULT_P cgemm_p
+#define CGEMM_DEFAULT_R cgemm_r
+
+#define ZGEMM_DEFAULT_P zgemm_p
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define XGEMM_DEFAULT_P xgemm_p
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_Q 768
+#define DGEMM_DEFAULT_Q 384
+#define QGEMM_DEFAULT_Q 192
+#define CGEMM_DEFAULT_Q 768
+#define ZGEMM_DEFAULT_Q 384
+#define XGEMM_DEFAULT_Q 192
+
+#define GETRF_FACTOR 0.75
+#define GEMM_THREAD gemm_thread_mn
+#endif
+
+#ifdef NEHALEM
+
+#define SNUMOPT		8
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A    32
+#define GEMM_DEFAULT_OFFSET_B     0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SYMV_P	8
+
+#define SWITCH_RATIO	4
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+#else
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 8
+#define DGEMM_DEFAULT_UNROLL_N 8
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_N 4
+#define XGEMM_DEFAULT_UNROLL_N 1
+#endif
+
+#define SGEMM_DEFAULT_P 504
+#define SGEMM_DEFAULT_R sgemm_r
+
+#define DGEMM_DEFAULT_P 504
+#define DGEMM_DEFAULT_R dgemm_r
+
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+
+#define CGEMM_DEFAULT_P 252
+#define CGEMM_DEFAULT_R cgemm_r
+
+#define ZGEMM_DEFAULT_P 252
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_Q 512
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 512
+#define ZGEMM_DEFAULT_Q 256
+#define XGEMM_DEFAULT_Q 128
+
+#define GETRF_FACTOR 0.72
+
+#endif
+
+
+#ifdef SANDYBRIDGE
+
+#define SNUMOPT		8
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A	  0
+#define GEMM_DEFAULT_OFFSET_B     0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SYMV_P	8
+
+#define SWITCH_RATIO	4
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+#else
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define DGEMM_DEFAULT_UNROLL_M 8
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 4
+#define XGEMM_DEFAULT_UNROLL_N 1
+#endif
+
+#define SGEMM_DEFAULT_P 768
+#define SGEMM_DEFAULT_R sgemm_r
+/*#define SGEMM_DEFAULT_R 1024*/
+
+#define DGEMM_DEFAULT_P 512
+#define DGEMM_DEFAULT_R dgemm_r
+/*#define DGEMM_DEFAULT_R 1024*/
+
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+
+#define CGEMM_DEFAULT_P 768
+#define CGEMM_DEFAULT_R cgemm_r
+/*#define CGEMM_DEFAULT_R 1024*/
+
+#define ZGEMM_DEFAULT_P 512
+#define ZGEMM_DEFAULT_R zgemm_r
+/*#define ZGEMM_DEFAULT_R 1024*/
+
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_Q 384
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 512
+#define ZGEMM_DEFAULT_Q 192
+#define XGEMM_DEFAULT_Q 128
+
+#define CGEMM3M_DEFAULT_UNROLL_N 8
+#define CGEMM3M_DEFAULT_UNROLL_M 4
+#define ZGEMM3M_DEFAULT_UNROLL_N 8
+#define ZGEMM3M_DEFAULT_UNROLL_M 2
+
+#define CGEMM3M_DEFAULT_P 448
+#define ZGEMM3M_DEFAULT_P 224
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 224
+#define ZGEMM3M_DEFAULT_Q 224
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+
+
+#define GETRF_FACTOR 0.72
+
+#endif
+
+#ifdef HASWELL
+
+#define SNUMOPT         16
+#define DNUMOPT         8
+
+#define GEMM_DEFAULT_OFFSET_A     0
+#define GEMM_DEFAULT_OFFSET_B     0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SYMV_P  8
+
+#if defined(XDOUBLE) || defined(DOUBLE)
+#define SWITCH_RATIO            4
+#define GEMM_PREFERED_SIZE      4
+#else
+#define SWITCH_RATIO            8
+#define GEMM_PREFERED_SIZE      8
+#endif
+
+#ifdef ARCH_X86
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#else
+
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define ZGEMM_DEFAULT_UNROLL_M 4
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 8
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+/*
+#define SGEMM_DEFAULT_UNROLL_MN 32
+#define DGEMM_DEFAULT_UNROLL_MN 32
+*/
+#endif
+
+#ifdef ARCH_X86
+
+#define SGEMM_DEFAULT_P 512
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_P 512
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_R 1024
+#define ZGEMM_DEFAULT_P 512
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+#define SGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 192
+#define XGEMM_DEFAULT_Q 128
+
+#else
+
+#define SGEMM_DEFAULT_P 320
+#define DGEMM_DEFAULT_P 512
+#define CGEMM_DEFAULT_P 256
+#define ZGEMM_DEFAULT_P 192
+
+#ifdef WINDOWS_ABI
+#define SGEMM_DEFAULT_Q 320
+#define DGEMM_DEFAULT_Q 128
+#else
+#define SGEMM_DEFAULT_Q 320
+#define DGEMM_DEFAULT_Q 256
+#endif
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 192
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R 13824
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define QGEMM_DEFAULT_Q 128
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+#define XGEMM_DEFAULT_Q 128
+
+#define CGEMM3M_DEFAULT_UNROLL_N 4
+#define CGEMM3M_DEFAULT_UNROLL_M 8
+#define ZGEMM3M_DEFAULT_UNROLL_N 4
+#define ZGEMM3M_DEFAULT_UNROLL_M 4
+
+#define CGEMM3M_DEFAULT_P 320
+#define ZGEMM3M_DEFAULT_P 256
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 320
+#define ZGEMM3M_DEFAULT_Q 256
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+#endif
+
+
+#endif
+
+#ifdef SKYLAKEX
+
+#define SNUMOPT         16
+#define DNUMOPT         8
+
+#define GEMM_DEFAULT_OFFSET_A     0
+#define GEMM_DEFAULT_OFFSET_B     0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SYMV_P  8
+
+#if defined(XDOUBLE) || defined(DOUBLE)
+#define SWITCH_RATIO           8
+#define GEMM_PREFERED_SIZE     8
+#else
+#define SWITCH_RATIO           16
+#define GEMM_PREFERED_SIZE     16
+#endif
+#define USE_SGEMM_KERNEL_DIRECT 1
+
+#ifdef ARCH_X86
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#else
+
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define DGEMM_DEFAULT_UNROLL_M 16
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define ZGEMM_DEFAULT_UNROLL_M 4
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_UNROLL_MN 32
+#define DGEMM_DEFAULT_UNROLL_MN 32
+#endif
+
+#ifdef ARCH_X86
+
+#define SGEMM_DEFAULT_P 512
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_P 512
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_R 1024
+#define ZGEMM_DEFAULT_P 512
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+#define SGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 192
+#define XGEMM_DEFAULT_Q 128
+
+#else
+
+#define SGEMM_DEFAULT_P 448
+#define DGEMM_DEFAULT_P 192
+#define CGEMM_DEFAULT_P 384
+#define ZGEMM_DEFAULT_P 256
+
+#define SGEMM_DEFAULT_Q 448
+#define DGEMM_DEFAULT_Q 384
+#define CGEMM_DEFAULT_Q 192
+#define ZGEMM_DEFAULT_Q 128
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R 8640
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define QGEMM_DEFAULT_Q 128
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+#define XGEMM_DEFAULT_Q 128
+
+#define CGEMM3M_DEFAULT_UNROLL_N 4
+#define CGEMM3M_DEFAULT_UNROLL_M 8
+#define ZGEMM3M_DEFAULT_UNROLL_N 4
+#define ZGEMM3M_DEFAULT_UNROLL_M 4
+
+#define CGEMM3M_DEFAULT_P 320
+#define ZGEMM3M_DEFAULT_P 256
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 320
+#define ZGEMM3M_DEFAULT_Q 256
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+#endif
+
+
+#endif
+
+#ifdef SAPPHIRERAPIDS
+
+#define SNUMOPT         16
+#define DNUMOPT         8
+
+#define GEMM_DEFAULT_OFFSET_A     0
+#define GEMM_DEFAULT_OFFSET_B     0
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+
+#define SYMV_P  8
+
+#if defined(XDOUBLE) || defined(DOUBLE)
+#define SWITCH_RATIO           8
+#define GEMM_PREFERED_SIZE     8
+#else
+#define SWITCH_RATIO           16
+#define GEMM_PREFERED_SIZE     16
+#endif
+#define USE_SGEMM_KERNEL_DIRECT 1
+
+#undef SBGEMM_DEFAULT_UNROLL_N
+#undef SBGEMM_DEFAULT_UNROLL_M
+#undef SBGEMM_DEFAULT_P
+#undef SBGEMM_DEFAULT_R
+#undef SBGEMM_DEFAULT_Q
+// FIXME: actually UNROLL_M = UNROLL_N = 16
+// If M and N is equal, OpenBLAS will reuse OCOPY as ICOPY.
+// But for AMX, they are not the same, set UNROLL_M = 32 to workaround
+#define SBGEMM_DEFAULT_UNROLL_N 16
+#define SBGEMM_DEFAULT_UNROLL_M 32
+#define SBGEMM_DEFAULT_P 256
+#define SBGEMM_DEFAULT_Q 1024
+#define SBGEMM_DEFAULT_R sbgemm_r
+
+#ifdef ARCH_X86
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#else
+
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define DGEMM_DEFAULT_UNROLL_M 16
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define ZGEMM_DEFAULT_UNROLL_M 4
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_UNROLL_MN 32
+#define DGEMM_DEFAULT_UNROLL_MN 32
+#endif
+
+#ifdef ARCH_X86
+
+#define SGEMM_DEFAULT_P 512
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_P 512
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_R 1024
+#define ZGEMM_DEFAULT_P 512
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+#define SGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 192
+#define XGEMM_DEFAULT_Q 128
+
+#else
+
+#define SGEMM_DEFAULT_P 640
+#define DGEMM_DEFAULT_P 192
+#define CGEMM_DEFAULT_P 384
+#define ZGEMM_DEFAULT_P 256
+
+#define SGEMM_DEFAULT_Q 320
+#define DGEMM_DEFAULT_Q 384
+#define CGEMM_DEFAULT_Q 192
+#define ZGEMM_DEFAULT_Q 128
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R 8640
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define QGEMM_DEFAULT_Q 128
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+#define XGEMM_DEFAULT_Q 128
+
+#define CGEMM3M_DEFAULT_UNROLL_N 4
+#define CGEMM3M_DEFAULT_UNROLL_M 8
+#define ZGEMM3M_DEFAULT_UNROLL_N 4
+#define ZGEMM3M_DEFAULT_UNROLL_M 4
+
+#define CGEMM3M_DEFAULT_P 320
+#define ZGEMM3M_DEFAULT_P 256
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 320
+#define ZGEMM3M_DEFAULT_Q 256
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+#endif
+#endif
+
+#ifdef COOPERLAKE
+
+#define SNUMOPT         16
+#define DNUMOPT         8
+
+#define GEMM_DEFAULT_OFFSET_A     0
+#define GEMM_DEFAULT_OFFSET_B     0
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+
+#define SYMV_P  8
+
+#if defined(XDOUBLE) || defined(DOUBLE)
+#define SWITCH_RATIO           8
+#define GEMM_PREFERED_SIZE     8
+#else
+#define SWITCH_RATIO           16
+#define GEMM_PREFERED_SIZE     16
+#endif
+#define USE_SGEMM_KERNEL_DIRECT 1
+
+#undef SBGEMM_DEFAULT_UNROLL_N
+#undef SBGEMM_DEFAULT_UNROLL_M
+#undef SBGEMM_DEFAULT_P
+#undef SBGEMM_DEFAULT_R
+#undef SBGEMM_DEFAULT_Q
+#define SBGEMM_DEFAULT_UNROLL_N 4
+#define SBGEMM_DEFAULT_UNROLL_M 16
+#define SBGEMM_DEFAULT_P 384
+#define SBGEMM_DEFAULT_Q 768
+#define SBGEMM_DEFAULT_R sbgemm_r
+
+#ifdef ARCH_X86
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#else
+
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define DGEMM_DEFAULT_UNROLL_M 16
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define ZGEMM_DEFAULT_UNROLL_M 4
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_UNROLL_MN 32
+#define DGEMM_DEFAULT_UNROLL_MN 32
+#endif
+
+#ifdef ARCH_X86
+
+#define SGEMM_DEFAULT_P 512
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_P 512
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_R 1024
+#define ZGEMM_DEFAULT_P 512
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+#define SGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 192
+#define XGEMM_DEFAULT_Q 128
+
+#else
+
+#define SGEMM_DEFAULT_P 640
+#define DGEMM_DEFAULT_P 192
+#define CGEMM_DEFAULT_P 384
+#define ZGEMM_DEFAULT_P 256
+
+#define SGEMM_DEFAULT_Q 320
+#define DGEMM_DEFAULT_Q 384
+#define CGEMM_DEFAULT_Q 192
+#define ZGEMM_DEFAULT_Q 128
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R 8640
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define QGEMM_DEFAULT_Q 128
+#define QGEMM_DEFAULT_P 504
+#define QGEMM_DEFAULT_R qgemm_r
+#define XGEMM_DEFAULT_P 252
+#define XGEMM_DEFAULT_R xgemm_r
+#define XGEMM_DEFAULT_Q 128
+
+#define CGEMM3M_DEFAULT_UNROLL_N 4
+#define CGEMM3M_DEFAULT_UNROLL_M 8
+#define ZGEMM3M_DEFAULT_UNROLL_N 4
+#define ZGEMM3M_DEFAULT_UNROLL_M 4
+
+#define CGEMM3M_DEFAULT_P 320
+#define ZGEMM3M_DEFAULT_P 256
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 320
+#define ZGEMM3M_DEFAULT_Q 256
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+#endif
+#endif
+
+
+#ifdef ATOM
+
+#define SNUMOPT		2
+#define DNUMOPT		1
+
+#define GEMM_DEFAULT_OFFSET_A     64
+#define GEMM_DEFAULT_OFFSET_B      0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0ffffUL
+
+#define SYMV_P	8
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define XGEMM_DEFAULT_UNROLL_M 1
+#else
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#endif
+
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 1
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define SGEMM_DEFAULT_R sgemm_r
+
+#define DGEMM_DEFAULT_P dgemm_p
+#define DGEMM_DEFAULT_R dgemm_r
+
+#define QGEMM_DEFAULT_P qgemm_p
+#define QGEMM_DEFAULT_R qgemm_r
+
+#define CGEMM_DEFAULT_P cgemm_p
+#define CGEMM_DEFAULT_R cgemm_r
+
+#define ZGEMM_DEFAULT_P zgemm_p
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define XGEMM_DEFAULT_P xgemm_p
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 256
+#define QGEMM_DEFAULT_Q 256
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 256
+#define XGEMM_DEFAULT_Q 256
+
+#endif
+
+
+#ifdef ITANIUM2
+
+#define SNUMOPT		4
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 128
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define SGEMM_DEFAULT_UNROLL_N 8
+#define DGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_N 8
+#define QGEMM_DEFAULT_UNROLL_M 8
+#define QGEMM_DEFAULT_UNROLL_N 8
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_N 4
+#define XGEMM_DEFAULT_UNROLL_M 4
+#define XGEMM_DEFAULT_UNROLL_N 4
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define DGEMM_DEFAULT_P dgemm_p
+#define QGEMM_DEFAULT_P qgemm_p
+#define CGEMM_DEFAULT_P cgemm_p
+#define ZGEMM_DEFAULT_P zgemm_p
+#define XGEMM_DEFAULT_P xgemm_p
+
+#define SGEMM_DEFAULT_Q 1024
+#define DGEMM_DEFAULT_Q 1024
+#define QGEMM_DEFAULT_Q 1024
+#define CGEMM_DEFAULT_Q 1024
+#define ZGEMM_DEFAULT_Q 1024
+#define XGEMM_DEFAULT_Q 1024
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SYMV_P	 16
+
+#define GETRF_FACTOR 0.65
+
+#endif
+
+#if defined(EV4) || defined(EV5) || defined(EV6)
+
+#ifdef EV4
+#define SNUMOPT		1
+#define DNUMOPT		1
+#else
+#define SNUMOPT		2
+#define DNUMOPT		2
+#endif
+
+#define GEMM_DEFAULT_OFFSET_A 512
+#define GEMM_DEFAULT_OFFSET_B 512
+#define GEMM_DEFAULT_ALIGN 0x0ffffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+
+#define SYMV_P	 8
+
+#ifdef EV4
+#define SGEMM_DEFAULT_P	 32
+#define SGEMM_DEFAULT_Q	112
+#define SGEMM_DEFAULT_R	256
+
+#define DGEMM_DEFAULT_P	 32
+#define DGEMM_DEFAULT_Q	 56
+#define DGEMM_DEFAULT_R	256
+
+#define CGEMM_DEFAULT_P	 32
+#define CGEMM_DEFAULT_Q	 64
+#define CGEMM_DEFAULT_R	240
+
+#define ZGEMM_DEFAULT_P	 32
+#define ZGEMM_DEFAULT_Q	 32
+#define ZGEMM_DEFAULT_R	240
+#endif
+
+#ifdef EV5
+#define SGEMM_DEFAULT_P	 64
+#define SGEMM_DEFAULT_Q	256
+
+#define DGEMM_DEFAULT_P	 64
+#define DGEMM_DEFAULT_Q	128
+
+#define CGEMM_DEFAULT_P	 64
+#define CGEMM_DEFAULT_Q	128
+
+#define ZGEMM_DEFAULT_P	 64
+#define ZGEMM_DEFAULT_Q	 64
+#endif
+
+#ifdef EV6
+#define SGEMM_DEFAULT_P	256
+#define SGEMM_DEFAULT_Q	512
+
+#define DGEMM_DEFAULT_P	256
+#define DGEMM_DEFAULT_Q	256
+
+#define CGEMM_DEFAULT_P	256
+#define CGEMM_DEFAULT_Q	256
+
+#define ZGEMM_DEFAULT_P	128
+#define ZGEMM_DEFAULT_Q	256
+#endif
+
+#endif
+
+#ifdef CELL
+
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 8192
+#define GEMM_DEFAULT_ALIGN 0x0ffffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+
+#define SGEMM_DEFAULT_P 128
+#define DGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q  512
+#define DGEMM_DEFAULT_Q  256
+#define CGEMM_DEFAULT_Q  256
+#define ZGEMM_DEFAULT_Q  128
+
+#define SYMV_P	 4
+#endif
+
+#ifdef PPCG4
+#define GEMM_DEFAULT_OFFSET_A    0
+#define GEMM_DEFAULT_OFFSET_B 1024
+#define GEMM_DEFAULT_ALIGN 0x0ffffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+
+#define SGEMM_DEFAULT_P 256
+#define DGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P  64
+
+#define SGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 256
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 256
+
+#define SYMV_P	 4
+#endif
+
+#ifdef PPC970
+
+#define SNUMOPT		4
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A 2688
+#define GEMM_DEFAULT_OFFSET_B 3072
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+
+#if defined(__BYTE_ORDER__)&&(__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+#define SGEMM_DEFAULT_UNROLL_M 4
+#else
+#define SGEMM_DEFAULT_UNROLL_M 16
+#endif
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#if defined(__BYTE_ORDER__)&&(__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+#define CGEMM_DEFAULT_UNROLL_M 2
+#else
+#define CGEMM_DEFAULT_UNROLL_M 8
+#endif
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+
+#if defined(OS_LINUX) || defined(OS_DARWIN) || defined(OS_FREEBSD)
+#if L2_SIZE == 1024976
+#define SGEMM_DEFAULT_P 320
+#define DGEMM_DEFAULT_P 256
+#define CGEMM_DEFAULT_P 256
+#define ZGEMM_DEFAULT_P 256
+#else
+#define SGEMM_DEFAULT_P 176
+#define DGEMM_DEFAULT_P 176
+#define CGEMM_DEFAULT_P 176
+#define ZGEMM_DEFAULT_P 176
+#endif
+#endif
+
+#define SGEMM_DEFAULT_Q 512
+#define DGEMM_DEFAULT_Q 256
+#define CGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 128
+
+#define SYMV_P	 4
+
+#endif
+
+#ifdef PPC440
+
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A (32 * 0)
+#define GEMM_DEFAULT_OFFSET_B (32 * 0)
+#define GEMM_DEFAULT_ALIGN 0x0ffffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+
+#define SGEMM_DEFAULT_P 512
+#define DGEMM_DEFAULT_P 512
+#define CGEMM_DEFAULT_P 512
+#define ZGEMM_DEFAULT_P 512
+
+#define SGEMM_DEFAULT_Q 1024
+#define DGEMM_DEFAULT_Q  512
+#define CGEMM_DEFAULT_Q  512
+#define ZGEMM_DEFAULT_Q  256
+
+#define SGEMM_DEFAULT_R SGEMM_DEFAULT_P
+#define DGEMM_DEFAULT_R DGEMM_DEFAULT_P
+#define CGEMM_DEFAULT_R CGEMM_DEFAULT_P
+#define ZGEMM_DEFAULT_R ZGEMM_DEFAULT_P
+
+#define SYMV_P	 4
+#endif
+
+#ifdef PPC440FP2
+
+#define SNUMOPT		4
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A (32 * 0)
+#define GEMM_DEFAULT_OFFSET_B (32 * 0)
+#define GEMM_DEFAULT_ALIGN 0x0ffffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 4
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_N 2
+
+#define SGEMM_DEFAULT_P 128
+#define DGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+#if 1
+#define SGEMM_DEFAULT_Q 4096
+#define DGEMM_DEFAULT_Q 3072
+#define CGEMM_DEFAULT_Q 2048
+#define ZGEMM_DEFAULT_Q 1024
+#else
+#define SGEMM_DEFAULT_Q  512
+#define DGEMM_DEFAULT_Q  256
+#define CGEMM_DEFAULT_Q  256
+#define ZGEMM_DEFAULT_Q  128
+#endif
+
+#define SYMV_P	 4
+#endif
+
+
+
+#if defined(POWER3) || defined(POWER4) || defined(POWER5)
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 2048
+#define GEMM_DEFAULT_ALIGN 0x0ffffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+
+#ifdef POWER3
+
+#define SNUMOPT		4
+#define DNUMOPT		4
+
+#define SGEMM_DEFAULT_P 256
+#define SGEMM_DEFAULT_Q 432
+#define SGEMM_DEFAULT_R 1012
+
+#define DGEMM_DEFAULT_P 256
+#define DGEMM_DEFAULT_Q 216
+#define DGEMM_DEFAULT_R 1012
+
+#define CGEMM_DEFAULT_P 256
+#define CGEMM_DEFAULT_Q 104
+#define CGEMM_DEFAULT_R 1012
+   
+#define ZGEMM_DEFAULT_P 256
+#define ZGEMM_DEFAULT_Q 104
+#define ZGEMM_DEFAULT_R 1012
+#endif
+
+#if defined(POWER4)
+#ifdef ALLOC_HUGETLB
+#define SGEMM_DEFAULT_P 184
+#define DGEMM_DEFAULT_P 184
+#define CGEMM_DEFAULT_P 184
+#define ZGEMM_DEFAULT_P 184
+#else
+#define SGEMM_DEFAULT_P 144
+#define DGEMM_DEFAULT_P 144
+#define CGEMM_DEFAULT_P 144
+#define ZGEMM_DEFAULT_P 144
+#endif
+
+#define SGEMM_DEFAULT_Q 256
+#define CGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 256
+#endif
+
+#if defined(POWER5)
+#ifdef ALLOC_HUGETLB
+#define SGEMM_DEFAULT_P 512
+#define DGEMM_DEFAULT_P 256
+#define CGEMM_DEFAULT_P 256
+#define ZGEMM_DEFAULT_P 128
+#else
+#define SGEMM_DEFAULT_P 320
+#define DGEMM_DEFAULT_P 160
+#define CGEMM_DEFAULT_P 160
+#define ZGEMM_DEFAULT_P  80
+#endif
+
+#define SGEMM_DEFAULT_Q 256
+#define CGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 256
+#define ZGEMM_DEFAULT_Q 256
+#endif
+
+#define SYMV_P	 8
+
+#endif
+
+#if defined(POWER6)
+
+#define SNUMOPT		4
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A  384
+#define GEMM_DEFAULT_OFFSET_B 1024
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_N 4
+
+#define SGEMM_DEFAULT_P  992
+#define DGEMM_DEFAULT_P  480
+#define CGEMM_DEFAULT_P  488
+#define ZGEMM_DEFAULT_P  248
+
+#define SGEMM_DEFAULT_Q  504
+#define DGEMM_DEFAULT_Q  504
+#define CGEMM_DEFAULT_Q  400
+#define ZGEMM_DEFAULT_Q  400
+
+#define SYMV_P	 8
+
+#endif
+
+#if defined(POWER8) || (defined(POWER9) && defined(OS_AIX))
+
+#define SNUMOPT		16
+#define DNUMOPT		8
+
+#define GEMM_DEFAULT_OFFSET_A 0 
+#define GEMM_DEFAULT_OFFSET_B 65536
+
+#define GEMM_DEFAULT_ALIGN 0x0ffffUL
+#if defined(__32BIT__)
+#warning using BINARY32==POWER6
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_N 4
+#else
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define SGEMM_DEFAULT_UNROLL_N 8
+#define DGEMM_DEFAULT_UNROLL_M 16
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_M 8
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#endif
+#define SGEMM_DEFAULT_P  1280UL
+#define DGEMM_DEFAULT_P  640UL
+#define CGEMM_DEFAULT_P  640UL
+#define ZGEMM_DEFAULT_P  320UL
+
+#define SGEMM_DEFAULT_Q  640UL
+#define DGEMM_DEFAULT_Q  720UL
+#define CGEMM_DEFAULT_Q  640UL
+#define ZGEMM_DEFAULT_Q  640UL
+
+#if 0
+#define SGEMM_DEFAULT_R SGEMM_DEFAULT_P
+#define DGEMM_DEFAULT_R DGEMM_DEFAULT_P
+#define CGEMM_DEFAULT_R CGEMM_DEFAULT_P
+#define ZGEMM_DEFAULT_R ZGEMM_DEFAULT_P
+#endif
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P	 8
+
+#endif
+
+#if defined(POWER9) && (defined(OS_LINUX) || defined(OS_FREEBSD))
+
+#define SNUMOPT		16
+#define DNUMOPT		8
+
+#define GEMM_DEFAULT_OFFSET_A 0 
+#define GEMM_DEFAULT_OFFSET_B 65536
+#define GEMM_DEFAULT_ALIGN 0x0ffffUL
+
+#define SWITCH_RATIO            16
+#define GEMM_PREFERED_SIZE      16
+
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define SGEMM_DEFAULT_UNROLL_N 8
+#define DGEMM_DEFAULT_UNROLL_M 16
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_M 8
+#define ZGEMM_DEFAULT_UNROLL_N 2
+
+#define SGEMM_DEFAULT_P 832
+#define DGEMM_DEFAULT_P  128
+#define CGEMM_DEFAULT_P  512
+#define ZGEMM_DEFAULT_P 256
+
+#define SGEMM_DEFAULT_Q 1026
+#define DGEMM_DEFAULT_Q  384
+#define CGEMM_DEFAULT_Q  1026
+#define ZGEMM_DEFAULT_Q 1026
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P	 8
+
+#endif
+
+#if defined(POWER10)
+#define SNUMOPT		16
+#define DNUMOPT		8
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 65536
+#define GEMM_DEFAULT_ALIGN 0x0ffffUL
+
+#define SWITCH_RATIO            16
+#define GEMM_PREFERED_SIZE      16
+
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define SGEMM_DEFAULT_UNROLL_N 8
+#define DGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_N 8
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_M 8
+#define ZGEMM_DEFAULT_UNROLL_N 2
+
+#define SGEMM_DEFAULT_P 512
+#define DGEMM_DEFAULT_P 384
+#define CGEMM_DEFAULT_P 512
+#define ZGEMM_DEFAULT_P 256
+
+#define SGEMM_DEFAULT_Q 512
+#define DGEMM_DEFAULT_Q 512
+#define CGEMM_DEFAULT_Q 384
+#define ZGEMM_DEFAULT_Q 384 
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P	 8
+
+#undef SBGEMM_DEFAULT_UNROLL_N
+#undef SBGEMM_DEFAULT_UNROLL_M
+#undef SBGEMM_DEFAULT_P
+#undef SBGEMM_DEFAULT_R
+#undef SBGEMM_DEFAULT_Q
+#define SBGEMM_DEFAULT_UNROLL_M 16
+#define SBGEMM_DEFAULT_UNROLL_N 8
+#define SBGEMM_DEFAULT_P 512
+#define SBGEMM_DEFAULT_Q 1024
+#define SBGEMM_DEFAULT_R 4096
+#endif
+
+#if defined(SPARC) && defined(V7)
+
+#define SNUMOPT		4
+#define DNUMOPT		4
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 2048
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 2
+#define SGEMM_DEFAULT_UNROLL_N 8
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define DGEMM_DEFAULT_UNROLL_N 8
+#define CGEMM_DEFAULT_UNROLL_M 1
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#define ZGEMM_DEFAULT_UNROLL_N 4
+
+#define SGEMM_DEFAULT_P  256
+#define DGEMM_DEFAULT_P  256
+#define CGEMM_DEFAULT_P  256
+#define ZGEMM_DEFAULT_P  256
+
+#define SGEMM_DEFAULT_Q  512
+#define DGEMM_DEFAULT_Q  256
+#define CGEMM_DEFAULT_Q  256
+#define ZGEMM_DEFAULT_Q  128
+
+#define SYMV_P	 8
+#define GEMM_THREAD gemm_thread_mn
+#endif
+
+#if (defined(SPARC) && defined(V9)) || defined(__sparc_v9__)
+
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 2048
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 4
+#define SGEMM_DEFAULT_UNROLL_N 4
+#define DGEMM_DEFAULT_UNROLL_M 4
+#define DGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+
+#define SGEMM_DEFAULT_P  512
+#define DGEMM_DEFAULT_P  512
+#define CGEMM_DEFAULT_P  512
+#define ZGEMM_DEFAULT_P  512
+
+#define SGEMM_DEFAULT_Q 1024
+#define DGEMM_DEFAULT_Q  512
+#define CGEMM_DEFAULT_Q  512
+#define ZGEMM_DEFAULT_Q  256
+
+#define SYMV_P	 8
+#endif
+
+#ifdef SICORTEX
+
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  2
+#define SGEMM_DEFAULT_UNROLL_N  8
+#define DGEMM_DEFAULT_UNROLL_M  2
+#define DGEMM_DEFAULT_UNROLL_N  8
+#define CGEMM_DEFAULT_UNROLL_M  1
+#define CGEMM_DEFAULT_UNROLL_N  4
+#define ZGEMM_DEFAULT_UNROLL_M  1
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P 108
+#define DGEMM_DEFAULT_P 112
+#define CGEMM_DEFAULT_P 108
+#define ZGEMM_DEFAULT_P 112
+
+#define SGEMM_DEFAULT_Q 288
+#define DGEMM_DEFAULT_Q 144
+#define CGEMM_DEFAULT_Q 144
+#define ZGEMM_DEFAULT_Q  72
+
+#define SGEMM_DEFAULT_R 2000
+#define DGEMM_DEFAULT_R 2000
+#define CGEMM_DEFAULT_R 2000
+#define ZGEMM_DEFAULT_R 2000
+
+#define SYMV_P	16
+#endif
+
+#if defined(LOONGSON3R4)
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#if defined(NO_MSA)
+#define SGEMM_DEFAULT_UNROLL_M  8
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  4
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  4
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+#else
+#define SGEMM_DEFAULT_UNROLL_M  8
+#define SGEMM_DEFAULT_UNROLL_N  8
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+#endif
+
+#define SGEMM_DEFAULT_P	64
+#define DGEMM_DEFAULT_P	44
+#define CGEMM_DEFAULT_P 64
+#define ZGEMM_DEFAULT_P 32
+
+#define SGEMM_DEFAULT_Q 192
+#define DGEMM_DEFAULT_Q 92
+#define CGEMM_DEFAULT_Q 128
+#define ZGEMM_DEFAULT_Q 80
+
+#define SGEMM_DEFAULT_R 640
+#define DGEMM_DEFAULT_R dgemm_r
+#define CGEMM_DEFAULT_R 640
+#define ZGEMM_DEFAULT_R 640
+
+#define GEMM_OFFSET_A1	0x10000
+#define	GEMM_OFFSET_B1	0x100000
+
+#define SYMV_P	16
+#endif
+
+#if defined(LOONGSON3R3)
+////Copy from SICORTEX
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  8
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  4
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  4
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	64
+#define DGEMM_DEFAULT_P	44
+#define CGEMM_DEFAULT_P 64
+#define ZGEMM_DEFAULT_P 32
+
+#define SGEMM_DEFAULT_Q 192
+#define DGEMM_DEFAULT_Q 92
+#define CGEMM_DEFAULT_Q 128
+#define ZGEMM_DEFAULT_Q 80
+
+#define SGEMM_DEFAULT_R 640
+#define DGEMM_DEFAULT_R dgemm_r
+#define CGEMM_DEFAULT_R 640
+#define ZGEMM_DEFAULT_R 640
+
+#define GEMM_OFFSET_A1	0x10000
+#define	GEMM_OFFSET_B1	0x100000
+
+#define SYMV_P	16
+#endif
+
+#if defined (LA464)
+#define SNUMOPT         2
+#define DNUMOPT         2
+
+#define GEMM_DEFAULT_OFFSET_A 0x20000
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN 0x0ffffUL
+
+#if defined(NO_LASX)
+#define DGEMM_DEFAULT_UNROLL_N 8
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define SGEMM_DEFAULT_UNROLL_N 8
+#define SGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 1
+#define ZGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_M 1
+#else
+#define DGEMM_DEFAULT_UNROLL_N 6
+#define DGEMM_DEFAULT_UNROLL_M 16
+#define SGEMM_DEFAULT_UNROLL_N 8
+#define SGEMM_DEFAULT_UNROLL_M 16
+#define CGEMM_DEFAULT_UNROLL_N 4
+#define CGEMM_DEFAULT_UNROLL_M 16
+#define ZGEMM_DEFAULT_UNROLL_N 4
+#define ZGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_MN 96
+#endif
+
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+
+#define SGEMM_DEFAULT_P sgemm_p
+#define DGEMM_DEFAULT_P dgemm_p
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P zgemm_p
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R dgemm_r
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R zgemm_r
+
+#define SGEMM_DEFAULT_Q sgemm_q
+#define DGEMM_DEFAULT_Q dgemm_q
+#define CGEMM_DEFAULT_Q 128
+#define ZGEMM_DEFAULT_Q zgemm_q
+
+#define SYMV_P  16
+#endif
+
+#ifdef LA264
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  2
+#define SGEMM_DEFAULT_UNROLL_N  8
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P	16
+#endif
+
+#ifdef LA64_GENERIC
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  2
+#define SGEMM_DEFAULT_UNROLL_N  8
+
+#define DGEMM_DEFAULT_UNROLL_M  2
+#define DGEMM_DEFAULT_UNROLL_N  8
+
+#define CGEMM_DEFAULT_UNROLL_M  1
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  1
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P	16
+#endif
+
+#if defined(MIPS64_GENERIC) || defined(P5600) || defined(MIPS1004K) || defined(MIPS24K) || defined(I6400) || defined(P6600) || defined(I6500)
+#define SNUMOPT  2
+#define DNUMOPT  2
+
+#define GEMM_DEFAULT_OFFSET_A  0
+#define GEMM_DEFAULT_OFFSET_B  0
+#define GEMM_DEFAULT_ALIGN (BLASLONG) 0x03fffUL
+
+#if defined(NO_MSA) || defined(MIPS64_GENERIC)
+#define SGEMM_DEFAULT_UNROLL_M  2
+#define SGEMM_DEFAULT_UNROLL_N  2
+
+#define DGEMM_DEFAULT_UNROLL_M  2
+#define DGEMM_DEFAULT_UNROLL_N  2
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+#else
+#define SGEMM_DEFAULT_UNROLL_M  8
+#define SGEMM_DEFAULT_UNROLL_N  8
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+#endif
+
+#define SGEMM_DEFAULT_P  128
+#define DGEMM_DEFAULT_P  128
+#define CGEMM_DEFAULT_P  96
+#define ZGEMM_DEFAULT_P  64
+
+#define SGEMM_DEFAULT_Q  240
+#define DGEMM_DEFAULT_Q  120
+#define CGEMM_DEFAULT_Q  120
+#define ZGEMM_DEFAULT_Q  120
+
+#define SGEMM_DEFAULT_R  12288
+#define DGEMM_DEFAULT_R  8192
+#define CGEMM_DEFAULT_R  4096
+#define ZGEMM_DEFAULT_R  4096
+
+#define SYMV_P  16
+#endif
+
+#ifdef RISCV64_GENERIC
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  2
+#define SGEMM_DEFAULT_UNROLL_N  2
+
+#define DGEMM_DEFAULT_UNROLL_M  2
+#define DGEMM_DEFAULT_UNROLL_N  2
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P	16
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+
+#endif
+
+#if defined(x280)
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  16 // 4 // 16 // 2
+#define SGEMM_DEFAULT_UNROLL_N  8// 4 // 4 // 2
+
+/* SGEMM_UNROLL_MN is calculated as max(SGEMM_UNROLL_M, SGEMM_UNROLL_N)
+ * Since we don't define SGEMM_UNROLL_M correctly we have to manually set this macro.
+ * If VLMAX size is ever more than 1024, this should be increased also. */
+#define SGEMM_DEFAULT_UNROLL_MN  32
+
+#define DGEMM_DEFAULT_UNROLL_M  16 //2 // 8
+#define DGEMM_DEFAULT_UNROLL_N  8 //2 // 4
+#define DGEMM_DEFAULT_UNROLL_MN  32
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+#define CGEMM_DEFAULT_UNROLL_MN 32
+
+#define ZGEMM_DEFAULT_UNROLL_M  8
+#define ZGEMM_DEFAULT_UNROLL_N  4
+#define ZGEMM_DEFAULT_UNROLL_MN 16
+
+#define SGEMM_DEFAULT_P	160
+#define DGEMM_DEFAULT_P	160
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P	16
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+
+#endif
+#ifdef C910V
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	160
+#define DGEMM_DEFAULT_P	160
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P	16
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+
+#endif
+
+#ifdef RISCV64_ZVL128B
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M 8
+#define SGEMM_DEFAULT_UNROLL_N 8
+
+#define DGEMM_DEFAULT_UNROLL_M 8
+#define DGEMM_DEFAULT_UNROLL_N 4
+
+#define CGEMM_DEFAULT_UNROLL_M 8
+#define CGEMM_DEFAULT_UNROLL_N 4
+
+#define ZGEMM_DEFAULT_UNROLL_M 4
+#define ZGEMM_DEFAULT_UNROLL_N 4
+
+#define SGEMM_DEFAULT_P 128
+#define DGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P 16
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+
+#endif
+
+#ifdef RISCV64_ZVL256B
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  8
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  8
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  8
+
+#define ZGEMM_DEFAULT_UNROLL_M  8
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P 128
+#define DGEMM_DEFAULT_P 64
+#define CGEMM_DEFAULT_P 64
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 128
+#define DGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 128
+#define ZGEMM_DEFAULT_Q 64
+
+#define SGEMM_DEFAULT_R 16384
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 8192
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P 16
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+
+#endif
+
+#ifdef ARMV7
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  4
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  4
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+
+
+#define SYMV_P	16
+#endif
+
+
+#if defined(ARMV6)
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  4
+#define SGEMM_DEFAULT_UNROLL_N  2
+
+#define DGEMM_DEFAULT_UNROLL_M  4
+#define DGEMM_DEFAULT_UNROLL_N  2
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+
+#define SYMV_P	16
+#endif
+
+/* Common ARMv8 parameters */
+#if defined(ARMV8)
+
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+
+
+#ifdef _WIN64
+/* Use explicit casting for win64 as LLP64 datamodel is used */
+#define GEMM_DEFAULT_ALIGN (BLASULONG)0x03fffUL
+#else
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+#endif
+
+#define SYMV_P	16
+
+#if defined(CORTEXA57) || defined(CORTEXX1) || \
+    defined(CORTEXA72) || defined(CORTEXA73) || \
+    defined(FALKOR)    || defined(TSV110) || defined(EMAG8180) || defined(VORTEX) || defined(FT2000)
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+/*FIXME: this should be using the cache size, but there is currently no easy way to
+query that on ARM. So if getarch counted more than 8 cores we simply assume the host
+is a big desktop or server with abundant cache rather than a phone or embedded device */ 
+#if NUM_CORES > 8 || defined(TSV110) || defined(EMAG8180) || defined(VORTEX)|| defined(CORTEXX1)
+  #define SGEMM_DEFAULT_P 512
+  #define DGEMM_DEFAULT_P 256
+  #define CGEMM_DEFAULT_P 256
+  #define ZGEMM_DEFAULT_P 128
+
+  #define SGEMM_DEFAULT_Q 1024
+  #define DGEMM_DEFAULT_Q 512
+  #define CGEMM_DEFAULT_Q 512
+  #define ZGEMM_DEFAULT_Q 512
+#else
+  #define SGEMM_DEFAULT_P 128
+  #define DGEMM_DEFAULT_P 160
+  #define CGEMM_DEFAULT_P 128
+  #define ZGEMM_DEFAULT_P 128
+
+  #define SGEMM_DEFAULT_Q 352
+  #define DGEMM_DEFAULT_Q 128
+  #define CGEMM_DEFAULT_Q 224
+  #define ZGEMM_DEFAULT_Q 112
+#endif
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 2048
+
+#elif defined(CORTEXA76)
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#if defined(XDOUBLE) || defined(DOUBLE)
+#define SWITCH_RATIO            8
+#else
+#define SWITCH_RATIO            16
+#endif
+
+  #define SGEMM_DEFAULT_P 256
+  #define DGEMM_DEFAULT_P 128
+  #define CGEMM_DEFAULT_P 128
+  #define ZGEMM_DEFAULT_P 64
+
+  #define SGEMM_DEFAULT_Q 512
+  #define DGEMM_DEFAULT_Q 256
+  #define CGEMM_DEFAULT_Q 256
+  #define ZGEMM_DEFAULT_Q 256
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#elif defined(CORTEXA53) || defined(CORTEXA55)
+
+#define SGEMM_DEFAULT_UNROLL_M  8
+#define SGEMM_DEFAULT_UNROLL_N  8
+
+#define DGEMM_DEFAULT_UNROLL_M  4
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P 256
+#define DGEMM_DEFAULT_P 160
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q 256
+#define DGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 112
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 2048
+
+#elif defined(THUNDERX)
+
+#define SGEMM_DEFAULT_UNROLL_M  4
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  2
+#define DGEMM_DEFAULT_UNROLL_N  2
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#elif defined(THUNDERX2T99)
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	160
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q 352
+#define DGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 112
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#elif defined(THUNDERX3T110)
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	320
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q 352
+#define DGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 112
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#elif defined(NEOVERSEN1)
+
+#if defined(XDOUBLE) || defined(DOUBLE)
+#define SWITCH_RATIO            8
+#else
+#define SWITCH_RATIO            16
+#endif
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P	240
+#define DGEMM_DEFAULT_P	240
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q 640
+#define DGEMM_DEFAULT_Q 320
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 112
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#elif defined(NEOVERSEV1) // 256-bit SVE
+
+#if defined(XDOUBLE) || defined(DOUBLE)
+#define SWITCH_RATIO            8
+#define GEMM_PREFERED_SIZE      4
+#else
+#define SWITCH_RATIO            16
+#define GEMM_PREFERED_SIZE      8
+#endif
+
+#undef SBGEMM_ALIGN_K
+#undef SBGEMM_DEFAULT_UNROLL_M
+#undef SBGEMM_DEFAULT_UNROLL_N
+#define SBGEMM_ALIGN_K 8
+#define SBGEMM_DEFAULT_UNROLL_M 4
+#define SBGEMM_DEFAULT_UNROLL_N 4
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  8
+
+#define DGEMM_DEFAULT_UNROLL_M  4 // Actually 2VL (8) but kept separate to keep copies separate
+#define DGEMM_DEFAULT_UNROLL_N  8
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  4
+#define CGEMM_DEFAULT_UNROLL_MN 16
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  4
+#define ZGEMM_DEFAULT_UNROLL_MN 16
+
+#define SGEMM_DEFAULT_P 240
+#define DGEMM_DEFAULT_P 240
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q 640
+#define DGEMM_DEFAULT_Q 320
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 112
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#elif defined(NEOVERSEN2)
+
+#if defined(XDOUBLE) || defined(DOUBLE)
+#define SWITCH_RATIO            8
+#else
+#define SWITCH_RATIO            16
+#endif
+
+#undef SBGEMM_ALIGN_K
+#define SBGEMM_ALIGN_K 4
+
+#undef SBGEMM_DEFAULT_UNROLL_M
+#undef SBGEMM_DEFAULT_UNROLL_N
+#define SBGEMM_DEFAULT_UNROLL_M 8
+#define SBGEMM_DEFAULT_UNROLL_N 4
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P 128
+#define DGEMM_DEFAULT_P 160
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q 352
+#define DGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 112
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#elif defined(A64FX) // 512-bit SVE
+
+/* When all BLAS3 routines are implemeted with SVE, SGEMM_DEFAULT_UNROLL_M should be "sve_vl".
+Until then, just keep it different than DGEMM_DEFAULT_UNROLL_N to keep copy routines in both directions seperated. */
+#define SGEMM_DEFAULT_UNROLL_M  4
+#define SGEMM_DEFAULT_UNROLL_N  8
+/* SGEMM_UNROLL_MN is calculated as max(SGEMM_UNROLL_M, SGEMM_UNROLL_N)
+ * Since we don't define SGEMM_UNROLL_M correctly we have to manually set this macro.
+ * If SVE size is ever more than 1024, this should be increased also. */
+#define SGEMM_DEFAULT_UNROLL_MN  32
+
+/* When all BLAS3 routines are implemeted with SVE, DGEMM_DEFAULT_UNROLL_M should be "sve_vl".
+Until then, just keep it different than DGEMM_DEFAULT_UNROLL_N to keep copy routines in both directions seperated. */
+#define DGEMM_DEFAULT_UNROLL_M  2 
+#define DGEMM_DEFAULT_UNROLL_N  8
+
+#define DGEMM_DEFAULT_UNROLL_MN  32
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  4
+#define CGEMM_DEFAULT_UNROLL_MN  16
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  4
+#define ZGEMM_DEFAULT_UNROLL_MN  16
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	160
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q 352
+#define DGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 112
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#elif defined(ARMV8SVE) || defined(ARMV9SME) || defined(ARMV9) || defined(CORTEXA510)|| defined(CORTEXA710) || defined(CORTEXX2) // 128-bit SVE
+
+#if defined(XDOUBLE) || defined(DOUBLE)
+#define SWITCH_RATIO            8
+#else
+#define SWITCH_RATIO            16
+#endif
+
+#define SGEMM_DEFAULT_UNROLL_M  4 // Actually 1VL (8) but kept seperate to keep copies seperate
+#define SGEMM_DEFAULT_UNROLL_N  8
+
+#define DGEMM_DEFAULT_UNROLL_M  4
+#define DGEMM_DEFAULT_UNROLL_N  8
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  4
+#define CGEMM_DEFAULT_UNROLL_MN  16
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  4
+#define ZGEMM_DEFAULT_UNROLL_MN  16
+
+#define SGEMM_DEFAULT_P 128
+#define DGEMM_DEFAULT_P 160
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q 352
+#define DGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 112
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#else /* Other/undetected ARMv8 cores */
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  8
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	160
+#define CGEMM_DEFAULT_P 128
+#define ZGEMM_DEFAULT_P 128
+
+#define SGEMM_DEFAULT_Q 352
+#define DGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 224
+#define ZGEMM_DEFAULT_Q 112
+
+#define SGEMM_DEFAULT_R 4096
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#endif /* Cores */
+
+
+#endif /* ARMv8 */
+
+#if defined(ARMV9SME) /* ARMv9 SME */
+#define USE_SGEMM_KERNEL_DIRECT 1
+#endif /* ARMv9 SME */
+
+#if defined(ARMV5)
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  2
+#define SGEMM_DEFAULT_UNROLL_N  2
+
+#define DGEMM_DEFAULT_UNROLL_M  2
+#define DGEMM_DEFAULT_UNROLL_N  2
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+
+#define SYMV_P	16
+#endif
+
+
+
+#ifdef CORTEXA9
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  4
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  4
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+
+
+#define SYMV_P	16
+#endif
+
+
+#ifdef CORTEXA15
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  4
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  4
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+
+
+#define SYMV_P	16
+#endif
+
+
+#if defined(ZARCH_GENERIC)
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  2
+#define SGEMM_DEFAULT_UNROLL_N  2
+
+#define DGEMM_DEFAULT_UNROLL_M  2
+#define DGEMM_DEFAULT_UNROLL_N  2
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+
+#define SYMV_P	16
+#endif
+
+#if defined(Z13)
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  8
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  4
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P	456
+#define DGEMM_DEFAULT_P	320
+#define CGEMM_DEFAULT_P 480
+#define ZGEMM_DEFAULT_P 224
+
+#define SGEMM_DEFAULT_Q 488
+#define DGEMM_DEFAULT_Q 384
+#define CGEMM_DEFAULT_Q 128
+#define ZGEMM_DEFAULT_Q 352
+
+#define SGEMM_DEFAULT_R 8192
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 2048
+
+
+#define SYMV_P	16
+#endif
+
+
+#if defined(Z14)
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN 0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  16
+#define SGEMM_DEFAULT_UNROLL_N  4
+
+#define DGEMM_DEFAULT_UNROLL_M  8
+#define DGEMM_DEFAULT_UNROLL_N  4
+
+#define CGEMM_DEFAULT_UNROLL_M  4
+#define CGEMM_DEFAULT_UNROLL_N  4
+
+#define ZGEMM_DEFAULT_UNROLL_M  4
+#define ZGEMM_DEFAULT_UNROLL_N  4
+
+#define SGEMM_DEFAULT_P	480
+#define DGEMM_DEFAULT_P	320
+#define CGEMM_DEFAULT_P 480
+#define ZGEMM_DEFAULT_P 224
+
+#define SGEMM_DEFAULT_Q 512
+#define DGEMM_DEFAULT_Q 384
+#define CGEMM_DEFAULT_Q 128
+#define ZGEMM_DEFAULT_Q 352
+
+#define SGEMM_DEFAULT_R 8192
+#define DGEMM_DEFAULT_R 4096
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 2048
+
+
+#define SYMV_P	16
+#endif
+
+#if defined(CSKY) || defined(CK860FV)
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x03fffUL
+
+#define SGEMM_DEFAULT_UNROLL_M  2
+#define SGEMM_DEFAULT_UNROLL_N  2
+
+#define DGEMM_DEFAULT_UNROLL_M  2
+#define DGEMM_DEFAULT_UNROLL_N  2
+
+#define CGEMM_DEFAULT_UNROLL_M  2
+#define CGEMM_DEFAULT_UNROLL_N  2
+
+#define ZGEMM_DEFAULT_UNROLL_M  2
+#define ZGEMM_DEFAULT_UNROLL_N  2
+
+#define SGEMM_DEFAULT_P	128
+#define DGEMM_DEFAULT_P	128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+
+#define SYMV_P	16
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+
+#endif
+
+#ifdef GENERIC
+
+#define SNUMOPT		2
+#define DNUMOPT		2
+
+#define GEMM_DEFAULT_OFFSET_A 0
+#define GEMM_DEFAULT_OFFSET_B 0
+#define GEMM_DEFAULT_ALIGN (BLASLONG)0x0ffffUL
+
+#define SGEMM_DEFAULT_UNROLL_N 2
+#define DGEMM_DEFAULT_UNROLL_N 2
+#define QGEMM_DEFAULT_UNROLL_N 2
+#define CGEMM_DEFAULT_UNROLL_N 2
+#define ZGEMM_DEFAULT_UNROLL_N 2
+#define XGEMM_DEFAULT_UNROLL_N 1
+#define CGEMM3M_DEFAULT_UNROLL_N 2
+#define ZGEMM3M_DEFAULT_UNROLL_N 2
+
+#ifdef ARCH_X86
+#define SGEMM_DEFAULT_UNROLL_M 2
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#else
+#define SGEMM_DEFAULT_UNROLL_M 2
+#define DGEMM_DEFAULT_UNROLL_M 2
+#define QGEMM_DEFAULT_UNROLL_M 2
+#define CGEMM_DEFAULT_UNROLL_M 2
+#define ZGEMM_DEFAULT_UNROLL_M 2
+#define XGEMM_DEFAULT_UNROLL_M 1
+#define CGEMM3M_DEFAULT_UNROLL_M 2
+#define ZGEMM3M_DEFAULT_UNROLL_M 2
+#define CGEMM3M_DEFAULT_P 448
+#define ZGEMM3M_DEFAULT_P 224
+#define XGEMM3M_DEFAULT_P 112
+#define CGEMM3M_DEFAULT_Q 224
+#define ZGEMM3M_DEFAULT_Q 224
+#define XGEMM3M_DEFAULT_Q 224
+#define CGEMM3M_DEFAULT_R 12288
+#define ZGEMM3M_DEFAULT_R 12288
+#define XGEMM3M_DEFAULT_R 12288
+
+#endif
+
+#ifdef ARCH_MIPS
+#define SGEMM_DEFAULT_P  128
+#define DGEMM_DEFAULT_P  128
+#define CGEMM_DEFAULT_P  96
+#define ZGEMM_DEFAULT_P  64
+#define SGEMM_DEFAULT_Q  240
+#define DGEMM_DEFAULT_Q  120
+#define CGEMM_DEFAULT_Q  120
+#define ZGEMM_DEFAULT_Q  120
+#define SGEMM_DEFAULT_R  12288
+#define DGEMM_DEFAULT_R  8192
+#define CGEMM_DEFAULT_R  4096
+#define ZGEMM_DEFAULT_R  4096
+#elif defined(ARCH_LOONGARCH64)
+#define SGEMM_DEFAULT_P 128
+#define DGEMM_DEFAULT_P 128
+#define CGEMM_DEFAULT_P 96
+#define ZGEMM_DEFAULT_P 64
+
+#define SGEMM_DEFAULT_Q 240
+#define DGEMM_DEFAULT_Q 120
+#define CGEMM_DEFAULT_Q 120
+#define ZGEMM_DEFAULT_Q 120
+
+#define SGEMM_DEFAULT_R 12288
+#define DGEMM_DEFAULT_R 8192
+#define CGEMM_DEFAULT_R 4096
+#define ZGEMM_DEFAULT_R 4096
+#else
+#define SGEMM_DEFAULT_P sgemm_p
+#define DGEMM_DEFAULT_P dgemm_p
+#define QGEMM_DEFAULT_P qgemm_p
+#define CGEMM_DEFAULT_P cgemm_p
+#define ZGEMM_DEFAULT_P zgemm_p
+#define XGEMM_DEFAULT_P xgemm_p
+
+#define SGEMM_DEFAULT_R sgemm_r
+#define DGEMM_DEFAULT_R dgemm_r
+#define QGEMM_DEFAULT_R qgemm_r
+#define CGEMM_DEFAULT_R cgemm_r
+#define ZGEMM_DEFAULT_R zgemm_r
+#define XGEMM_DEFAULT_R xgemm_r
+
+#define SGEMM_DEFAULT_Q 128
+#define DGEMM_DEFAULT_Q 128
+#define QGEMM_DEFAULT_Q 128
+#define CGEMM_DEFAULT_Q 128
+#define ZGEMM_DEFAULT_Q 128
+#define XGEMM_DEFAULT_Q 128
+#endif
+
+#define SYMV_P	16
+
+#endif
+
+#ifndef SWITCH_RATIO
+#define SWITCH_RATIO 2
+#endif
+
+#ifndef QGEMM_DEFAULT_UNROLL_M
+#define QGEMM_DEFAULT_UNROLL_M 2
+#endif
+
+#ifndef QGEMM_DEFAULT_UNROLL_N
+#define QGEMM_DEFAULT_UNROLL_N 2
+#endif
+
+#ifndef XGEMM_DEFAULT_UNROLL_M
+#define XGEMM_DEFAULT_UNROLL_M 2
+#endif
+
+#ifndef XGEMM_DEFAULT_UNROLL_N
+#define XGEMM_DEFAULT_UNROLL_N 2
+#endif
+
+#ifndef HAVE_SSE2
+#define SHUFPD_0	shufps	$0x44,
+#define SHUFPD_1	shufps	$0x4e,
+#define SHUFPD_2	shufps	$0xe4,
+#define SHUFPD_3	shufps	$0xee,
+#endif
+
+#ifndef SHUFPD_0
+#define SHUFPD_0	shufpd	$0,
+#endif
+
+#ifndef SHUFPD_1
+#define SHUFPD_1	shufpd	$1,
+#endif
+
+#ifndef SHUFPD_2
+#define SHUFPD_2	shufpd	$2,
+#endif
+
+#ifndef SHUFPD_3
+#define SHUFPD_3	shufpd	$3,
+#endif
+
+#ifndef SHUFPS_39
+#define SHUFPS_39	shufps	$0x39,
+#endif
+
+
+#endif

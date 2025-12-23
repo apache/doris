@@ -1,0 +1,613 @@
+START Tue Dec 23 18:30:57 CST 2025
+Starting BE daemon...
+Waiting for BE port 9060...
+BE port 9060 is listening
+\n== tail be.out (last 200) ==
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:08:23,998 Start time: Sun Dec 21 11:08:22 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:44:38,425 Start time: Sun Dec 21 11:44:38 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+thrift error, reason=THRIFT_EAGAIN (timed out)INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:56:01,762 Start time: Sun Dec 21 11:56:01 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 13:01:12,408 Start time: Sun Dec 21 13:01:12 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+thrift error, reason=No more data to read.thrift error, reason=No more data to read.thrift error, reason=write() send(): Broken pipethrift error, reason=write() send(): Broken pipethrift error, reason=No more data to read.thrift error, reason=write() send(): Broken pipethrift error, reason=write() send(): Broken pipeINFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 14:37:56,202 Start time: Sun Dec 21 14:37:56 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 15:27:56,843 Start time: Sun Dec 21 15:27:56 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-22 23:46:06,613 Start time: Mon Dec 22 23:46:06 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 12:18:07,604 Start time: Tue Dec 23 12:18:07 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 13:43:17,296 Start time: Tue Dec 23 13:43:17 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 13:47:35,804 Start time: Tue Dec 23 13:47:35 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+thrift error, reason=No more data to read.thrift error, reason=write() send(): Broken pipeINFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 14:54:08,655 Start time: Tue Dec 23 14:54:08 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 16:40:40,597 Start time: Tue Dec 23 16:40:40 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 17:17:50,002 Start time: Tue Dec 23 17:17:49 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 17:31:34,125 Start time: Tue Dec 23 17:31:34 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 17:49:28,074 Start time: Tue Dec 23 17:49:28 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 18:30:58,683 Start time: Tue Dec 23 18:30:58 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+Starting FE daemon...
+Waiting for FE MySQL 9030...
+FE MySQL 9030 is listening
+Polling show backends (120s)...
+RESULT success=0
+\n== final fe.log tail ==
+2025-12-23 18:33:16,186 INFO (Dictionary Manager|60) [DictionaryManager.collectDictionaryStatus():710] Collecting all dictionaries status for 0 dictionaries
+2025-12-23 18:33:16,186 INFO (Dictionary Manager|60) [DictionaryManager.collectDictionaryStatus():778] Collect 0 dictionaries status succeed
+2025-12-23 18:33:16,228 INFO (qtp909878836-186|186) [LoadAction.streamLoad():106] streamload action, db: __internal_schema, tbl: audit_log, headers: token:5da4a276-a123-4faa-8bce-b105d498d119, Authorization:Basic YWRtaW46, Expect:100-continue, Content-Type:text/plain; charset=UTF-8, label:audit_log_20251223_183316_222_172_30_95_46_9010, timeout:600, max_filter_ratio:1.0, columns:query_id,time,client_ip,user,frontend_ip,catalog,db,state,error_code,error_message,query_time,cpu_time_ms,peak_memory_bytes,scan_bytes,scan_rows,return_rows,shuffle_send_rows,shuffle_send_bytes,spill_write_bytes_from_local_storage,spill_read_bytes_from_local_storage,scan_bytes_from_local_storage,scan_bytes_from_remote_storage,parse_time_ms,plan_times_ms,get_meta_times_ms,schedule_times_ms,hit_sql_cache,handled_in_fe,queried_tables_and_views,chosen_m_views,changed_variables,sql_mode,stmt_type,stmt_id,sql_hash,sql_digest,is_query,is_nereids,is_internal,workload_group,compute_group,stmt, redirect-policy:random-be, column_separator:\x1F, line_delimiter:\x1E, skip_record_to_audit_log_table:true, User-Agent:Java/17.0.17, Host:127.0.0.1:8030, Accept:text/html, image/gif, image/jpeg, */*; q=0.2, Connection:keep-alive, 
+2025-12-23 18:33:16,230 WARN (qtp909878836-186|186) [LoadAction.executeWithClusterToken():677] Failed to execute stream load with cluster token, errCode = 2, detailMessage = No backend available for load, please check the status of your backends., policy: computeNode=false | query=false | load=true | schedule=false | tags= | medium=null, compute group is AllBackendComputeGroup
+org.apache.doris.common.LoadException: errCode = 2, detailMessage = No backend available for load, please check the status of your backends., policy: computeNode=false | query=false | load=true | schedule=false | tags= | medium=null, compute group is AllBackendComputeGroup
+	at org.apache.doris.httpv2.rest.LoadAction.selectLocalRedirectBackend(LoadAction.java:427)
+	at org.apache.doris.httpv2.rest.LoadAction.selectRedirectBackend(LoadAction.java:406)
+	at org.apache.doris.httpv2.rest.LoadAction.selectRedirectBackend(LoadAction.java:386)
+	at org.apache.doris.httpv2.rest.LoadAction.executeWithClusterToken(LoadAction.java:647)
+	at org.apache.doris.httpv2.rest.LoadAction.streamLoad(LoadAction.java:136)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:258)
+	at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:191)
+	at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118)
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:991)
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:896)
+	at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87)
+	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1089)
+	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:979)
+	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014)
+	at org.springframework.web.servlet.FrameworkServlet.doPut(FrameworkServlet.java:925)
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:550)
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:614)
+	at org.eclipse.jetty.ee10.servlet.ServletHolder.handle(ServletHolder.java:751)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler$ChainEnd.doFilter(ServletHandler.java:1622)
+	at org.eclipse.jetty.ee10.websocket.servlet.WebSocketUpgradeFilter.doFilter(WebSocketUpgradeFilter.java:195)
+	at org.eclipse.jetty.ee10.servlet.FilterHolder.doFilter(FilterHolder.java:205)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler$Chain.doFilter(ServletHandler.java:1594)
+	at org.apache.doris.httpv2.interceptor.ServletTraceIterceptor.doFilter(ServletTraceIterceptor.java:55)
+	at org.eclipse.jetty.ee10.servlet.FilterHolder.doFilter(FilterHolder.java:208)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler$Chain.doFilter(ServletHandler.java:1594)
+	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+	at org.eclipse.jetty.ee10.servlet.FilterHolder.doFilter(FilterHolder.java:205)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler$Chain.doFilter(ServletHandler.java:1594)
+	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+	at org.eclipse.jetty.ee10.servlet.FilterHolder.doFilter(FilterHolder.java:205)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler$Chain.doFilter(ServletHandler.java:1594)
+	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+	at org.eclipse.jetty.ee10.servlet.FilterHolder.doFilter(FilterHolder.java:205)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler$Chain.doFilter(ServletHandler.java:1594)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler$MappedServlet.handle(ServletHandler.java:1555)
+	at org.eclipse.jetty.ee10.servlet.ServletChannel.dispatch(ServletChannel.java:824)
+	at org.eclipse.jetty.ee10.servlet.ServletChannel.handle(ServletChannel.java:439)
+	at org.eclipse.jetty.ee10.servlet.ServletHandler.handle(ServletHandler.java:470)
+	at org.eclipse.jetty.security.SecurityHandler.handle(SecurityHandler.java:575)
+	at org.eclipse.jetty.ee10.servlet.SessionHandler.handle(SessionHandler.java:717)
+	at org.eclipse.jetty.server.handler.ContextHandler.handle(ContextHandler.java:1096)
+	at org.eclipse.jetty.server.Handler$Wrapper.handle(Handler.java:740)
+	at org.eclipse.jetty.server.handler.EventsHandler.handle(EventsHandler.java:81)
+	at org.eclipse.jetty.server.Server.handle(Server.java:182)
+	at org.eclipse.jetty.server.internal.HttpChannelState$HandlerInvoker.run(HttpChannelState.java:677)
+	at org.eclipse.jetty.server.internal.HttpConnection.onFillable(HttpConnection.java:416)
+	at org.eclipse.jetty.io.AbstractConnection$ReadCallback.succeeded(AbstractConnection.java:322)
+	at org.eclipse.jetty.io.FillInterest.fillable(FillInterest.java:105)
+	at org.eclipse.jetty.io.SelectableChannelEndPoint$1.run(SelectableChannelEndPoint.java:53)
+	at org.eclipse.jetty.util.thread.QueuedThreadPool.runJob(QueuedThreadPool.java:981)
+	at org.eclipse.jetty.util.thread.QueuedThreadPool$Runner.doRunJob(QueuedThreadPool.java:1211)
+	at org.eclipse.jetty.util.thread.QueuedThreadPool$Runner.run(QueuedThreadPool.java:1166)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-23 18:33:16,234 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763] java.lang.Exception: status is not TEMPORARY_REDIRECT 307, status: 200, response: {"status":"FAILED","msg":"errCode = 2, detailMessage = No backend available for load, please check the status of your backends., policy: computeNode=false | query=false | load=true | schedule=false | tags= | medium=null, compute group is AllBackendComputeGroup"}, request is: curl -v -X PUT \
+2025-12-23 18:33:16,234 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "Authorization":"Basic YWRtaW46" \
+2025-12-23 18:33:16,234 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "Expect":"100-continue" \
+2025-12-23 18:33:16,234 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "Content-Type":"text/plain; charset=UTF-8" \
+2025-12-23 18:33:16,234 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "max_filter_ratio":"1.0" \
+2025-12-23 18:33:16,234 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "columns":"query_id,time,client_ip,user,frontend_ip,catalog,db,state,error_code,error_message,query_time,cpu_time_ms,peak_memory_bytes,scan_bytes,scan_rows,return_rows,shuffle_send_rows,shuffle_send_bytes,spill_write_bytes_from_local_storage,spill_read_bytes_from_local_storage,scan_bytes_from_local_storage,scan_bytes_from_remote_storage,parse_time_ms,plan_times_ms,get_meta_times_ms,schedule_times_ms,hit_sql_cache,handled_in_fe,queried_tables_and_views,chosen_m_views,changed_variables,sql_mode,stmt_type,stmt_id,sql_hash,sql_digest,is_query,is_nereids,is_internal,workload_group,compute_group,stmt" \
+2025-12-23 18:33:16,234 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   -H "redirect-policy":"random-be" \
+2025-12-23 18:33:16,234 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763]   "http://127.0.0.1:8030/api/__internal_schema/audit_log/_stream_load?"
+2025-12-23 18:33:16,235 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763] 	at org.apache.doris.plugin.audit.AuditStreamLoader.loadBatch(AuditStreamLoader.java:132)
+2025-12-23 18:33:16,235 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763] 	at org.apache.doris.plugin.audit.AuditLoader.loadIfNecessary(AuditLoader.java:239)
+2025-12-23 18:33:16,235 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763] 	at org.apache.doris.plugin.audit.AuditLoader$LoadWorker.run(AuditLoader.java:277)
+2025-12-23 18:33:16,235 ERROR (audit loader thread|62) [Throwable$WrappedPrintStream.println():763] 	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-23 18:33:16,235 WARN (audit loader thread|62) [AuditStreamLoader.loadBatch():158] failed to load audit via AuditLoader plugin with label: audit_log_20251223_183316_222_172_30_95_46_9010
+java.lang.Exception: status is not TEMPORARY_REDIRECT 307, status: 200, response: {"status":"FAILED","msg":"errCode = 2, detailMessage = No backend available for load, please check the status of your backends., policy: computeNode=false | query=false | load=true | schedule=false | tags= | medium=null, compute group is AllBackendComputeGroup"}, request is: curl -v -X PUT \
+  -H "Authorization":"Basic YWRtaW46" \
+  -H "Expect":"100-continue" \
+  -H "Content-Type":"text/plain; charset=UTF-8" \
+  -H "max_filter_ratio":"1.0" \
+  -H "columns":"query_id,time,client_ip,user,frontend_ip,catalog,db,state,error_code,error_message,query_time,cpu_time_ms,peak_memory_bytes,scan_bytes,scan_rows,return_rows,shuffle_send_rows,shuffle_send_bytes,spill_write_bytes_from_local_storage,spill_read_bytes_from_local_storage,scan_bytes_from_local_storage,scan_bytes_from_remote_storage,parse_time_ms,plan_times_ms,get_meta_times_ms,schedule_times_ms,hit_sql_cache,handled_in_fe,queried_tables_and_views,chosen_m_views,changed_variables,sql_mode,stmt_type,stmt_id,sql_hash,sql_digest,is_query,is_nereids,is_internal,workload_group,compute_group,stmt" \
+  -H "redirect-policy":"random-be" \
+  "http://127.0.0.1:8030/api/__internal_schema/audit_log/_stream_load?"
+	at org.apache.doris.plugin.audit.AuditStreamLoader.loadBatch(AuditStreamLoader.java:132)
+	at org.apache.doris.plugin.audit.AuditLoader.loadIfNecessary(AuditLoader.java:239)
+	at org.apache.doris.plugin.audit.AuditLoader$LoadWorker.run(AuditLoader.java:277)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-23 18:33:16,269 INFO (Statistics Job Appender|48) [StatisticsUtil.statsTblAvailable():497] stat table does not exist, db_name: __internal_schema, table_name: column_statistics
+2025-12-23 18:33:16,269 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-23 18:33:16,511 INFO (InternalSchemaInitializer|164) [InternalCatalog.createDb():418] create database[__internal_schema] which already exists
+2025-12-23 18:33:16,515 INFO (InternalSchemaInitializer|164) [InternalSchemaInitializer.createTable():517] Failed to create table CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`column_statistics` (
+  `id` varchar(4096) NOT NULL COMMENT "",
+  `catalog_id` varchar(1024) NOT NULL COMMENT "",
+  `db_id` varchar(1024) NOT NULL COMMENT "",
+  `tbl_id` varchar(1024) NOT NULL COMMENT "",
+  `idx_id` varchar(1024) NOT NULL COMMENT "",
+  `col_id` varchar(1024) NOT NULL COMMENT "",
+  `part_id` varchar(1024) NULL COMMENT "",
+  `count` bigint NULL COMMENT "",
+  `ndv` bigint NULL COMMENT "",
+  `null_count` bigint NULL COMMENT "",
+  `min` varchar(65533) NULL COMMENT "",
+  `max` varchar(65533) NULL COMMENT "",
+  `data_size_in_bytes` bigint NULL COMMENT "",
+  `update_time` datetime NOT NULL COMMENT "",
+  `hot_value` text NULL COMMENT ""
+) ENGINE = olap
+UNIQUE KEY(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)
+COMMENT "Doris internal statistics table, DO NOT MODIFY IT"
+DISTRIBUTED BY HASH(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)
+BUCKETS 7
+PROPERTIES ("replication_num" = "1"). Reason errCode = 2, detailMessage = System has no available disk capacity or no available BE nodes
+2025-12-23 18:33:16,518 INFO (InternalSchemaInitializer|164) [InternalSchemaInitializer.createTable():517] Failed to create table CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`partition_statistics` (
+  `catalog_id` varchar(1024) NOT NULL COMMENT "",
+  `db_id` varchar(1024) NOT NULL COMMENT "",
+  `tbl_id` varchar(1024) NOT NULL COMMENT "",
+  `idx_id` varchar(1024) NOT NULL COMMENT "",
+  `part_name` varchar(1024) NOT NULL COMMENT "",
+  `part_id` bigint NOT NULL COMMENT "",
+  `col_id` varchar(1024) NOT NULL COMMENT "",
+  `count` bigint NULL COMMENT "",
+  `ndv` hll NOT NULL COMMENT "",
+  `null_count` bigint NULL COMMENT "",
+  `min` varchar(65533) NULL COMMENT "",
+  `max` varchar(65533) NULL COMMENT "",
+  `data_size_in_bytes` bigint NULL COMMENT "",
+  `update_time` datetime NOT NULL COMMENT ""
+) ENGINE = olap
+UNIQUE KEY(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)
+COMMENT "Doris internal statistics table, DO NOT MODIFY IT"
+DISTRIBUTED BY HASH(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)
+BUCKETS 7
+PROPERTIES ("replication_num" = "1"). Reason errCode = 2, detailMessage = System has no available disk capacity or no available BE nodes
+2025-12-23 18:33:16,524 INFO (InternalSchemaInitializer|164) [InternalSchemaInitializer.createTable():517] Failed to create table CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`audit_log` (
+  `query_id` varchar(128) NULL COMMENT "",
+  `time` datetimev2(3) NULL COMMENT "",
+  `client_ip` varchar(128) NULL COMMENT "",
+  `user` varchar(128) NULL COMMENT "",
+  `frontend_ip` varchar(1024) NULL COMMENT "",
+  `catalog` varchar(128) NULL COMMENT "",
+  `db` varchar(128) NULL COMMENT "",
+  `state` varchar(128) NULL COMMENT "",
+  `error_code` int NULL COMMENT "",
+  `error_message` text NULL COMMENT "",
+  `query_time` bigint NULL COMMENT "",
+  `cpu_time_ms` bigint NULL COMMENT "",
+  `peak_memory_bytes` bigint NULL COMMENT "",
+  `scan_bytes` bigint NULL COMMENT "",
+  `scan_rows` bigint NULL COMMENT "",
+  `return_rows` bigint NULL COMMENT "",
+  `shuffle_send_rows` bigint NULL COMMENT "",
+  `shuffle_send_bytes` bigint NULL COMMENT "",
+  `spill_write_bytes_from_local_storage` bigint NULL COMMENT "",
+  `spill_read_bytes_from_local_storage` bigint NULL COMMENT "",
+  `scan_bytes_from_local_storage` bigint NULL COMMENT "",
+  `scan_bytes_from_remote_storage` bigint NULL COMMENT "",
+  `parse_time_ms` int NULL COMMENT "",
+  `plan_times_ms` map<text,int> NULL COMMENT "",
+  `get_meta_times_ms` map<text,int> NULL COMMENT "",
+  `schedule_times_ms` map<text,int> NULL COMMENT "",
+  `hit_sql_cache` tinyint NULL COMMENT "",
+  `handled_in_fe` tinyint NULL COMMENT "",
+  `queried_tables_and_views` array<text> NULL COMMENT "",
+  `chosen_m_views` array<text> NULL COMMENT "",
+  `changed_variables` map<text,text> NULL COMMENT "",
+  `sql_mode` text NULL COMMENT "",
+  `stmt_type` varchar(48) NULL COMMENT "",
+  `stmt_id` bigint NULL COMMENT "",
+  `sql_hash` varchar(128) NULL COMMENT "",
+  `sql_digest` varchar(128) NULL COMMENT "",
+  `is_query` tinyint NULL COMMENT "",
+  `is_nereids` tinyint NULL COMMENT "",
+  `is_internal` tinyint NULL COMMENT "",
+  `workload_group` text NULL COMMENT "",
+  `compute_group` text NULL COMMENT "",
+  `stmt` text NULL COMMENT ""
+) ENGINE = olap
+DUPLICATE KEY(`query_id`, `time`, `client_ip`)
+COMMENT "Doris internal audit table, DO NOT MODIFY IT"
+PARTITION BY RANGE(`time`)
+(
+
+)
+DISTRIBUTED BY HASH(`query_id`)
+BUCKETS 2
+PROPERTIES ("dynamic_partition.time_unit" = "DAY", "dynamic_partition.buckets" = "2", "dynamic_partition.end" = "3", "dynamic_partition.enable" = "true", "replication_num" = "1", "dynamic_partition.start" = "-30", "dynamic_partition.prefix" = "p"). Reason errCode = 2, detailMessage = System has no available disk capacity or no available BE nodes
+2025-12-23 18:33:16,638 INFO (mysql-nio-pool-0|198) [StmtExecutor.handleQueryWithRetry():915] Query a8f9a36f115645d3-865fcedd143d4b75 finished
+2025-12-23 18:33:17,183 INFO (STATS_FETCH-0|171) [StatisticsUtil.statsTblAvailable():497] stat table does not exist, db_name: __internal_schema, table_name: column_statistics
+2025-12-23 18:33:17,269 INFO (Statistics Job Appender|48) [StatisticsUtil.statsTblAvailable():497] stat table does not exist, db_name: __internal_schema, table_name: column_statistics
+2025-12-23 18:33:17,269 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-23 18:33:18,183 INFO (STATS_FETCH-0|171) [StatisticsUtil.statsTblAvailable():497] stat table does not exist, db_name: __internal_schema, table_name: column_statistics
+2025-12-23 18:33:18,270 INFO (Statistics Job Appender|48) [StatisticsUtil.statsTblAvailable():497] stat table does not exist, db_name: __internal_schema, table_name: column_statistics
+2025-12-23 18:33:18,270 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-23 18:33:19,183 INFO (STATS_FETCH-0|171) [StatisticsUtil.statsTblAvailable():497] stat table does not exist, db_name: __internal_schema, table_name: column_statistics
+2025-12-23 18:33:19,270 INFO (Statistics Job Appender|48) [StatisticsUtil.statsTblAvailable():497] stat table does not exist, db_name: __internal_schema, table_name: column_statistics
+2025-12-23 18:33:19,270 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+\n== final be.out tail ==
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:08:23,998 Start time: Sun Dec 21 11:08:22 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:44:38,425 Start time: Sun Dec 21 11:44:38 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+thrift error, reason=THRIFT_EAGAIN (timed out)INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:56:01,762 Start time: Sun Dec 21 11:56:01 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 13:01:12,408 Start time: Sun Dec 21 13:01:12 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+thrift error, reason=No more data to read.thrift error, reason=No more data to read.thrift error, reason=write() send(): Broken pipethrift error, reason=write() send(): Broken pipethrift error, reason=No more data to read.thrift error, reason=write() send(): Broken pipethrift error, reason=write() send(): Broken pipeINFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 14:37:56,202 Start time: Sun Dec 21 14:37:56 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 15:27:56,843 Start time: Sun Dec 21 15:27:56 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-22 23:46:06,613 Start time: Mon Dec 22 23:46:06 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 12:18:07,604 Start time: Tue Dec 23 12:18:07 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 13:43:17,296 Start time: Tue Dec 23 13:43:17 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 13:47:35,804 Start time: Tue Dec 23 13:47:35 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+thrift error, reason=No more data to read.thrift error, reason=write() send(): Broken pipeINFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 14:54:08,655 Start time: Tue Dec 23 14:54:08 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 16:40:40,597 Start time: Tue Dec 23 16:40:40 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 17:17:50,002 Start time: Tue Dec 23 17:17:49 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 17:31:34,125 Start time: Tue Dec 23 17:31:34 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 17:49:28,074 Start time: Tue Dec 23 17:49:28 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-23 18:30:58,683 Start time: Tue Dec 23 18:30:58 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+END Tue Dec 23 18:33:19 CST 2025

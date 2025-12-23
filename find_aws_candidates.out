@@ -1,0 +1,6 @@
+--- TIME ---
+Sun Dec 21 15:43:06 CST 2025
+--- find any files with 'aws' in name under thirdparty/installed ---
+thirdparty/installed/share/man/man3/CURLOPT_AWS_SIGV4.3
+--- grep for aws-cpp in thirdparty folder names ---
+-rwxr-xr-x  1 zhisheng zhisheng   67571 Dec 19 16:39 build-thirdparty.sh.bak_aws

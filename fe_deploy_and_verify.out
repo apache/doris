@@ -1,0 +1,120 @@
+--- TIME ---
+Sun Dec 21 14:26:04 CST 2025
+--- backup existing doris-fe.jar ---
+'lib/doris-fe.jar' -> 'lib/doris-fe.jar.bak'
+--- copy new doris-fe.jar into lib ---
+'fe/fe-core/target/doris-fe.jar' -> 'lib/doris-fe.jar'
+--- restart FE ---
+Waiting for fe process with PID 67325 to terminate
+stop java and remove PID file
+--- wait for 9030 ---
+LISTEN 0      1024                     *:9030             *:*    users:(("java",pid=68851,fd=719))    
+LISTEN 0      1024                     *:9030             *:*    users:(("java",pid=68851,fd=719))    
+--- confirm doris-fe.jar contains HammingDistance.class ---
+org/apache/doris/nereids/trees/expressions/functions/scalar/HammingDistance.class
+--- verify via mysql ---
+BackendId	Host	HeartbeatPort	BePort	HttpPort	BrpcPort	ArrowFlightSqlPort	LastStartTime	LastHeartbeat	Alive	SystemDecommissioned	TabletNum	DataUsedCapacity	TrashUsedCapacity	AvailCapacity	TotalCapacity	UsedPct	MaxDiskUsedPct	RemoteUsedCapacity	Tag	ErrMsg	Version	Status	HeartbeatFailureCounter	NodeRole	CpuCores	Memory	LiveSince	RunningTasks
+1766220400802	172.30.95.46	9050	9060	8040	8060	8050	2025-12-21 13:01:20	2025-12-21 14:26:19	true	true	61	0.000 	0.000 	864.456 GB	1006.854 GB	14.14 %	14.14 %	0.000 	{"location" : "default"}		doris-0.0.0-Unknown	{"lastSuccessReportTabletsTime":"2025-12-21 14:26:20","lastStreamLoadTime":-1,"isQueryDisabled":false,"isLoadDisabled":false,"isActive":true,"isShutdown":false,"currentFragmentNum":0,"lastFragmentUpdateTime":1766298273773}	0	mix	8	15.31 GB	2025-12-21 14:26:19	0
+1766285578511	127.0.0.1	9050	9060	8040	8060	8050	2025-12-21 13:01:20	2025-12-21 14:26:19	true	false	62	0.000 	0.000 	864.293 GB	1006.854 GB	14.16 %	14.16 %	0.000 	{"location" : "default"}		doris-0.0.0-Unknown	{"lastStreamLoadTime":-1,"isQueryDisabled":false,"isLoadDisabled":false,"isActive":true,"isShutdown":false,"currentFragmentNum":0,"lastFragmentUpdateTime":1766298273773}	0	mix	8	15.31 GB	2025-12-21 14:26:19	0
+ERROR 1105 (HY000) at line 1: errCode = 2, detailMessage = (172.30.95.46)[INTERNAL_ERROR]Could not find function hamming_distance, arg String: String, String: String return Nullable(BIGINT) 
+--- tail fe.log (last 100) ---
+	at org.apache.doris.planner.OlapScanNode.computeTabletInfo(OlapScanNode.java:921)
+	at org.apache.doris.planner.OlapScanNode.createScanRangeLocations(OlapScanNode.java:733)
+	at org.apache.doris.planner.OlapScanNode.init(OlapScanNode.java:318)
+	at org.apache.doris.nereids.util.Utils.execWithUncheckedException(Utils.java:98)
+	... 41 more
+2025-12-21 14:26:21,287 INFO (tablet scheduler|36) [TabletScheduler.updateWorkingSlots():206] backend 172.30.95.46:9060 with id 1766220400802 doesn't have path info.
+2025-12-21 14:26:22,114 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [JettyServletWebServerFactory.getWebServer():176] Server initialized with port: 8030
+2025-12-21 14:26:22,123 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [Server.doStart():555] jetty-12.0.29; built: 2025-10-16T15:15:43.982Z; git: 8dbd9865cc7407d735084a181cc3f21205872b70; jvm 17.0.17+10-Ubuntu-124.04
+2025-12-21 14:26:22,183 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [ServletContextHandler$ServletContextApi.log():2934] Initializing Spring embedded WebApplicationContext
+2025-12-21 14:26:22,185 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [ServletWebServerApplicationContext.prepareWebApplicationContext():301] Root WebApplicationContext: initialization completed in 1879 ms
+2025-12-21 14:26:22,282 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 14:26:22,288 INFO (tablet scheduler|36) [TabletScheduler.updateWorkingSlots():206] backend 172.30.95.46:9060 with id 1766220400802 doesn't have path info.
+2025-12-21 14:26:22,291 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [DefaultSessionIdManager.doStart():328] Session workerName=node0
+2025-12-21 14:26:22,302 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [ContextHandler.doStart():789] Started osbwej.JettyEmbeddedWebAppContext@526ae1fc{application,/,b=file:/tmp/jetty-docbase.8030.12613405304064899776/,a=AVAILABLE,h=oeje10s.SessionHandler@cf9223f{STARTED}}
+2025-12-21 14:26:22,302 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [ServletContextHandler.doStart():1055] Started osbwej.JettyEmbeddedWebAppContext@526ae1fc{application,/,b=file:/tmp/jetty-docbase.8030.12613405304064899776/,a=AVAILABLE,h=oeje10s.SessionHandler@cf9223f{STARTED}}
+2025-12-21 14:26:22,304 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [Server.doStart():612] Started oejs.Server@59a71bef{STARTING}[12.0.29,sto=0] @9078ms
+2025-12-21 14:26:22,640 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [WelcomePageHandlerMapping.<init>():59] Adding welcome page: class path resource [static/index.html]
+2025-12-21 14:26:22,643 INFO (thrift-server-pool-0|201) [ReportHandler.handleReport():239] receive report from be 1766220400802. type: TASK, report version -1, current queue size: 1
+2025-12-21 14:26:22,644 INFO (report-thread|190) [ReportHandler.taskReport():761] finished to handle task report from backend 1766220400802-172.30.95.46, diff task num: 0, publishTaskSize: 0, runningTasks: [], cost: 0 ms.
+2025-12-21 14:26:23,149 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [AbstractContextSource.afterPropertiesSet():419] Property 'userDn' not set - anonymous context will be used for read-only operations
+2025-12-21 14:26:23,210 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [ServletContextHandler$ServletContextApi.log():2934] Initializing Spring DispatcherServlet 'dispatcherServlet'
+2025-12-21 14:26:23,210 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [FrameworkServlet.initServletBean():532] Initializing Servlet 'dispatcherServlet'
+2025-12-21 14:26:23,212 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [FrameworkServlet.initServletBean():554] Completed initialization in 1 ms
+2025-12-21 14:26:23,221 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [AbstractConnector.doStart():326] Started ServerConnector@5142e612{HTTP/1.1, (http/1.1)}{0.0.0.0:8030}
+2025-12-21 14:26:23,224 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [JettyWebServer.start():169] Jetty started on port 8030 (http/1.1) with context path '/'
+2025-12-21 14:26:23,237 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [StartupInfoLogger.logStarted():59] Started DorisFE in 3.501 seconds (process running for 10.01)
+2025-12-21 14:26:23,251 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [Xnio.<clinit>():95] XNIO version 3.8.14.Final
+2025-12-21 14:26:23,267 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [NioXnio.<clinit>():58] XNIO NIO Implementation Version 3.8.14.Final
+2025-12-21 14:26:23,282 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 14:26:23,288 INFO (tablet scheduler|36) [TabletScheduler.updateWorkingSlots():206] backend 172.30.95.46:9060 with id 1766220400802 doesn't have path info.
+2025-12-21 14:26:23,296 WARN (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [QeService.start():58] Help module failed. ignore it.
+java.io.IOException: Can not find help zip file: help-resource.zip
+	at org.apache.doris.qe.help.HelpModule.setUpModule(HelpModule.java:271)
+	at org.apache.doris.qe.QeService.start(QeService.java:56)
+	at org.apache.doris.DorisFE.start(DorisFE.java:256)
+	at org.apache.doris.DorisFE.main(DorisFE.java:109)
+2025-12-21 14:26:23,304 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [MysqlServer.start():86] Open mysql server success on 9030
+2025-12-21 14:26:23,316 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [BaseAllocator.<clinit>():62] Debug mode disabled. Enable with the VM option -Darrow.memory.debug.allocator=true.
+2025-12-21 14:26:23,320 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [DefaultAllocationManagerOption.getDefaultAllocationManagerFactory():91] allocation manager type not specified, using netty as the default type
+2025-12-21 14:26:23,322 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [CheckAllocator.reportResult():99] Using DefaultAllocationManager at memory-netty-17.0.0.jar!/org/apache/arrow/memory/netty/DefaultAllocationManagerFactory.class
+2025-12-21 14:26:23,457 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [DorisFlightSqlService.<init>():60] Arrow Flight SQL service is created, port: 8070, arrow_flight_max_connections: 4096，arrow_flight_token_alive_time_second: 86400
+2025-12-21 14:26:23,468 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [DorisFlightSqlService.start():70] Arrow Flight SQL service is started.
+2025-12-21 14:26:23,469 INFO (UNKNOWN fe_5ff0b42f_b5d1_4ee7_869a_0823c8920b1e(-1)|1) [QeService.start():75] QE service start.
+2025-12-21 14:26:23,906 INFO (mysql-nio-pool-0|225) [StmtExecutor.handleQueryWithRetry():915] Query 8567aeebae8146df-b2d3b9aeb730dfa3 finished
+2025-12-21 14:26:24,138 INFO (mysql-nio-pool-0|225) [ResultReceiver.cancel():217] ResultReceiver of query f536c7a86e474c60-bc30f03d6ca864ed cancel failed, because its status not ok, maybe cancelled already. current run status is Status [errorCode=INTERNAL_ERROR, errorMsg=(172.30.95.46)[INTERNAL_ERROR]Could not find function hamming_distance, arg String: String, String: String return Nullable(BIGINT) ], new status is Status [errorCode=INTERNAL_ERROR, errorMsg=(172.30.95.46)[INTERNAL_ERROR]Could not find function hamming_distance, arg String: String, String: String return Nullable(BIGINT) ].
+2025-12-21 14:26:24,139 INFO (mysql-nio-pool-0|225) [MultiFragmentsPipelineTask.cancelExecute():112] Fragment has already been cancelled. Query f536c7a86e474c60-bc30f03d6ca864ed backend: Backend [id=1766285578511, host=127.0.0.1, heartbeatPort=9050, alive=true, lastStartTime=2025-12-21 13:01:20, process epoch=1766293280554, isDecommissioned=false, tags: {location=default}], backendStatus: [lastSuccessReportTabletsTime='null', lastStreamLoadTime=-1, isQueryDisabled=false, isLoadDisabled=false, currentFragmentNum=0, lastFragmentUpdateTime=1766298273773]
+2025-12-21 14:26:24,139 WARN (mysql-nio-pool-0|225) [StmtExecutor.executeAndSendResult():1417] cancel fragment query_id:f536c7a86e474c60-bc30f03d6ca864ed cause errCode = 2, detailMessage = (172.30.95.46)[INTERNAL_ERROR]Could not find function hamming_distance, arg String: String, String: String return Nullable(BIGINT) 
+2025-12-21 14:26:24,140 INFO (mysql-nio-pool-0|225) [ResultReceiver.cancel():217] ResultReceiver of query f536c7a86e474c60-bc30f03d6ca864ed cancel failed, because its status not ok, maybe cancelled already. current run status is Status [errorCode=INTERNAL_ERROR, errorMsg=(172.30.95.46)[INTERNAL_ERROR]Could not find function hamming_distance, arg String: String, String: String return Nullable(BIGINT) ], new status is Status [errorCode=INTERNAL_ERROR, errorMsg=cancel fragment query_id:f536c7a86e474c60-bc30f03d6ca864ed cause errCode = 2, detailMessage = (172.30.95.46)[INTERNAL_ERROR]Could not find function hamming_distance, arg String: String, String: String return Nullable(BIGINT) ].
+2025-12-21 14:26:24,140 INFO (mysql-nio-pool-0|225) [MultiFragmentsPipelineTask.cancelExecute():112] Fragment has already been cancelled. Query f536c7a86e474c60-bc30f03d6ca864ed backend: Backend [id=1766285578511, host=127.0.0.1, heartbeatPort=9050, alive=true, lastStartTime=2025-12-21 13:01:20, process epoch=1766293280554, isDecommissioned=false, tags: {location=default}], backendStatus: [lastSuccessReportTabletsTime='null', lastStreamLoadTime=-1, isQueryDisabled=false, isLoadDisabled=false, currentFragmentNum=0, lastFragmentUpdateTime=1766298273773]
+2025-12-21 14:26:24,140 WARN (mysql-nio-pool-0|225) [StmtExecutor.handleQueryWithRetry():927] retry due to exception errCode = 2, detailMessage = (172.30.95.46)[INTERNAL_ERROR]Could not find function hamming_distance, arg String: String, String: String return Nullable(BIGINT) . retried 0 times. is rpc error: false, is user error: true.
+2025-12-21 14:26:24,140 WARN (mysql-nio-pool-0|225) [StmtExecutor.execute():550] Nereids execute failed. stmt[3, f536c7a86e474c60-bc30f03d6ca864ed]
+org.apache.doris.common.UserException: errCode = 2, detailMessage = (172.30.95.46)[INTERNAL_ERROR]Could not find function hamming_distance, arg String: String, String: String return Nullable(BIGINT) 
+	at org.apache.doris.qe.runtime.PipelineExecutionTask.waitPipelineRpc(PipelineExecutionTask.java:243)
+	at org.apache.doris.qe.runtime.PipelineExecutionTask.sendAndWaitPhaseOneRpc(PipelineExecutionTask.java:123)
+	at org.apache.doris.qe.runtime.PipelineExecutionTask.lambda$execute$0(PipelineExecutionTask.java:96)
+	at org.apache.doris.qe.CoordinatorContext.withLock(CoordinatorContext.java:230)
+	at org.apache.doris.qe.runtime.PipelineExecutionTask.execute(PipelineExecutionTask.java:95)
+	at org.apache.doris.qe.NereidsCoordinator.exec(NereidsCoordinator.java:151)
+	at org.apache.doris.qe.StmtExecutor.executeAndSendResult(StmtExecutor.java:1301)
+	at org.apache.doris.qe.StmtExecutor.handleCacheStmt(StmtExecutor.java:1183)
+	at org.apache.doris.qe.StmtExecutor.handleQueryStmt(StmtExecutor.java:1254)
+	at org.apache.doris.qe.StmtExecutor.handleQueryWithRetry(StmtExecutor.java:914)
+	at org.apache.doris.qe.StmtExecutor.executeByNereids(StmtExecutor.java:818)
+	at org.apache.doris.qe.StmtExecutor.execute(StmtExecutor.java:541)
+	at org.apache.doris.qe.StmtExecutor.queryRetry(StmtExecutor.java:500)
+	at org.apache.doris.qe.StmtExecutor.execute(StmtExecutor.java:485)
+	at org.apache.doris.qe.ConnectProcessor.executeQuery(ConnectProcessor.java:311)
+	at org.apache.doris.qe.ConnectProcessor.handleQuery(ConnectProcessor.java:198)
+	at org.apache.doris.qe.MysqlConnectProcessor.handleQuery(MysqlConnectProcessor.java:231)
+	at org.apache.doris.qe.MysqlConnectProcessor.dispatch(MysqlConnectProcessor.java:259)
+	at org.apache.doris.qe.MysqlConnectProcessor.processOnce(MysqlConnectProcessor.java:403)
+	at org.apache.doris.mysql.ReadListener.lambda$handleEvent$0(ReadListener.java:52)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+2025-12-21 14:26:24,142 WARN (mysql-nio-pool-0|225) [ConnectProcessor.handleQuery():202] execute query exception
+org.apache.doris.common.UserException: errCode = 2, detailMessage = (172.30.95.46)[INTERNAL_ERROR]Could not find function hamming_distance, arg String: String, String: String return Nullable(BIGINT) 
+	at org.apache.doris.qe.runtime.PipelineExecutionTask.waitPipelineRpc(PipelineExecutionTask.java:243)
+	at org.apache.doris.qe.runtime.PipelineExecutionTask.sendAndWaitPhaseOneRpc(PipelineExecutionTask.java:123)
+	at org.apache.doris.qe.runtime.PipelineExecutionTask.lambda$execute$0(PipelineExecutionTask.java:96)
+	at org.apache.doris.qe.CoordinatorContext.withLock(CoordinatorContext.java:230)
+	at org.apache.doris.qe.runtime.PipelineExecutionTask.execute(PipelineExecutionTask.java:95)
+	at org.apache.doris.qe.NereidsCoordinator.exec(NereidsCoordinator.java:151)
+	at org.apache.doris.qe.StmtExecutor.executeAndSendResult(StmtExecutor.java:1301)
+	at org.apache.doris.qe.StmtExecutor.handleCacheStmt(StmtExecutor.java:1183)
+	at org.apache.doris.qe.StmtExecutor.handleQueryStmt(StmtExecutor.java:1254)
+	at org.apache.doris.qe.StmtExecutor.handleQueryWithRetry(StmtExecutor.java:914)
+	at org.apache.doris.qe.StmtExecutor.executeByNereids(StmtExecutor.java:818)
+	at org.apache.doris.qe.StmtExecutor.execute(StmtExecutor.java:541)
+	at org.apache.doris.qe.StmtExecutor.queryRetry(StmtExecutor.java:500)
+	at org.apache.doris.qe.StmtExecutor.execute(StmtExecutor.java:485)
+	at org.apache.doris.qe.ConnectProcessor.executeQuery(ConnectProcessor.java:311)
+	at org.apache.doris.qe.ConnectProcessor.handleQuery(ConnectProcessor.java:198)
+	at org.apache.doris.qe.MysqlConnectProcessor.handleQuery(MysqlConnectProcessor.java:231)
+	at org.apache.doris.qe.MysqlConnectProcessor.dispatch(MysqlConnectProcessor.java:259)
+	at org.apache.doris.qe.MysqlConnectProcessor.processOnce(MysqlConnectProcessor.java:403)
+	at org.apache.doris.mysql.ReadListener.lambda$handleEvent$0(ReadListener.java:52)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)

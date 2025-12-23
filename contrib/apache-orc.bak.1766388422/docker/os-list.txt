@@ -1,0 +1,10 @@
+centos7
+debian10
+debian11
+ubuntu18
+ubuntu20
+ubuntu22
+fedora37
+debian10_jdk=11
+ubuntu20_jdk=11
+ubuntu20_jdk=11_cc=clang

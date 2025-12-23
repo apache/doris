@@ -1,0 +1,34 @@
+2025-12-23 09:49:39.759 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] No server auth method
+2025-12-23 09:49:39.762 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Started ServiceDispatcher. HostPort=172.30.95.46:9010
+2025-12-23 09:49:39.763 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] DataChannel factory: com.sleepycat.je.rep.utilint.net.SimpleChannelFactory
+2025-12-23 09:49:39.804 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] DTVLSN at start:0
+2025-12-23 09:49:39.806 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] node:NullNode(-1) state change from DETACHED to UNKNOWN
+2025-12-23 09:49:39.826 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Current group size: 0
+2025-12-23 09:49:39.826 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] New node fe_53093dce_dc6c_441d_9466_f6a35dd1e94b(-1) unknown to rep group
+2025-12-23 09:49:39.827 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Master changed to fe_53093dce_dc6c_441d_9466_f6a35dd1e94b
+2025-12-23 09:49:39.827 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Nascent group. fe_53093dce_dc6c_441d_9466_f6a35dd1e94b is master by virtue of being the first node.
+2025-12-23 09:49:39.828 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] node:fe_53093dce_dc6c_441d_9466_f6a35dd1e94b(1) state change from UNKNOWN to MASTER
+2025-12-23 09:49:39.862 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Successfully added node:fe_53093dce_dc6c_441d_9466_f6a35dd1e94b(1) HostPort = 172.30.95.46: 9010 [ELECTABLE]
+2025-12-23 09:49:39.874 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Updated minimum JE group version to 7.5.0
+2025-12-23 09:49:39.875 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Node fe_53093dce_dc6c_441d_9466_f6a35dd1e94b started
+2025-12-23 09:49:39.876 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] node:NullNode(-1) state change from MASTER to UNKNOWN
+2025-12-23 09:49:39.876 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] node:fe_53093dce_dc6c_441d_9466_f6a35dd1e94b(1) state change from UNKNOWN to MASTER
+2025-12-23 09:49:39.876 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Feeder manager accepting requests.
+2025-12-23 09:49:39.879 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Joining group as master
+2025-12-23 10:31:11.766 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] No server auth method
+2025-12-23 10:31:11.770 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Started ServiceDispatcher. HostPort=172.30.95.46:9010
+2025-12-23 10:31:11.770 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] DataChannel factory: com.sleepycat.je.rep.utilint.net.SimpleChannelFactory
+2025-12-23 10:31:11.825 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] DTVLSN at start:756
+2025-12-23 10:31:11.826 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] node:NullNode(-1) state change from DETACHED to UNKNOWN
+2025-12-23 10:31:11.845 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Current group size: 1
+2025-12-23 10:31:11.846 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Existing node fe_53093dce_dc6c_441d_9466_f6a35dd1e94b querying for a current master.
+2025-12-23 10:31:11.860 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Node fe_53093dce_dc6c_441d_9466_f6a35dd1e94b started
+2025-12-23 10:31:11.860 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Election initiated; election #1
+2025-12-23 10:31:11.868 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Started election thread Tue Dec 23 18:31:11 CST 2025
+2025-12-23 10:31:11.874 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Winning proposal: Proposal(0000019b4ac34cfc:ea1a0a9d0caf6da47d93417c304de42c:00000001) Value: Value:172.30.95.46$$$9010$$$fe_53093dce_dc6c_441d_9466_f6a35dd1e94b$$$1
+2025-12-23 10:31:11.876 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Master changed to fe_53093dce_dc6c_441d_9466_f6a35dd1e94b
+2025-12-23 10:31:11.876 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Election finished. Elapsed time: 16ms
+2025-12-23 10:31:11.877 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Election thread exited. Group master: fe_53093dce_dc6c_441d_9466_f6a35dd1e94b(1)
+2025-12-23 10:31:11.877 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] node:fe_53093dce_dc6c_441d_9466_f6a35dd1e94b(1) state change from UNKNOWN to MASTER
+2025-12-23 10:31:11.877 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Feeder manager accepting requests.
+2025-12-23 10:31:11.878 UTC INFO [fe_53093dce_dc6c_441d_9466_f6a35dd1e94b] Joining group as master

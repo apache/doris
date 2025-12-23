@@ -1,0 +1,19 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  build-essential cmake ninja-build git wget curl ca-certificates pkg-config \
+  python3 python3-pip openjdk-17-jdk maven autoconf automake libtool bison flex \
+  libbz2-dev liblzma-dev libsnappy-dev zlib1g-dev libzstd-dev liblz4-dev \
+  libssl-dev libgflags-dev libgoogle-glog-dev libjemalloc-dev libunwind-dev \
+  libprotobuf-dev protobuf-compiler libboost-all-dev g++ gcc unzip sudo \
+  && rm -rf /var/lib/apt/lists/*
+
+# create builder user
+RUN useradd -m builder && echo "builder ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/builder
+USER builder
+WORKDIR /work
+
+# keep JAVA_HOME for build scripts
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH="${JAVA_HOME}/bin:${PATH}"

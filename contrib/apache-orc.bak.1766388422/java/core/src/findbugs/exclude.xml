@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<FindBugsFilter>
+  <Match>
+    <Class name="~org\.apache\.orc\.OrcProto.*"/>
+  </Match>
+  <Match>
+    <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+  </Match>
+  <Match>
+    <Bug pattern="CN_IDIOM_NO_SUPER_CALL"/>
+    <Class name="org.apache.orc.TypeDescription"/>
+  </Match>
+  <Match>
+    <Bug pattern="SF_SWITCH_FALLTHROUGH,SF_SWITCH_NO_DEFAULT"/>
+    <Class name="org.apache.orc.util.Murmur3"/>
+  </Match>
+  <Match>
+    <Bug pattern="MS_PKGPROTECT"/>
+    <Class name="org.apache.orc.impl.RecordReaderImpl$SargApplier"/>
+  </Match>
+  <Match>
+    <Bug pattern="CNT_ROUGH_CONSTANT_VALUE,IM_BAD_CHECK_FOR_ODD"/>
+    <Class name="org.apache.orc.TestVectorOrcFile"/>
+  </Match>
+  <Match>
+    <Bug pattern="RR_NOT_CHECKED"/>
+    <Class name="org.apache.orc.impl.TestInStream"/>
+    <Method name="testCorruptStream"/>
+  </Match>
+  <!-- Java's try with resources causes a false positive.
+       See https://github.com/SERG-Delft/jpacman/pull/27 . -->
+  <Match>
+    <Bug pattern="RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE"/>
+    <Class name="org.apache.orc.OrcUtils"/>
+    <Method name="getOrcVersion"/>
+  </Match>
+  <Match>
+    <Bug pattern="RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE"/>
+    <Class name="org.apache.orc.impl.OrcAcidUtils"/>
+    <Method name="getLastFlushLength"/>
+  </Match>
+  <Match>
+    <Bug pattern="RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE"/>
+    <Class name="~org\.apache\.orc.*\.Test.*"/>
+  </Match>
+  <Match>
+    <Bug pattern="EQ_UNUSUAL"/>
+    <Class name="org.apache.orc.TypeDescription"/>
+    <Method name="equals" />
+  </Match>
+  <Match>
+    <Bug pattern="NP_NULL_ON_SOME_PATH"/>
+    <Class name="org.apache.orc.impl.StreamName"/>
+    <Method name="compareTo" />
+  </Match>
+  <Match>
+    <Bug pattern="NP_NULL_ON_SOME_PATH"/>
+    <Class name="org.apache.orc.impl.reader.ReaderEncryptionKey"/>
+    <Method name="compareTo" />
+  </Match>
+  <Match>
+    <Bug pattern="NP_NULL_ON_SOME_PATH"/>
+    <Class name="org.apache.orc.impl.reader.ReaderEncryptionVariant"/>
+    <Method name="compareTo" />
+  </Match>
+  <Match>
+    <Bug pattern="NP_NULL_ON_SOME_PATH"/>
+    <Class name="org.apache.orc.impl.MaskDescriptionImpl"/>
+    <Method name="compareTo" />
+  </Match>
+  <Match>
+    <Bug pattern="NP_NULL_ON_SOME_PATH"/>
+    <Class name="org.apache.orc.impl.TreeReaderFactory$TreeReader"/>
+    <Method name="&lt;init&gt;" />
+  </Match>
+  <Match>
+    <Bug pattern="NP_NULL_ON_SOME_PATH"/>
+    <Class name="org.apache.orc.impl.writer.WriterEncryptionKey"/>
+    <Method name="compareTo" />
+  </Match>
+  <Match>
+    <Bug pattern="NP_NULL_ON_SOME_PATH"/>
+    <Class name="org.apache.orc.impl.writer.WriterEncryptionVariant"/>
+    <Method name="compareTo" />
+  </Match>
+  <Match>
+    <Bug pattern="NP_NULL_PARAM_DEREF"/>
+    <Class name="org.apache.orc.impl.reader.StripePlanner"/>
+    <Method name="planPartialDataReading" />
+  </Match>
+</FindBugsFilter>

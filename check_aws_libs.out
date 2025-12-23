@@ -1,0 +1,323 @@
+--- TIME ---
+Sun Dec 21 15:42:47 CST 2025
+--- find libaws-cpp-sdk-core.* ---
+--- find any aws-cpp-sdk core lib files ---
+--- list thirdparty/installed/lib and lib64 ---
+lrwxrwxrwx 1 zhisheng zhisheng 5 Dec 20 20:22 thirdparty/installed/lib -> lib64
+total 531776
+drwxr-xr-x 11 zhisheng zhisheng    16384 Dec 21 15:23 .
+drwxr-xr-x 13 zhisheng zhisheng     4096 Dec 21 14:42 ..
+drwxr-xr-x 71 zhisheng zhisheng     4096 Dec 20 22:11 cmake
+drwxr-xr-x  2 zhisheng zhisheng     4096 Dec 21 14:42 engines-1.1
+drwxr-xr-x  6 zhisheng zhisheng     4096 Dec 21 15:16 hadoop_hdfs
+drwxr-xr-x  6 zhisheng zhisheng     4096 Dec 21 15:23 hadoop_hdfs_3_4
+drwxr-xr-x  3 zhisheng zhisheng     4096 Dec 21 15:09 icu
+drwxr-xr-x  3 zhisheng zhisheng     4096 Dec 20 21:45 krb5
+lrwxrwxrwx  1 zhisheng zhisheng        5 Dec 21 14:42 lib64 -> lib64
+-rw-r--r--  1 zhisheng zhisheng    27264 Dec 20 21:27 libabsl_base.a
+-rw-r--r--  1 zhisheng zhisheng     4236 Dec 20 21:27 libabsl_city.a
+-rw-r--r--  1 zhisheng zhisheng    12730 Dec 20 21:27 libabsl_civil_time.a
+-rw-r--r--  1 zhisheng zhisheng   114726 Dec 20 21:27 libabsl_cord.a
+-rw-r--r--  1 zhisheng zhisheng    66898 Dec 20 21:27 libabsl_cord_internal.a
+-rw-r--r--  1 zhisheng zhisheng     3936 Dec 20 21:27 libabsl_cordz_functions.a
+-rw-r--r--  1 zhisheng zhisheng    11952 Dec 20 21:27 libabsl_cordz_handle.a
+-rw-r--r--  1 zhisheng zhisheng    16122 Dec 20 21:27 libabsl_cordz_info.a
+-rw-r--r--  1 zhisheng zhisheng     3358 Dec 20 21:27 libabsl_cordz_sample_token.a
+-rw-r--r--  1 zhisheng zhisheng    21012 Dec 20 21:27 libabsl_crc32c.a
+-rw-r--r--  1 zhisheng zhisheng    31576 Dec 20 21:27 libabsl_crc_cord_state.a
+-rw-r--r--  1 zhisheng zhisheng     5110 Dec 20 21:27 libabsl_crc_cpu_detect.a
+-rw-r--r--  1 zhisheng zhisheng    18648 Dec 20 21:27 libabsl_crc_internal.a
+-rw-r--r--  1 zhisheng zhisheng    23670 Dec 20 21:27 libabsl_debugging_internal.a
+-rw-r--r--  1 zhisheng zhisheng     4240 Dec 20 21:27 libabsl_decode_rust_punycode.a
+-rw-r--r--  1 zhisheng zhisheng    58910 Dec 20 21:27 libabsl_demangle_internal.a
+-rw-r--r--  1 zhisheng zhisheng    14302 Dec 20 21:27 libabsl_demangle_rust.a
+-rw-r--r--  1 zhisheng zhisheng     3732 Dec 20 21:27 libabsl_die_if_null.a
+-rw-r--r--  1 zhisheng zhisheng     5400 Dec 20 21:27 libabsl_examine_stack.a
+-rw-r--r--  1 zhisheng zhisheng     3354 Dec 20 21:27 libabsl_exponential_biased.a
+-rw-r--r--  1 zhisheng zhisheng    12612 Dec 20 21:27 libabsl_failure_signal_handler.a
+-rw-r--r--  1 zhisheng zhisheng     3284 Dec 20 21:27 libabsl_flags_commandlineflag.a
+-rw-r--r--  1 zhisheng zhisheng     2790 Dec 20 21:27 libabsl_flags_commandlineflag_internal.a
+-rw-r--r--  1 zhisheng zhisheng    21926 Dec 20 21:27 libabsl_flags_config.a
+-rw-r--r--  1 zhisheng zhisheng    49732 Dec 20 21:27 libabsl_flags_internal.a
+-rw-r--r--  1 zhisheng zhisheng    40178 Dec 20 21:27 libabsl_flags_marshalling.a
+-rw-r--r--  1 zhisheng zhisheng    96138 Dec 20 21:28 libabsl_flags_parse.a
+-rw-r--r--  1 zhisheng zhisheng     3480 Dec 20 21:27 libabsl_flags_private_handle_accessor.a
+-rw-r--r--  1 zhisheng zhisheng     7234 Dec 20 21:27 libabsl_flags_program_name.a
+-rw-r--r--  1 zhisheng zhisheng    49840 Dec 20 21:28 libabsl_flags_reflection.a
+-rw-r--r--  1 zhisheng zhisheng     6582 Dec 20 21:28 libabsl_flags_usage.a
+-rw-r--r--  1 zhisheng zhisheng    77940 Dec 20 21:28 libabsl_flags_usage_internal.a
+-rw-r--r--  1 zhisheng zhisheng    23694 Dec 20 21:27 libabsl_graphcycles_internal.a
+-rw-r--r--  1 zhisheng zhisheng     4966 Dec 20 21:27 libabsl_hash.a
+-rw-r--r--  1 zhisheng zhisheng    21446 Dec 20 21:27 libabsl_hashtablez_sampler.a
+-rw-r--r--  1 zhisheng zhisheng    11436 Dec 20 21:27 libabsl_int128.a
+-rw-r--r--  1 zhisheng zhisheng     7642 Dec 20 21:27 libabsl_kernel_timeout_internal.a
+-rw-r--r--  1 zhisheng zhisheng     2482 Dec 20 21:27 libabsl_leak_check.a
+-rw-r--r--  1 zhisheng zhisheng    24404 Dec 20 21:28 libabsl_log_flags.a
+-rw-r--r--  1 zhisheng zhisheng    14540 Dec 20 21:27 libabsl_log_globals.a
+-rw-r--r--  1 zhisheng zhisheng     1560 Dec 20 21:27 libabsl_log_initialize.a
+-rw-r--r--  1 zhisheng zhisheng    32364 Dec 20 21:27 libabsl_log_internal_check_op.a
+-rw-r--r--  1 zhisheng zhisheng     2542 Dec 20 21:27 libabsl_log_internal_conditions.a
+-rw-r--r--  1 zhisheng zhisheng     1860 Dec 20 21:27 libabsl_log_internal_fnmatch.a
+-rw-r--r--  1 zhisheng zhisheng     7476 Dec 20 21:27 libabsl_log_internal_format.a
+-rw-r--r--  1 zhisheng zhisheng     5690 Dec 20 21:27 libabsl_log_internal_globals.a
+-rw-r--r--  1 zhisheng zhisheng    18442 Dec 20 21:27 libabsl_log_internal_log_sink_set.a
+-rw-r--r--  1 zhisheng zhisheng    67478 Dec 20 21:27 libabsl_log_internal_message.a
+-rw-r--r--  1 zhisheng zhisheng     1296 Dec 20 21:27 libabsl_log_internal_nullguard.a
+-rw-r--r--  1 zhisheng zhisheng     7352 Dec 20 21:27 libabsl_log_internal_proto.a
+-rw-r--r--  1 zhisheng zhisheng     2584 Dec 20 21:27 libabsl_log_internal_structured_proto.a
+-rw-r--r--  1 zhisheng zhisheng     3362 Dec 20 21:27 libabsl_log_severity.a
+-rw-r--r--  1 zhisheng zhisheng     3058 Dec 20 21:27 libabsl_log_sink.a
+-rw-r--r--  1 zhisheng zhisheng     1678 Dec 20 21:27 libabsl_low_level_hash.a
+-rw-r--r--  1 zhisheng zhisheng    23342 Dec 20 21:27 libabsl_malloc_internal.a
+-rw-r--r--  1 zhisheng zhisheng     4160 Dec 20 21:27 libabsl_periodic_sampler.a
+-rw-r--r--  1 zhisheng zhisheng     1508 Dec 20 21:27 libabsl_poison.a
+-rw-r--r--  1 zhisheng zhisheng     8986 Dec 20 21:27 libabsl_random_distributions.a
+-rw-r--r--  1 zhisheng zhisheng    30084 Dec 20 21:27 libabsl_random_internal_distribution_test_util.a
+-rw-r--r--  1 zhisheng zhisheng    10444 Dec 20 21:27 libabsl_random_internal_entropy_pool.a
+-rw-r--r--  1 zhisheng zhisheng     5608 Dec 20 21:27 libabsl_random_internal_platform.a
+-rw-r--r--  1 zhisheng zhisheng     3514 Dec 20 21:27 libabsl_random_internal_randen.a
+-rw-r--r--  1 zhisheng zhisheng     1306 Dec 20 21:27 libabsl_random_internal_randen_hwaes.a
+-rw-r--r--  1 zhisheng zhisheng     2754 Dec 20 21:27 libabsl_random_internal_randen_hwaes_impl.a
+-rw-r--r--  1 zhisheng zhisheng     9336 Dec 20 21:27 libabsl_random_internal_randen_slow.a
+-rw-r--r--  1 zhisheng zhisheng     4700 Dec 20 21:27 libabsl_random_internal_seed_material.a
+-rw-r--r--  1 zhisheng zhisheng     3720 Dec 20 21:27 libabsl_random_seed_gen_exception.a
+-rw-r--r--  1 zhisheng zhisheng     3968 Dec 20 21:27 libabsl_random_seed_sequences.a
+-rw-r--r--  1 zhisheng zhisheng    35588 Dec 20 21:27 libabsl_raw_hash_set.a
+-rw-r--r--  1 zhisheng zhisheng     6524 Dec 20 21:27 libabsl_raw_logging_internal.a
+-rw-r--r--  1 zhisheng zhisheng     4016 Dec 20 21:27 libabsl_scoped_set_env.a
+-rw-r--r--  1 zhisheng zhisheng     2842 Dec 20 21:27 libabsl_spinlock_wait.a
+-rw-r--r--  1 zhisheng zhisheng     8898 Dec 20 21:27 libabsl_stacktrace.a
+-rw-r--r--  1 zhisheng zhisheng    56312 Dec 20 21:27 libabsl_status.a
+-rw-r--r--  1 zhisheng zhisheng    14896 Dec 20 21:27 libabsl_statusor.a
+-rw-r--r--  1 zhisheng zhisheng   152076 Dec 20 21:27 libabsl_str_format_internal.a
+-rw-r--r--  1 zhisheng zhisheng     4776 Dec 20 21:27 libabsl_strerror.a
+-rw-r--r--  1 zhisheng zhisheng      878 Dec 20 21:27 libabsl_string_view.a
+-rw-r--r--  1 zhisheng zhisheng   184890 Dec 20 21:27 libabsl_strings.a
+-rw-r--r--  1 zhisheng zhisheng    13112 Dec 20 21:27 libabsl_strings_internal.a
+-rw-r--r--  1 zhisheng zhisheng    35530 Dec 20 21:27 libabsl_symbolize.a
+-rw-r--r--  1 zhisheng zhisheng   100190 Dec 20 21:27 libabsl_synchronization.a
+-rw-r--r--  1 zhisheng zhisheng    16000 Dec 20 21:27 libabsl_throw_delegate.a
+-rw-r--r--  1 zhisheng zhisheng    92616 Dec 20 21:27 libabsl_time.a
+-rw-r--r--  1 zhisheng zhisheng   181444 Dec 20 21:27 libabsl_time_zone.a
+-rw-r--r--  1 zhisheng zhisheng     1618 Dec 20 21:27 libabsl_tracing_internal.a
+-rw-r--r--  1 zhisheng zhisheng     1636 Dec 20 21:27 libabsl_utf8_for_code_point.a
+-rw-r--r--  1 zhisheng zhisheng    24586 Dec 20 21:27 libabsl_vlog_config_internal.a
+-rw-r--r--  1 zhisheng zhisheng     8984 Dec 20 21:47 libaddress_sorting.a
+-rw-r--r--  1 zhisheng zhisheng  1228502 Dec 21 15:06 libalibabacloud-sdk-core.a
+-rw-r--r--  1 zhisheng zhisheng 37041688 Dec 21 14:58 libarrow.a
+-rw-r--r--  1 zhisheng zhisheng   905650 Dec 21 14:58 libarrow_bundled_dependencies.a
+-rw-r--r--  1 zhisheng zhisheng  4217752 Dec 21 14:58 libarrow_flight.a
+-rw-r--r--  1 zhisheng zhisheng  1484774 Dec 21 14:58 libarrow_flight_sql.a
+-rw-r--r--  1 zhisheng zhisheng   393780 Dec 21 15:05 libbacktrace.a
+-rwxr-xr-x  1 zhisheng zhisheng      978 Dec 21 15:05 libbacktrace.la
+-rw-r--r--  1 zhisheng zhisheng    97548 Dec 21 15:06 libbase64.a
+-rw-r--r--  1 zhisheng zhisheng   920794 Dec 21 15:05 libbenchmark.a
+-rw-r--r--  1 zhisheng zhisheng   130092 Dec 21 14:59 libbitshuffle.a
+-rw-r--r--  1 zhisheng zhisheng   106146 Dec 20 21:27 libboost_atomic.a
+-rw-r--r--  1 zhisheng zhisheng   599732 Dec 20 21:27 libboost_chrono.a
+-rw-r--r--  1 zhisheng zhisheng   310946 Dec 20 21:25 libboost_container.a
+-rw-r--r--  1 zhisheng zhisheng    38658 Dec 20 21:25 libboost_context.a
+-rw-r--r--  1 zhisheng zhisheng   727356 Dec 20 21:25 libboost_contract.a
+-rw-r--r--  1 zhisheng zhisheng   157754 Dec 20 21:25 libboost_coroutine.a
+-rw-r--r--  1 zhisheng zhisheng    10274 Dec 20 21:25 libboost_date_time.a
+-rw-r--r--  1 zhisheng zhisheng     8126 Dec 20 21:25 libboost_exception.a
+-rw-r--r--  1 zhisheng zhisheng  2911506 Dec 20 21:25 libboost_fiber.a
+-rw-r--r--  1 zhisheng zhisheng  1919516 Dec 20 21:25 libboost_filesystem.a
+-rw-r--r--  1 zhisheng zhisheng  1046320 Dec 20 21:25 libboost_iostreams.a
+-rw-r--r--  1 zhisheng zhisheng  1625824 Dec 20 21:25 libboost_json.a
+-rw-r--r--  1 zhisheng zhisheng  8766794 Dec 20 21:25 libboost_locale.a
+-rw-r--r--  1 zhisheng zhisheng 14913394 Dec 20 21:26 libboost_log.a
+-rw-r--r--  1 zhisheng zhisheng 18242288 Dec 20 21:26 libboost_log_setup.a
+-rw-r--r--  1 zhisheng zhisheng   727728 Dec 20 21:26 libboost_math_c99.a
+-rw-r--r--  1 zhisheng zhisheng   662916 Dec 20 21:26 libboost_math_c99f.a
+-rw-r--r--  1 zhisheng zhisheng   672002 Dec 20 21:26 libboost_math_c99l.a
+-rw-r--r--  1 zhisheng zhisheng  3757194 Dec 20 21:26 libboost_math_tr1.a
+-rw-r--r--  1 zhisheng zhisheng  3604122 Dec 20 21:26 libboost_math_tr1f.a
+-rw-r--r--  1 zhisheng zhisheng  3658560 Dec 20 21:26 libboost_math_tr1l.a
+-rw-r--r--  1 zhisheng zhisheng   194062 Dec 20 21:26 libboost_nowide.a
+-rw-r--r--  1 zhisheng zhisheng   973120 Dec 20 21:26 libboost_prg_exec_monitor.a
+-rw-r--r--  1 zhisheng zhisheng  5550408 Dec 20 21:26 libboost_program_options.a
+-rw-r--r--  1 zhisheng zhisheng   195456 Dec 20 21:26 libboost_random.a
+-rw-r--r--  1 zhisheng zhisheng  2962004 Dec 20 21:25 libboost_regex.a
+-rw-r--r--  1 zhisheng zhisheng  6183996 Dec 20 21:26 libboost_serialization.a
+-rw-r--r--  1 zhisheng zhisheng   163830 Dec 20 21:26 libboost_stacktrace_addr2line.a
+-rw-r--r--  1 zhisheng zhisheng   314914 Dec 20 20:31 libboost_stacktrace_backtrace.a
+-rw-r--r--  1 zhisheng zhisheng   120208 Dec 20 21:26 libboost_stacktrace_basic.a
+-rw-r--r--  1 zhisheng zhisheng    67046 Dec 20 21:26 libboost_stacktrace_noop.a
+-rw-r--r--  1 zhisheng zhisheng     7468 Dec 20 21:26 libboost_system.a
+-rw-r--r--  1 zhisheng zhisheng 10705718 Dec 20 21:27 libboost_test_exec_monitor.a
+-rw-r--r--  1 zhisheng zhisheng  1308330 Dec 20 21:25 libboost_thread.a
+-rw-r--r--  1 zhisheng zhisheng   229032 Dec 20 21:27 libboost_timer.a
+-rw-r--r--  1 zhisheng zhisheng   509904 Dec 20 21:27 libboost_type_erasure.a
+-rw-r--r--  1 zhisheng zhisheng 10549358 Dec 20 21:27 libboost_unit_test_framework.a
+-rw-r--r--  1 zhisheng zhisheng  2349210 Dec 20 21:27 libboost_url.a
+-rw-r--r--  1 zhisheng zhisheng 27772482 Dec 20 21:27 libboost_wave.a
+-rw-r--r--  1 zhisheng zhisheng  4099014 Dec 20 21:26 libboost_wserialization.a
+-rw-r--r--  1 zhisheng zhisheng   135044 Dec 21 14:58 libbrotlicommon.a
+-rw-r--r--  1 zhisheng zhisheng    53760 Dec 21 14:58 libbrotlidec.a
+-rw-r--r--  1 zhisheng zhisheng   716992 Dec 21 14:58 libbrotlienc.a
+-rw-r--r--  1 zhisheng zhisheng 14436986 Dec 21 14:50 libbrpc.a
+-rw-r--r--  1 zhisheng zhisheng 46503032 Dec 21 14:50 libbrpc.so
+-rw-r--r--  1 zhisheng zhisheng   116402 Dec 21 14:42 libbz2.a
+-rw-r--r--  1 zhisheng zhisheng   180800 Dec 20 21:47 libcares.a
+-rw-r--r--  1 zhisheng zhisheng  3469830 Dec 21 15:00 libcctz.a
+-rw-r--r--  1 zhisheng zhisheng    16018 Dec 21 14:54 libcom_err.a
+-rw-r--r--  1 zhisheng zhisheng    30106 Dec 20 21:22 libcrc32c.a
+-rw-r--r--  1 zhisheng zhisheng  5298522 Dec 21 14:42 libcrypto.a
+-rw-r--r--  1 zhisheng zhisheng  1245292 Dec 21 14:47 libcurl.a
+-rwxr-xr-x  1 zhisheng zhisheng     1082 Dec 21 14:47 libcurl.la
+-rw-r--r--  1 zhisheng zhisheng   115914 Dec 21 15:06 libdeflate.a
+lrwxrwxrwx  1 zhisheng zhisheng       15 Dec 20 22:09 libdeflate.so -> libdeflate.so.0
+-rw-r--r--  1 zhisheng zhisheng    96808 Dec 21 15:06 libdeflate.so.0
+lrwxrwxrwx  1 zhisheng zhisheng       17 Dec 20 20:25 libevent-2.1.so -> libevent-2.1.so.7
+lrwxrwxrwx  1 zhisheng zhisheng       21 Dec 20 20:25 libevent-2.1.so.7 -> libevent-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng  1002240 Dec 20 21:22 libevent-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng   509472 Dec 21 14:42 libevent.a
+lrwxrwxrwx  1 zhisheng zhisheng       21 Dec 20 20:25 libevent.so -> libevent-2.1.so.7.0.1
+lrwxrwxrwx  1 zhisheng zhisheng       22 Dec 20 20:25 libevent_core-2.1.so -> libevent_core-2.1.so.7
+lrwxrwxrwx  1 zhisheng zhisheng       26 Dec 20 20:25 libevent_core-2.1.so.7 -> libevent_core-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng   646840 Dec 20 21:22 libevent_core-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng  1055698 Dec 20 21:22 libevent_core.a
+lrwxrwxrwx  1 zhisheng zhisheng       26 Dec 20 20:25 libevent_core.so -> libevent_core-2.1.so.7.0.1
+lrwxrwxrwx  1 zhisheng zhisheng       23 Dec 20 20:25 libevent_extra-2.1.so -> libevent_extra-2.1.so.7
+lrwxrwxrwx  1 zhisheng zhisheng       27 Dec 20 20:25 libevent_extra-2.1.so.7 -> libevent_extra-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng   395040 Dec 20 21:22 libevent_extra-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng   569116 Dec 20 21:22 libevent_extra.a
+lrwxrwxrwx  1 zhisheng zhisheng       27 Dec 20 20:25 libevent_extra.so -> libevent_extra-2.1.so.7.0.1
+lrwxrwxrwx  1 zhisheng zhisheng       25 Dec 20 20:25 libevent_openssl-2.1.so -> libevent_openssl-2.1.so.7
+lrwxrwxrwx  1 zhisheng zhisheng       29 Dec 20 20:25 libevent_openssl-2.1.so.7 -> libevent_openssl-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng  3855040 Dec 21 14:42 libevent_openssl-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng    87672 Dec 21 14:42 libevent_openssl.a
+lrwxrwxrwx  1 zhisheng zhisheng       29 Dec 20 20:25 libevent_openssl.so -> libevent_openssl-2.1.so.7.0.1
+lrwxrwxrwx  1 zhisheng zhisheng       26 Dec 20 20:25 libevent_pthreads-2.1.so -> libevent_pthreads-2.1.so.7
+lrwxrwxrwx  1 zhisheng zhisheng       30 Dec 20 20:25 libevent_pthreads-2.1.so.7 -> libevent_pthreads-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng    17728 Dec 20 21:22 libevent_pthreads-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng    18272 Dec 20 21:22 libevent_pthreads.a
+lrwxrwxrwx  1 zhisheng zhisheng       30 Dec 20 20:25 libevent_pthreads.so -> libevent_pthreads-2.1.so.7.0.1
+-rw-r--r--  1 zhisheng zhisheng  3832778 Dec 21 14:55 libflatbuffers.a
+-rw-r--r--  1 zhisheng zhisheng   419546 Dec 21 14:59 libfmt.a
+-rw-r--r--  1 zhisheng zhisheng   226864 Dec 21 14:45 libgflags.a
+-rw-r--r--  1 zhisheng zhisheng   223348 Dec 21 14:45 libgflags_nothreads.a
+-rw-r--r--  1 zhisheng zhisheng   267790 Dec 21 14:45 libglog.a
+-rw-r--r--  1 zhisheng zhisheng   653706 Dec 20 21:28 libgmock.a
+-rw-r--r--  1 zhisheng zhisheng     2276 Dec 20 21:28 libgmock_main.a
+-rw-r--r--  1 zhisheng zhisheng   192940 Dec 20 21:48 libgpr.a
+-rw-r--r--  1 zhisheng zhisheng  2289642 Dec 20 21:57 libgrpc++.a
+-rw-r--r--  1 zhisheng zhisheng    36736 Dec 20 21:57 libgrpc++_alts.a
+-rw-r--r--  1 zhisheng zhisheng      880 Dec 20 21:57 libgrpc++_error_details.a
+-rw-r--r--  1 zhisheng zhisheng   628788 Dec 21 14:57 libgrpc++_reflection.a
+-rw-r--r--  1 zhisheng zhisheng  1339662 Dec 20 21:55 libgrpc++_unsecure.a
+-rw-r--r--  1 zhisheng zhisheng 21243348 Dec 21 14:57 libgrpc.a
+-rw-r--r--  1 zhisheng zhisheng  6509292 Dec 20 21:53 libgrpc_authorization_provider.a
+-rw-r--r--  1 zhisheng zhisheng   919946 Dec 20 21:48 libgrpc_plugin_support.a
+-rw-r--r--  1 zhisheng zhisheng 12990672 Dec 20 21:54 libgrpc_unsecure.a
+-rw-r--r--  1 zhisheng zhisheng   925134 Dec 21 14:57 libgrpcpp_channelz.a
+-rw-r--r--  1 zhisheng zhisheng   335338 Dec 21 15:04 libgsasl.a
+-rwxr-xr-x  1 zhisheng zhisheng     1128 Dec 21 15:04 libgsasl.la
+-rw-r--r--  1 zhisheng zhisheng   766032 Dec 21 14:54 libgssapi_krb5.a
+-rw-r--r--  1 zhisheng zhisheng   268344 Dec 21 14:54 libgssrpc.a
+-rw-r--r--  1 zhisheng zhisheng  2302938 Dec 21 14:45 libgtest.a
+-rw-r--r--  1 zhisheng zhisheng     2308 Dec 20 21:28 libgtest_main.a
+-rw-r--r--  1 zhisheng zhisheng  6220852 Dec 21 15:05 libhdfs3.a
+-rw-r--r--  1 zhisheng zhisheng 15159718 Dec 21 14:48 libhs.a
+-rw-r--r--  1 zhisheng zhisheng 19142688 Dec 21 14:47 libhs_runtime.a
+-rwxr-xr-x  1 zhisheng zhisheng 28665236 Dec 21 15:09 libicudata.a
+-rwxr-xr-x  1 zhisheng zhisheng  8781760 Dec 21 15:09 libicui18n.a
+-rwxr-xr-x  1 zhisheng zhisheng   105708 Dec 21 15:09 libicuio.a
+-rwxr-xr-x  1 zhisheng zhisheng   140016 Dec 21 15:09 libicutest.a
+-rwxr-xr-x  1 zhisheng zhisheng   446258 Dec 21 15:09 libicutu.a
+-rwxr-xr-x  1 zhisheng zhisheng  4450160 Dec 21 15:09 libicuuc.a
+-rw-r--r--  1 zhisheng zhisheng   421110 Dec 21 15:03 libidn.a
+-rwxr-xr-x  1 zhisheng zhisheng      909 Dec 21 15:03 libidn.la
+-rwxr-xr-x  1 zhisheng zhisheng  5688096 Dec 21 14:51 libjemalloc_doris.a
+-rwxr-xr-x  1 zhisheng zhisheng  5688286 Dec 21 14:51 libjemalloc_doris_pic.a
+-rw-r--r--  1 zhisheng zhisheng   407802 Dec 21 15:06 libjsoncpp.a
+-rw-r--r--  1 zhisheng zhisheng   483286 Dec 21 14:54 libk5crypto.a
+lrwxrwxrwx  1 zhisheng zhisheng       18 Dec 21 14:54 libkadm5clnt.a -> libkadm5clnt_mit.a
+-rw-r--r--  1 zhisheng zhisheng   136564 Dec 21 14:54 libkadm5clnt_mit.a
+lrwxrwxrwx  1 zhisheng zhisheng       17 Dec 21 14:54 libkadm5srv.a -> libkadm5srv_mit.a
+-rw-r--r--  1 zhisheng zhisheng   187956 Dec 21 14:54 libkadm5srv_mit.a
+-rw-r--r--  1 zhisheng zhisheng   117026 Dec 21 14:54 libkdb5.a
+-rw-r--r--  1 zhisheng zhisheng    50616 Dec 21 14:54 libkrad.a
+-rw-r--r--  1 zhisheng zhisheng  1760292 Dec 21 14:54 libkrb5.a
+-rw-r--r--  1 zhisheng zhisheng   213262 Dec 21 14:54 libkrb5_db2.a
+-rw-r--r--  1 zhisheng zhisheng     1838 Dec 21 14:54 libkrb5_k5tls.a
+-rw-r--r--  1 zhisheng zhisheng    25724 Dec 21 14:54 libkrb5_otp.a
+-rw-r--r--  1 zhisheng zhisheng   253034 Dec 21 14:54 libkrb5_pkinit.a
+-rw-r--r--  1 zhisheng zhisheng   109660 Dec 21 14:54 libkrb5_spake.a
+-rw-r--r--  1 zhisheng zhisheng    20710 Dec 21 14:54 libkrb5_test.a
+-rw-r--r--  1 zhisheng zhisheng   100034 Dec 21 14:54 libkrb5support.a
+-rw-r--r--  1 zhisheng zhisheng  2921190 Dec 21 14:49 libleveldb.a
+-rw-r--r--  1 zhisheng zhisheng   199432 Dec 21 14:42 liblz4.a
+-rw-r--r--  1 zhisheng zhisheng   267616 Dec 21 15:01 liblzma.a
+-rwxr-xr-x  1 zhisheng zhisheng      925 Dec 21 15:01 liblzma.la
+-rw-r--r--  1 zhisheng zhisheng   259692 Dec 21 14:43 liblzo2.a
+-rwxr-xr-x  1 zhisheng zhisheng      947 Dec 21 14:43 liblzo2.la
+-rw-r--r--  1 zhisheng zhisheng   281530 Dec 20 20:25 libminizip.a
+-rwxr-xr-x  1 zhisheng zhisheng      924 Dec 20 20:25 libminizip.la
+-rw-r--r--  1 zhisheng zhisheng  5471324 Dec 21 15:01 libmysqlclient.a
+-rw-r--r--  1 zhisheng zhisheng  1358322 Dec 21 14:42 libodbc.a
+-rwxr-xr-x  1 zhisheng zhisheng      984 Dec 21 14:42 libodbc.la
+-rw-r--r--  1 zhisheng zhisheng   134366 Dec 21 14:42 libodbccr.a
+-rwxr-xr-x  1 zhisheng zhisheng     1047 Dec 21 14:42 libodbccr.la
+-rw-r--r--  1 zhisheng zhisheng   338060 Dec 21 14:42 libodbcinst.a
+-rwxr-xr-x  1 zhisheng zhisheng      996 Dec 21 14:42 libodbcinst.la
+-rw-r--r--  1 zhisheng zhisheng  3029486 Dec 21 14:56 liborc.a
+-rw-r--r--  1 zhisheng zhisheng  9762322 Dec 21 14:58 libparquet.a
+-rw-r--r--  1 zhisheng zhisheng  1154316 Dec 20 21:29 libprotobuf-lite.a
+-rw-r--r--  1 zhisheng zhisheng  5847370 Dec 21 14:45 libprotobuf.a
+-rw-r--r--  1 zhisheng zhisheng  6966436 Dec 21 14:45 libprotoc.a
+-rw-r--r--  1 zhisheng zhisheng   305466 Dec 21 15:09 libpugixml.a
+-rwxr-xr-x  1 zhisheng zhisheng   610912 Dec 21 14:55 librdkafka++.a
+lrwxrwxrwx  1 zhisheng zhisheng       17 Dec 21 14:55 librdkafka++.so -> librdkafka++.so.1
+-rwxr-xr-x  1 zhisheng zhisheng  3097904 Dec 21 14:55 librdkafka++.so.1
+-rwxr-xr-x  1 zhisheng zhisheng 17149892 Dec 21 14:55 librdkafka-static.a
+-rwxr-xr-x  1 zhisheng zhisheng  4523372 Dec 21 14:55 librdkafka.a
+lrwxrwxrwx  1 zhisheng zhisheng       15 Dec 21 14:55 librdkafka.so -> librdkafka.so.1
+-rwxr-xr-x  1 zhisheng zhisheng 15687192 Dec 21 14:55 librdkafka.so.1
+-rw-r--r--  1 zhisheng zhisheng   832870 Dec 21 14:47 libre2.a
+-rw-r--r--  1 zhisheng zhisheng   378538 Dec 20 22:01 libroaring.a
+-rw-r--r--  1 zhisheng zhisheng 22483710 Dec 21 14:53 librocksdb.a
+-rw-r--r--  1 zhisheng zhisheng  3336384 Dec 21 14:59 libs2.a
+-rw-r--r--  1 zhisheng zhisheng   377378 Dec 21 14:54 libsasl2.a
+-rwxr-xr-x  1 zhisheng zhisheng     1035 Dec 21 14:54 libsasl2.la
+-rw-r--r--  1 zhisheng zhisheng   294274 Dec 21 15:05 libsimdjson.a
+-rw-r--r--  1 zhisheng zhisheng    49074 Dec 21 14:45 libsnappy.a
+-rw-r--r--  1 zhisheng zhisheng  1036066 Dec 21 14:42 libssl.a
+-rw-r--r--  1 zhisheng zhisheng    44742 Dec 21 15:06 libstreamvbyte.a
+-rw-r--r--  1 zhisheng zhisheng  5866144 Dec 21 14:48 libthrift.a
+-rwxr-xr-x  1 zhisheng zhisheng     1049 Dec 21 14:48 libthrift.la
+-rw-r--r--  1 zhisheng zhisheng  1004714 Dec 21 14:48 libthriftnb.a
+-rwxr-xr-x  1 zhisheng zhisheng     1055 Dec 21 14:48 libthriftnb.la
+-rw-r--r--  1 zhisheng zhisheng   842810 Dec 21 14:48 libthriftz.a
+-rwxr-xr-x  1 zhisheng zhisheng     1056 Dec 21 14:48 libthriftz.la
+-rw-r--r--  1 zhisheng zhisheng    32784 Dec 21 15:05 libunwind-coredump.a
+-rwxr-xr-x  1 zhisheng zhisheng     1062 Dec 21 15:05 libunwind-coredump.la
+lrwxrwxrwx  1 zhisheng zhisheng       18 Dec 21 15:05 libunwind-generic.a -> libunwind-x86_64.a
+-rw-r--r--  1 zhisheng zhisheng    22588 Dec 21 15:05 libunwind-ptrace.a
+-rwxr-xr-x  1 zhisheng zhisheng     1052 Dec 21 15:05 libunwind-ptrace.la
+-rw-r--r--  1 zhisheng zhisheng     8960 Dec 21 15:05 libunwind-setjmp.a
+-rwxr-xr-x  1 zhisheng zhisheng     1193 Dec 21 15:05 libunwind-setjmp.la
+-rw-r--r--  1 zhisheng zhisheng   144814 Dec 21 15:05 libunwind-x86_64.a
+-rwxr-xr-x  1 zhisheng zhisheng     1127 Dec 21 15:05 libunwind-x86_64.la
+-rw-r--r--  1 zhisheng zhisheng   133564 Dec 21 15:05 libunwind.a
+-rwxr-xr-x  1 zhisheng zhisheng     1047 Dec 21 15:05 libunwind.la
+-rw-r--r--  1 zhisheng zhisheng   267474 Dec 20 21:48 libupb.a
+-rw-r--r--  1 zhisheng zhisheng    29006 Dec 21 15:06 libuuid.a
+-rwxr-xr-x  1 zhisheng zhisheng      896 Dec 21 15:06 libuuid.la
+-rw-r--r--  1 zhisheng zhisheng    57972 Dec 21 14:54 libverto.a
+-rw-r--r--  1 zhisheng zhisheng  2738086 Dec 21 15:02 libxml2.a
+-rwxr-xr-x  1 zhisheng zhisheng     1078 Dec 21 15:02 libxml2.la
+-rw-r--r--  1 zhisheng zhisheng    65856 Dec 21 15:05 libxxhash.a
+-rw-r--r--  1 zhisheng zhisheng   145972 Dec 20 20:25 libz.a
+lrwxrwxrwx  1 zhisheng zhisheng       13 Dec 20 20:25 libz.so -> libz.so.1.3.1
+lrwxrwxrwx  1 zhisheng zhisheng       13 Dec 20 20:25 libz.so.1 -> libz.so.1.3.1
+-rwxr-xr-x  1 zhisheng zhisheng   125624 Dec 20 20:25 libz.so.1.3.1
+-rw-r--r--  1 zhisheng zhisheng  1164564 Dec 21 14:43 libzstd.a
+drwxr-xr-x  3 zhisheng zhisheng     4096 Dec 20 22:09 objects-Release
+drwxr-xr-x  2 zhisheng zhisheng    16384 Dec 21 15:09 pkgconfig
+drwxr-xr-x  2 zhisheng zhisheng     4096 Dec 21 14:54 sasl2
+-rw-r--r--  1 zhisheng zhisheng      362 Dec 21 15:02 xml2Conf.sh
+--- check symlinks ---
+/home/zhisheng/doris/thirdparty/installed/lib64
+/home/zhisheng/doris/thirdparty/installed/lib64

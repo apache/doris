@@ -1,0 +1,8 @@
+--- TIME ---
+Sun Dec 21 11:44:24 CST 2025
+--- ss -tnlp (filtered for 8030 8040 9030 9050 9060 8040 8060) ---
+LISTEN 0      50                       *:8030             *:*    users:(("java",pid=5736,fd=661))
+LISTEN 0      1024                     *:9030             *:*    users:(("java",pid=5736,fd=681))
+--- ps aux | egrep doris_fe|doris_be ---
+zhisheng   16769  0.0  0.0   4096  2048 ?        S    11:44   0:00 grep -E doris_fe|doris_be
+--- netstat -tunlp (if available) ---

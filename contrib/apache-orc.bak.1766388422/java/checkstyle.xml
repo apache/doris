@@ -1,0 +1,72 @@
+<?xml version="1.0" ?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<!DOCTYPE module PUBLIC "-//Checkstyle//DTD Checkstyle Configuration 1.2//EN" "https://checkstyle.org/dtds/configuration_1_2.dtd">
+
+<module name="Checker">
+  <module name="FileTabCharacter">
+    <property name="eachLine" value="true"/>
+  </module>
+  <module name="NewlineAtEndOfFile">
+  </module>
+  <module name="LineLength">
+    <property name="max" value="100"/>
+    <property name="ignorePattern" value="a href|https://|^ +\* .*$|^ *// .*$|throw new IllegalArgumentException"/>
+  </module>
+  <module name="RegexpSingleline">
+    <property name="format" value="\s+$"/>
+    <property name="message" value="No trailing white space allowed."/>
+  </module>
+  <module name="TreeWalker">
+    <module name="OuterTypeFilename"/>
+    <module name="CommentsIndentation"/>
+    <module name="AvoidStarImport">
+      <property name="allowClassImports" value="false"/>
+      <property name="allowStaticMemberImports" value="false"/>
+    </module>
+    <module name="UnusedImports"/>
+    <module name="RedundantImport"/>
+    <!-- https://checkstyle.sourceforge.io/config_imports.html#ImportOrder IntelliJ default example -->
+    <module name="CustomImportOrder">
+      <property name="customImportOrderRules" value="THIRD_PARTY_PACKAGE###SPECIAL_IMPORTS###STANDARD_JAVA_PACKAGE###STATIC"/>
+      <property name="specialImportsRegExp" value="^javax\."/>
+      <property name="standardPackageRegExp" value="^java\."/>
+      <property name="sortImportsInGroupAlphabetically" value="true"/>
+      <property name="separateLineBetweenGroups" value="false"/>
+    </module>
+    <module name="ModifierOrder"/>
+    <module name="RedundantModifier"/>
+    <module name="NoLineWrap"/>
+    <module name="OneStatementPerLine"/>
+    <module name="NeedBraces">
+      <property name="allowSingleLineStatement" value="true"/>
+    </module>
+    <module name="UpperEll"/>
+    <module name="ArrayTypeStyle"/>
+    <module name="RegexpSinglelineJava">
+      <property name="format" value="^\s+(&amp;&amp;|[|][|])"/>
+      <property name="ignoreComments" value="true"/>
+      <property name="message" value="No starting LAND and LOR allowed."/>
+    </module>
+    <module name="Indentation">
+      <property name="severity" value="error"/>
+      <property name="basicOffset" value="2"/>
+      <property name="braceAdjustment" value="0"/>
+      <property name="caseIndent" value="2"/>
+      <property name="throwsIndent" value="2"/>
+      <property name="lineWrappingIndentation" value="4"/>
+      <property name="arrayInitIndent" value="2"/>
+    </module>
+  </module>
+</module>

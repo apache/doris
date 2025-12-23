@@ -1,0 +1,174 @@
+macos_instance:
+  image: ghcr.io/cirruslabs/macos-monterey-xcode:latest
+
+#task:
+#  name: AppleM1/LLVM
+#  compile_script:
+#  - brew install llvm
+#  - export PATH=/opt/homebrew/opt/llvm/bin:$PATH
+#  - export LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
+#  - export CPPFLAGS="-I/opt/homebrew/opt/llvm/include"
+#  - make TARGET=VORTEX USE_OPENMP=1 CC=clang
+
+#task:
+#  name: AppleM1/LLVM/ILP64
+#  compile_script:
+#  - brew install llvm
+#  - export PATH=/opt/homebrew/opt/llvm/bin:$PATH
+#  - export LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
+#  - export CPPFLAGS="-I/opt/homebrew/opt/llvm/include"
+#  - make TARGET=VORTEX USE_OPENMP=1 CC=clang INTERFACE64=1
+
+#task:
+#  name: AppleM1/LLVM/CMAKE
+#  compile_script:
+#  - brew install llvm
+#  - export PATH=/opt/homebrew/opt/llvm/bin:$PATH
+#  - export LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
+#  - export CPPFLAGS="-I/opt/homebrew/opt/llvm/include"
+#  - mkdir build
+#  - cd build
+#  - cmake -DTARGET=VORTEX -DCMAKE_C_COMPILER=clang -DBUILD_SHARED_LIBS=ON ..
+#  - make -j 4
+
+#task:
+#  name: AppleM1/GCC/MAKE/OPENMP
+#  compile_script:
+#  - brew install gcc@11
+#  - export PATH=/opt/homebrew/bin:$PATH
+#  - export LDFLAGS="-L/opt/homebrew/lib"
+#  - export CPPFLAGS="-I/opt/homebrew/include"
+#  - make CC=gcc-11 FC=gfortran-11 USE_OPENMP=1
+  
+macos_instance:
+  image: ghcr.io/cirruslabs/macos-sonoma-xcode:latest
+task:
+  name: AppleM1/LLVM x86_64 xbuild
+  compile_script:
+  - #brew install llvm
+  - export #PATH=/opt/homebrew/opt/llvm/bin:$PATH
+  - export #LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
+  - export #CPPFLAGS="-I/opt/homebrew/opt/llvm/include" 
+  - export ARCHS="i386 x86_64"
+  - export ARCHS_STANDARD="i386 x86_64"
+  - export ARCHS_STANDARD_32_64_BIT="i386 x86_64"
+  - export ARCHS_STANDARD_64_BIT=x86_64
+  - export ARCHS_STANDARD_INCLUDING_64_BIT="i386 x86_64"
+  - export ARCHS_UNIVERSAL_IPHONE_OS="i386 x86_64"
+  - export VALID_ARCHS="i386 x86_64"
+  - xcrun --sdk macosx --show-sdk-path
+  - xcodebuild -version
+  - export CC=/Applications/Xcode_16.3.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
+  - export CFLAGS="-O2 -unwindlib=none -Wno-macro-redefined -isysroot /Applications/Xcode_16.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.4.sdk -arch x86_64"
+  - make TARGET=CORE2 DYNAMIC_ARCH=1 NUM_THREADS=32 HOSTCC=clang NOFORTRAN=1 RANLIB="ls -l"
+  always:
+    config_artifacts:
+      path: "*conf*"
+      type: text/plain
+#  lib_artifacts:
+#    path: "libopenblas*"
+#    type: application/octet-streamm
+
+macos_instance:
+  image: ghcr.io/cirruslabs/macos-sonoma-xcode:latest
+task:
+  name: AppleM1/LLVM armv8-ios xbuild
+  compile_script:
+  - #brew install llvm
+  - export #PATH=/opt/homebrew/opt/llvm/bin:$PATH
+  - export #LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
+  - export #CPPFLAGS="-I/opt/homebrew/opt/llvm/include" 
+  - export CC=/Applications/Xcode_16.3.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
+  - export CFLAGS="-O2 -unwindlib=none -Wno-macro-redefined -isysroot /Applications/Xcode_16.3.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.4.sdk -arch arm64 -miphoneos-version-min=10.0"
+  - xcrun --sdk iphoneos --show-sdk-path
+  - ls -l /Applications
+  - make TARGET=ARMV8 NUM_THREADS=32 HOSTCC=clang NOFORTRAN=1 CROSS=1
+  always:
+    config_artifacts:
+      path: "*conf*"
+      type: text/plain
+
+macos_instance:
+  image: ghcr.io/cirruslabs/macos-sonoma-xcode:latest
+task:
+  name: AppleM1/LLVM armv7-androidndk xbuild
+  compile_script:
+  - brew install --cask android-ndk
+  - export ANDROID_NDK_HOME="/opt/homebrew/share/android-ndk"
+  - export CC=/opt/homebrew/share/android-ndk/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi23-clang
+  - make TARGET=ARMV7 ARM_SOFTFP_ABI=1 NUM_THREADS=32 HOSTCC=clang NOFORTRAN=1 RANLIB="ls -l"
+  always:
+    config_artifacts:
+      path: "*conf*"
+      type: text/plain
+
+task:
+  name: NeoverseN1
+  arm_container:
+    image: node:latest
+  compile_script:
+  - make
+
+  task:
+  name: NeoverseN1-ILP64
+  arm_container:
+    image: node:latest
+  compile_script:
+  - make INTERFACE64=1
+
+task:
+  name: NeoverseN1-OMP
+  arm_container:
+    image: node:latest
+    cpu: 8
+  compile_script:
+  - make USE_OPENMP=1
+
+FreeBSD_task:
+  name: FreeBSD-gcc
+  freebsd_instance:
+    image_family: freebsd-14-2
+  install_script:
+  - pkg update -f && pkg upgrade -y && pkg install -y gmake gcc
+  compile_script:
+  - ls -l /usr/local/lib
+  - gmake CC=gcc 
+
+
+FreeBSD_task:
+  name: freebsd-gcc-ilp64
+  freebsd_instance:
+    image_family: freebsd-14-2
+  install_script:
+  - pkg update -f && pkg upgrade -y && pkg install -y gmake gcc
+  compile_script:
+  - ls -l /usr/local/lib
+  - gmake CC=gcc INTERFACE64=1
+
+FreeBSD_task:
+  name: FreeBSD-clang-openmp
+  freebsd_instance:
+    image_family: freebsd-14-2
+  install_script:
+  - pkg update -f && pkg upgrade -y && pkg install -y gmake gcc 
+  - ln -s /usr/local/lib/gcc13/libgfortran.so.5.0.0 /usr/lib/libgfortran.so
+  compile_script:
+  - gmake CC=clang FC=gfortran USE_OPENMP=1 CPP_THREAD_SAFETY_TEST=1
+
+#task:
+#  name: Windows/LLVM16     --- too slow ---
+#  windows_container:
+#    image: cirrusci/windowsservercore:cmake-2021.12.07
+#  install_script: 
+#    - choco list --localonly
+#    - choco install -y llvm
+#    - # choco install -y cmake --installargs '"ADD_CMAKE_TO_PATH=System"'
+#    - choco install -y ninja
+#    - refreshenv
+#    - cd "c:/Program Files (x86)/Microsoft Visual Studio/2019/BuildTools/VC/Auxiliary/Build"
+#    - vcvarsall x64
+#    - cd "C:\Users\ContainerAdministrator\AppData\Local\Temp\cirrus-ci-build"
+#    - cmake -S . -B build -G "Ninja" -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_C_COMPILER=clang-cl -DCMAKE_MT=mt -DCMAKE_BUILD_TYPE=Release
+#    - cd build
+#    - cmake --build .
+#    - ctest

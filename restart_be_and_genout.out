@@ -1,0 +1,1035 @@
+--- TIME ---
+Sun Dec 21 13:01:06 CST 2025
+--- stop BE ---
+Waiting for be process with PID 21390 to terminate
+stop doris_be and remove PID file
+--- start BE daemon ---
+--- wait for BE ports (8040/9050) ---
+LISTEN 0      4096               0.0.0.0:8040       0.0.0.0:*    users:(("doris_be",pid=28280,fd=741))
+LISTEN 0      1024               0.0.0.0:9050       0.0.0.0:*    users:(("doris_be",pid=28280,fd=746))
+LISTEN 0      4096               0.0.0.0:8040       0.0.0.0:*    users:(("doris_be",pid=28280,fd=741))
+LISTEN 0      1024               0.0.0.0:9050       0.0.0.0:*    users:(("doris_be",pid=28280,fd=746))
+--- run regression genOut ---
+[1mApache Maven 3.8.7[m
+Maven home: /usr/share/maven
+Java version: 17.0.17, vendor: Ubuntu, runtime: /usr/lib/jvm/java-17-openjdk-amd64
+Default locale: en, platform encoding: UTF-8
+OS name: "linux", version: "6.6.87.2-microsoft-standard-wsl2", arch: "amd64", family: "unix"
+===== Run Regression Test =====
+2025-12-21 13:01:23.288 INFO [main] (Config.groovy:332) - Load config file /home/zhisheng/doris/regression-test/conf/regression-conf.groovy
+2025-12-21 13:01:24.321 INFO [main] (Config.groovy:764) - Set s3Provider to 'OSS' because not specify.
+2025-12-21 13:01:24.321 INFO [main] (Config.groovy:782) - Set s3BucketName to 'doris-regression-hk' because not specify.
+2025-12-21 13:01:24.322 INFO [main] (Config.groovy:800) - Set s3Region to 'oss-cn-hongkong' because not specify.
+2025-12-21 13:01:24.322 INFO [main] (Config.groovy:818) - Set s3Endpoint to 'oss-cn-hongkong.aliyuncs.com' because not specify.
+2025-12-21 13:01:24.322 INFO [main] (Config.groovy:823) - set caseNamePrefix to '' because not specify.
+2025-12-21 13:01:24.322 INFO [main] (Config.groovy:828) - set validateBackupPrefix to 'doris_validate_backup' because not specify.
+2025-12-21 13:01:24.323 INFO [main] (Config.groovy:874) - Set cloudUniqueId to 'cloud_unique_id_xxx' because not specify.
+2025-12-21 13:01:24.323 INFO [main] (Config.groovy:879) - Set metaServiceHttpAddress to '127.0.0.1:5000' because not specify.
+2025-12-21 13:01:24.324 INFO [main] (Config.groovy:884) - Set recycleServiceHttpAddress to '127.0.0.1:5001' because not specify.
+2025-12-21 13:01:24.324 INFO [main] (Config.groovy:889) - Set recycleBeforeTest to 'false' because not specify.
+2025-12-21 13:01:24.324 INFO [main] (Config.groovy:904) - Set syncerAddress to '127.0.0.1:9190' because not specify.
+2025-12-21 13:01:24.325 INFO [main] (Config.groovy:920) - Set feCloudHttpAddress to '127.0.0.1:8876' because not specify.
+2025-12-21 13:01:24.325 INFO [main] (Config.groovy:925) - Set feCloudHttpUser to 'root' because not specify.
+2025-12-21 13:01:24.325 INFO [main] (Config.groovy:930) - Set feCloudHttpPassword to empty because not specify.
+2025-12-21 13:01:24.326 INFO [main] (Config.groovy:950) - Set cacheDataPath to 'regression-test/cacheData' because not specify.
+2025-12-21 13:01:24.326 INFO [main] (Config.groovy:1019) - Set parallel to 1 because not specify.
+2025-12-21 13:01:24.327 INFO [main] (Config.groovy:1024) - Set suiteParallel to 1 because not specify.
+2025-12-21 13:01:24.327 INFO [main] (Config.groovy:1029) - Set dockerSuiteParallel to 1 because not specify.
+2025-12-21 13:01:24.327 INFO [main] (Config.groovy:1034) - Set actionParallel to 10 because not specify.
+2025-12-21 13:01:24.330 INFO [main] (Config.groovy:370) - runMode: UNKNOWN
+2025-12-21 13:01:24.363 INFO [main] (Config.groovy:454) - feCloudHttpAddress : 127.0.0.1:8876, socketAddr : /127.0.0.1:8876
+2025-12-21 13:01:24.364 INFO [main] (Config.groovy:457) - instanceId : default_instance_id
+2025-12-21 13:01:24.365 INFO [main] (Config.groovy:460) - cloudUniqueId : cloud_unique_id_xxx
+2025-12-21 13:01:24.368 INFO [main] (Config.groovy:470) - msAddr : 127.0.0.1:5000, socketAddr : /127.0.0.1:5000
+2025-12-21 13:01:24.369 INFO [main] (Config.groovy:473) - multiClusterBes is null
+2025-12-21 13:01:24.369 INFO [main] (Config.groovy:476) - metaServiceToken is greedisgood9999
+2025-12-21 13:01:24.369 INFO [main] (Config.groovy:479) - multiClusterInstance is default_instance_id
+2025-12-21 13:01:24.370 INFO [main] (Config.groovy:482) - upgradeNewBeIp is null
+2025-12-21 13:01:24.370 INFO [main] (Config.groovy:485) - upgradeNewBeHbPort is null
+2025-12-21 13:01:24.370 INFO [main] (Config.groovy:488) - upgradeNewBeHttpPort is null
+2025-12-21 13:01:24.370 INFO [main] (Config.groovy:491) - upgradeNewBeUniqueId is null
+2025-12-21 13:01:24.371 INFO [main] (Config.groovy:494) - stageIamEndpoint is null
+2025-12-21 13:01:24.371 INFO [main] (Config.groovy:496) - stageIamRegion is null
+2025-12-21 13:01:24.371 INFO [main] (Config.groovy:498) - stageIamBucket is null
+2025-12-21 13:01:24.371 INFO [main] (Config.groovy:500) - stageIamPolicy is null
+2025-12-21 13:01:24.371 INFO [main] (Config.groovy:502) - stageIamRole is null
+2025-12-21 13:01:24.372 INFO [main] (Config.groovy:504) - stageIamArn is null
+2025-12-21 13:01:24.372 INFO [main] (Config.groovy:506) - stageIamAk is null
+2025-12-21 13:01:24.372 INFO [main] (Config.groovy:508) - stageIamSk is null
+2025-12-21 13:01:24.372 INFO [main] (Config.groovy:510) - stageIamUserId is null
+2025-12-21 13:01:24.373 INFO [main] (Config.groovy:512) - cloudVersion is null
+2025-12-21 13:01:24.374 INFO [main] (Config.groovy:515) - tdeAk is null
+2025-12-21 13:01:24.374 INFO [main] (Config.groovy:517) - tdeSk is null
+2025-12-21 13:01:24.374 INFO [main] (Config.groovy:519) - tdeKeyEndpoint is null
+2025-12-21 13:01:24.375 INFO [main] (Config.groovy:521) - tdeKeyRegion is null
+2025-12-21 13:01:24.375 INFO [main] (Config.groovy:523) - tdeKeyProvider is null
+2025-12-21 13:01:24.376 INFO [main] (Config.groovy:525) - tdeAlgorithm is null
+2025-12-21 13:01:24.376 INFO [main] (Config.groovy:527) - tdeKeyId is null
+2025-12-21 13:01:24.378 INFO [main] (Config.groovy:539) - recycleAddr : 127.0.0.1:5001, socketAddr : /127.0.0.1:5001
+2025-12-21 13:01:24.379 INFO [main] (Config.groovy:567) - randomOrder is false
+2025-12-21 13:01:24.380 INFO [main] (Config.groovy:568) - stopWhenFail is false
+2025-12-21 13:01:24.380 INFO [main] (Config.groovy:569) - withOutLoadData is false
+2025-12-21 13:01:24.380 INFO [main] (Config.groovy:570) - runNonConcurrent is true
+2025-12-21 13:01:24.380 INFO [main] (Config.groovy:571) - caseNamePrefix is 
+2025-12-21 13:01:24.380 INFO [main] (Config.groovy:572) - validateBackupPrefix is doris_validate_backup
+2025-12-21 13:01:24.380 INFO [main] (Config.groovy:573) - dryRun is false
+2025-12-21 13:01:24.381 INFO [main] (Config.groovy:576) - s3Source is aliyun
+2025-12-21 13:01:24.381 INFO [main] (Config.groovy:577) - s3Provider is OSS
+2025-12-21 13:01:24.381 INFO [main] (Config.groovy:578) - s3BucketName is doris-regression-hk
+2025-12-21 13:01:24.381 INFO [main] (Config.groovy:579) - s3Region is oss-cn-hongkong
+2025-12-21 13:01:24.381 INFO [main] (Config.groovy:580) - s3Endpoint is oss-cn-hongkong.aliyuncs.com
+2025-12-21 13:01:24.382 INFO [main] (Config.groovy:1088) - Try to create db, sql: CREATE DATABASE IF NOT EXISTS regression_test
+2025-12-21 13:01:24.694 INFO [main] (Config.groovy:1081) - Reset jdbcUrl to jdbc:mysql://127.0.0.1:9030/regression_test?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round&verifyServerCertificate=false&useSSL=true&requireSSL=false&enabledTLSProtocols=TLSv1.2&connectTimeout=5000&socketTimeout=1800000&tcpKeepAlive=true
+2025-12-21 13:01:24.847 INFO [main] (Config.groovy:1133) - show random_add_cluster_keys_for_mow config: [[Comment:, Type:boolean, Value:false, MasterOnly:true, IsMutable:true, Key:random_add_cluster_keys_for_mow]]
+2025-12-21 13:01:24.848 INFO [main] (Config.groovy:1143) - random_add_cluster_keys_for_mow in fe.conf: false
+2025-12-21 13:01:24.849 INFO [main] (RegressionTest.groovy:153) - ================================================================================
+2025-12-21 13:01:24.850 INFO [main] (RegressionTest.groovy:154) - Log file: /home/zhisheng/doris/output/regression-test/log/doris-regression-test.20251221.130121.log
+2025-12-21 13:01:24.850 INFO [main] (RegressionTest.groovy:155) - ================================================================================
+2025-12-21 13:01:24.851 INFO [main] (RegressionTest.groovy:164) - parallel = 10, suiteParallel = 10, actionParallel = 10
+2025-12-21 13:01:25.590 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_compaction_plugin.groovy
+2025-12-21 13:01:25.635 INFO [main] (cloud_compaction_plugin.groovy:110) - Added 'doCloudCompaction' function to Suite
+2025-12-21 13:01:25.637 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_compaction_plugin.groovy
+2025-12-21 13:01:25.823 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smooth_upgrade.groovy
+2025-12-21 13:01:25.825 INFO [main] (cloud_smooth_upgrade.groovy:64) - Added 'addNodeForSmoothUpgrade' function to Suite
+2025-12-21 13:01:25.826 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smooth_upgrade.groovy
+2025-12-21 13:01:25.907 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_cluster_op_plugin.groovy
+2025-12-21 13:01:25.910 INFO [main] (cloud_cluster_op_plugin.groovy:85) - Added 'cloud cluster op' function to Suite
+2025-12-21 13:01:25.911 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_cluster_op_plugin.groovy
+2025-12-21 13:01:26.007 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check.groovy
+2025-12-21 13:01:26.009 INFO [main] (plugin_check.groovy:40) - Added 'check_sql_equal' function to Suite
+2025-12-21 13:01:26.010 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check.groovy
+2025-12-21 13:01:26.409 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_query_timeout_debugger.groovy
+2025-12-21 13:01:26.479 INFO [main] (plugin_query_timeout_debugger.groovy:89) - worker started with scheduler
+2025-12-21 13:01:26.480 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_query_timeout_debugger.groovy
+2025-12-21 13:01:26.564 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 13:01:26.605 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_ranger.groovy
+2025-12-21 13:01:26.615 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_ranger.groovy
+2025-12-21 13:01:26.616 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:01:26.620 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:01:26.651 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_planner.groovy
+2025-12-21 13:01:26.655 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_planner.groovy
+2025-12-21 13:01:26.706 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/test_helper.groovy
+2025-12-21 13:01:26.709 INFO [main] (test_helper.groovy:65) - Added 'createTestTable' function to Suite
+2025-12-21 13:01:26.710 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/test_helper.groovy
+2025-12-21 13:01:27.205 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_show_data_plugin.groovy
+2025-12-21 13:01:27.217 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_show_data_plugin.groovy
+2025-12-21 13:01:27.382 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_abnormal_plugin.groovy
+2025-12-21 13:01:27.393 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_abnormal_plugin.groovy
+2025-12-21 13:01:27.432 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check_sql_single_value.groovy
+2025-12-21 13:01:27.434 INFO [main] (plugin_check_sql_single_value.groovy:51) - Added 'isSqlValueEqualToTarget' function to Suite
+2025-12-21 13:01:27.436 INFO [main] (plugin_check_sql_single_value.groovy:79) - Added 'isSqlValueGreaterThanTarget' function to Suite
+2025-12-21 13:01:27.436 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_check_sql_single_value.groovy
+2025-12-21 13:01:27.672 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_compaction.groovy
+2025-12-21 13:01:27.676 INFO [main] (plugin_compaction.groovy:43) - Added 'be_run_base_compaction' function to Suite
+2025-12-21 13:01:27.678 INFO [main] (plugin_compaction.groovy:49) - Added 'be_run_cumulative_compaction' function to Suite
+2025-12-21 13:01:27.680 INFO [main] (plugin_compaction.groovy:59) - Added 'be_run_full_compaction' function to Suite
+2025-12-21 13:01:27.682 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_compaction.groovy
+2025-12-21 13:01:27.703 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_filecache_plugin.groovy
+2025-12-21 13:01:27.705 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_filecache_plugin.groovy
+2025-12-21 13:01:27.740 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_async_job_wait.groovy
+2025-12-21 13:01:27.741 INFO [main] (plugin_async_job_wait.groovy:42) - Added 'getLoadFinalState' function to Suite
+2025-12-21 13:01:27.743 INFO [main] (plugin_async_job_wait.groovy:64) - Added 'getAlterColumnFinalState' function to Suite
+2025-12-21 13:01:27.744 INFO [main] (plugin_async_job_wait.groovy:86) - Added 'getAlterRollupFinalState' function to Suite
+2025-12-21 13:01:27.745 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_async_job_wait.groovy
+2025-12-21 13:01:27.766 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_get_table_properties.groovy
+2025-12-21 13:01:27.769 INFO [main] (plugin_get_table_properties.groovy:34) - Added 'get_table_replica_num' function to Suite
+2025-12-21 13:01:27.770 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_get_table_properties.groovy
+2025-12-21 13:01:27.797 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugins_get_ids_from_proc.groovy
+2025-12-21 13:01:27.800 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugins_get_ids_from_proc.groovy
+2025-12-21 13:01:27.821 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_example.groovy
+2025-12-21 13:01:27.823 INFO [main] (plugin_example.groovy:34) - Added 'testPlugin' function to Suite
+2025-12-21 13:01:27.825 INFO [main] (plugin_example.groovy:54) - Added 'check2_doris' function to Suite
+2025-12-21 13:01:27.825 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_example.groovy
+2025-12-21 13:01:27.841 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_must_contains.groovy
+2025-12-21 13:01:27.842 INFO [main] (plugin_must_contains.groovy:30) - Added 'mustContain' function to Suite
+2025-12-21 13:01:27.843 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_must_contains.groovy
+2025-12-21 13:01:27.902 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster.groovy
+2025-12-21 13:01:27.905 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster.groovy
+2025-12-21 13:01:28.024 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugins_create_table_nested_type.groovy
+2025-12-21 13:01:28.026 INFO [main] (plugins_create_table_nested_type.groovy:109) - Added 'create_table_with_nested_type' function to Suite
+2025-12-21 13:01:28.028 INFO [main] (plugins_create_table_nested_type.groovy:147) - Added 'get_create_table_with_nested_type' function to Suite
+2025-12-21 13:01:28.028 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugins_create_table_nested_type.groovy
+2025-12-21 13:01:28.413 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_recycler_plugin.groovy
+2025-12-21 13:01:28.414 INFO [main] (cloud_recycler_plugin.groovy:72) - Added 'triggerRecycle' function to Suite
+2025-12-21 13:01:28.416 INFO [main] (cloud_recycler_plugin.groovy:207) - Added 'checkRecycleTable' function to Suite
+2025-12-21 13:01:28.417 INFO [main] (cloud_recycler_plugin.groovy:314) - Added 'checkRecycleInternalStage' function to Suite
+2025-12-21 13:01:28.418 INFO [main] (cloud_recycler_plugin.groovy:458) - Added 'checkRecycleExpiredStageObjects' function to Suite
+2025-12-21 13:01:28.419 INFO [main] (cloud_recycler_plugin.groovy:601) - Added 'checkRecycleMetrics' function to Suite
+2025-12-21 13:01:28.420 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_recycler_plugin.groovy
+2025-12-21 13:01:28.442 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_resource_plugin.groovy
+2025-12-21 13:01:28.444 INFO [main] (cloud_resource_plugin.groovy:75) - Added 'getObjStoreInfo' function to Suite
+2025-12-21 13:01:28.444 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_resource_plugin.groovy
+2025-12-21 13:01:28.647 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_stage_ram_plugin.groovy
+2025-12-21 13:01:28.648 INFO [main] (cloud_stage_ram_plugin.groovy:41) - Added 'getRoleName' function to Suite
+2025-12-21 13:01:28.649 INFO [main] (cloud_stage_ram_plugin.groovy:46) - Added 'getExternalId' function to Suite
+2025-12-21 13:01:28.651 INFO [main] (cloud_stage_ram_plugin.groovy:98) - Added 'getRole' function to Suite
+2025-12-21 13:01:28.653 INFO [main] (cloud_stage_ram_plugin.groovy:143) - Added 'attachPolicy' function to Suite
+2025-12-21 13:01:28.655 INFO [main] (cloud_stage_ram_plugin.groovy:336) - Added 'createRole' function to Suite
+2025-12-21 13:01:28.656 INFO [main] (cloud_stage_ram_plugin.groovy:371) - Added 'detachPolicy' function to Suite
+2025-12-21 13:01:28.658 INFO [main] (cloud_stage_ram_plugin.groovy:424) - Added 'deleteRole' function to Suite
+2025-12-21 13:01:28.658 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_stage_ram_plugin.groovy
+2025-12-21 13:01:31.522 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_curl_requester.groovy
+2025-12-21 13:01:31.524 INFO [main] (plugin_curl_requester.groovy:113) - Added 'http_client' function to Suite
+2025-12-21 13:01:31.526 INFO [main] (plugin_curl_requester.groovy:175) - Added 'curl' function to Suite
+2025-12-21 13:01:31.527 INFO [main] (plugin_curl_requester.groovy:181) - Added 'show_be_config' function to Suite
+2025-12-21 13:01:31.530 INFO [main] (plugin_curl_requester.groovy:187) - Added 'update_be_config' function to Suite
+2025-12-21 13:01:31.531 INFO [main] (plugin_curl_requester.groovy:202) - Added 'update_all_be_config' function to Suite
+2025-12-21 13:01:31.533 INFO [main] (plugin_curl_requester.groovy:215) - Added 'be_report_disk' function to Suite
+2025-12-21 13:01:31.535 INFO [main] (plugin_curl_requester.groovy:222) - Added 'be_report_tablet' function to Suite
+2025-12-21 13:01:31.536 INFO [main] (plugin_curl_requester.groovy:229) - Added 'be_report_task' function to Suite
+2025-12-21 13:01:31.537 INFO [main] (plugin_curl_requester.groovy:269) - Added 'check_nested_index_file' function to Suite
+2025-12-21 13:01:31.538 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_curl_requester.groovy
+2025-12-21 13:01:31.567 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smoke_plugin.groovy
+2025-12-21 13:01:31.568 INFO [main] (cloud_smoke_plugin.groovy:47) - Added 'cloud smoke' function to Suite
+2025-12-21 13:01:31.569 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/cloud_smoke_plugin.groovy
+2025-12-21 13:01:31.716 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/aliyun_oss_sdk.groovy
+2025-12-21 13:01:31.750 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/aliyun_oss_sdk.groovy
+2025-12-21 13:01:31.769 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster_version.groovy
+2025-12-21 13:01:31.772 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_cluster_version.groovy
+2025-12-21 13:01:31.829 INFO [main] (RegressionTest.groovy:498) - Begin to load plugin: /home/zhisheng/doris/regression-test/plugins/plugin_index_change.groovy
+2025-12-21 13:01:31.833 INFO [main] (RegressionTest.groovy:500) - Loaded plugin: /home/zhisheng/doris/regression-test/plugins/plugin_index_change.groovy
+2025-12-21 13:01:31.834 INFO [main] (RegressionTest.groovy:105) - === run 0 time ===
+2025-12-21 13:01:31.838 INFO [main] (RegressionTest.groovy:343) - run scripts in directories: []
+2025-12-21 13:01:31.839 INFO [main] (RegressionTest.groovy:345) - Start to run load scripts
+2025-12-21 13:01:38.306 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 13:01:44.833 INFO [main] (RegressionTest.groovy:351) - Start to run scripts
+2025-12-21 13:02:31.652 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:02:31.660 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:03:24.495 INFO [script-thread-10] (SuiteScript.groovy:48) - run /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 13:03:24.515 INFO [script-thread-10] (SuiteContext.groovy:103) - packageName: query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 13:03:24.516 INFO [script-thread-10] (SuiteContext.groovy:114) - scriptFileName: test_hamming_distance.groovy
+2025-12-21 13:03:24.517 INFO [script-thread-10] (SuiteContext.groovy:98) - flowName: query_p0.sql_functions.test_hamming_distance.test_hamming_distance, flowId: query_p0/sql_functions/test_hamming_distance.groovy#test_hamming_distance
+2025-12-21 13:03:24.560 INFO [suite-thread-1] (ScriptContext.groovy:100) - Run test_hamming_distance in /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy
+2025-12-21 13:03:24.597 INFO [suite-thread-1] (SuiteContext.groovy:162) - Try to create db, sql: CREATE DATABASE IF NOT EXISTS regression_test_query_p0_sql_functions
+2025-12-21 13:03:24.601 INFO [suite-thread-1] (SuiteContext.groovy:170) - connect to jdbc:mysql://127.0.0.1:9030/regression_test_query_p0_sql_functions?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round&verifyServerCertificate=false&useSSL=true&requireSSL=false&enabledTLSProtocols=TLSv1.2&connectTimeout=5000&socketTimeout=1800000&tcpKeepAlive=true
+2025-12-21 13:03:24.642 INFO [suite-thread-1] (Suite.groovy:572) - Execute sql:  drop table if exists hits_hamming_distance 
+2025-12-21 13:03:24.649 INFO [suite-thread-1] (Suite.groovy:572) - Execute sql:  create table hits_hamming_distance(
+                nothing boolean
+            )
+            properties("replication_num" = "1");
+    
+2025-12-21 13:03:24.711 INFO [suite-thread-1] (Suite.groovy:572) - Execute sql: insert into hits_hamming_distance values(true);
+2025-12-21 13:03:36.592 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:03:36.596 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:04:41.278 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:04:41.281 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:05:45.844 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:05:45.847 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:06:50.888 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 13:06:50.893 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:06:50.896 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:07:53.478 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:07:53.482 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:08:58.554 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:08:58.559 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:10:03.277 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:10:03.280 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:11:08.168 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:11:08.172 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:12:13.441 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 13:12:13.444 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:12:13.448 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:13:15.964 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:13:15.966 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:14:20.900 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:14:20.904 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:15:25.793 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:15:25.797 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:16:30.827 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:16:30.832 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:17:36.101 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 13:17:36.106 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:17:36.110 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:18:41.089 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:18:41.094 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:19:43.489 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:19:43.494 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:20:48.514 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:20:48.519 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:21:53.788 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:21:53.792 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:22:59.112 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 13:22:59.119 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:22:59.125 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:24:04.166 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:24:04.169 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:25:06.724 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:25:06.728 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:26:11.899 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:26:11.905 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:27:17.028 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:27:17.032 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:28:22.218 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 13:28:22.221 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:28:22.225 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:29:27.339 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:29:27.344 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:30:32.435 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:30:32.439 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:31:35.116 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:31:35.119 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:32:40.402 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:32:40.406 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:33:45.617 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 13:33:45.621 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:33:45.624 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:34:50.650 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:34:50.654 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:35:41.682 ERROR [suite-thread-1] (ScriptContext.groovy:122) - Run test_hamming_distance in /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy failed
+com.mysql.cj.jdbc.exceptions.CommunicationsException: Communications link failure
+
+The last packet successfully received from the server was 1,936,768 milliseconds ago. The last packet sent successfully to the server was 1,936,828 milliseconds ago.
+	at com.mysql.cj.jdbc.exceptions.SQLError.createCommunicationsException(SQLError.java:174)
+	at com.mysql.cj.jdbc.exceptions.SQLExceptionsMapping.translateException(SQLExceptionsMapping.java:64)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.executeInternal(ClientPreparedStatement.java:953)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.execute(ClientPreparedStatement.java:371)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.util.JdbcUtils$_executeToList_closure1.doCall(JdbcUtils.groovy:47)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:422)
+	at org.codehaus.groovy.runtime.IOGroovyMethods.withCloseable(IOGroovyMethods.java:1649)
+	at org.codehaus.groovy.runtime.dgm$1000.doMethodInvoke(Unknown Source)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.util.JdbcUtils.executeToList(JdbcUtils.groovy:46)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.sql_impl(Suite.groovy:573)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.jdbc_sql(Suite.groovy:581)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.sql(Suite.groovy:592)
+	at org.apache.doris.regression.suite.Suite.sql(Suite.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at org.codehaus.groovy.runtime.metaclass.TransformMetaMethod.invoke(TransformMetaMethod.java:59)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass$1.invoke(ClosureMetaClass.java:218)
+	at org.codehaus.groovy.runtime.metaclass.TransformMetaMethod.doMethodInvoke(TransformMetaMethod.java:66)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at test_hamming_distance$_run_closure1.doCall(test_hamming_distance.groovy:26)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:422)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1$_closure5.doCall(ScriptContext.groovy:108)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at org.codehaus.groovy.runtime.ConvertedClosure.invokeCustom(ConvertedClosure.java:52)
+	at org.codehaus.groovy.runtime.ConversionHandler.invoke(ConversionHandler.java:113)
+	at jdk.proxy1/jdk.proxy1.$Proxy16.apply(Unknown Source)
+	at org.apache.doris.regression.suite.SuiteContext$_start_closure5.doCall(SuiteContext.groovy:594)
+	at org.apache.doris.regression.suite.SuiteContext$_start_closure5.call(SuiteContext.groovy)
+	at org.codehaus.groovy.runtime.IOGroovyMethods.withCloseable(IOGroovyMethods.java:1616)
+	at org.apache.doris.regression.suite.SuiteContext.start(SuiteContext.groovy:591)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1.doCall(ScriptContext.groovy:99)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1.call(ScriptContext.groovy)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: com.mysql.cj.exceptions.CJCommunicationsException: Communications link failure
+
+The last packet successfully received from the server was 1,936,768 milliseconds ago. The last packet sent successfully to the server was 1,936,828 milliseconds ago.
+	at java.base/jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)
+	at java.base/jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.base/java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:500)
+	at java.base/java.lang.reflect.Constructor.newInstance(Constructor.java:481)
+	at com.mysql.cj.exceptions.ExceptionFactory.createException(ExceptionFactory.java:61)
+	at com.mysql.cj.exceptions.ExceptionFactory.createException(ExceptionFactory.java:105)
+	at com.mysql.cj.exceptions.ExceptionFactory.createException(ExceptionFactory.java:151)
+	at com.mysql.cj.exceptions.ExceptionFactory.createCommunicationsException(ExceptionFactory.java:167)
+	at com.mysql.cj.protocol.a.NativeProtocol.readMessage(NativeProtocol.java:520)
+	at com.mysql.cj.protocol.a.NativeProtocol.checkErrorMessage(NativeProtocol.java:700)
+	at com.mysql.cj.protocol.a.NativeProtocol.sendCommand(NativeProtocol.java:639)
+	at com.mysql.cj.protocol.a.NativeProtocol.sendQueryPacket(NativeProtocol.java:987)
+	at com.mysql.cj.NativeSession.execSQL(NativeSession.java:666)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.executeInternal(ClientPreparedStatement.java:930)
+	... 107 common frames omitted
+Caused by: java.net.SocketTimeoutException: Read timed out
+	at java.base/sun.nio.ch.NioSocketImpl.timedRead(NioSocketImpl.java:288)
+	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:314)
+	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
+	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
+	at com.mysql.cj.protocol.ReadAheadInputStream.fill(ReadAheadInputStream.java:107)
+	at com.mysql.cj.protocol.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:150)
+	at com.mysql.cj.protocol.ReadAheadInputStream.read(ReadAheadInputStream.java:180)
+	at java.base/java.io.FilterInputStream.read(FilterInputStream.java:132)
+	at com.mysql.cj.protocol.FullReadInputStream.readFully(FullReadInputStream.java:64)
+	at com.mysql.cj.protocol.a.SimplePacketReader.readHeaderLocal(SimplePacketReader.java:81)
+	at com.mysql.cj.protocol.a.SimplePacketReader.readHeader(SimplePacketReader.java:63)
+	at com.mysql.cj.protocol.a.SimplePacketReader.readHeader(SimplePacketReader.java:45)
+	at com.mysql.cj.protocol.a.TimeTrackingPacketReader.readHeader(TimeTrackingPacketReader.java:52)
+	at com.mysql.cj.protocol.a.TimeTrackingPacketReader.readHeader(TimeTrackingPacketReader.java:41)
+	at com.mysql.cj.protocol.a.MultiPacketReader.readHeader(MultiPacketReader.java:54)
+	at com.mysql.cj.protocol.a.MultiPacketReader.readHeader(MultiPacketReader.java:44)
+	at com.mysql.cj.protocol.a.NativeProtocol.readMessage(NativeProtocol.java:514)
+	... 112 common frames omitted
+2025-12-21 13:35:41.761 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 13:35:55.864 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:35:55.866 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:36:58.571 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:36:58.575 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:38:03.697 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:38:03.700 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:38:06.841 INFO [main] (RegressionTest.groovy:357) - Start to run check hash bucket table scripts
+2025-12-21 13:38:07.390 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 13:38:07.413 INFO [main] (RegressionTest.groovy:464) - Failure suites:
+/home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy: group=default,p0, name=test_hamming_distance
+2025-12-21 13:38:07.416 INFO [main] (RegressionTest.groovy:540) - Some suites failed.
+ _____ _    ___ _     _____ ____
+|  ___/ \  |_ _| |   | ____|  _ \
+| |_ / _ \  | || |   |  _| | | | |
+|  _/ ___ \ | || |___| |___| |_| |
+|_|/_/   \_\___|_____|_____|____/
+
+2025-12-21 13:38:07.416 INFO [main] (RegressionTest.groovy:478) - Test 1 suites, failed 1 suites, fatal 0 scripts, skipped 0 scripts
+2025-12-21 13:38:07.417 INFO [main] (RegressionTest.groovy:130) - Test finished
+2025-12-21 13:38:07.417 INFO [main] (RegressionTest.groovy:153) - ================================================================================
+2025-12-21 13:38:07.417 INFO [main] (RegressionTest.groovy:154) - Log file: /home/zhisheng/doris/output/regression-test/log/doris-regression-test.20251221.130121.log
+2025-12-21 13:38:07.417 INFO [main] (RegressionTest.groovy:155) - ================================================================================
+2025-12-21 13:38:07.419 INFO [Thread-0] (plugin_query_timeout_debugger.groovy:93) - stop worker
+--- tail regression_genout.log ---
+2025-12-21 13:31:35.116 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:31:35.119 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:32:40.402 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:32:40.406 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:33:45.617 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:140) - backends: [http://172.30.95.46:8040/api/running_pipeline_tasks/180, http://127.0.0.1:8040/api/running_pipeline_tasks/180]
+2025-12-21 13:33:45.621 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:33:45.624 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:34:50.650 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:34:50.654 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:35:41.682 ERROR [suite-thread-1] (ScriptContext.groovy:122) - Run test_hamming_distance in /home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy failed
+com.mysql.cj.jdbc.exceptions.CommunicationsException: Communications link failure
+
+The last packet successfully received from the server was 1,936,768 milliseconds ago. The last packet sent successfully to the server was 1,936,828 milliseconds ago.
+	at com.mysql.cj.jdbc.exceptions.SQLError.createCommunicationsException(SQLError.java:174)
+	at com.mysql.cj.jdbc.exceptions.SQLExceptionsMapping.translateException(SQLExceptionsMapping.java:64)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.executeInternal(ClientPreparedStatement.java:953)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.execute(ClientPreparedStatement.java:371)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.util.JdbcUtils$_executeToList_closure1.doCall(JdbcUtils.groovy:47)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:422)
+	at org.codehaus.groovy.runtime.IOGroovyMethods.withCloseable(IOGroovyMethods.java:1649)
+	at org.codehaus.groovy.runtime.dgm$1000.doMethodInvoke(Unknown Source)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.util.JdbcUtils.executeToList(JdbcUtils.groovy:46)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.sql_impl(Suite.groovy:573)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.jdbc_sql(Suite.groovy:581)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.sql(Suite.groovy:592)
+	at org.apache.doris.regression.suite.Suite.sql(Suite.groovy)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at groovy.lang.MetaClassImpl.doInvokeMethod(MetaClassImpl.java:1333)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1088)
+	at groovy.lang.ExpandoMetaClass.invokeMethod(ExpandoMetaClass.java:1142)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at org.apache.doris.regression.suite.Suite.invokeMethod(Suite.groovy:1837)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at org.codehaus.groovy.runtime.metaclass.TransformMetaMethod.invoke(TransformMetaMethod.java:59)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass$1.invoke(ClosureMetaClass.java:218)
+	at org.codehaus.groovy.runtime.metaclass.TransformMetaMethod.doMethodInvoke(TransformMetaMethod.java:66)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:342)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+	at test_hamming_distance$_run_closure1.doCall(test_hamming_distance.groovy:26)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at groovy.lang.Closure.call(Closure.java:422)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1$_closure5.doCall(ScriptContext.groovy:108)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:343)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:328)
+	at org.codehaus.groovy.runtime.metaclass.ClosureMetaClass.invokeMethod(ClosureMetaClass.java:279)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1007)
+	at groovy.lang.Closure.call(Closure.java:433)
+	at org.codehaus.groovy.runtime.ConvertedClosure.invokeCustom(ConvertedClosure.java:52)
+	at org.codehaus.groovy.runtime.ConversionHandler.invoke(ConversionHandler.java:113)
+	at jdk.proxy1/jdk.proxy1.$Proxy16.apply(Unknown Source)
+	at org.apache.doris.regression.suite.SuiteContext$_start_closure5.doCall(SuiteContext.groovy:594)
+	at org.apache.doris.regression.suite.SuiteContext$_start_closure5.call(SuiteContext.groovy)
+	at org.codehaus.groovy.runtime.IOGroovyMethods.withCloseable(IOGroovyMethods.java:1616)
+	at org.apache.doris.regression.suite.SuiteContext.start(SuiteContext.groovy:591)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1.doCall(ScriptContext.groovy:99)
+	at org.apache.doris.regression.suite.ScriptContext$_createAndRunSuite_closure1.call(ScriptContext.groovy)
+	at groovy.lang.Closure.run(Closure.java:505)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: com.mysql.cj.exceptions.CJCommunicationsException: Communications link failure
+
+The last packet successfully received from the server was 1,936,768 milliseconds ago. The last packet sent successfully to the server was 1,936,828 milliseconds ago.
+	at java.base/jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)
+	at java.base/jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.base/java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:500)
+	at java.base/java.lang.reflect.Constructor.newInstance(Constructor.java:481)
+	at com.mysql.cj.exceptions.ExceptionFactory.createException(ExceptionFactory.java:61)
+	at com.mysql.cj.exceptions.ExceptionFactory.createException(ExceptionFactory.java:105)
+	at com.mysql.cj.exceptions.ExceptionFactory.createException(ExceptionFactory.java:151)
+	at com.mysql.cj.exceptions.ExceptionFactory.createCommunicationsException(ExceptionFactory.java:167)
+	at com.mysql.cj.protocol.a.NativeProtocol.readMessage(NativeProtocol.java:520)
+	at com.mysql.cj.protocol.a.NativeProtocol.checkErrorMessage(NativeProtocol.java:700)
+	at com.mysql.cj.protocol.a.NativeProtocol.sendCommand(NativeProtocol.java:639)
+	at com.mysql.cj.protocol.a.NativeProtocol.sendQueryPacket(NativeProtocol.java:987)
+	at com.mysql.cj.NativeSession.execSQL(NativeSession.java:666)
+	at com.mysql.cj.jdbc.ClientPreparedStatement.executeInternal(ClientPreparedStatement.java:930)
+	... 107 common frames omitted
+Caused by: java.net.SocketTimeoutException: Read timed out
+	at java.base/sun.nio.ch.NioSocketImpl.timedRead(NioSocketImpl.java:288)
+	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:314)
+	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
+	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
+	at com.mysql.cj.protocol.ReadAheadInputStream.fill(ReadAheadInputStream.java:107)
+	at com.mysql.cj.protocol.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:150)
+	at com.mysql.cj.protocol.ReadAheadInputStream.read(ReadAheadInputStream.java:180)
+	at java.base/java.io.FilterInputStream.read(FilterInputStream.java:132)
+	at com.mysql.cj.protocol.FullReadInputStream.readFully(FullReadInputStream.java:64)
+	at com.mysql.cj.protocol.a.SimplePacketReader.readHeaderLocal(SimplePacketReader.java:81)
+	at com.mysql.cj.protocol.a.SimplePacketReader.readHeader(SimplePacketReader.java:63)
+	at com.mysql.cj.protocol.a.SimplePacketReader.readHeader(SimplePacketReader.java:45)
+	at com.mysql.cj.protocol.a.TimeTrackingPacketReader.readHeader(TimeTrackingPacketReader.java:52)
+	at com.mysql.cj.protocol.a.TimeTrackingPacketReader.readHeader(TimeTrackingPacketReader.java:41)
+	at com.mysql.cj.protocol.a.MultiPacketReader.readHeader(MultiPacketReader.java:54)
+	at com.mysql.cj.protocol.a.MultiPacketReader.readHeader(MultiPacketReader.java:44)
+	at com.mysql.cj.protocol.a.NativeProtocol.readMessage(NativeProtocol.java:514)
+	... 112 common frames omitted
+2025-12-21 13:35:41.761 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 13:35:55.864 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:35:55.866 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:36:58.571 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:36:58.575 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:38:03.697 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://172.30.95.46:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:38:03.700 INFO [query-timeout-debugger-thread] (plugin_query_timeout_debugger.groovy:106) - http://127.0.0.1:8040/api/running_pipeline_tasks/180 pipeline tasks: 0 pipeline fragment contexts are still running! duration_limit=180
+
+2025-12-21 13:38:06.841 INFO [main] (RegressionTest.groovy:357) - Start to run check hash bucket table scripts
+2025-12-21 13:38:07.390 INFO [main] (RegressionTest.groovy:312) - Start to run single scripts
+2025-12-21 13:38:07.413 INFO [main] (RegressionTest.groovy:464) - Failure suites:
+/home/zhisheng/doris/regression-test/suites/query_p0/sql_functions/test_hamming_distance.groovy: group=default,p0, name=test_hamming_distance
+2025-12-21 13:38:07.416 INFO [main] (RegressionTest.groovy:540) - Some suites failed.
+ _____ _    ___ _     _____ ____
+|  ___/ \  |_ _| |   | ____|  _ \
+| |_ / _ \  | || |   |  _| | | | |
+|  _/ ___ \ | || |___| |___| |_| |
+|_|/_/   \_\___|_____|_____|____/
+
+2025-12-21 13:38:07.416 INFO [main] (RegressionTest.groovy:478) - Test 1 suites, failed 1 suites, fatal 0 scripts, skipped 0 scripts
+2025-12-21 13:38:07.417 INFO [main] (RegressionTest.groovy:130) - Test finished
+2025-12-21 13:38:07.417 INFO [main] (RegressionTest.groovy:153) - ================================================================================
+2025-12-21 13:38:07.417 INFO [main] (RegressionTest.groovy:154) - Log file: /home/zhisheng/doris/output/regression-test/log/doris-regression-test.20251221.130121.log
+2025-12-21 13:38:07.417 INFO [main] (RegressionTest.groovy:155) - ================================================================================
+2025-12-21 13:38:07.419 INFO [Thread-0] (plugin_query_timeout_debugger.groovy:93) - stop worker
+--- tail fe.log ---
+2025-12-21 13:38:06,636 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,646 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,657 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,667 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,677 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,687 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,698 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,708 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,718 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,728 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,738 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,748 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,751 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 13:38:06,759 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,769 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,779 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,789 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,800 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,810 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,820 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,830 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,840 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,851 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,861 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,871 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,881 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,892 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,902 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,912 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,922 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,932 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,943 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,953 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,963 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,973 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,984 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:06,994 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,004 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,014 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,025 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,035 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,045 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,055 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,065 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,076 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,086 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,096 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,106 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,116 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,127 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,137 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,147 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,157 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,168 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,178 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,188 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,198 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,209 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,219 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,229 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,239 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,250 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,260 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,270 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,281 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,291 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,301 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,311 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,322 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,332 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,342 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,352 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,363 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,373 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,383 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,393 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,404 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,414 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,424 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,434 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,445 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,455 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,465 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,475 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,485 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,496 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,506 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,516 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,526 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,536 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,547 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,557 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,567 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,577 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,588 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,598 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,608 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,618 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,628 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,639 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,649 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,659 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,669 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,680 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,690 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,700 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,710 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,721 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,731 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,741 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,751 INFO (Statistics Job Appender|48) [StatisticsJobAppender.runAfterCatalogReady():75] Stats table not available, skip
+2025-12-21 13:38:07,751 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,761 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,772 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,782 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,792 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,802 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,813 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,823 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,833 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,843 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,853 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,864 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,874 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,884 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,895 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,905 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,915 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,925 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,935 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,946 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,956 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,966 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,976 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,986 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:07,997 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,007 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,017 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,027 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,037 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,047 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,058 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,068 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,078 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,088 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,098 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,109 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,119 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,129 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,139 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,150 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,160 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,170 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,180 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,190 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,201 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,211 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,221 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,231 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,242 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,252 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,262 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,272 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,282 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,293 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,303 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,313 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,323 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,333 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,344 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,354 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,364 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,374 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,384 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,395 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,405 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,415 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,425 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,435 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,446 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,456 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,466 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,476 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,486 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,497 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,507 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,517 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,527 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,538 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,548 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,558 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,568 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,578 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,589 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,599 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,609 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,619 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,630 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,640 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+2025-12-21 13:38:08,650 INFO (PUBLISH_VERSION|25) [PublishVersionDaemon.tryFinishTxnAsync():245] try to finish transaction 5007, dbId: 1766220400539, txnId: 5007
+--- tail be.out ---
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-17 15:29:57,384 Start time: Wed Dec 17 15:29:57 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:38:12,996 Start time: Sat Dec 20 16:38:12 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:38:47,695 Start time: Sat Dec 20 16:38:47 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 16:45:23,316 Start time: Sat Dec 20 16:45:23 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 18:30:42,492 Start time: Sat Dec 20 18:30:42 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 23:03:19,855 Start time: Sat Dec 20 23:03:19 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-20 23:58:54,784 Start time: Sat Dec 20 23:58:54 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:08:23,998 Start time: Sun Dec 21 11:08:22 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:44:38,425 Start time: Sun Dec 21 11:44:38 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+thrift error, reason=THRIFT_EAGAIN (timed out)INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 11:56:01,762 Start time: Sun Dec 21 11:56:01 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+StdoutLogger 2025-12-21 13:01:12,408 Start time: Sun Dec 21 13:01:12 CST 2025
+INFO: java_cmd /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+INFO: jdk_version 17
+OpenJDK 64-Bit Server VM warning: Option CriticalJNINatives was deprecated in version 16.0 and will likely be removed in a future release.
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+SLF4J(W): Found provider [org.slf4j.reload4j.Reload4jServiceProvider@3ecf72fd]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [org.apache.logging.slf4j.SLF4JServiceProvider@64c64813]
+start BE in local mode
