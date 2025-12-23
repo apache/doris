@@ -57,7 +57,7 @@ public class FrontendOptions {
         } else {
             initAddrUseIp(hosts);
         }
-        cachedAddr = Strings.nullToEmpty(getLocalHostAddress());
+        cachedAddr = getLocalHostAddress();
     }
 
     // 1. If priority_networks is configured . Obtain the IP that complies with the rules,
@@ -172,7 +172,7 @@ public class FrontendOptions {
     }
 
     public static String getLocalHostAddressCached() {
-        return cachedAddr;
+        return Strings.nullToEmpty(cachedAddr);
     }
 
     public static String getLocalHostAddress() {
