@@ -92,6 +92,9 @@ jobs:
       - name: Build broker
         run: |
           cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
+      - name: Build cdc_client
+        run: |
+          cd fs_brokers/cdc_client/ && /bin/bash build.sh        
   # build-docs:
   #   name: Build Documents
   #   needs: changes

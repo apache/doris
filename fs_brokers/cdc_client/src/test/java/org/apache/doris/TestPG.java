@@ -7,7 +7,6 @@ import org.apache.flink.cdc.connectors.postgres.source.PostgresSourceBuilder;
 import org.apache.flink.cdc.debezium.DebeziumDeserializationSchema;
 import org.apache.flink.cdc.debezium.JsonDebeziumDeserializationSchema;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -24,13 +23,13 @@ public class TestPG {
                         .database("test_db")
                         .slotName("x12")
                         .schemaList("public")
-                        .tableList("public.t_user")
+                        .tableList("public.t_user_info")
                         .username("postgres")
                         .password("postgres")
                         .decodingPluginName("pgoutput")
                         .deserializer(schema)
-                        .startupOptions(StartupOptions.initial())
-                        .splitSize(1)
+                        .startupOptions(StartupOptions.latest())
+                        // .splitSize(1)
                         .build();
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();

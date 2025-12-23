@@ -28,7 +28,12 @@ import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
-
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.debezium.relational.Column;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
+import lombok.Data;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
@@ -46,6 +51,7 @@ import org.apache.flink.cdc.connectors.base.source.meta.split.SourceRecords;
 import org.apache.flink.cdc.connectors.base.source.meta.split.SourceSplitBase;
 import org.apache.flink.cdc.connectors.base.source.meta.split.SourceSplitState;
 import org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit;
+import static org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit.STREAM_SPLIT_ID;
 import org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplitState;
 import org.apache.flink.cdc.connectors.base.source.meta.wartermark.WatermarkEvent;
 import org.apache.flink.cdc.connectors.base.source.reader.external.FetchTask;
@@ -57,7 +63,8 @@ import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -67,17 +74,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
-
-import static org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit.STREAM_SPLIT_ID;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.debezium.relational.Column;
-import io.debezium.relational.TableId;
-import io.debezium.relational.history.TableChanges;
-import lombok.Data;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @Data
 public abstract class JdbcIncrementalSourceReader implements SourceReader {
@@ -174,16 +170,25 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         SourceSplitBase split = null;
         SplitRecords currentSplitRecords = this.getCurrentSplitRecords();
         if (currentSplitRecords == null) {
-            if (baseReq.isReload()) {
-                LOG.info("Reload {}, create new split reader", baseReq.isReload());
+            Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
+            if (currentReader == null || baseReq.isReload()) {
+                LOG.info(
+                        "No current reader or reload {}, create new split reader",
+                        baseReq.isReload());
                 // build split
                 Tuple2<SourceSplitBase, Boolean> splitFlag = createSourceSplit(offsetMeta, baseReq);
                 split = splitFlag.f0;
+                closeBinlogReader();
                 currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
                 this.setCurrentSplitRecords(currentSplitRecords);
                 this.setCurrentSplit(split);
+            } else if (currentReader instanceof IncrementalSourceStreamFetcher) {
+                LOG.info("Continue poll records with current binlog reader");
+                // only for binlog reader
+                currentSplitRecords = pollSplitRecordsWithCurrentReader(currentReader);
+                split = this.getCurrentSplit();
             } else {
-                throw new RuntimeException("No current split records and not reload");
+                throw new RuntimeException("Should not happen");
             }
         } else {
             LOG.info(
@@ -210,6 +215,24 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         return result;
     }
 
+    protected abstract DataType fromDbzColumn(Column splitColumn);
+
+    protected abstract Fetcher<SourceRecords, SourceSplitBase> getSnapshotSplitReader(
+            JobBaseConfig jobConfig);
+
+    protected abstract Fetcher<SourceRecords, SourceSplitBase> getBinlogSplitReader(
+            JobBaseConfig jobConfig);
+
+    protected abstract OffsetFactory getOffsetFactory();
+
+    protected abstract Offset createOffset(Map<String, ?> offset);
+
+    protected abstract Offset createInitialOffset();
+
+    protected abstract Offset createNoStoppingOffset();
+
+    protected abstract JdbcDataSourceDialect getDialect(JdbcSourceConfig sourceConfig);
+
     /** build RecordWithMeta */
     private RecordWithMeta buildRecordResponse(
             FetchRecordRequest fetchRecord, SplitReadResult readResult) throws Exception {
@@ -229,7 +252,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                     // update meta
                     Map<String, String> lastMeta = createOffset(element.sourceOffset()).getOffset();
                     if (isBinlogSplit(split)) {
-                        lastMeta.put(SPLIT_ID, STREAM_SPLIT_ID);
+                        lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
                         recordResponse.setMeta(lastMeta);
                     }
                     if (count >= fetchRecord.getFetchSize()) {
@@ -269,7 +292,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
             throws JsonProcessingException {
         Tuple2<SourceSplitBase, Boolean> splitRes = null;
         String splitId = String.valueOf(offsetMeta.get(SPLIT_ID));
-        if (!STREAM_SPLIT_ID.equals(splitId)) {
+        if (!BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
             org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split =
                     createSnapshotSplit(offsetMeta, jobConfig);
             splitRes = Tuple2.of(split, false);
@@ -282,7 +305,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     private org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit
             createSnapshotSplit(Map<String, Object> offset, JobBaseConfig jobConfig) {
         SnapshotSplit snapshotSplit = objectMapper.convertValue(offset, SnapshotSplit.class);
-        TableId tableId = TableId.parse(snapshotSplit.getTableId());
+        TableId tableId = TableId.parse(snapshotSplit.getTableId(), false);
         Object[] splitStart = snapshotSplit.getSplitStart();
         Object[] splitEnd = snapshotSplit.getSplitEnd();
         List<String> splitKeys = snapshotSplit.getSplitKey();
@@ -315,24 +338,6 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                                 })
                         .getLogicalType();
     }
-
-    protected abstract DataType fromDbzColumn(Column splitColumn);
-
-    protected abstract Fetcher<SourceRecords, SourceSplitBase> getSnapshotSplitReader(
-            JobBaseConfig jobConfig);
-
-    protected abstract Fetcher<SourceRecords, SourceSplitBase> getBinlogSplitReader(
-            JobBaseConfig jobConfig);
-
-    protected abstract OffsetFactory getOffsetFactory();
-
-    protected abstract Offset createOffset(Map<String, ?> offset);
-
-    protected abstract Offset createInitialOffset();
-
-    protected abstract Offset createNoStoppingOffset();
-
-    protected abstract JdbcDataSourceDialect getDialect(JdbcSourceConfig sourceConfig);
 
     private Tuple2<SourceSplitBase, Boolean> createStreamSplit(
             Map<String, Object> meta, JobBaseConfig config) {
@@ -514,12 +519,25 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         currentSplitId = split.splitId();
         // make split record available
         // todo: Until debezium_heartbeat is consumed
-        Thread.sleep(1000);
+        Thread.sleep(10000);
         dataIt = currentReader.pollSplitRecords();
         if (currentReader instanceof IncrementalSourceScanFetcher) {
             closeSnapshotReader();
         }
         return dataIt == null ? null : new SplitRecords(currentSplitId, dataIt.next().iterator());
+    }
+
+    private SplitRecords pollSplitRecordsWithCurrentReader(
+            Fetcher<SourceRecords, SourceSplitBase> currentReader) throws Exception {
+        Iterator<SourceRecords> dataIt = null;
+        if (currentReader instanceof IncrementalSourceStreamFetcher) {
+            dataIt = currentReader.pollSplitRecords();
+            return dataIt == null
+                    ? null
+                    : new SplitRecords(STREAM_SPLIT_ID, dataIt.next().iterator());
+        } else {
+            throw new IllegalStateException("Unsupported reader type.");
+        }
     }
 
     private void closeSnapshotReader() {
@@ -573,7 +591,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         SourceSplitBase postgresSplit = (SourceSplitBase) split;
         Map<String, String> offsetRes =
                 postgresSplit.asStreamSplit().getStartingOffset().getOffset();
-        offsetRes.put(SPLIT_ID, STREAM_SPLIT_ID);
+        offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
         return offsetRes;
     }
 

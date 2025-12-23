@@ -76,7 +76,7 @@ public class DebeziumJsonDeserializer
     @Override
     public void init(Map<String, String> props) {
         this.serverTimeZone =
-                ConfigUtil.getServerTimeZone(props.get(DataSourceConfigKeys.JDBC_URL));
+                ConfigUtil.getServerTimeZoneFromJdbcUrl(props.get(DataSourceConfigKeys.JDBC_URL));
     }
 
     @Override

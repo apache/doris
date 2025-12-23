@@ -5,7 +5,14 @@ import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
+import io.debezium.connector.postgresql.connection.PostgresConnection;
+import io.debezium.jdbc.JdbcConnection;
+import io.debezium.relational.Column;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
+import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.cdc.connectors.base.config.JdbcSourceConfig;
 import org.apache.flink.cdc.connectors.base.dialect.JdbcDataSourceDialect;
@@ -22,23 +29,17 @@ import org.apache.flink.cdc.connectors.postgres.source.config.PostgresSourceConf
 import org.apache.flink.cdc.connectors.postgres.source.fetch.PostgresSourceFetchTaskContext;
 import org.apache.flink.cdc.connectors.postgres.source.offset.PostgresOffset;
 import org.apache.flink.cdc.connectors.postgres.source.offset.PostgresOffsetFactory;
+import org.apache.flink.cdc.connectors.postgres.source.utils.CustomPostgresSchema;
 import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresTypeUtils;
+import org.apache.flink.cdc.connectors.postgres.source.utils.TableDiscoveryUtils;
 import org.apache.flink.table.types.DataType;
-
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
-import io.debezium.jdbc.JdbcConnection;
-import io.debezium.relational.Column;
-import io.debezium.relational.TableId;
-import io.debezium.relational.history.TableChanges;
-import io.debezium.relational.history.TableChanges.TableChange;
-import lombok.Data;
+import org.postgresql.Driver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
 @Data
 public class PostgresSourceReader extends JdbcIncrementalSourceReader {
@@ -56,11 +57,11 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
     /** Generate PostgreSQL source config from JobBaseConfig */
     private PostgresSourceConfig generatePostgresConfig(JobBaseConfig config) {
-        return generatePostgresConfig(config.getConfig());
+        return generatePostgresConfig(config.getConfig(), config.getJobId());
     }
 
     /** Generate PostgreSQL source config from Map config */
-    private PostgresSourceConfig generatePostgresConfig(Map<String, String> cdcConfig) {
+    private PostgresSourceConfig generatePostgresConfig(Map<String, String> cdcConfig, Long jobId) {
         PostgresSourceConfigFactory configFactory = new PostgresSourceConfigFactory();
 
         // Parse JDBC URL to extract connection info
@@ -68,13 +69,18 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         Preconditions.checkNotNull(jdbcUrl, "jdbc_url is required");
 
         // PostgreSQL JDBC URL format: jdbc:postgresql://host:port/database
-        java.net.URI uri = java.net.URI.create(jdbcUrl.substring(5)); // Remove "jdbc:"
-        String hostname = uri.getHost();
-        int port = uri.getPort() == -1 ? 5432 : uri.getPort();
-        String database = uri.getPath().substring(1); // Remove leading "/"
-        // Driver.parseURL()
+        Properties props = Driver.parseURL(jdbcUrl, null);
+        Preconditions.checkNotNull(props, "Invalid JDBC URL: " + jdbcUrl);
+
+        String hostname = props.getProperty("PGHOST");
+        String port = props.getProperty("PGPORT");
+        String database = props.getProperty("PGDBNAME");
+        Preconditions.checkNotNull(hostname, "host is required");
+        Preconditions.checkNotNull(port, "port is required");
+        Preconditions.checkNotNull(database, "database is required");
+
         configFactory.hostname(hostname);
-        configFactory.port(port);
+        configFactory.port(Integer.parseInt(port));
         configFactory.username(cdcConfig.get(DataSourceConfigKeys.USER));
         configFactory.password(cdcConfig.get(DataSourceConfigKeys.PASSWORD));
         configFactory.database(database);
@@ -82,7 +88,6 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         String schema = cdcConfig.get(DataSourceConfigKeys.SCHEMA);
         Preconditions.checkNotNull(schema, "schema is required");
         configFactory.schemaList(new String[] {schema});
-
         configFactory.includeSchemaChanges(false);
 
         // Set table list
@@ -119,12 +124,9 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
         }
 
-        // Set default slot name (can be made configurable later)
-        configFactory.slotName("flink_slot_" + ConfigUtil.getServerId(0));
-
-        // Set default plugin name (can be made configurable later)
+        configFactory.serverTimeZone(ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());
+        configFactory.slotName("doris_cdc_" + jobId);
         configFactory.decodingPluginName("pgoutput");
-
         return configFactory.create(0);
     }
 
@@ -208,26 +210,21 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         return postgresOffset1.compareTo(postgresOffset2);
     }
 
-    private Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {
-        Map<TableId, TableChanges.TableChange> schemas = this.getTableSchemas();
-        if (schemas == null) {
-            schemas = discoverTableSchemas(config);
-            this.setTableSchemas(schemas);
-        }
-        return schemas;
-    }
-
+    @Override
     protected Map<TableId, TableChanges.TableChange> discoverTableSchemas(JobBaseConfig config) {
         PostgresSourceConfig sourceConfig = getSourceConfig(config);
         try {
             PostgresDialect dialect = new PostgresDialect(sourceConfig);
             try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
-                // todo: 遍历所有的 tableId，获取
-                TableChange tableChange =
-                        dialect.queryTableSchema(
-                                jdbcConnection, TableId.parse("public.test_table"));
+                List<TableId> tableIds = TableDiscoveryUtils.listTables(
+                        sourceConfig.getDatabaseList().get(0),
+                        jdbcConnection,
+                        sourceConfig.getTableFilters(),
+                        sourceConfig.includePartitionedTables());
+                CustomPostgresSchema customPostgresSchema = new CustomPostgresSchema(
+                        (PostgresConnection) jdbcConnection, sourceConfig);
+                return customPostgresSchema.getTableSchema(tableIds);
             }
-            return new HashMap<>();
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }

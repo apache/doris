@@ -17,26 +17,39 @@
 
 package org.apache.doris.cdcclient.utils;
 
-import org.apache.commons.lang3.StringUtils;
-
-import java.time.ZoneId;
-import java.util.Map;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.mysql.cj.conf.ConnectionUrl;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import java.time.ZoneId;
+import java.util.Map;
 
 public class ConfigUtil {
     private static ObjectMapper objectMapper = new ObjectMapper();
+    private static final Logger LOG = LoggerFactory.getLogger(ConfigUtil.class);
 
     public static String getServerId(long jobId) {
         return String.valueOf(Math.abs(String.valueOf(jobId).hashCode()));
     }
 
-    public static ZoneId getServerTimeZone(String jdbcUrl) {
+    public static ZoneId getServerTimeZoneFromJdbcUrl(String jdbcUrl) {
+        if (jdbcUrl == null) {
+            return ZoneId.systemDefault();
+        }
+        if (jdbcUrl.startsWith("jdbc:mysql://") || jdbcUrl.startsWith("jdbc:mariadb://")) {
+            return getServerTimeZone(jdbcUrl);
+        } else if (jdbcUrl.startsWith("jdbc:postgresql://")) {
+            return getPostgresServerTimeZone(jdbcUrl);
+        }
+        return ZoneId.systemDefault();
+    }
+
+    private static ZoneId getServerTimeZone(String jdbcUrl) {
         Preconditions.checkNotNull(jdbcUrl, "jdbcUrl is null");
         ConnectionUrl cu = ConnectionUrl.getConnectionUrlInstance(jdbcUrl, null);
         return getTimeZoneFromProps(cu.getOriginalProperties());
@@ -45,6 +58,32 @@ public class ConfigUtil {
     public static ZoneId getTimeZoneFromProps(Map<String, String> originalProperties) {
         if (originalProperties != null && originalProperties.containsKey("serverTimezone")) {
             String timeZone = originalProperties.get("serverTimezone");
+            if (StringUtils.isNotEmpty(timeZone)) {
+                return ZoneId.of(timeZone);
+            }
+        }
+        return ZoneId.systemDefault();
+    }
+
+    public static ZoneId getPostgresServerTimeZone(String jdbcUrl) {
+        Preconditions.checkNotNull(jdbcUrl, "jdbcUrl is null");
+        try {
+            java.util.Properties props = org.postgresql.Driver.parseURL(jdbcUrl, null);
+            if (props != null && props.containsKey("timezone")) {
+                String timeZone = props.getProperty("timezone");
+                if (StringUtils.isNotEmpty(timeZone)) {
+                    return ZoneId.of(timeZone);
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to parse Postgres JDBC URL for timezone: {}", jdbcUrl);
+        }
+        return ZoneId.systemDefault();
+    }
+
+    public static ZoneId getPostgresServerTimeZoneFromProps(java.util.Properties props) {
+        if (props != null && props.containsKey("timezone")) {
+            String timeZone = props.getProperty("timezone");
             if (StringUtils.isNotEmpty(timeZone)) {
                 return ZoneId.of(timeZone);
             }
