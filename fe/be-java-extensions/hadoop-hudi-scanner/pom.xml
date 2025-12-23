@@ -52,7 +52,7 @@ under the License.
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>hadoop-deps</artifactId>
-            <version>1.2-SNAPSHOT</version>
+            <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
       

@@ -38,7 +38,6 @@ import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SearchPredicate;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TryCastExpr;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
@@ -78,7 +77,6 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -111,7 +109,6 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TDictFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -755,18 +752,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 unaryArithmetic.getDataType().toCatalogDataType(),
                 NullableMode.DEPEND_ON_ARGUMENT, unaryArithmetic.nullable());
         return arithmeticExpr;
-    }
-
-    @Override
-    public Expr visitTimestampArithmetic(TimestampArithmetic arithmetic, PlanTranslatorContext context) {
-        Preconditions.checkNotNull(arithmetic.getFuncName(),
-                "funcName in TimestampArithmetic should not be null");
-        TimestampArithmeticExpr timestampArithmeticExpr = new TimestampArithmeticExpr(
-                arithmetic.getFuncName(), arithmetic.getOp(),
-                arithmetic.left().accept(this, context), arithmetic.right().accept(this, context),
-                arithmetic.getTimeUnit().toString(), arithmetic.getDataType().toCatalogDataType(),
-                arithmetic.nullable());
-        return timestampArithmeticExpr;
     }
 
     @Override

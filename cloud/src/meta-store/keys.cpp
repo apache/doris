@@ -825,6 +825,15 @@ void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string*
     encode_bytes(std::get<2>(in), out);                 // rowset_id
 }
 
+void meta_rowset_key(const MetaRowsetKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);       // "meta"
+    encode_bytes(std::get<0>(in), out);       // instance_id
+    encode_bytes(META_KEY_INFIX_ROWSET, out); // "rowset"
+    encode_int64(std::get<1>(in), out);       // tablet_id
+    encode_bytes(std::get<2>(in), out);       // rowset_id
+}
+
 //==============================================================================
 // Snapshot keys
 //==============================================================================
@@ -1104,6 +1113,40 @@ bool decode_meta_tablet_key(std::string_view* in, int64_t* tablet_id, Versionsta
     return true;
 }
 
+// Decode tablet inverted index key
+// Return true if decode successfully, otherwise false
+bool decode_tablet_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
+                                      int64_t* index_id, int64_t* partition_id,
+                                      int64_t* tablet_id) {
+    // 0x03 "index" ${instance_id} "tablet_inverted" ${db_id} ${table_id} ${index_id} ${partition} ${tablet}
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_VERSIONED_KEY_SPACE03) {
+        return false;
+    }
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    auto res = decode_key(in, &out);
+    if (res != 0 || out.size() != 8) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != INDEX_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != TABLET_INVERTED_INDEX_KEY_INFIX) {
+            return false;
+        }
+        *db_id = std::get<int64_t>(std::get<0>(out[3]));
+        *table_id = std::get<int64_t>(std::get<0>(out[4]));
+        *index_id = std::get<int64_t>(std::get<0>(out[5]));
+        *partition_id = std::get<int64_t>(std::get<0>(out[6]));
+        *tablet_id = std::get<int64_t>(std::get<0>(out[7]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
 bool decode_snapshot_ref_key(std::string_view* in, std::string* instance_id,
                              Versionstamp* timestamp, std::string* ref_instance_id) {
     // Key format: 0x03 + encode_bytes("snapshot") + encode_bytes(instance_id) +
@@ -1149,6 +1192,34 @@ bool decode_snapshot_ref_key(std::string_view* in, std::string* instance_id,
 
     // Decode ref_instance_id
     if (ref_instance_id && decode_bytes(in, ref_instance_id) != 0) {
+        return false;
+    }
+
+    return true;
+}
+
+bool decode_data_rowset_ref_count_key(std::string_view* in, int64_t* tablet_id,
+                                      std::string* rowset_id) {
+    // 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id}
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_VERSIONED_KEY_SPACE03) {
+        return false;
+    }
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    auto res = decode_key(in, &out);
+    if (res != 0 || out.size() != 5) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != DATA_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != META_ROWSET_REF_COUNT_KEY_INFIX) {
+            return false;
+        }
+        *tablet_id = std::get<int64_t>(std::get<0>(out[3]));
+        *rowset_id = std::get<std::string>(std::get<0>(out[4]));
+    } catch (const std::bad_variant_access& e) {
         return false;
     }
 

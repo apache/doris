@@ -38,6 +38,17 @@ import org.apache.http.impl.client.LaxRedirectStrategy;
 //  - set smaller max_ttl_cache_ratio in this test
 
 suite("test_ttl_lru_evict") {
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99,
+        file_cache_background_ttl_gc_interval_ms : 1000,
+        file_cache_background_ttl_info_update_interval_ms : 1000,
+        file_cache_background_tablet_id_flush_interval_ms : 1000
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    sql "set global enable_auto_analyze = false"
+    sql "set global enable_audit_plugin = false"
     def clusters = sql " SHOW CLUSTERS; "
     assertTrue(!clusters.isEmpty())
     def validCluster = clusters[0][0]
@@ -336,5 +347,6 @@ suite("test_ttl_lru_evict") {
                 }
             }
             assertTrue(flag1)
+    }
     }
 }

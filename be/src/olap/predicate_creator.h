@@ -218,24 +218,28 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate0(
     }
     case TYPE_CHAR: {
         // TODO(gabriel): Use std::string instead of StringRef
-        size_t target = assert_cast<const vectorized::DataTypeString*>(
-                                vectorized::remove_nullable(data_type).get())
-                                ->len();
-        StringRef v = value;
-        if (target > value.size) {
-            char* buffer = arena.alloc(target);
-            memset(buffer, 0, target);
-            memcpy(buffer, value.data, value.size);
-            v = {buffer, target};
-        }
-
+        auto target =
+                std::max(cast_set<size_t>(assert_cast<const vectorized::DataTypeString*>(
+                                                  vectorized::remove_nullable(data_type).get())
+                                                  ->len()),
+                         value.size);
+        char* buffer = arena.alloc(target);
+        memset(buffer, 0, target);
+        memcpy(buffer, value.data, value.size);
+        StringRef v = {buffer, target};
         return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(cid, v, opposite);
     }
     case TYPE_VARCHAR: {
-        return ComparisonPredicateBase<TYPE_VARCHAR, PT>::create_shared(cid, value, opposite);
+        char* buffer = arena.alloc(value.size);
+        memcpy(buffer, value.data, value.size);
+        StringRef v = {buffer, value.size};
+        return ComparisonPredicateBase<TYPE_VARCHAR, PT>::create_shared(cid, v, opposite);
     }
     case TYPE_STRING: {
-        return ComparisonPredicateBase<TYPE_STRING, PT>::create_shared(cid, value, opposite);
+        char* buffer = arena.alloc(value.size);
+        memcpy(buffer, value.data, value.size);
+        StringRef v = {buffer, value.size};
+        return ComparisonPredicateBase<TYPE_STRING, PT>::create_shared(cid, v, opposite);
     }
     case TYPE_DATE: {
         return ComparisonPredicateBase<TYPE_DATE, PT>::create_shared(

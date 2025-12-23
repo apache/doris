@@ -108,7 +108,8 @@ enum TFileFormatType {
     FORMAT_CSV_SNAPPYBLOCK = 14,
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
-    FORMAT_TEXT = 17
+    FORMAT_TEXT = 17,
+    FORMAT_NATIVE = 18
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -1402,7 +1403,7 @@ struct TPlanNode {
   4: required i64 limit
   5: required list<Types.TTupleId> row_tuples
 
-  // nullable_tuples[i] is true if row_tuples[i] is nullable
+  // Deprecated
   6: required list<bool> nullable_tuples
   7: optional list<Exprs.TExpr> conjuncts
 

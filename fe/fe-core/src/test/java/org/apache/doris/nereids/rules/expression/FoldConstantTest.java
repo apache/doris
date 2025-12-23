@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression;
 
-import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -36,7 +35,6 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
@@ -114,7 +112,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -137,7 +134,6 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.Locale;
 
 class FoldConstantTest extends ExpressionRewriteTestHelper {
 
@@ -1161,84 +1157,6 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         // 1
         Literal one = Literal.of(1);
         assertRewrite(one, one);
-    }
-
-    @Test
-    void testTimestampFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
-        ));
-        String interval = "'1991-05-01' - interval 1 day";
-        Expression e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        Expression e8 = new DateV2Literal(1991, 4, 30);
-        assertRewrite(e7, e8);
-
-        interval = "'1991-05-01' + interval '1' day";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 5, 2);
-        assertRewrite(e7, e8);
-
-        interval = "'1991-05-01' + interval 1+1 day";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 5, 3);
-        assertRewrite(e7, e8);
-
-        interval = "date '1991-05-01' + interval 10 / 2 + 1 day";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 5, 7);
-        assertRewrite(e7, e8);
-
-        interval = "interval '1' day + '1991-05-01'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 5, 2);
-        assertRewrite(e7, e8);
-
-        interval = "interval '3' month + '1991-05-01'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 8, 1);
-        assertRewrite(e7, e8);
-
-        interval = "interval 3 + 1 month + '1991-05-01'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 9, 1);
-        assertRewrite(e7, e8);
-
-        interval = "interval 3 + 1 year + '1991-05-01'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1995, 5, 1);
-        assertRewrite(e7, e8);
-
-        interval = "interval 3 + 3 / 3 hour + '1991-05-01 10:00:00'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeV2Literal(1991, 5, 1, 14, 0, 0);
-        assertRewrite(e7, e8);
-
-        interval = "interval 3 * 2 / 3 minute + '1991-05-01 10:00:00'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeV2Literal(1991, 5, 1, 10, 2, 0);
-        assertRewrite(e7, e8);
-
-        interval = "interval 3 / 3 + 1 second + '1991-05-01 10:00:00'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeV2Literal(1991, 5, 1, 10, 0, 2);
-        assertRewrite(e7, e8);
-
-        // a + interval 1 day
-        Slot a = SlotReference.of("a", DateTimeV2Type.SYSTEM_DEFAULT);
-        TimestampArithmetic arithmetic = new TimestampArithmetic(Operator.ADD, a, Literal.of(1), TimeUnit.DAY);
-        Expression process = process(arithmetic);
-        assertRewrite(process, process);
-    }
-
-    Expression process(TimestampArithmetic arithmetic) {
-        String funcOpName;
-        if (arithmetic.getFuncName() == null) {
-            funcOpName = String.format("%sS_%s", arithmetic.getTimeUnit(),
-                    (arithmetic.getOp() == Operator.ADD) ? "ADD" : "SUB");
-        } else {
-            funcOpName = arithmetic.getFuncName();
-        }
-        return arithmetic.withFuncName(funcOpName.toLowerCase(Locale.ROOT));
     }
 
     @Test
