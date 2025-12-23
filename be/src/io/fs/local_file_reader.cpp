@@ -52,7 +52,9 @@ std::vector<doris::DataDirInfo> BeConfDataDirReader::be_config_data_dir_list;
 
 void BeConfDataDirReader::get_data_dir_by_file_path(io::Path* file_path,
                                                     std::string* data_dir_arg) {
+#ifndef BE_TEST
     be_config_data_dir_list_inited.wait(false);
+#endif
     for (const auto& data_dir_info : be_config_data_dir_list) {
         if (data_dir_info.path.size() >= file_path->string().size()) {
             continue;
