@@ -2708,9 +2708,79 @@ public class StmtExecutor {
              }
              context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
          }
+
+         if (numColumns > 0) {
+             List<String> resultColNames = new ArrayList<>();
+             List<Type> resultColTypes = new ArrayList<>();
+
+             if (parsedStmt instanceof SelectStmt) {
+                 List<String> colLabels = ((SelectStmt) parsedStmt).getColLabels();
+                 if (colLabels != null && !colLabels.isEmpty()) {
+                     resultColNames.addAll(colLabels);
+                 }
+                 List<Expr> resultExprs = ((SelectStmt) parsedStmt).getResultExprs();
+                 if (resultExprs != null && !resultExprs.isEmpty()) {
+                     for (Expr expr : resultExprs) {
+                         Type colType = Type.STRING;
+                         resultColTypes.add(colType);
+                     }
+                 }
+             } else if (parsedStmt instanceof LogicalPlanAdapter) {
+                 List<FieldInfo> fieldInfos = ((LogicalPlanAdapter) parsedStmt).getFieldInfos();
+                 if (fieldInfos != null && !fieldInfos.isEmpty()) {
+                     for (FieldInfo fieldInfo : fieldInfos) {
+                         String colName = fieldInfo.getName() != null ? fieldInfo.getName() : "col_" + resultColNames.size();
+                         resultColNames.add(colName);
+                         resultColTypes.add(Type.STRING);
+                     }
+                 }
+             } else if (parsedStmt instanceof ShowStmt) {
+                 ShowResultSetMetaData metaData = ((ShowStmt) parsedStmt).getMetaData();
+                 if (metaData != null) {
+                     List<Column> columns = metaData.getColumns();
+                     if (columns != null && !columns.isEmpty()) {
+                         for (Column column : columns) {
+                             String colName = column.getName() != null ? column.getName() : "col_" + resultColNames.size();
+                             resultColNames.add(colName);
+                             Type colType = Type.STRING;
+                             resultColTypes.add(colType);
+                         }
+                     }
+                 }
+             }
+
+             for (int i = 0; i < numColumns; ++i) {
+                 serializer.reset();
+
+                 String colName = "col_" + i;
+                 if (i < resultColNames.size()) {
+                     String tmpName = resultColNames.get(i);
+                     if (tmpName != null && !tmpName.isEmpty()) {
+                         colName = tmpName;
+                     }
+                 }
+                 Type colType = Type.STRING;
+                 if (i < resultColTypes.size() && resultColTypes.get(i) != null) {
+                     colType = resultColTypes.get(i);
+                 }
+                 serializer.writeField(colName, colType);
+                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+             }
+
+             serializer.reset();
+             if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                 MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+                 eofPacket.writeTo(serializer);
+             } else {
+                 MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
+                 okPacket.writeTo(serializer);
+             }
+             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+         }
+
          context.getMysqlChannel().flush();
          context.getState().setNoop();
-}
+    }
 
     private void sendFields(List<String> colNames, List<Type> types) throws IOException {
         sendFields(colNames, null, types);

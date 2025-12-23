@@ -72,6 +72,7 @@ import java.io.IOException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -980,10 +981,10 @@ public class StmtExecutorTest {
                        | ((firstPacketBytes[2] & 0xFF) << 8)
                        | ((firstPacketBytes[3] & 0xFF) << 16)
                        | ((firstPacketBytes[4] & 0xFF) << 24);
-            
+
             int numColumns = (firstPacketBytes[5] & 0xFF) | ((firstPacketBytes[6] & 0xFF) << 8);
             Assert.assertEquals(3,numColumns);
-            
+
             int numParams = (firstPacketBytes[7] & 0xFF) | ((firstPacketBytes[8] & 0xFF) << 8);
         }
     }
