@@ -28,7 +28,7 @@ import java.util.Map;
 /**
  * Utility to estimate the JVM weight of Iceberg {@link ContentFile} objects.
  */
-public final class ContentFileEstimater {
+public final class ContentFileEstimator {
     private static final long LIST_BASE_WEIGHT = 48L;
     private static final long OBJECT_REFERENCE_WEIGHT = 8L;
     private static final long CONTENT_FILE_BASE_WEIGHT = 256L;
@@ -42,7 +42,7 @@ public final class ContentFileEstimater {
     private static final long PARTITION_BASE_WEIGHT = 48L;
     private static final long PARTITION_VALUE_BASE_WEIGHT = 8L;
 
-    private ContentFileEstimater() {
+    private ContentFileEstimator() {
     }
 
     public static long estimate(List<? extends ContentFile<?>> files) {

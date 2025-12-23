@@ -64,7 +64,7 @@ import org.apache.iceberg.util.Tasks;
  * DataFile)} or {@link #forEntry(ManifestEntry)} to get the delete files to apply to a given data
  * file.
  * 
- * Copyed from https://github.com/apache/iceberg/blob/apache-iceberg-1.9.1/core/src/main/java/org/apache/iceberg/DeleteFileIndex.java
+ * Copied from https://github.com/apache/iceberg/blob/apache-iceberg-1.9.1/core/src/main/java/org/apache/iceberg/DeleteFileIndex.java
  * Change DeleteFileIndex and some methods to public.
  */
 public class DeleteFileIndex {

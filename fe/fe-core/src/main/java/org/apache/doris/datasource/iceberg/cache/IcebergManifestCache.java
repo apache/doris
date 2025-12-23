@@ -78,9 +78,7 @@ public class IcebergManifestCache {
     }
 
     public void invalidateByPath(String path) {
-        cache.asMap().keySet().stream()
-                .filter(key -> key.getPath().equals(path))
-                .forEach(cache::invalidate);
+        cache.invalidate(buildKey(path));
     }
 
     public void invalidateAll() {

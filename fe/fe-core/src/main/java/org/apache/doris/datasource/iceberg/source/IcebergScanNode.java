@@ -413,12 +413,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         // Residual evaluators compute the remaining filter expression after partition pruning
         Map<Integer, ResidualEvaluator> residualEvaluators = new HashMap<>();
         specsById.forEach((id, spec) -> residualEvaluators.put(id,
-                ResidualEvaluator.of(spec, filterExpr == null ? Expressions.alwaysTrue() : filterExpr,
-                        caseSensitive)));
+                ResidualEvaluator.of(spec, filterExpr, caseSensitive)));
 
         // Create metrics evaluator for file-level pruning based on column statistics
-        InclusiveMetricsEvaluator metricsEvaluator = filterExpr == null ? null
-                : new InclusiveMetricsEvaluator(icebergTable.schema(), filterExpr, caseSensitive);
+        InclusiveMetricsEvaluator metricsEvaluator =
+                new InclusiveMetricsEvaluator(icebergTable.schema(), filterExpr, caseSensitive);
 
         // ========== Phase 1: Load delete files from delete manifests ==========
         List<DeleteFile> deleteFiles = new ArrayList<>();
@@ -434,10 +433,10 @@ public class IcebergScanNode extends FileQueryScanNode {
                 continue;
             }
             // Create manifest evaluator for partition-level pruning
-            ManifestEvaluator evaluator = filterExpr == null ? null
-                    : ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive);
+            ManifestEvaluator evaluator =
+                    ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive);
             // Skip manifest if it doesn't match the filter expression (partition pruning)
-            if (evaluator != null && !evaluator.eval(manifest)) {
+            if (!evaluator.eval(manifest)) {
                 continue;
             }
             // Load delete files from cache (or from storage if not cached)
@@ -469,6 +468,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                 }
                 // Get the residual evaluator for this partition spec
                 ResidualEvaluator residualEvaluator = residualEvaluators.get(manifest.partitionSpecId());
+                if (residualEvaluator == null) {
+                    continue;
+                }
 
                 // Load data files from cache (or from storage if not cached)
                 ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache, manifest,
@@ -481,10 +483,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                         continue;
                     }
                     // Skip file if partition values don't match the residual filter
-                    if (residualEvaluator != null) {
-                        if (residualEvaluator.residualFor(dataFile.partition()).equals(Expressions.alwaysFalse())) {
-                            continue;
-                        }
+                    if (residualEvaluator.residualFor(dataFile.partition()).equals(Expressions.alwaysFalse())) {
+                        continue;
                     }
                     // Find all delete files that apply to this data file based on sequence number
                     List<DeleteFile> deletes = Arrays.asList(
@@ -496,8 +496,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                             deletes.toArray(new DeleteFile[0]),
                             SchemaParser.toJson(icebergTable.schema()),
                             PartitionSpecParser.toJson(spec),
-                            residualEvaluator == null ? ResidualEvaluator.unpartitioned(Expressions.alwaysTrue())
-                                    : residualEvaluator));
+                            residualEvaluator));
                 }
             }
         }

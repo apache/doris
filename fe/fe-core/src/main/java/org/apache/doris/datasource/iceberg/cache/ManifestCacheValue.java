@@ -60,6 +60,6 @@ public class ManifestCacheValue {
     }
 
     private static long estimateWeight(List<DataFile> dataFiles, List<DeleteFile> deleteFiles) {
-        return ContentFileEstimater.estimate(dataFiles) + ContentFileEstimater.estimate(deleteFiles);
+        return ContentFileEstimator.estimate(dataFiles) + ContentFileEstimator.estimate(deleteFiles);
     }
 }
