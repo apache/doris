@@ -164,7 +164,7 @@ public class NereidsPlanner extends Planner {
                 if (plan instanceof PhysicalPlan) {
                     physicalPlan = (PhysicalPlan) plan;
                     distribute(physicalPlan, explainLevel);
-                    cachePlanFragments(explainLevel);
+                    cacheThriftPlans(explainLevel);
                 }
             });
         } finally {
@@ -721,14 +721,14 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    private void cachePlanFragments(ExplainLevel explainLevel) {
+    private void cacheThriftPlans(ExplainLevel explainLevel) {
         if (explainLevel != ExplainLevel.NONE && explainLevel.isPlanLevel
                 && (explainLevel != ExplainLevel.ALL_PLAN && explainLevel != ExplainLevel.DISTRIBUTED_PLAN)) {
             return;
         }
         for (PlanFragment fragment : fragments) {
             // cache TPlanFragment in the table lock, to prevent concurrent schema change when ThriftPlansBuilder
-            fragment.toThrift();
+            fragment.cacheThriftPlan();
         }
     }
 

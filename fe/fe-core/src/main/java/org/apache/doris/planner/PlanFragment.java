@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
+import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TQueryCacheParam;
 import org.apache.doris.thrift.TResultSinkType;
@@ -164,7 +165,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public TQueryCacheParam queryCacheParam;
     private int numBackends = 0;
     private boolean forceSingleInstance = false;
-    private Supplier<TPlanFragment> cachedThrift;
+    private Supplier<TPlan> thriftPlanCache;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -178,7 +179,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.builderRuntimeFilterIds = new HashSet<>();
         this.targetRuntimeFilterIds = new HashSet<>();
         this.hasBucketShuffleJoin = buildHasBucketShuffleJoin();
-        this.cachedThrift = buildThriftCache();
+        this.thriftPlanCache = buildTPlanCache();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
     }
@@ -207,29 +208,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         });
     }
 
-    private Supplier<TPlanFragment> buildThriftCache() {
-        return Suppliers.memoize(() -> {
-            TPlanFragment result = new TPlanFragment();
-            if (planRoot != null) {
-                result.setPlan(planRoot.treeToThrift());
-            }
-            if (outputExprs != null) {
-                result.setOutputExprs(Expr.treesToThrift(outputExprs));
-            }
-            if (sink != null) {
-                result.setOutputSink(sink.toThrift());
-            }
-            if (dataPartitionForThrift == null) {
-                result.setPartition(dataPartition.toThrift());
-            } else {
-                result.setPartition(dataPartitionForThrift.toThrift());
-            }
-
-            // TODO chenhao , calculated by cost
-            result.setMinReservationBytes(0);
-            result.setInitialReservationTotalClaims(0);
-            return result;
-        });
+    private Supplier<TPlan> buildTPlanCache() {
+        return Suppliers.memoize(planRoot::treeToThrift);
     }
 
     /**
@@ -346,11 +326,36 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return parallelExecNum;
     }
 
-    public TPlanFragment toThrift() {
-        if (cachedThrift == null) {
-            cachedThrift = buildThriftCache();
+    public TPlan cacheThriftPlan() {
+        if (thriftPlanCache == null) {
+            thriftPlanCache = buildTPlanCache();
         }
-        return cachedThrift.get();
+        return thriftPlanCache.get();
+    }
+
+    public TPlanFragment toThrift() {
+        cacheThriftPlan();
+
+        TPlanFragment result = new TPlanFragment();
+        if (planRoot != null) {
+            result.setPlan(thriftPlanCache.get());
+        }
+        if (outputExprs != null) {
+            result.setOutputExprs(Expr.treesToThrift(outputExprs));
+        }
+        if (sink != null) {
+            result.setOutputSink(sink.toThrift());
+        }
+        if (dataPartitionForThrift == null) {
+            result.setPartition(dataPartition.toThrift());
+        } else {
+            result.setPartition(dataPartitionForThrift.toThrift());
+        }
+
+        // TODO chenhao , calculated by cost
+        result.setMinReservationBytes(0);
+        result.setInitialReservationTotalClaims(0);
+        return result;
     }
 
     public String getExplainString(TExplainLevel explainLevel) {
