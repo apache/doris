@@ -511,6 +511,76 @@ TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries)
     }
 }
 
+TEST_F(BlockFileCacheTest, HandleAlreadyLoadedBlockUpdatesSizeAndTablet) {
+    config::enable_evict_file_cache_in_advance = false;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 5000000;
+    settings.query_queue_elements = 50000;
+    settings.index_queue_size = 5000000;
+    settings.index_queue_elements = 50000;
+    settings.disposable_queue_size = 5000000;
+    settings.disposable_queue_elements = 50000;
+    settings.capacity = 20000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.query_id.hi = 11;
+    context.query_id.lo = 12;
+    context.tablet_id = 0;
+    auto key = io::BlockFileCache::hash("sync_cached_block_meta_key");
+
+    constexpr size_t kOriginalSize = 100000;
+    auto holder = cache.get_or_set(key, 0, kOriginalSize, context);
+    auto blocks = fromHolder(holder);
+    ASSERT_EQ(blocks.size(), 1);
+    ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+    download(blocks[0], kOriginalSize);
+    blocks.clear();
+
+    auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+    ASSERT_NE(fs_storage, nullptr) << "Expected FSFileCacheStorage but got different storage type";
+
+    constexpr size_t kNewSize = 2 * kOriginalSize;
+    constexpr int64_t kTabletId = 4242;
+    bool handled = false;
+    {
+        SCOPED_CACHE_LOCK(cache._mutex, (&cache));
+        handled = fs_storage->handle_already_loaded_block(&cache, key, 0, kNewSize, kTabletId,
+                                                          cache_lock);
+    }
+
+    ASSERT_TRUE(handled);
+    auto& cell = cache._files[key][0];
+    EXPECT_EQ(cell.file_block->tablet_id(), kTabletId);
+    EXPECT_EQ(cache._cur_cache_size, kNewSize);
+    EXPECT_EQ(cache._normal_queue.get_capacity_unsafe(), kNewSize);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
 TEST_F(BlockFileCacheTest, estimate_file_count_skips_removed_directory) {
     std::string test_dir = cache_base_path + "/estimate_file_count_removed_dir";
     if (fs::exists(test_dir)) {
