@@ -18,6 +18,7 @@
 package org.apache.doris.cooldown;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
@@ -83,7 +84,7 @@ public class CooldownConfHandler extends MasterDaemon {
             int index = rand.nextInt(replicas.size());
             conf.setCooldownReplicaId(replicas.get(index).getId());
             // find TabletMeta to get cooldown term
-            Tablet tablet = getTablet(conf);
+            LocalTablet tablet = (LocalTablet) getTablet(conf);
             if (tablet == null || tablet.getCooldownConf().second != conf.cooldownTerm) {
                 // If tablet.cooldownTerm != conf.cooldownTerm, means cooldown conf of this tablet has been updated,
                 // should skip this update.
@@ -100,7 +101,7 @@ public class CooldownConfHandler extends MasterDaemon {
 
         // update Tablet
         for (CooldownConf conf : updatedConf) {
-            Tablet tablet = tabletMap.get(conf.tabletId);
+            LocalTablet tablet = (LocalTablet) tabletMap.get(conf.tabletId);
             tablet.setCooldownConf(conf.cooldownReplicaId, conf.cooldownTerm);
             LOG.info("update cooldown conf. tabletId={} cooldownReplicaId={} cooldownTerm={}", conf.tabletId,
                     conf.cooldownReplicaId, conf.cooldownTerm);
@@ -135,7 +136,7 @@ public class CooldownConfHandler extends MasterDaemon {
 
     public static void replayUpdateCooldownConf(CooldownConfList cooldownConfList) {
         cooldownConfList.getCooldownConf().forEach(conf -> {
-            Tablet tablet = getTablet(conf);
+            LocalTablet tablet = (LocalTablet) getTablet(conf);
             if (tablet != null) {
                 tablet.setCooldownConf(conf.cooldownReplicaId, conf.cooldownTerm);
             }
