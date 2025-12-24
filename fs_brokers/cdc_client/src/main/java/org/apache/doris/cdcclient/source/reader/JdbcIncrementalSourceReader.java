@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
+import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
@@ -28,7 +29,6 @@ import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
@@ -41,6 +41,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.common.utils.Preconditions;
 import org.apache.flink.cdc.connectors.base.config.JdbcSourceConfig;
 import org.apache.flink.cdc.connectors.base.dialect.JdbcDataSourceDialect;
+import org.apache.flink.cdc.connectors.base.options.StartupOptions;
 import org.apache.flink.cdc.connectors.base.source.assigner.HybridSplitAssigner;
 import org.apache.flink.cdc.connectors.base.source.assigner.SnapshotSplitAssigner;
 import org.apache.flink.cdc.connectors.base.source.meta.offset.Offset;
@@ -86,6 +87,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     private Map<TableId, TableChanges.TableChange> tableSchemas;
     private SplitRecords currentSplitRecords;
     private SourceSplitBase currentSplit;
+    protected FetchTask<SourceSplitBase> currentFetchTask;
 
     public JdbcIncrementalSourceReader() {
         this.serializer = new DebeziumJsonDeserializer();
@@ -284,12 +286,12 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                 recordResponse.setMeta(meta);
             }
         }
+        commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
         return recordResponse;
     }
 
     protected Tuple2<SourceSplitBase, Boolean> createSourceSplit(
-            Map<String, Object> offsetMeta, JobBaseConfig jobConfig)
-            throws JsonProcessingException {
+            Map<String, Object> offsetMeta, JobBaseConfig jobConfig) {
         Tuple2<SourceSplitBase, Boolean> splitRes = null;
         String splitId = String.valueOf(offsetMeta.get(SPLIT_ID));
         if (!BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
@@ -341,12 +343,6 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
 
     private Tuple2<SourceSplitBase, Boolean> createStreamSplit(
             Map<String, Object> meta, JobBaseConfig config) {
-        // PostgresSourceConfig sourceConfig = getSourceConfig(config);
-        Offset offsetConfig = null;
-        // if (sourceConfig.getStartupOptions() != null) {
-        // todo
-        // offsetConfig = sourceConfig.getStartupOptions().startupOffset;
-        // }
         BinlogSplit streamSplit = objectMapper.convertValue(meta, BinlogSplit.class);
         List<FinishedSnapshotSplitInfo> finishedSnapshotSplitInfos = new ArrayList<>();
         Offset minOffsetFinishSplits = null;
@@ -388,11 +384,12 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         if (minOffsetFinishSplits != null && lastOffset.getOffset().isEmpty()) {
             startOffset = minOffsetFinishSplits;
         } else if (!lastOffset.getOffset().isEmpty()) {
+            lastOffset.getOffset().remove(SPLIT_ID);
             startOffset = lastOffset;
-        } else if (offsetConfig != null) {
-            startOffset = offsetConfig;
         } else {
-            startOffset = createInitialOffset();
+            // The input offset from params is empty
+            JdbcSourceConfig sourceConfig = getSourceConfig(config);
+            startOffset = getStartOffsetFromConfig(sourceConfig);
         }
 
         boolean pureStreamPhase = false;
@@ -419,6 +416,26 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         StreamSplit streamSplitFinal =
                 StreamSplit.fillTableSchemas(split.asStreamSplit(), getTableSchemas(config));
         return Tuple2.of(streamSplitFinal, pureStreamPhase);
+    }
+
+    private Offset getStartOffsetFromConfig(JdbcSourceConfig sourceConfig) {
+        StartupOptions startupOptions = sourceConfig.getStartupOptions();
+        Offset startingOffset;
+        switch (startupOptions.startupMode) {
+            case LATEST_OFFSET:
+                startingOffset = getDialect(sourceConfig).displayCurrentOffset(sourceConfig);
+                break;
+            case EARLIEST_OFFSET:
+                startingOffset = createInitialOffset();
+                break;
+            case TIMESTAMP:
+            case SPECIFIC_OFFSETS:
+            case COMMITTED_OFFSETS:
+            default:
+                throw new IllegalStateException(
+                        "Unsupported startup mode " + startupOptions.startupMode);
+        }
+        return startingOffset;
     }
 
     private List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
@@ -504,7 +521,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     private SplitRecords pollSplitRecordsWithSplit(SourceSplitBase split, JobBaseConfig jobConfig)
             throws Exception {
         Preconditions.checkState(split != null, "split is null");
-        Iterator<SourceRecords> dataIt = null;
+        SourceRecords sourceRecords = null;
         String currentSplitId = null;
         Fetcher<SourceRecords, SourceSplitBase> currentReader = null;
         LOG.info("Get a split: {}", split.splitId());
@@ -517,14 +534,14 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         FetchTask<SourceSplitBase> splitFetchTask = createFetchTaskFromSplit(jobConfig, split);
         currentReader.submitTask(splitFetchTask);
         currentSplitId = split.splitId();
+        this.setCurrentFetchTask(splitFetchTask);
         // make split record available
-        // todo: Until debezium_heartbeat is consumed
-        Thread.sleep(10000);
-        dataIt = currentReader.pollSplitRecords();
+        sourceRecords =
+                pollUntilDataAvailable(currentReader, Constants.POLL_SPLIT_RECORDS_TIMEOUTS, 500);
         if (currentReader instanceof IncrementalSourceScanFetcher) {
             closeSnapshotReader();
         }
-        return dataIt == null ? null : new SplitRecords(currentSplitId, dataIt.next().iterator());
+        return new SplitRecords(currentSplitId, sourceRecords.iterator());
     }
 
     private SplitRecords pollSplitRecordsWithCurrentReader(
@@ -538,6 +555,52 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         } else {
             throw new IllegalStateException("Unsupported reader type.");
         }
+    }
+
+    /**
+     * Split tasks are submitted asynchronously, and data is sent to the Debezium queue. Therefore,
+     * there will be a time interval between retrieving data; it's necessary to fetch data until the
+     * queue has data.
+     */
+    private SourceRecords pollUntilDataAvailable(
+            Fetcher<SourceRecords, SourceSplitBase> reader, long maxWaitTimeMs, long pollIntervalMs)
+            throws InterruptedException {
+        long startTime = System.currentTimeMillis();
+        long elapsedTime = 0;
+        int attemptCount = 0;
+        LOG.info("Polling until data available");
+        Iterator<SourceRecords> lastDataIt = null;
+        while (elapsedTime < maxWaitTimeMs) {
+            attemptCount++;
+            lastDataIt = reader.pollSplitRecords();
+            if (lastDataIt != null && lastDataIt.hasNext()) {
+                SourceRecords sourceRecords = lastDataIt.next();
+                if (sourceRecords != null && !sourceRecords.getSourceRecordList().isEmpty()) {
+                    LOG.info(
+                            "Data available after {} ms ({} attempts). {} Records received.",
+                            elapsedTime,
+                            attemptCount,
+                            sourceRecords.getSourceRecordList().size());
+                    // todo: poll until heartbeat ?
+                    return sourceRecords;
+                }
+            }
+
+            // No records yet, continue polling
+            if (elapsedTime + pollIntervalMs < maxWaitTimeMs) {
+                Thread.sleep(pollIntervalMs);
+                elapsedTime = System.currentTimeMillis() - startTime;
+            } else {
+                // Last attempt before timeout
+                break;
+            }
+        }
+
+        LOG.warn(
+                "Timeout: No data (heartbeat or data change) received after {} ms ({} attempts).",
+                elapsedTime,
+                attemptCount);
+        return new SourceRecords(new ArrayList<>());
     }
 
     private void closeSnapshotReader() {
@@ -590,7 +653,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         Preconditions.checkNotNull(split, "split is null");
         SourceSplitBase postgresSplit = (SourceSplitBase) split;
         Map<String, String> offsetRes =
-                postgresSplit.asStreamSplit().getStartingOffset().getOffset();
+                new HashMap<>(postgresSplit.asStreamSplit().getStartingOffset().getOffset());
         offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
         return offsetRes;
     }

@@ -14,12 +14,14 @@ import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
 import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.cdc.connectors.base.config.JdbcSourceConfig;
 import org.apache.flink.cdc.connectors.base.dialect.JdbcDataSourceDialect;
 import org.apache.flink.cdc.connectors.base.options.StartupOptions;
 import org.apache.flink.cdc.connectors.base.source.meta.offset.Offset;
 import org.apache.flink.cdc.connectors.base.source.meta.offset.OffsetFactory;
 import org.apache.flink.cdc.connectors.base.source.meta.split.SourceSplitBase;
+import org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit;
 import org.apache.flink.cdc.connectors.base.source.reader.external.FetchTask;
 import org.apache.flink.cdc.connectors.base.source.reader.external.IncrementalSourceScanFetcher;
 import org.apache.flink.cdc.connectors.base.source.reader.external.IncrementalSourceStreamFetcher;
@@ -27,6 +29,7 @@ import org.apache.flink.cdc.connectors.postgres.source.PostgresDialect;
 import org.apache.flink.cdc.connectors.postgres.source.config.PostgresSourceConfig;
 import org.apache.flink.cdc.connectors.postgres.source.config.PostgresSourceConfigFactory;
 import org.apache.flink.cdc.connectors.postgres.source.fetch.PostgresSourceFetchTaskContext;
+import org.apache.flink.cdc.connectors.postgres.source.fetch.PostgresStreamFetchTask;
 import org.apache.flink.cdc.connectors.postgres.source.offset.PostgresOffset;
 import org.apache.flink.cdc.connectors.postgres.source.offset.PostgresOffsetFactory;
 import org.apache.flink.cdc.connectors.postgres.source.utils.CustomPostgresSchema;
@@ -124,9 +127,11 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
         }
 
-        configFactory.serverTimeZone(ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());
+        configFactory.serverTimeZone(
+                ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());
         configFactory.slotName("doris_cdc_" + jobId);
         configFactory.decodingPluginName("pgoutput");
+        // configFactory.heartbeatInterval(Duration.ofMillis(Constants.POLL_SPLIT_RECORDS_TIMEOUTS));
         return configFactory.create(0);
     }
 
@@ -216,13 +221,14 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         try {
             PostgresDialect dialect = new PostgresDialect(sourceConfig);
             try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
-                List<TableId> tableIds = TableDiscoveryUtils.listTables(
-                        sourceConfig.getDatabaseList().get(0),
-                        jdbcConnection,
-                        sourceConfig.getTableFilters(),
-                        sourceConfig.includePartitionedTables());
-                CustomPostgresSchema customPostgresSchema = new CustomPostgresSchema(
-                        (PostgresConnection) jdbcConnection, sourceConfig);
+                List<TableId> tableIds =
+                        TableDiscoveryUtils.listTables(
+                                sourceConfig.getDatabaseList().get(0),
+                                jdbcConnection,
+                                sourceConfig.getTableFilters(),
+                                sourceConfig.includePartitionedTables());
+                CustomPostgresSchema customPostgresSchema =
+                        new CustomPostgresSchema((PostgresConnection) jdbcConnection, sourceConfig);
                 return customPostgresSchema.getTableSchema(tableIds);
             }
         } catch (Exception ex) {
@@ -237,5 +243,35 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         FetchTask<SourceSplitBase> fetchTask = dialect.createFetchTask(split);
         return fetchTask;
+    }
+
+    /**
+     * This commit commits values up to the startOffset of the current split; even if
+     * `CommitFeOffset` fails, Data after the startOffset will not be cleared.
+     */
+    @Override
+    public void commitSourceOffset(Long jobId, SourceSplit sourceSplit) {
+        try {
+            if (sourceSplit instanceof StreamSplit) {
+                Offset offsetToCommit = ((StreamSplit) sourceSplit).getStartingOffset();
+                if (getCurrentFetchTask() != null
+                        && getCurrentFetchTask() instanceof PostgresStreamFetchTask) {
+                    ((PostgresStreamFetchTask) getCurrentFetchTask())
+                            .commitCurrentOffset(offsetToCommit);
+                    LOG.info(
+                            "Committing job {} postgres offset {} for {}",
+                            jobId,
+                            offsetToCommit,
+                            getCurrentFetchTask().getSplit());
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn(
+                    "Failed to commit {} postgres offset for split {}: {}",
+                    jobId,
+                    sourceSplit,
+                    e.getMessage(),
+                    e);
+        }
     }
 }

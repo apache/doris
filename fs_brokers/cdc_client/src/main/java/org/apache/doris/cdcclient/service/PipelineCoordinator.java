@@ -194,6 +194,8 @@ public class PipelineCoordinator {
             // request fe api
             batchStreamLoad.commitOffset(metaResponse, scannedRows, scannedBytes);
 
+            // commit source offset if need
+            sourceReader.commitSourceOffset(writeRecordRequest.getJobId(), readResult.getSplit());
         } finally {
             batchStreamLoad.resetTaskId();
         }

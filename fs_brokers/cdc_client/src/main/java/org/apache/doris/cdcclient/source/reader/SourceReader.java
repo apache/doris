@@ -73,4 +73,10 @@ public interface SourceReader {
     void close(Long jobId);
 
     List<String> deserialize(Map<String, String> config, SourceRecord element) throws IOException;
+
+    /**
+     * Commits the given offset with the source database. Used by some source like Postgres to
+     * indicate how far the source TX log can be discarded.
+     */
+    default void commitSourceOffset(Long jobId, SourceSplit sourceSplit) {}
 }

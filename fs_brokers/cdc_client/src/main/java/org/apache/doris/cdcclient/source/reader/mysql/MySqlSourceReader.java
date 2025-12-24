@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.source.reader.mysql;
 
+import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
@@ -33,10 +34,24 @@ import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
-
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.shyiko.mysql.binlog.BinaryLogClient;
+import com.mysql.cj.conf.ConnectionUrl;
+import io.debezium.connector.mysql.MySqlConnection;
+import io.debezium.connector.mysql.MySqlPartition;
+import io.debezium.document.Array;
+import io.debezium.relational.Column;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.HistoryRecord;
+import io.debezium.relational.history.TableChanges;
+import lombok.Data;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
+import static org.apache.doris.cdcclient.utils.ConfigUtil.is13Timestamp;
+import static org.apache.doris.cdcclient.utils.ConfigUtil.isJson;
+import static org.apache.doris.cdcclient.utils.ConfigUtil.toStringMap;
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -46,6 +61,7 @@ import org.apache.flink.cdc.connectors.mysql.debezium.reader.BinlogSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.DebeziumReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.SnapshotSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.task.context.StatefulTaskContext;
+import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
 import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlSnapshotSplitAssigner;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
@@ -67,9 +83,11 @@ import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
 import org.apache.flink.cdc.debezium.history.FlinkJsonTableChangeSerializer;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -82,26 +100,6 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-
-import static org.apache.doris.cdcclient.utils.ConfigUtil.is13Timestamp;
-import static org.apache.doris.cdcclient.utils.ConfigUtil.isJson;
-import static org.apache.doris.cdcclient.utils.ConfigUtil.toStringMap;
-import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.shyiko.mysql.binlog.BinaryLogClient;
-import com.mysql.cj.conf.ConnectionUrl;
-import io.debezium.connector.mysql.MySqlConnection;
-import io.debezium.connector.mysql.MySqlPartition;
-import io.debezium.document.Array;
-import io.debezium.relational.Column;
-import io.debezium.relational.TableId;
-import io.debezium.relational.history.HistoryRecord;
-import io.debezium.relational.history.TableChanges;
-import lombok.Data;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @Data
 public class MySqlSourceReader implements SourceReader {
@@ -499,7 +497,7 @@ public class MySqlSourceReader implements SourceReader {
     private SplitRecords pollSplitRecordsWithSplit(MySqlSplit split, JobBaseConfig jobConfig)
             throws Exception {
         Preconditions.checkState(split != null, "split is null");
-        Iterator<SourceRecords> dataIt = null;
+        SourceRecords sourceRecords = null;
         String currentSplitId = null;
         DebeziumReader<SourceRecords, MySqlSplit> currentReader = null;
         LOG.info("Get a split: {}", split.splitId());
@@ -512,13 +510,11 @@ public class MySqlSourceReader implements SourceReader {
         currentReader.submitSplit(split);
         currentSplitId = split.splitId();
         // make split record available
-        // todo: Until debezium_heartbeat is consumed
-        Thread.sleep(1000);
-        dataIt = currentReader.pollSplitRecords();
+        sourceRecords = pollUntilDataAvailable(currentReader, Constants.POLL_SPLIT_RECORDS_TIMEOUTS, 500);
         if (currentReader instanceof SnapshotSplitReader) {
             closeSnapshotReader();
         }
-        return dataIt == null ? null : new SplitRecords(currentSplitId, dataIt.next().iterator());
+        return new SplitRecords(currentSplitId, sourceRecords.iterator());
     }
 
     private SplitRecords pollSplitRecordsWithCurrentReader(
@@ -532,6 +528,53 @@ public class MySqlSourceReader implements SourceReader {
         } else {
             throw new IllegalStateException("Unsupported reader type.");
         }
+    }
+
+    /**
+     * Split tasks are submitted asynchronously, and data is sent to the Debezium queue. Therefore,
+     * there will be a time interval between retrieving data; it's necessary to fetch data until the
+     * queue has data.
+     */
+    private SourceRecords pollUntilDataAvailable(
+            DebeziumReader<SourceRecords, MySqlSplit> reader, long maxWaitTimeMs, long pollIntervalMs)
+            throws InterruptedException {
+        long startTime = System.currentTimeMillis();
+        long elapsedTime = 0;
+        int attemptCount = 0;
+        LOG.info("Polling until data available");
+        Iterator<SourceRecords> lastDataIt = null;
+        while (elapsedTime < 60000) {
+            attemptCount++;
+            lastDataIt = reader.pollSplitRecords();
+            if (lastDataIt != null && lastDataIt.hasNext()) {
+                SourceRecords sourceRecords = lastDataIt.next();
+                if (sourceRecords != null && !sourceRecords.getSourceRecordList().isEmpty()) {
+                    System.out.println(sourceRecords.getSourceRecordList());
+                    LOG.info(
+                            "Data available after {} ms ({} attempts). {} Records received.",
+                            elapsedTime,
+                            attemptCount,
+                            sourceRecords.getSourceRecordList().size());
+                    // todo: Until debezium_heartbeat is consumed
+                    return sourceRecords;
+                }
+            }
+
+            // No records yet, continue polling
+            if (elapsedTime + pollIntervalMs < 60000) {
+                Thread.sleep(pollIntervalMs);
+                elapsedTime = System.currentTimeMillis() - startTime;
+            } else {
+                // Last attempt before timeout
+                break;
+            }
+        }
+
+        LOG.warn(
+                "Timeout: No data (heartbeat or data change) received after {} ms ({} attempts).",
+                elapsedTime,
+                attemptCount);
+        return new SourceRecords(new ArrayList<>());
     }
 
     private SnapshotSplitReader getSnapshotSplitReader(JobBaseConfig config) {
@@ -680,7 +723,7 @@ public class MySqlSourceReader implements SourceReader {
         jdbcProperteis.putAll(cu.getOriginalProperties());
         configFactory.jdbcProperties(jdbcProperteis);
 
-        // configFactory.heartbeatInterval(Duration.ofMillis(1));
+        configFactory.heartbeatInterval(Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
         if (cdcConfig.containsKey(DataSourceConfigKeys.SPLIT_SIZE)) {
             configFactory.splitSize(
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
@@ -715,7 +758,7 @@ public class MySqlSourceReader implements SourceReader {
     public Map<String, String> extractBinlogOffset(SourceSplit split) {
         Preconditions.checkNotNull(split, "split is null");
         MySqlSplit mysqlSplit = (MySqlSplit) split;
-        Map<String, String> offsetRes = mysqlSplit.asBinlogSplit().getStartingOffset().getOffset();
+        Map<String, String> offsetRes = new HashMap<>(mysqlSplit.asBinlogSplit().getStartingOffset().getOffset());
         offsetRes.put(SPLIT_ID, BINLOG_SPLIT_ID);
         return offsetRes;
     }
