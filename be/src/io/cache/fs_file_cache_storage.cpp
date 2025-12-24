@@ -1000,6 +1000,9 @@ size_t FSFileCacheStorage::estimate_file_count_from_statfs() const {
         for (; it != std::filesystem::directory_iterator(); ++it) {
             std::error_code status_ec;
             auto entry_status = it->symlink_status(status_ec);
+            TEST_SYNC_POINT_CALLBACK(
+                    "FSFileCacheStorage::estimate_file_count_from_statfs::AfterEntryStatus",
+                    &status_ec);
             if (status_ec) {
                 LOG(WARNING) << "Failed to stat entry while estimating file count, path="
                              << it->path() << ", err=" << status_ec.message();
@@ -1018,6 +1021,9 @@ size_t FSFileCacheStorage::estimate_file_count_from_statfs() const {
             if (std::filesystem::is_regular_file(entry_status)) {
                 std::error_code size_ec;
                 auto file_size = it->file_size(size_ec);
+                TEST_SYNC_POINT_CALLBACK(
+                        "FSFileCacheStorage::estimate_file_count_from_statfs::AfterFileSize",
+                        &size_ec);
                 if (size_ec) {
                     LOG(WARNING) << "Failed to get file size while estimating file count, path="
                                  << it->path() << ", err=" << size_ec.message();
