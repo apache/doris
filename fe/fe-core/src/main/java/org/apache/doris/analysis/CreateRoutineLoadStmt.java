@@ -181,6 +181,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
      */
     @Getter
     private boolean isPartialUpdate = false;
+    @Getter
     private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     private String comment = "";
