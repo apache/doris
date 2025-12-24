@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.cache;
 
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Partition;
@@ -89,7 +90,7 @@ public class CacheHotspotManagerTest {
             @Mock
             public List<Tablet> getTabletsFromIndexs(List<MaterializedIndex> indexes) {
                 List<Tablet> list = new ArrayList<>();
-                Tablet tablet = new Tablet(1001L);
+                Tablet tablet = new LocalTablet(1001L);
                 list.add(tablet);
                 return list;
             }
