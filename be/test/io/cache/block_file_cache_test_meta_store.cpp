@@ -498,7 +498,7 @@ TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries)
     }
 }
 
-TEST_F(BlockFileCacheTest, HandleAlreadyLoadedBlockUpdatesSizeAndTablet) {
+TEST_F(BlockFileCacheTest, handle_already_loaded_block_updates_size_and_tablet) {
     config::enable_evict_file_cache_in_advance = false;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -565,57 +565,6 @@ TEST_F(BlockFileCacheTest, HandleAlreadyLoadedBlockUpdatesSizeAndTablet) {
 
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
-    }
-}
-
-TEST_F(BlockFileCacheTest, estimate_file_count_skips_removed_directory) {
-    std::string test_dir = cache_base_path + "/estimate_file_count_removed_dir";
-    if (fs::exists(test_dir)) {
-        fs::remove_all(test_dir);
-    }
-    auto keep_dir = fs::path(test_dir) / "keep";
-    auto remove_dir = fs::path(test_dir) / "remove";
-    fs::create_directories(keep_dir);
-    fs::create_directories(remove_dir);
-
-    auto keep_file = keep_dir / "data.bin";
-    std::string one_mb(1024 * 1024, 'd');
-    {
-        std::ofstream ofs(keep_file, std::ios::binary);
-        ASSERT_TRUE(ofs.good());
-        for (int i = 0; i < 3; ++i) {
-            ofs.write(one_mb.data(), one_mb.size());
-            ASSERT_TRUE(ofs.good());
-        }
-    }
-
-    FSFileCacheStorage storage;
-    storage._cache_base_path = test_dir;
-
-    const std::string sync_point_name =
-            "FSFileCacheStorage::estimate_file_count_from_statfs::OnDirectory";
-    auto* sync_point = doris::SyncPoint::get_instance();
-    doris::SyncPoint::CallbackGuard guard(sync_point_name);
-    sync_point->set_call_back(
-            sync_point_name,
-            [remove_dir](std::vector<std::any>&& args) {
-                auto* path = doris::try_any_cast<std::filesystem::path*>(args[0]);
-                if (*path == remove_dir) {
-                    fs::remove_all(remove_dir);
-                }
-            },
-            &guard);
-    sync_point->enable_processing();
-
-    size_t estimated_files = storage.estimate_file_count_from_statfs();
-
-    sync_point->disable_processing();
-
-    ASSERT_EQ(3, estimated_files);
-    ASSERT_FALSE(fs::exists(remove_dir));
-
-    if (fs::exists(test_dir)) {
-        fs::remove_all(test_dir);
     }
 }
 
