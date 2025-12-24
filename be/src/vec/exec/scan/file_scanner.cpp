@@ -671,16 +671,13 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
         } else {
             // fill with default value
             auto& ctx = kv.second;
-            auto origin_column_num = _src_block_ptr->columns();
-            int result_column_id = -1;
+            ColumnPtr result_column_ptr;
             // PT1 => dest primitive type
-            RETURN_IF_ERROR(ctx->execute(_src_block_ptr, &result_column_id));
-            bool is_origin_column = result_column_id < origin_column_num;
-            if (!is_origin_column) {
+            RETURN_IF_ERROR(ctx->execute(_src_block_ptr, result_column_ptr));
+            if (result_column_ptr->use_count() == 1) {
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                auto result_column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
                 auto mutable_column = result_column_ptr->assume_mutable();
                 mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
@@ -695,7 +692,6 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
                 _src_block_ptr->replace_by_position(
                         _src_block_name_to_idx[kv.first],
                         is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-                _src_block_ptr->erase(result_column_id);
             }
         }
     }
@@ -769,10 +765,8 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         vectorized::ColumnPtr column_ptr;
 
         auto& ctx = _dest_vexpr_ctx[dest_index];
-        int result_column_id = -1;
         // PT1 => dest primitive type
-        RETURN_IF_ERROR(ctx->execute(_src_block_ptr, &result_column_id));
-        column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
+        RETURN_IF_ERROR(ctx->execute(_src_block_ptr, column_ptr));
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
         DCHECK(column_ptr);
