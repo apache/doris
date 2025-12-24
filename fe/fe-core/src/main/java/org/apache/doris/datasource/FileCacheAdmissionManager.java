@@ -93,16 +93,6 @@ public class FileCacheAdmissionManager {
             this.ruleType = ruleType;
         }
 
-        public RulePattern(RulePattern other) {
-            this.id = other.id;
-            this.userIdentity = other.userIdentity;
-            this.catalog = other.catalog;
-            this.database = other.database;
-            this.table = other.table;
-            this.partitionPattern = other.partitionPattern;
-            this.ruleType = other.ruleType;
-        }
-
         public long getId() {
             return id;
         }
@@ -211,8 +201,6 @@ public class FileCacheAdmissionManager {
         public long getUpdatedTime() {
             return updatedTime;
         }
-
-
     }
 
     public static class RuleLoader {
@@ -480,57 +468,6 @@ public class FileCacheAdmissionManager {
                     break;
             }
         }
-
-        public void remove(RulePattern rulePattern) {
-            RuleLevel ruleLevel = getRuleLevel(rulePattern);
-            if (ruleLevel == RuleLevel.INVALID) {
-                return;
-            }
-
-            Set<String> catalogRules = (rulePattern.getRuleType() == RuleType.EXCLUDE)
-                    ? excludeCatalogRules : includeCatalogRules;
-            Map<String, Set<String>> databaseRules = (rulePattern.getRuleType() == RuleType.EXCLUDE)
-                    ? excludeDatabaseRules : includeDatabaseRules;
-            Map<String, Set<String>> tableRules = (rulePattern.getRuleType() == RuleType.EXCLUDE)
-                    ? excludeTableRules : includeTableRules;
-
-            switch (ruleLevel) {
-                case GLOBAL:
-                    if (rulePattern.getRuleType() == RuleType.EXCLUDE) {
-                        excludeGlobal = false;
-                    } else {
-                        includeGlobal = false;
-                    }
-                    break;
-                case CATALOG:
-                    catalogRules.remove(rulePattern.getCatalog());
-                    break;
-                case DATABASE:
-                    Set<String> catalogSet = databaseRules.get(rulePattern.getDatabase());
-                    if (catalogSet != null) {
-                        catalogSet.remove(rulePattern.getCatalog());
-                        if (catalogSet.isEmpty()) {
-                            databaseRules.remove(rulePattern.getDatabase());
-                        }
-                    }
-                    break;
-                case TABLE:
-                    Set<String> catalogDbSet = tableRules.get(rulePattern.getTable());
-                    if (catalogDbSet != null) {
-                        String catalogDbKey = rulePattern.getCatalog() + "." + rulePattern.getDatabase();
-                        catalogDbSet.remove(catalogDbKey);
-                        if (catalogDbSet.isEmpty()) {
-                            tableRules.remove(rulePattern.getTable());
-                        }
-                    }
-                    break;
-                case PARTITION:
-                    // TODO: Implementing partition-level rules
-                    break;
-                default:
-                    break;
-            }
-        }
     }
 
     public static class ConcurrentRuleManager {
@@ -578,39 +515,6 @@ public class FileCacheAdmissionManager {
                 maps.get(index).computeIfAbsent(rulePattern.getUserIdentity(),
                         k -> new ConcurrentRuleCollection()).add(rulePattern);
             }
-        }
-
-        public void remove(RulePattern rulePattern) {
-            String userIdentity = rulePattern.getUserIdentity();
-            if (userIdentity.isEmpty()) {
-                commonCollection.remove(rulePattern);
-                return;
-            }
-
-            char firstChar = userIdentity.charAt(0);
-            if (!Character.isAlphabetic(firstChar)) {
-                return;
-            }
-
-            int index = getIndex(firstChar);
-            maps.get(index).get(userIdentity).remove(rulePattern);
-        }
-
-        public void add(RulePattern rulePattern) {
-            String userIdentity = rulePattern.getUserIdentity();
-            if (userIdentity.isEmpty()) {
-                commonCollection.add(rulePattern);
-                return;
-            }
-
-            char firstChar = userIdentity.charAt(0);
-            if (!Character.isAlphabetic(firstChar)) {
-                return;
-            }
-
-            int index = getIndex(firstChar);
-            maps.get(index).computeIfAbsent(rulePattern.getUserIdentity(),
-                    k -> new ConcurrentRuleCollection()).add(rulePattern);
         }
 
         public boolean isAllowed(String userIdentity, String catalog, String database, String table,
@@ -661,8 +565,11 @@ public class FileCacheAdmissionManager {
 
     private ScheduledExecutorService executorService;
 
+    long lastLoadedTime;
+
     public FileCacheAdmissionManager() {
         this.ruleManager = new ConcurrentRuleManager();
+        this.lastLoadedTime = 0;
     }
 
     public static FileCacheAdmissionManager getInstance() {
@@ -718,6 +625,20 @@ public class FileCacheAdmissionManager {
         }
 
         try {
+            File ruleFile = new File(Config.file_cache_admission_control_json_file_path);
+
+            if (!ruleFile.exists()) {
+                LOG.warn("File cache admission JSON file does not exist: {}",
+                        Config.file_cache_admission_control_json_file_path);
+                return;
+            }
+
+            long lastModified = ruleFile.lastModified();
+            if (lastModified <= lastLoadedTime) {
+                LOG.info("File cache admission rules file has not been modified since last load, skip loading.");
+                return;
+            }
+
             List<AdmissionRule> loadedRules = RuleLoader.loadRulesFromFile(
                     Config.file_cache_admission_control_json_file_path);
             LOG.info("{} rules loaded successfully from file: {}", loadedRules.size(),
@@ -727,6 +648,7 @@ public class FileCacheAdmissionManager {
             newRuleManager.initialize(loadedRules);
 
             writeLock.lock();
+            lastLoadedTime = lastModified;
             ruleManager = newRuleManager;
             writeLock.unlock();
         } catch (Exception e) {
