@@ -40,6 +40,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -76,14 +77,18 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
         this.regularChildrenOutputs = ImmutableList.of();
     }
 
+    /**
+     * constructor
+     */
     public LogicalSetOperation(PlanType planType, Qualifier qualifier,
             List<NamedExpression> outputs, List<List<SlotReference>> regularChildrenOutputs, List<Plan> children) {
-        super(planType, children);
-        this.qualifier = qualifier;
-        this.outputs = ImmutableList.copyOf(outputs);
-        this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
+        this(planType, qualifier, outputs, regularChildrenOutputs, Optional.empty(),
+                Optional.empty(), children);
     }
 
+    /**
+     * constr
+     */
     public LogicalSetOperation(PlanType planType, Qualifier qualifier, List<NamedExpression> outputs,
             List<List<SlotReference>> regularChildrenOutputs,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
@@ -92,6 +97,38 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
+        //if (SessionVariable.isFeDebug()) {
+        //    checkOutputs(outputs, regularChildrenOutputs)
+        //            .ifPresent(msg -> SessionVariable.throwAnalysisExceptionWhenFeDebug(msg));
+        //}
+    }
+
+    // check every slot in outputs has its counterpart in regularChildrenOutputs, and they have the same data type.
+    private Optional<String> checkOutputs(List<NamedExpression> outputs,
+                               List<List<SlotReference>> regularChildrenOutputs) {
+        if (!regularChildrenOutputs.isEmpty() && !outputs.isEmpty()) {
+            for (List<SlotReference> childOutput : regularChildrenOutputs) {
+                if (outputs.size() != childOutput.size()) {
+                    return Optional.of("regularChildrenOutputs size error: regularOutput "
+                            + childOutput + " output: " + outputs);
+                }
+                for (int i = 0; i < childOutput.size(); i++) {
+                    DataType outputDataType = outputs.get(i).getDataType();
+                    boolean outputNullable = outputs.get(i).nullable();
+                    String outputInfo = outputNullable ? "+" : "-" + outputDataType;
+                    DataType childDataType = childOutput.get(i).getDataType();
+                    boolean childNullable = childOutput.get(i).nullable();
+                    String childInfo = childNullable ? "+" : "-" + childDataType;
+                    if (!outputDataType.equals(childDataType)
+                            || outputNullable != childNullable) {
+                        return Optional.of("regularChildrenOutputs data type is different from output. "
+                                + "regularOutput slot: " + childOutput.get(i)
+                                + "[" + childInfo + "], output: " + outputs.get(i) + "[" + outputInfo + "]");
+                    }
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     public List<List<SlotReference>> getRegularChildrenOutputs() {
@@ -311,5 +348,46 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
     @Override
     public Optional<Plan> processProject(List<NamedExpression> parentProjects) {
         return Optional.of(PushProjectThroughUnion.doPushProject(parentProjects, this));
+    }
+
+    /**
+     * Push down expression past SetOperation to a specific child.
+     *
+     * This method maps the expression from the SetOperation's output slots
+     * to the corresponding child's output slots.
+     *
+     * Example:
+     * SetOperation outputs: [x, y]
+     * Child 0 outputs (regularChildrenOutputs[0]): [a, b]
+     * Child 1 outputs (regularChildrenOutputs[1]): [c, d]
+     *
+     * If expression is "x + 1":
+     * - For childIdx=0, return "a + 1"
+     * - For childIdx=1, return "c + 1"
+     *
+     * @param expression the expression to push down
+     * @param childIdx   the index of the child to push down to
+     * @return the rewritten expression for the child, or null if childIdx is out of
+     *         bounds
+     */
+    public Expression pushDownExpressionPastSetOperator(Expression expression, int childIdx) {
+        // Check if childIdx is valid
+        if (childIdx < 0 || childIdx >= regularChildrenOutputs.size()) {
+            return null;
+        }
+
+        // Build mapping from SetOperation output slots to child output slots
+        java.util.HashMap<Slot, Expression> slotMapping = new java.util.HashMap<>();
+        List<SlotReference> childOutputs = regularChildrenOutputs.get(childIdx);
+
+        // Map each output slot to the corresponding child slot
+        for (int i = 0; i < outputs.size() && i < childOutputs.size(); i++) {
+            Slot outputSlot = outputs.get(i).toSlot();
+            SlotReference childSlot = childOutputs.get(i);
+            slotMapping.put(outputSlot, childSlot);
+        }
+
+        // Replace slots in the expression using the mapping
+        return ExpressionUtils.replace(expression, slotMapping);
     }
 }
