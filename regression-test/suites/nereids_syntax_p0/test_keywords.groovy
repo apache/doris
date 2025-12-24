@@ -18,25 +18,26 @@
 suite("test_keywords") {
     // DEFAULT is a non-reserved keyword
     sql """
-    drop table if exists default;
+    drop table if exists DEFAULT;
     """
 
     sql """
-            CREATE TABLE IF NOT EXISTS default(
+            CREATE TABLE IF NOT EXISTS DEFAULT(
                 id int
             )
             DISTRIBUTED BY HASH(id) properties("replication_num" = "1");
         """
 
-    sql """ DESCRIBE default; """
+    sql """ DESCRIBE DEFAULT; """
 
-    sql """ insert into default values(1) """
+    sql """ insert into DEFAULT values(1) """
 
     test {
-        sql "select * from default"
+        sql "select * from DEFAULT"
         result([[1]])
     }
 
-    sql """ truncate table default; """
+    sql """ truncate table DEFAULT; """
 
+    sql """ set query_timeout = DEFAULT; """
 }

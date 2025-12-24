@@ -931,7 +931,7 @@ supportedSetStatement
     ;
 
 optionWithType
-    : statementScope identifier EQ (expression | DEFAULT | ON | ALL)    #setVariableWithType
+    : statementScope identifier EQ (expression | ON | ALL)              #setVariableWithType
     ;
 
 optionWithoutType
@@ -948,7 +948,7 @@ optionWithoutType
 
 variable
     : (DOUBLEATSIGN (statementScope DOT)?)? identifier EQ
-        (expression | DEFAULT | ON | ALL)                               #setSystemVariable
+        (expression | ON | ALL)                                         #setSystemVariable
     | ATSIGN identifier EQ expression                                   #setUserVariable
     ;
 
@@ -1344,7 +1344,7 @@ hintAssignment
     ;
 
 updateAssignment
-    : col=multipartIdentifier EQ (expression | DEFAULT)
+    : col=multipartIdentifier EQ expression
     ;
 
 updateAssignmentSeq
@@ -1578,7 +1578,6 @@ rowConstructor
 
 rowConstructorItem
     : constant // duplicate constant rule for improve the parse of `insert into tbl values`
-    | DEFAULT
     | namedExpression
     ;
 
@@ -1738,6 +1737,7 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
+    | DEFAULT                                                                                  #defaultLiteral
     | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                 #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
