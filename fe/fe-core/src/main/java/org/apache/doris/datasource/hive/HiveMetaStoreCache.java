@@ -859,6 +859,8 @@ public class HiveMetaStoreCache {
         // partitionValues would be ["part1", "part2"]
         protected List<String> partitionValues;
         private long id;
+        // Cached retained size, computed at construction time
+        private final long retainedSizeInBytes;
 
         public FileCacheKey(long id, String location, String inputFormat,
                             List<String> partitionValues) {
@@ -866,6 +868,11 @@ public class HiveMetaStoreCache {
             this.inputFormat = inputFormat;
             this.partitionValues = partitionValues == null ? Lists.newArrayList() : partitionValues;
             this.id = id;
+            // Compute and cache size at construction time
+            this.retainedSizeInBytes = INSTANCE_SIZE
+                    + SizeOf.estimatedSizeOf(location)
+                    + SizeOf.estimatedSizeOf(inputFormat)
+                    + SizeOf.estimatedSizeOf(this.partitionValues, SizeOf::estimatedSizeOf);
         }
 
         public static FileCacheKey createDummyCacheKey(long id, String location,
@@ -908,10 +915,7 @@ public class HiveMetaStoreCache {
         }
 
         public long getRetainedSizeInBytes() {
-            return INSTANCE_SIZE
-                    + SizeOf.estimatedSizeOf(location)
-                    + SizeOf.estimatedSizeOf(inputFormat)
-                    + SizeOf.estimatedSizeOf(partitionValues, SizeOf::estimatedSizeOf);
+            return retainedSizeInBytes;
         }
     }
 
@@ -929,6 +933,9 @@ public class HiveMetaStoreCache {
 
         private AcidInfo acidInfo;
 
+        // Cached size of files list, updated incrementally in addFile()
+        private long filesRetainedSizeInBytes = 0;
+
         public void addFile(RemoteFile file, LocationPath locationPath) {
             if (isFileVisible(file.getPath())) {
                 HiveFileStatus status = new HiveFileStatus();
@@ -938,7 +945,15 @@ public class HiveMetaStoreCache {
                 status.blockSize = file.getBlockSize();
                 status.modificationTime = file.getModificationTime();
                 files.add(status);
+                // Incrementally update cached size
+                filesRetainedSizeInBytes += status.getRetainedSizeInBytes();
             }
+        }
+
+        @VisibleForTesting
+        public void addFileStatus(HiveFileStatus status) {
+            files.add(status);
+            filesRetainedSizeInBytes += status.getRetainedSizeInBytes();
         }
 
         public int getValuesSize() {
@@ -979,8 +994,10 @@ public class HiveMetaStoreCache {
         }
 
         public long getRetainedSizeInBytes() {
+            // Use cached filesRetainedSizeInBytes instead of recalculating
             return INSTANCE_SIZE
-                    + SizeOf.estimatedSizeOf(files, HiveFileStatus::getRetainedSizeInBytes)
+                    + SizeOf.sizeOfObjectArray(files.size())
+                    + filesRetainedSizeInBytes
                     + SizeOf.estimatedSizeOf(partitionValues, SizeOf::estimatedSizeOf);
             // Note: acidInfo is rare (only for ACID tables), skip for simplicity
         }
