@@ -57,8 +57,10 @@ public enum ExpressionRuleType {
     SIMPLIFY_RANGE,
     SIMPLIFY_SELF_COMPARISON,
     SUPPORT_JAVA_DATE_FORMATTER,
+    NORMALIZE_STRUCT_ELEMENT,
     TOPN_TO_MAX,
     ADD_SESSION_VAR_GUARD;
+
     public int type() {
         return ordinal();
     }

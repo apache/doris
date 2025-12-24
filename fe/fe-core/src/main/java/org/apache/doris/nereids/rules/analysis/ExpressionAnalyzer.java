@@ -95,6 +95,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
@@ -293,6 +294,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     }
                     outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
                 }
+                if (firstBound.getDataType() instanceof NestedColumnPrunable) {
+                    context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+                } else if (firstBound.containsType(ElementAt.class, StructElement.class)) {
+                    context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+                }
                 return firstBound;
             default:
                 if (enableExactMatch) {
@@ -312,6 +318,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                             .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
                             .collect(Collectors.toList());
                     if (exactMatch.size() == 1) {
+                        if (exactMatch.get(0).getDataType() instanceof NestedColumnPrunable) {
+                            context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+                        }
                         return exactMatch.get(0);
                     }
                 }
@@ -347,6 +356,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         for (Slot slot : scopeSlots) {
             if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
                 showSlots.add(slot);
+            }
+            if (slot.getDataType() instanceof NestedColumnPrunable) {
+                context.cascadesContext.getStatementContext().setHasNestedColumns(true);
             }
         }
         ImmutableList<Slot> slots = showSlots.build();
@@ -1092,7 +1104,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
             throw new AnalysisException("No such field '" + fieldName + "' in '" + lastFieldName + "'");
         }
-        return Optional.of(new Alias(expression));
+        return Optional.of(new Alias(expression, unboundSlot.getName(), slot.getQualifier()));
     }
 
     public static boolean sameTableName(String boundSlot, String unboundSlot) {
