@@ -343,6 +343,7 @@ public class InternalSchemaInitializer extends Thread {
          *CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`audit_log` (
          *   `query_id` varchar(48) NULL COMMENT "",
          *   `time` datetimev2(3) NULL COMMENT "",
+         *   `session_id` varchar(36) NULL COMMENT "",
          *   `client_ip` varchar(128) NULL COMMENT "",
          *   `user` varchar(128) NULL COMMENT "",
          *   `frontend_ip` varchar(1024) NULL COMMENT "",
@@ -384,7 +385,7 @@ public class InternalSchemaInitializer extends Thread {
          *   `compute_group` text NULL COMMENT "",
          *   `stmt` text NULL COMMENT ""
          * ) ENGINE = olap
-         * DUPLICATE KEY(`query_id`, `time`, `client_ip`)
+         * DUPLICATE KEY(`query_id`, `time`, `session_id`)
          * COMMENT "Doris internal audit table, DO NOT MODIFY IT"
          * PARTITION BY RANGE(`time`)
          * (
@@ -467,7 +468,7 @@ public class InternalSchemaInitializer extends Thread {
                 "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
                         + "%s\n"
                         + ") ENGINE = olap\n"
-                        + "DUPLICATE KEY(`query_id`, `time`, `client_ip`)\n"
+                        + "DUPLICATE KEY(`query_id`, `time`, `session_id`)\n"
                         + "COMMENT \"Doris internal audit table, DO NOT MODIFY IT\"\n"
                         + "PARTITION BY RANGE(`time`)\n"
                         + "(\n"
