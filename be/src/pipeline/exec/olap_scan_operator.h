@@ -183,6 +183,7 @@ private:
     RuntimeProfile::Counter* _predicate_column_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _predicate_column_read_seek_counter = nullptr;
     RuntimeProfile::Counter* _lazy_read_timer = nullptr;
+    RuntimeProfile::Counter* _lazy_read_pruned_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_counter = nullptr;
 

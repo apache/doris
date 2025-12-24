@@ -18,12 +18,17 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "io/fs/file_reader.h"
-#include "olap/rowset/segment_v2/column_reader.h"
+#include "stream_reader.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris::segment_v2 {
 
 class ColumnReaderCache;
 class ColumnMetaAccessor;
+class Segment;
+class ColumnReader;
+struct ColumnReaderOptions;
+using SegmentSPtr = std::shared_ptr<Segment>;
 
 // Key: pair of column uid and variant path (empty for normal column)
 using ColumnReaderCacheKey = std::pair<int32_t, vectorized::PathInData>;
@@ -31,7 +36,7 @@ using ColumnReaderCacheKey = std::pair<int32_t, vectorized::PathInData>;
 // This node holds the cached ColumnReader and its key.
 struct CacheNode {
     ColumnReaderCacheKey key; // key: (column uid, column path)
-    std::shared_ptr<segment_v2::ColumnReader> reader;
+    std::shared_ptr<ColumnReader> reader;
     std::chrono::steady_clock::time_point last_access; // optional if needed
 };
 

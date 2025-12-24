@@ -22,6 +22,7 @@
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "olap/primary_key_index.h"
+#include "olap/tablet_meta.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {

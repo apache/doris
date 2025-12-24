@@ -174,6 +174,7 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "PredicateColumnReadSeekCount", TUnit::UNIT);
 
     _lazy_read_timer = ADD_TIMER(_segment_profile, "LazyReadTime");
+    _lazy_read_pruned_timer = ADD_TIMER(_segment_profile, "LazyReadPrunedTime");
     _lazy_read_seek_timer = ADD_TIMER(_segment_profile, "LazyReadSeekTime");
     _lazy_read_seek_counter = ADD_COUNTER(_segment_profile, "LazyReadSeekCount", TUnit::UNIT);
 

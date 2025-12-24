@@ -232,7 +232,8 @@ private:
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
                                                  vectorized::MutableColumns* mutable_columns,
-                                                 bool init_condition_cache = false);
+                                                 bool init_condition_cache = false,
+                                                 bool read_for_predicate = false);
 
     Status copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
                                         vectorized::MutableColumnPtr& output_col,
@@ -410,6 +411,10 @@ private:
     // columns to read after predicate evaluation and remaining expr execute
     std::vector<ColumnId> _non_predicate_columns;
     std::set<ColumnId> _common_expr_columns;
+
+    std::set<ColumnId> _support_lazy_read_pruned_columns;
+    bool _enable_prune_nested_column = false;
+
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;
