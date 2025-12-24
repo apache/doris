@@ -107,6 +107,12 @@ ObjectStorageResponse ObjStorageClient::delete_objects_recursively_(ObjectStorag
         std::vector<int> rets = batch_executor.when_all(&finished);
         batch_count++;
 
+        for (int r : rets) {
+            if (r != 0) {
+                error_count++;
+            }
+        }
+
         // Log batch progress for monitoring long-running delete tasks
         auto batch_elapsed = duration_cast<milliseconds>(steady_clock::now() - start_time).count();
         LOG(INFO) << "delete objects under " << path.bucket << "/" << path.key << " batch "
@@ -121,12 +127,6 @@ ObjectStorageResponse ObjStorageClient::delete_objects_recursively_(ObjectStorag
             break;
         }
 
-        for (int r : rets) {
-            if (r != 0) {
-                error_count++;
-            }
-        }
-
         // Check if list_iter is still valid (network errors, etc.)
         if (!list_iter->is_valid()) {
             LOG(WARNING) << "list_iter became invalid during iteration";
@@ -137,16 +137,16 @@ ObjectStorageResponse ObjStorageClient::delete_objects_recursively_(ObjectStorag
         // batch_executor goes out of scope, resources are automatically released
     }
 
+    if (error_count > 0) {
+        LOG(WARNING) << "delete_objects_recursively completed with " << error_count << " errors";
+        ret = {-1};
+    }
+
     auto elapsed = duration_cast<milliseconds>(steady_clock::now() - start_time).count();
     LOG(INFO) << "delete objects under " << path.bucket << "/" << path.key
               << " finished, ret=" << ret.ret << ", total_batches=" << batch_count
               << ", num_deleted=" << num_deleted << ", error_count=" << error_count
               << ", cost=" << elapsed << " ms";
-
-    if (error_count > 0) {
-        LOG(WARNING) << "delete_objects_recursively completed with " << error_count << " errors";
-        ret = {-1};
-    }
 
     return ret;
 }
