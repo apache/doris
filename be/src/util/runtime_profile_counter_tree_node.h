@@ -26,8 +26,8 @@ namespace doris {
 
 class RuntimeProfileCounterTreeNode {
 public:
-    using CounterMap = std::map<std::string, RuntimeProfile::Counter*>;
-    using ChildCounterMap = std::map<std::string, std::set<std::string>>;
+    using CounterMap = std::unordered_map<std::string, RuntimeProfile::Counter*>;
+    using ChildCounterMap = std::unordered_map<std::string, std::set<std::string>>;
 
     RuntimeProfileCounterTreeNode() = default;
     ~RuntimeProfileCounterTreeNode() {
