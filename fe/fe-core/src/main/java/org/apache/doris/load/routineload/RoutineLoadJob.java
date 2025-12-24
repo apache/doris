@@ -1754,7 +1754,9 @@ public abstract class RoutineLoadJob
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
         appendProperties(sb, FileFormatProperties.PROP_FORMAT, getFormat(), false);
-        appendProperties(sb, CreateRoutineLoadStmt.PARTIAL_COLUMNS, isFixedPartialUpdate(), false);
+        if (isFixedPartialUpdate()) {
+            appendProperties(sb, CreateRoutineLoadStmt.PARTIAL_COLUMNS, isFixedPartialUpdate(), false);
+        }
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_PATHS, getJsonPaths(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_NUM_AS_STRING, isNumAsString(), false);
