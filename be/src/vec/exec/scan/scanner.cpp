@@ -78,8 +78,38 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
 Status Scanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
-        _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-        RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+        if (_alreay_eos) {
+            *eos = true;
+            _padding_block.swap(_origin_block);
+        } else {
+            _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+            while (_padding_block.rows() < state->batch_size() / 4 && !*eos) {
+                RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+                if (_origin_block.rows() >= state->batch_size() / 4) {
+                    break;
+                }
+
+                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size()) {
+                    _merge_padding_block();
+                    _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+                } else {
+                    if (_origin_block.rows() < _padding_block.rows()) {
+                        _padding_block.swap(_origin_block);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // first output the origin block change eos = false, next time output padding block
+        // set the eos to true
+        if (*eos && !_padding_block.empty() && !_origin_block.empty()) {
+            _alreay_eos = true;
+            *eos = false;
+        }
+        if (_origin_block.empty() && !_padding_block.empty()) {
+            _padding_block.swap(_origin_block);
+        }
         return _do_projections(&_origin_block, block);
     } else {
         return get_block(state, block, eos);
