@@ -2038,24 +2038,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // in the intermediate tuple, so fe have to do the same, if be fix the problem, we can change it back.
         for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
             SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
-            SlotDescriptor sd;
-            if (sf == null && leftSlotDescriptor.getColumn().getName().equals(Column.ROWID_COL)) {
-                // TODO: temporary code for two phase read, should remove it after refactor
-                sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, leftSlotDescriptor);
-            } else {
-                sd = context.createSlotDesc(intermediateDescriptor, sf, leftSlotDescriptor.getParent().getTable());
-            }
+            SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf,
+                    leftSlotDescriptor.getParent().getTable());
             leftIntermediateSlotDescriptor.add(sd);
         }
         for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
             SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
-            SlotDescriptor sd;
-            if (sf == null && rightSlotDescriptor.getColumn().getName().equals(Column.ROWID_COL)) {
-                // TODO: temporary code for two phase read, should remove it after refactor
-                sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, rightSlotDescriptor);
-            } else {
-                sd = context.createSlotDesc(intermediateDescriptor, sf, rightSlotDescriptor.getParent().getTable());
-            }
+            SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf,
+                    rightSlotDescriptor.getParent().getTable());
             rightIntermediateSlotDescriptor.add(sd);
         }
 
