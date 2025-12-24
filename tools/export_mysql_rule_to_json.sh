@@ -2,10 +2,22 @@
 set -e
 
 # Configuration
-DB_NAME="file_cache_admission_control"
+DB_HOST="localhost"
 DB_USER="root"
+DB_NAME="file_cache_admission_control"
 DB_PASS=""
+TABLE_NAME="admission_policy"
 OUTPUT_FILE="rule_$(date +%Y%m%d_%H%M%S).json"
+
+echo "=== Database Export Configuration ==="
+echo "Database Host: $DB_HOST"
+echo "Database User: $DB_USER"
+echo "Database Name: $DB_NAME"
+echo "Password: $(if [ -n "$DB_PASS" ]; then echo "Set"; else echo "Not set"; fi)"
+echo "Table Name: $TABLE_NAME"
+echo "Output File: $OUTPUT_FILE"
+echo "====================================="
+echo ""
 
 # Query and convert to JSON (including long type timestamps)
 QUERY=$(cat <<SQL
@@ -24,15 +36,15 @@ SELECT
             'updated_time', UNIX_TIMESTAMP(updated_time)
         )
     ) AS json_data
-FROM admission_policy
+FROM ${TABLE_NAME}
 SQL
 )
 
 # Execute query
 if [ -n "$DB_PASS" ]; then
-    JSON_DATA=$(echo "$QUERY" | mysql -u $DB_USER -p$DB_PASS $DB_NAME -N 2>/dev/null)
+    JSON_DATA=$(echo "$QUERY" | mysql -h $DB_HOST -u $DB_USER -p$DB_PASS $DB_NAME -N 2>/dev/null)
 else
-    JSON_DATA=$(echo "$QUERY" | mysql -u $DB_USER $DB_NAME -N)
+    JSON_DATA=$(echo "$QUERY" | mysql -h $DB_HOST -u $DB_USER $DB_NAME -N)
 fi
 
 # Handle NULL
