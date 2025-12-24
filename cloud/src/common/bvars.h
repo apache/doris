@@ -740,8 +740,8 @@ extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent;
-extern mBvarStatus<int64_t> g_bvar_fdb_process_status_int;
-extern mBvarStatus<double> g_bvar_fdb_process_status_float;
+extern mBvarStatus<double> g_bvar_fdb_cluster_process_status;
+extern mBvarStatus<double> g_bvar_fdb_cluster_workload_status;
 
 // checker
 extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;
