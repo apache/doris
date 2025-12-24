@@ -190,15 +190,22 @@ public:
 
         virtual Counter* clone() const { return new Counter(type(), value(), _level); }
 
-        virtual void update(int64_t delta) { _value.fetch_add(delta, std::memory_order_relaxed); }
+        virtual void update(int64_t delta) {
+            _value.fetch_add(delta, std::memory_order_relaxed);
+            DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L);
+        }
 
         void bit_or(int64_t delta) { _value.fetch_or(delta, std::memory_order_relaxed); }
 
-        virtual void set(int64_t value) { _value.store(value, std::memory_order_relaxed); }
+        virtual void set(int64_t value) {
+            _value.store(value, std::memory_order_relaxed);
+            DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L);
+        }
 
         virtual void set(double value) {
             DCHECK_EQ(sizeof(value), sizeof(int64_t));
             _value.store(binary_cast<double, int64_t>(value), std::memory_order_relaxed);
+            DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L);
         }
 
         virtual int64_t value() const { return _value.load(std::memory_order_relaxed); }
@@ -270,6 +277,7 @@ public:
             if (delta > 0) {
                 UpdateMax(current_value_);
             }
+            DCHECK_GT(current_value_.load(std::memory_order_seq_cst), -1L);
         }
         virtual void update(int64_t delta) override { add(delta); }
 
@@ -331,6 +339,7 @@ public:
         void set(int64_t v) override {
             current_value_.store(v, std::memory_order_relaxed);
             UpdateMax(v);
+            DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L);
         }
 
         int64_t current_value() const { return current_value_.load(std::memory_order_relaxed); }
