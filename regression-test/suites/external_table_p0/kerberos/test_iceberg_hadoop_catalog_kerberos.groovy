@@ -77,6 +77,7 @@ suite("test_iceberg_hadoop_catalog_kerberos", "p0,external,kerberos,external_doc
     """
     def table = sql """ show tables like '%${test_tbl_name}' """
     assert table.size() == 1
+
     sql """
         insert into ${test_tbl_name} values (
           '2024-05-26 12:34:56',
