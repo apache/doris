@@ -19,10 +19,14 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.common.Config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -35,9 +39,6 @@ public class FileCacheAdmissionManagerTest {
     public void setUp() {
         Config.file_cache_admission_control_default_allow = false;
         manager = new FileCacheAdmissionManager();
-
-        List<FileCacheAdmissionManager.AdmissionRule> rules = new ArrayList<>();
-        manager.initialize(rules);
     }
 
     @Test
@@ -72,7 +73,7 @@ public class FileCacheAdmissionManagerTest {
     }
 
     @Test
-    public void testCommonRule() {
+    public void testCommonRule() throws Exception {
         List<FileCacheAdmissionManager.AdmissionRule> rules = new ArrayList<>();
         long createdTime = 0;
         long updatedTime = 0;
@@ -90,8 +91,12 @@ public class FileCacheAdmissionManagerTest {
                 1, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
+        File jsonFile = new File("rules.json");
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAllowed("user", "catalog_1", "database", "table", reason1);
@@ -110,7 +115,7 @@ public class FileCacheAdmissionManagerTest {
     }
 
     @Test
-    public void testRuleEnabled() {
+    public void testRuleEnabled() throws Exception  {
         List<FileCacheAdmissionManager.AdmissionRule> rules = new ArrayList<>();
         long createdTime = 0;
         long updatedTime = 0;
@@ -128,8 +133,12 @@ public class FileCacheAdmissionManagerTest {
                 1, false, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
+        File jsonFile = new File("rules.json");
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAllowed("user", "catalog_1", "database", "table", reason1);
@@ -148,7 +157,7 @@ public class FileCacheAdmissionManagerTest {
     }
 
     @Test
-    public void testUserRule() {
+    public void testUserRule() throws Exception {
         List<FileCacheAdmissionManager.AdmissionRule> rules = new ArrayList<>();
         long createdTime = 0;
         long updatedTime = 0;
@@ -166,8 +175,12 @@ public class FileCacheAdmissionManagerTest {
                 1, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
+        File jsonFile = new File("rules.json");
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAllowed("user_1", "catalog_4", "database", "table", reason1);
@@ -198,7 +211,7 @@ public class FileCacheAdmissionManagerTest {
     }
 
     @Test
-    public void testRuleLevelPriority() {
+    public void testRuleLevelPriority() throws Exception {
         List<FileCacheAdmissionManager.AdmissionRule> rules = new ArrayList<>();
         long createdTime = 0;
         long updatedTime = 0;
@@ -208,8 +221,12 @@ public class FileCacheAdmissionManagerTest {
                 1, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
+        File jsonFile = new File("rules.json");
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAllowed("user_3", "catalog", "database", "table", reason1);
@@ -221,8 +238,9 @@ public class FileCacheAdmissionManagerTest {
                 1, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAllowed("user_3", "catalog", "database", "table", reason2);
@@ -234,8 +252,9 @@ public class FileCacheAdmissionManagerTest {
                 1, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason3 = new AtomicReference<>();
         boolean result3 = manager.isAllowed("user_3", "catalog", "database", "table", reason3);
@@ -247,8 +266,9 @@ public class FileCacheAdmissionManagerTest {
                 1, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason4 = new AtomicReference<>();
         boolean result4 = manager.isAllowed("user_3", "catalog", "database", "table", reason4);
@@ -257,7 +277,7 @@ public class FileCacheAdmissionManagerTest {
     }
 
     @Test
-    public void testRuleTypePriority() {
+    public void testRuleTypePriority() throws Exception {
         List<FileCacheAdmissionManager.AdmissionRule> rules = new ArrayList<>();
         long createdTime = 0;
         long updatedTime = 0;
@@ -271,8 +291,12 @@ public class FileCacheAdmissionManagerTest {
                 1, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
+        File jsonFile = new File("rules.json");
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAllowed("user_4", "catalog", "database", "table", reason1);
@@ -288,8 +312,9 @@ public class FileCacheAdmissionManagerTest {
                 1, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAllowed("user_4", "catalog", "database", "table", reason2);
@@ -305,8 +330,9 @@ public class FileCacheAdmissionManagerTest {
                 1, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason3 = new AtomicReference<>();
         boolean result3 = manager.isAllowed("user_4", "catalog", "database", "table", reason3);
@@ -322,8 +348,9 @@ public class FileCacheAdmissionManagerTest {
                 1, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason4 = new AtomicReference<>();
         boolean result4 = manager.isAllowed("user_4", "catalog", "database", "table", reason4);
@@ -332,7 +359,7 @@ public class FileCacheAdmissionManagerTest {
     }
 
     @Test
-    public void testNestedRulePriorities() {
+    public void testNestedRulePriorities() throws Exception {
         List<FileCacheAdmissionManager.AdmissionRule> rules = new ArrayList<>();
         long createdTime = 0;
         long updatedTime = 0;
@@ -373,8 +400,12 @@ public class FileCacheAdmissionManagerTest {
                 0, true, createdTime, updatedTime
         ));
 
-        manager = new FileCacheAdmissionManager();
-        manager.initialize(rules);
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
+        File jsonFile = new File("rules.json");
+        objectMapper.writeValue(jsonFile, rules);
+
+        manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAllowed("user_5", "catalog", "database", "table", reason1);
@@ -413,4 +444,12 @@ public class FileCacheAdmissionManagerTest {
         Assert.assertEquals("user database-level whitelist rule", reason8.get());
     }
 
+    @AfterClass
+    public static void deleteJsonFile() throws Exception {
+        File file = new File("rules.json");
+        Assert.assertTrue(file.exists());
+        if (file.exists()) {
+            Assert.assertTrue(file.delete());
+        }
+    }
 }

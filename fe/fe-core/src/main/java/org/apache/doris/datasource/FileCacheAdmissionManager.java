@@ -172,9 +172,47 @@ public class FileCacheAdmissionManager {
             return new RulePattern(id, userIdentity, catalog, database, table, partitionPattern, ruleType);
         }
 
-        public boolean isEnabled() {
+        public long getId() {
+            return id;
+        }
+
+        public String getUserIdentity() {
+            return userIdentity;
+        }
+
+        public String getTable() {
+            return table;
+        }
+
+        public String getDatabase() {
+            return database;
+        }
+
+        public String getCatalog() {
+            return catalog;
+        }
+
+        public String getPartitionPattern() {
+            return partitionPattern;
+        }
+
+        public RuleType getRuleType() {
+            return ruleType;
+        }
+
+        public boolean getEnabled() {
             return enabled;
         }
+
+        public long getCreatedTime() {
+            return createdTime;
+        }
+
+        public long getUpdatedTime() {
+            return updatedTime;
+        }
+
+
     }
 
     public static class RuleLoader {
@@ -520,7 +558,7 @@ public class FileCacheAdmissionManager {
 
         public void initialize(List<AdmissionRule> rules) {
             for (AdmissionRule rule : rules) {
-                if (!rule.isEnabled()) {
+                if (!rule.getEnabled()) {
                     continue;
                 }
 
@@ -638,25 +676,37 @@ public class FileCacheAdmissionManager {
     public boolean isAllowed(String userIdentity, String catalog, String database, String table,
                              AtomicReference<String> reason) {
         readLock.lock();
-        try {
-            return ruleManager.isAllowed(userIdentity, catalog, database, table, reason);
-        } finally {
-            readLock.unlock();
-        }
+        boolean isAllowed = ruleManager.isAllowed(userIdentity, catalog, database, table, reason);
+        readLock.unlock();
+
+        return isAllowed;
     }
 
     public void loadOnStartup() {
+        LOG.info("Loading file cache admission rules...");
+
+        loadRules();
+        startRefreshTask();
+    }
+
+    public void loadRules(String filePath) {
+        if (filePath == null || filePath.isEmpty()) {
+            LOG.warn("File cache admission JSON file path is not configured, admission control will be disabled.");
+            return;
+        }
+
         try {
-            LOG.info("Loading file cache admission policy...");
+            List<AdmissionRule> loadedRules = RuleLoader.loadRulesFromFile(filePath);
+            LOG.info("{} rules loaded successfully from file: {}", loadedRules.size(), filePath);
 
-            loadRules();
-            if (Config.file_cache_admission_control_fresh_interval_s > 0) {
-                startRefreshTask();
-            }
+            ConcurrentRuleManager newRuleManager = new ConcurrentRuleManager();
+            newRuleManager.initialize(loadedRules);
 
-            LOG.info("File cache admission policy loaded successfully");
+            writeLock.lock();
+            ruleManager = newRuleManager;
+            writeLock.unlock();
         } catch (Exception e) {
-            LOG.error("Failed to load file cache admission policy", e);
+            LOG.error("Failed to load file cache admission rules from file: {}", filePath, e);
         }
     }
 
@@ -670,37 +720,37 @@ public class FileCacheAdmissionManager {
         try {
             List<AdmissionRule> loadedRules = RuleLoader.loadRulesFromFile(
                     Config.file_cache_admission_control_json_file_path);
-            LOG.info(loadedRules.size() + " rules loaded successfully");
+            LOG.info("{} rules loaded successfully from file: {}", loadedRules.size(),
+                    Config.file_cache_admission_control_json_file_path);
 
             ConcurrentRuleManager newRuleManager = new ConcurrentRuleManager();
             newRuleManager.initialize(loadedRules);
 
             writeLock.lock();
             ruleManager = newRuleManager;
-
-        }  catch (Exception e) {
-            LOG.error("Failed to refresh file cache admission policy from file: {}",
-                    Config.file_cache_admission_control_json_file_path, e);
-        } finally {
-            LOG.error("File cache admission policy updated successfully");
             writeLock.unlock();
+        } catch (Exception e) {
+            LOG.error("Failed to load file cache admission rules from file: {}",
+                    Config.file_cache_admission_control_json_file_path, e);
         }
     }
 
     private void startRefreshTask() {
         int interval = Config.file_cache_admission_control_fresh_interval_s;
         if (interval <= 0) {
+            LOG.info("File cache admission control refresh interval is {} (<=0), refresh task will not be started.",
+                    interval);
             return;
         }
 
         executorService = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "file-cache-admission-policy-refresh");
+            Thread t = new Thread(r, "file-cache-admission-rule-refresh");
             t.setDaemon(true);
             return t;
         });
 
         executorService.scheduleAtFixedRate(() -> {
-            LOG.info("Refreshing file cache admission policy...");
+            LOG.info("Refreshing file cache admission rules...");
             loadRules();
         }, interval, interval, TimeUnit.SECONDS);
 
