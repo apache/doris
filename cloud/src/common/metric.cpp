@@ -280,14 +280,14 @@ static void export_fdb_status_details(const std::string& status_str) {
                                           std::string& name,
                                           decltype(process_node)& temp_node) -> void {
                 if (temp_node->value.IsInt64()) {
-                    g_bvar_fdb_cluster_process_status.put(
+                    g_bvar_fdb_cluster_process.put(
                             {process_id, component, name},
                             static_cast<double>(temp_node->value.GetInt64()));
                     return;
                 }
                 if (temp_node->value.IsDouble()) {
-                    g_bvar_fdb_cluster_process_status.put({process_id, component, name},
-                                                          temp_node->value.GetDouble());
+                    g_bvar_fdb_cluster_process.put({process_id, component, name},
+                                                   temp_node->value.GetDouble());
                     return;
                 }
                 LOG(WARNING) << fmt::format(
@@ -315,13 +315,12 @@ static void export_fdb_status_details(const std::string& status_str) {
         auto set_bvar_value = [&component](std::string& name,
                                            decltype(component_node)& temp_node) -> void {
             if (temp_node->value.IsInt64()) {
-                g_bvar_fdb_cluster_workload_status.put(
-                        {component, name}, static_cast<double>(temp_node->value.GetInt64()));
+                g_bvar_fdb_cluster_workload.put({component, name},
+                                                static_cast<double>(temp_node->value.GetInt64()));
                 return;
             }
             if (temp_node->value.IsDouble()) {
-                g_bvar_fdb_cluster_workload_status.put({component, name},
-                                                       temp_node->value.GetDouble());
+                g_bvar_fdb_cluster_workload.put({component, name}, temp_node->value.GetDouble());
                 return;
             }
             LOG(WARNING) << fmt::format(
