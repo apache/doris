@@ -56,16 +56,16 @@ public class SimplifyTimeFieldFromUnixtime implements ExpressionPatternRuleFacto
         return ImmutableList.of(
                 matchesType(Hour.class)
                         .thenApply(SimplifyTimeFieldFromUnixtime::rewriteHour)
-                        .toRule(ExpressionRuleType.SIMPLIFY_ARITHMETIC),
+                        .toRule(ExpressionRuleType.SIMPLIFY_DATETIME_FUNCTION),
                 matchesType(Minute.class)
                         .thenApply(SimplifyTimeFieldFromUnixtime::rewriteMinute)
-                        .toRule(ExpressionRuleType.SIMPLIFY_ARITHMETIC),
+                        .toRule(ExpressionRuleType.SIMPLIFY_DATETIME_FUNCTION),
                 matchesType(Second.class)
                         .thenApply(SimplifyTimeFieldFromUnixtime::rewriteSecond)
-                        .toRule(ExpressionRuleType.SIMPLIFY_ARITHMETIC),
+                        .toRule(ExpressionRuleType.SIMPLIFY_DATETIME_FUNCTION),
                 matchesType(Microsecond.class)
                         .thenApply(SimplifyTimeFieldFromUnixtime::rewriteMicrosecond)
-                        .toRule(ExpressionRuleType.SIMPLIFY_ARITHMETIC)
+                        .toRule(ExpressionRuleType.SIMPLIFY_DATETIME_FUNCTION)
         );
     }
 

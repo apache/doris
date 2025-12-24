@@ -38,10 +38,22 @@ public class SimplifyTimeFieldFromUnixtimeTest extends ExpressionRewriteTestHelp
 
     @Test
     public void testRewriteSimple() {
-        assertRewriteAfterTypeCoercion("hour(from_unixtime(IA))", "cast(hour_from_unixtime(IA) as TINYINT)");
-        assertRewriteAfterTypeCoercion("minute(from_unixtime(IA))", "cast(minute_from_unixtime(IA) as TINYINT)");
-        assertRewriteAfterTypeCoercion("second(from_unixtime(IA))", "cast(second_from_unixtime(IA) as TINYINT)");
-        assertRewriteAfterTypeCoercion("microsecond(from_unixtime(DECIMAL_V3_A))", "microsecond_from_unixtime(DECIMAL_V3_A)");
+        assertRewriteAfterTypeCoercion("hour(from_unixtime(IA))", "hour_from_unixtime(IA)");
+        assertRewriteAfterTypeCoercion("minute(from_unixtime(IA))", "minute_from_unixtime(IA)");
+        assertRewriteAfterTypeCoercion("second(from_unixtime(IA))", "second_from_unixtime(IA)");
+        assertRewriteAfterTypeCoercion("microsecond(from_unixtime(DECIMAL_V3_A))", "microsecond_from_unixtime(cast(DECIMAL_V3_A as DECIMALV3(18, 6)))");
+    }
+
+    @Test
+    public void testRewriteWithCast() {
+        assertRewriteAfterTypeCoercion("hour(cast(from_unixtime(IA) as datetime))",
+                "hour_from_unixtime(IA)");
+        assertRewriteAfterTypeCoercion("minute(cast(from_unixtime(IA) as datetime))",
+                "minute_from_unixtime(IA)");
+        assertRewriteAfterTypeCoercion("second(cast(from_unixtime(IA) as datetime))",
+                "second_from_unixtime(IA)");
+        assertRewriteAfterTypeCoercion("microsecond(cast(from_unixtime(DECIMAL_V3_A) as datetimev2(6)))",
+                "microsecond_from_unixtime(cast(DECIMAL_V3_A as DECIMALV3(18, 6)))");
     }
 
     @Test

@@ -444,18 +444,24 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeInt32>());
+        // microsecond_from_unixtime returns Int32, others (hour/minute/second) return Int8
+        if constexpr (Impl::ArgType == PrimitiveType::TYPE_DECIMAL64) {
+            return make_nullable(std::make_shared<DataTypeInt32>());
+        } else {
+            return make_nullable(std::make_shared<DataTypeInt8>());
+        }
     }
 
-    // Align with FROM_UNIXTIME upper bound (3001-01-19 00:00:00)
-    static const int64_t TIMESTAMP_VALID_MAX = 32536771199L;
+    // (UTC 9999-12-31 23:59:59) - 24 * 3600
+    static const int64_t TIMESTAMP_VALID_MAX = 253402243199L;
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         using ArgColType = PrimitiveTypeTraits<Impl::ArgType>::ColumnType;
-        auto res = ColumnInt32::create();
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& null_data = null_map->get_data();
+        using ResColType = std::conditional_t<Impl::ArgType == PrimitiveType::TYPE_DECIMAL64,
+                                              ColumnInt32, ColumnInt8>;
+        using ResItemType = typename ResColType::value_type;
+        auto res = ResColType::create();
 
         const auto* ts_col =
                 assert_cast<const ArgColType*>(block.get_by_position(arguments[0]).column.get());
@@ -468,12 +474,12 @@ public:
                 const auto fraction = ts_col->get_fractional_part(i);
 
                 if (seconds < 0 || seconds > TIMESTAMP_VALID_MAX) {
-                    res->insert_default();
-                    null_data[i] = 1;
-                    continue;
+                    return Status::InvalidArgument(
+                            "The input value of TimeFiled(from_unixtime()) must between 0 and "
+                            "253402243199L");
                 }
 
-                int32_t value = Impl::extract_field(fraction, scale);
+                ResItemType value = Impl::extract_field(fraction, scale);
                 res->insert_value(value);
             }
         } else {
@@ -482,17 +488,16 @@ public:
                 auto date = ts_col->get_element(i);
 
                 if (date < 0 || date > TIMESTAMP_VALID_MAX) {
-                    res->insert_default();
-                    null_data[i] = 1;
-                    continue;
+                    return Status::InvalidArgument(
+                            "The input value of TimeFiled(from_unixtime()) must between 0 and "
+                            "253402243199L");
                 }
 
-                int32_t value = Impl::extract_field(date, ctz);
+                ResItemType value = Impl::extract_field(date, ctz);
                 res->insert_value(value);
             }
         }
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        block.replace_by_position(result, std::move(res));
         return Status::OK();
     }
 };
@@ -501,7 +506,7 @@ struct HourFromUnixtimeImpl {
     static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_BIGINT;
     static constexpr auto name = "hour_from_unixtime";
 
-    static int32_t extract_field(int64_t local_time, const cctz::time_zone& ctz) {
+    static int8_t extract_field(int64_t local_time, const cctz::time_zone& ctz) {
         static const auto epoch = std::chrono::time_point_cast<cctz::sys_seconds>(
                 std::chrono::system_clock::from_time_t(0));
         cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(local_time);
@@ -520,7 +525,7 @@ struct HourFromUnixtimeImpl {
                 remainder += 86400;
             }
         }
-        return static_cast<int32_t>(remainder / fast_div_3600);
+        return static_cast<int8_t>(remainder / fast_div_3600);
     }
 };
 
@@ -528,13 +533,13 @@ struct MinuteFromUnixtimeImpl {
     static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_BIGINT;
     static constexpr auto name = "minute_from_unixtime";
 
-    static int32_t extract_field(int64_t local_time, const cctz::time_zone& /*ctz*/) {
+    static int8_t extract_field(int64_t local_time, const cctz::time_zone& /*ctz*/) {
         static const libdivide::divider<int64_t> fast_div_60(60);
         static const libdivide::divider<int64_t> fast_div_3600(3600);
 
         local_time = local_time - local_time / fast_div_3600 * 3600;
 
-        return static_cast<int32_t>(local_time / fast_div_60);
+        return static_cast<int8_t>(local_time / fast_div_60);
     }
 };
 
@@ -542,8 +547,8 @@ struct SecondFromUnixtimeImpl {
     static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_BIGINT;
     static constexpr auto name = "second_from_unixtime";
 
-    static int32_t extract_field(int64_t local_time, const cctz::time_zone& /*ctz*/) {
-        return static_cast<int32_t>(local_time % 60);
+    static int8_t extract_field(int64_t local_time, const cctz::time_zone& /*ctz*/) {
+        return static_cast<int8_t>(local_time % 60);
     }
 };
 

@@ -63,10 +63,13 @@ suite("test_from_unixtime") {
     qt_hour_from_unixtime2 "SELECT HOUR(FROM_UNIXTIME(114514, 'yyyy-MM-dd'));"
     qt_hour_from_unixtime3 "SELECT HOUR(FROM_UNIXTIME(114514, 'yyyy-MM-dd HH:mm:ss'));"
     qt_hour_from_unixtime4 "SELECT HOUR(FROM_UNIXTIME(1145.14));"
-    qt_hour_from_unixtime5 "SELECT HOUR(FROM_UNIXTIME(-1));"
-    qt_hour_from_unixtime6 "SELECT HOUR(FROM_UNIXTIME(32536771200));"
+    qt_hour_from_unixtime5 "SELECT HOUR(FROM_UNIXTIME(32536771200));"
     sql "set time_zone = '-08:00'"
-    qt_hour_from_unixtime7 "SELECT HOUR(FROM_UNIXTIME(3));"
+    qt_hour_from_unixtime6 "SELECT HOUR(FROM_UNIXTIME(3));"
+    test {
+        sql """ SELECT HOUR(FROM_UNIXTIME(-1)); """
+        exception "The input value of TimeFiled(from_unixtime()) must between 0 and 253402243199"
+    }
     explain {
         sql """ SELECT HOUR(FROM_UNIXTIME(k0)) FROM test1; """
         contains "hour_from_unixtime"
@@ -77,7 +80,6 @@ suite("test_from_unixtime") {
         notContains "hour_from_unixtime"
     }
     testFoldConst("SELECT HOUR_FROM_UNIXTIME(1145.14);")
-    testFoldConst("SELECT HOUR_FROM_UNIXTIME(-1);")
     testFoldConst("SELECT HOUR_FROM_UNIXTIME(NULL);")
     testFoldConst("SELECT HOUR_FROM_UNIXTIME(32536771200);")
     sql "set time_zone = '+00:00'"
@@ -87,8 +89,11 @@ suite("test_from_unixtime") {
     qt_minute_from_unixtime2 "SELECT MINUTE(FROM_UNIXTIME(114514, 'yyyy-MM-dd'));"
     qt_minute_from_unixtime3 "SELECT MINUTE(FROM_UNIXTIME(114514, 'yyyy-MM-dd HH:mm:ss'));"
     qt_minute_from_unixtime4 "SELECT MINUTE(FROM_UNIXTIME(1145.14));"
-    qt_minute_from_unixtime5 "SELECT MINUTE(FROM_UNIXTIME(-1));"
-    qt_minute_from_unixtime6 "SELECT MINUTE(FROM_UNIXTIME(32536771200));"
+    qt_minute_from_unixtime5 "SELECT MINUTE(FROM_UNIXTIME(32536771200));"
+    test {
+        sql """ SELECT MINUTE(FROM_UNIXTIME(-1)); """
+        exception "The input value of TimeFiled(from_unixtime()) must between 0 and 253402243199"
+    }
     explain {
         sql """ SELECT MINUTE(FROM_UNIXTIME(k0)) FROM test1; """
         contains "minute_from_unixtime"
@@ -98,7 +103,6 @@ suite("test_from_unixtime") {
         notContains "minute_from_unixtime"
     }
     testFoldConst("SELECT MINUTE_FROM_UNIXTIME(1145.14);")
-    testFoldConst("SELECT MINUTE_FROM_UNIXTIME(-1);")
     testFoldConst("SELECT MINUTE_FROM_UNIXTIME(NULL);")
     testFoldConst("SELECT MINUTE_FROM_UNIXTIME(32536771200);")
 
@@ -107,8 +111,11 @@ suite("test_from_unixtime") {
     qt_second_from_unixtime2 "SELECT SECOND(FROM_UNIXTIME(114514, 'yyyy-MM-dd'));"
     qt_second_from_unixtime3 "SELECT SECOND(FROM_UNIXTIME(114514, 'yyyy-MM-dd HH:mm:ss'));"
     qt_second_from_unixtime4 "SELECT SECOND(FROM_UNIXTIME(1145.14));"
-    qt_second_from_unixtime5 "SELECT SECOND(FROM_UNIXTIME(-1));"
-    qt_second_from_unixtime6 "SELECT SECOND(FROM_UNIXTIME(32536771200));"
+    qt_second_from_unixtime5 "SELECT SECOND(FROM_UNIXTIME(32536771200));"
+    test {
+        sql """ SELECT SECOND(FROM_UNIXTIME(-1)); """
+        exception "The input value of TimeFiled(from_unixtime()) must between 0 and 253402243199"
+    }
     explain {
         sql """ SELECT SECOND(FROM_UNIXTIME(k0)) FROM test1; """
         contains "second_from_unixtime"
@@ -118,7 +125,6 @@ suite("test_from_unixtime") {
         notContains "second_from_unixtime"
     }
     testFoldConst("SELECT SECOND_FROM_UNIXTIME(1145.14);")
-    testFoldConst("SELECT SECOND_FROM_UNIXTIME(-1);")
     testFoldConst("SELECT SECOND_FROM_UNIXTIME(NULL);")
     testFoldConst("SELECT SECOND_FROM_UNIXTIME(32536771200);")
 
@@ -127,8 +133,11 @@ suite("test_from_unixtime") {
     qt_microsecond_from_unixtime2 "SELECT MICROSECOND(FROM_UNIXTIME(114514.123456, 'yyyy-MM-dd'));"
     qt_microsecond_from_unixtime3 "SELECT MICROSECOND(FROM_UNIXTIME(114514.123456, '%Y-%m-%d %H:%i:%s.%f'));"
     qt_microsecond_from_unixtime4 "SELECT MICROSECOND(FROM_UNIXTIME(1145.14));"
-    qt_microsecond_from_unixtime5 "SELECT MICROSECOND(FROM_UNIXTIME(-1));"
-    qt_microsecond_from_unixtime6 "SELECT MICROSECOND(FROM_UNIXTIME(32536771200));"
+    qt_microsecond_from_unixtime5 "SELECT MICROSECOND(FROM_UNIXTIME(32536771200));"
+    test {
+        sql """ SELECT MICROSECOND(FROM_UNIXTIME(-1)); """
+        exception "The input value of TimeFiled(from_unixtime()) must between 0 and 253402243199"
+    }
     explain {
         sql """ SELECT MICROSECOND(FROM_UNIXTIME(k1)) FROM test1; """
         contains "microsecond_from_unixtime"
@@ -138,7 +147,6 @@ suite("test_from_unixtime") {
         notContains "microsecond_from_unixtime"
     }
     testFoldConst("SELECT MICROSECOND_FROM_UNIXTIME(1145.14);")
-    testFoldConst("SELECT MICROSECOND_FROM_UNIXTIME(-1);")
     testFoldConst("SELECT MICROSECOND_FROM_UNIXTIME(NULL);")
     testFoldConst("SELECT MICROSECOND_FROM_UNIXTIME(32536771200);")
     sql "set debug_skip_fold_constant = false;"

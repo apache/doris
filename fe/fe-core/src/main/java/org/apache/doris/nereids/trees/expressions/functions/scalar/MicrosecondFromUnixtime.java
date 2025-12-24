@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -36,7 +36,7 @@ import java.util.List;
  * Optimized version of `MICROSECOND(FROM_UNIXTIME(ts))`
  */
 public class MicrosecondFromUnixtime extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE).args(DecimalV3Type.createDecimalV3Type(18, 6))
     );
@@ -51,19 +51,6 @@ public class MicrosecondFromUnixtime extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     private MicrosecondFromUnixtime(ScalarFunctionParams functionParams) {
         super(functionParams);
-    }
-
-    @Override
-    public FunctionSignature computeSignature(FunctionSignature signature) {
-        // skip super.computeSignature() to avoid changing the decimal precision
-        // manually set decimal argument's type to always decimal(18, 6)
-        if (this.getArgumentType(0).isDecimalLikeType()) {
-            Preconditions.checkArgument(arity() == 1, "MicrosecondFromUnixtime should have only 1 argument");
-            return FunctionSignature.ret(IntegerType.INSTANCE)
-                    .args(DecimalV3Type.createDecimalV3Type(18, 6));
-
-        }
-        return signature;
     }
 
     /**

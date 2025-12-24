@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
@@ -1346,12 +1345,13 @@ public class DateTimeExtractAndTransform {
     public static Expression hourFromUnixtime(BigIntLiteral unixTime) {
         long epochSecond = unixTime.getValue();
         if (epochSecond < 0 || epochSecond > TIMESTAMP_VALID_MAX) {
-            return new NullLiteral(IntegerType.INSTANCE);
+            throw new AnalysisException("Function hour_from_unixtime out of range(between 0 and "
+                            + TIMESTAMP_VALID_MAX + "): " + epochSecond);
         }
 
         ZoneId timeZone = DateUtils.getTimeZone();
         ZonedDateTime zonedDateTime = Instant.ofEpochSecond(epochSecond).atZone(timeZone);
-        return new IntegerLiteral(zonedDateTime.getHour());
+        return new TinyIntLiteral((byte) zonedDateTime.getHour());
     }
 
     /**
@@ -1361,13 +1361,14 @@ public class DateTimeExtractAndTransform {
     public static Expression minuteFromUnixtime(BigIntLiteral unixTime) {
         long localTime = unixTime.getValue();
         if (localTime < 0 || localTime > TIMESTAMP_VALID_MAX) {
-            return new NullLiteral(IntegerType.INSTANCE);
+            throw new AnalysisException("Function minute_from_unixtime out of range(between 0 and "
+                    + TIMESTAMP_VALID_MAX + "): " + localTime);
         }
 
         localTime = localTime - (localTime / 3600) * 3600;
 
-        int minute = (int) (localTime / 60);
-        return new IntegerLiteral(minute);
+        byte minute = (byte) (localTime / 60);
+        return new TinyIntLiteral(minute);
     }
 
     /**
@@ -1377,7 +1378,8 @@ public class DateTimeExtractAndTransform {
     public static Expression secondFromUnixtime(BigIntLiteral unixTime) {
         long localTime = unixTime.getValue();
         if (localTime < 0 || localTime > TIMESTAMP_VALID_MAX) {
-            return new NullLiteral(IntegerType.INSTANCE);
+            throw new AnalysisException("Function second_from_unixtime out of range(between 0 and "
+                    + TIMESTAMP_VALID_MAX + "): " + localTime);
         }
 
         long remainder;
@@ -1389,7 +1391,7 @@ public class DateTimeExtractAndTransform {
                 remainder += 60;
             }
         }
-        return new IntegerLiteral((int) remainder);
+        return new TinyIntLiteral((byte) remainder);
     }
 
     /**
@@ -1401,7 +1403,8 @@ public class DateTimeExtractAndTransform {
 
         long seconds = value.longValue();
         if (seconds < 0 || seconds > TIMESTAMP_VALID_MAX) {
-            return new NullLiteral(IntegerType.INSTANCE);
+            throw new AnalysisException("Function microsecond_from_unixtime out of range(between 0 and "
+                    + TIMESTAMP_VALID_MAX + "): " + seconds);
         }
 
         DecimalV3Type dataType = (DecimalV3Type) unixTime.getDataType();
