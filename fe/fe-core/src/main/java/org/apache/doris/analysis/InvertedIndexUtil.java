@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.indexpolicy.IndexPolicy;
+import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -33,6 +35,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 public class InvertedIndexUtil {
 
@@ -438,7 +441,8 @@ public class InvertedIndexUtil {
 
         String preferredAnalyzer = getPreferredAnalyzer(properties);
         if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
-            return preferredAnalyzer;
+            // For custom analyzer/normalizer, resolve to underlying config to build identity
+            return resolveAnalyzerIdentity(preferredAnalyzer);
         }
 
         String parser = getInvertedIndexParser(properties);
@@ -446,6 +450,170 @@ public class InvertedIndexUtil {
             return "__default__";
         }
         return parser;
+    }
+
+    /**
+     * Resolve analyzer/normalizer name to its underlying configuration identity.
+     * Two analyzers with same underlying config (tokenizer + token_filter + char_filter)
+     * will have the same identity, even if they have different names.
+     *
+     * @param analyzerName the analyzer or normalizer name
+     * @return normalized identity string based on underlying configuration
+     */
+    private static String resolveAnalyzerIdentity(String analyzerName) {
+        if (Strings.isNullOrEmpty(analyzerName)) {
+            return "__default__";
+        }
+
+        // Check if it's a built-in analyzer
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(analyzerName)) {
+            return analyzerName;
+        }
+
+        // Check if it's a built-in normalizer
+        if (IndexPolicy.BUILTIN_NORMALIZERS.contains(analyzerName)) {
+            return "normalizer:" + analyzerName;
+        }
+
+        // For custom analyzer/normalizer, get underlying config from IndexPolicyMgr
+        try {
+            IndexPolicy policy = Env.getCurrentEnv().getIndexPolicyMgr().getPolicyByName(analyzerName);
+            if (policy == null) {
+                // Policy not found, fall back to using name
+                return analyzerName;
+            }
+
+            Map<String, String> policyProps = policy.getProperties();
+            if (policyProps == null || policyProps.isEmpty()) {
+                return analyzerName;
+            }
+
+            // Build identity from underlying config using sorted keys for consistent ordering
+            return buildIdentityFromPolicyProperties(policy.getType(), policyProps);
+        } catch (Exception e) {
+            // If any error occurs, fall back to using name
+            return analyzerName;
+        }
+    }
+
+    /**
+     * Build identity string from policy properties.
+     * Uses TreeMap to ensure consistent key ordering.
+     */
+    private static String buildIdentityFromPolicyProperties(IndexPolicyTypeEnum type,
+            Map<String, String> properties) {
+        // Use TreeMap to sort keys for consistent identity
+        TreeMap<String, String> sortedProps = new TreeMap<>(properties);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(type.name()).append(":");
+
+        for (Map.Entry<String, String> entry : sortedProps.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+
+            // For tokenizer, token_filter, char_filter - resolve recursively if needed
+            if (IndexPolicy.PROP_TOKENIZER.equals(key)) {
+                sb.append("tokenizer=").append(resolveComponentIdentity(value, IndexPolicyTypeEnum.TOKENIZER));
+            } else if (IndexPolicy.PROP_TOKEN_FILTER.equals(key)) {
+                sb.append("token_filter=").append(resolveTokenFilterIdentity(value));
+            } else if (IndexPolicy.PROP_CHAR_FILTER.equals(key)) {
+                sb.append("char_filter=").append(resolveCharFilterIdentity(value));
+            }
+            sb.append(";");
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Resolve a component (tokenizer) to its identity.
+     */
+    private static String resolveComponentIdentity(String name, IndexPolicyTypeEnum expectedType) {
+        if (Strings.isNullOrEmpty(name)) {
+            return "";
+        }
+
+        // Check if it's a built-in component
+        if (expectedType == IndexPolicyTypeEnum.TOKENIZER
+                && IndexPolicy.BUILTIN_TOKENIZERS.contains(name)) {
+            return name;
+        }
+
+        // For custom component, get its properties
+        try {
+            IndexPolicy policy = Env.getCurrentEnv().getIndexPolicyMgr().getPolicyByName(name);
+            if (policy == null || policy.getType() != expectedType) {
+                return name;
+            }
+
+            Map<String, String> props = policy.getProperties();
+            if (props == null || props.isEmpty()) {
+                return name;
+            }
+
+            // Build identity from sorted properties
+            TreeMap<String, String> sortedProps = new TreeMap<>(props);
+            return sortedProps.toString();
+        } catch (Exception e) {
+            return name;
+        }
+    }
+
+    /**
+     * Resolve token_filter list to identity (handles comma-separated list).
+     */
+    private static String resolveTokenFilterIdentity(String filterList) {
+        if (Strings.isNullOrEmpty(filterList)) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        String[] filters = filterList.split(",\\s*");
+        // Sort filter names for consistent ordering
+        Arrays.sort(filters);
+
+        for (int i = 0; i < filters.length; i++) {
+            String filter = filters[i].trim();
+            if (i > 0) {
+                sb.append(",");
+            }
+
+            if (IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(filter)) {
+                sb.append(filter);
+            } else {
+                sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.TOKEN_FILTER));
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Resolve char_filter list to identity (handles comma-separated list).
+     */
+    private static String resolveCharFilterIdentity(String filterList) {
+        if (Strings.isNullOrEmpty(filterList)) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        String[] filters = filterList.split(",\\s*");
+        // Sort filter names for consistent ordering
+        Arrays.sort(filters);
+
+        for (int i = 0; i < filters.length; i++) {
+            String filter = filters[i].trim();
+            if (i > 0) {
+                sb.append(",");
+            }
+
+            if (IndexPolicy.BUILTIN_CHAR_FILTERS.contains(filter)) {
+                sb.append(filter);
+            } else {
+                sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.CHAR_FILTER));
+            }
+        }
+        return sb.toString();
     }
 
     public static boolean isAnalyzerMatched(Map<String, String> properties, String analyzer) {
