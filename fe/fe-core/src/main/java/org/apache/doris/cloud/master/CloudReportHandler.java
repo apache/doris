@@ -57,8 +57,8 @@ public class CloudReportHandler extends ReportHandler {
         deleteFromBackend(backendId, tabletIdsNeedDrop);
 
         Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
-        LOG.info("finished to handle task report from backend {}-{}, "
-                + "diff task num: {}, cost: {} ms.",
+        LOG.info("finished to handle tablet report from backend {}-{}, "
+                + "tabletIdsNeedDrop num: {}, cost: {} ms.",
                 backendId, be != null ? be.getHost() : "",
                 tabletIdsNeedDrop.size(),
                 (System.currentTimeMillis() - start));
