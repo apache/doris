@@ -21,6 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.SupportPruneNestedColumn;
+import org.apache.doris.nereids.trees.plans.logical.SupportPruneNestedColumnFormats;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -30,7 +32,7 @@ import java.util.Map;
 /**
  * File Tvf
  */
-public class File extends TableValuedFunction {
+public class File extends TableValuedFunction implements SupportPruneNestedColumn {
     public File(Properties properties) {
         super("file", properties);
     }
@@ -55,4 +57,8 @@ public class File extends TableValuedFunction {
         return visitor.visitFile(this, context);
     }
 
+    @Override
+    public boolean supportPruneNestedColumn() {
+        return SupportPruneNestedColumnFormats.supportFormat(getTVFProperties());
+    }
 }

@@ -261,4 +261,166 @@ bool call_on_index_and_number_data_type(PrimitiveType number, F&& f) {
     return false;
 }
 
+template <PrimitiveType PT>
+struct DispatchDataType {
+    constexpr static auto PType = PT;
+    using DataType = typename PrimitiveTypeTraits<PT>::DataType;
+    using ColumnType = typename PrimitiveTypeTraits<PT>::ColumnType;
+};
+
+struct DispatchDataTypeMask {
+    static constexpr uint32_t INT = 1 << 0;
+    static constexpr uint32_t FLOAT = 1 << 1;
+    static constexpr uint32_t DECIMAL = 1 << 2;
+    static constexpr uint32_t DATETIME = 1 << 3;
+    static constexpr uint32_t IP = 1 << 4;
+    static constexpr uint32_t STRING = 1 << 5;
+    static constexpr uint32_t DECIMALV3 = 1 << 6;
+
+    static constexpr uint32_t SCALAR = INT | FLOAT | DECIMAL | DATETIME | IP;
+    static constexpr uint32_t NUMBER = INT | FLOAT | DECIMAL;
+    static constexpr uint32_t ALL = INT | FLOAT | DECIMAL | DATETIME | IP | STRING;
+};
+
+template <typename F, uint32_t TypeMaskV = DispatchDataTypeMask::ALL>
+bool dispatch_type_base(PrimitiveType number, F&& f) {
+    if constexpr ((TypeMaskV & DispatchDataTypeMask::INT) != 0) {
+        switch (number) {
+        case PrimitiveType::TYPE_BOOLEAN:
+            return f(DispatchDataType<TYPE_BOOLEAN>());
+        case PrimitiveType::TYPE_TINYINT:
+            return f(DispatchDataType<TYPE_TINYINT>());
+        case PrimitiveType::TYPE_SMALLINT:
+            return f(DispatchDataType<TYPE_SMALLINT>());
+        case PrimitiveType::TYPE_INT:
+            return f(DispatchDataType<TYPE_INT>());
+        case PrimitiveType::TYPE_BIGINT:
+            return f(DispatchDataType<TYPE_BIGINT>());
+        case PrimitiveType::TYPE_LARGEINT:
+            return f(DispatchDataType<TYPE_LARGEINT>());
+        default:
+            break;
+        }
+    }
+
+    if constexpr ((TypeMaskV & DispatchDataTypeMask::FLOAT) != 0) {
+        switch (number) {
+        case PrimitiveType::TYPE_FLOAT:
+            return f(DispatchDataType<TYPE_FLOAT>());
+        case PrimitiveType::TYPE_DOUBLE:
+            return f(DispatchDataType<TYPE_DOUBLE>());
+        default:
+            break;
+        }
+    }
+
+    if constexpr ((TypeMaskV & DispatchDataTypeMask::DECIMALV3) != 0) {
+        switch (number) {
+        case PrimitiveType::TYPE_DECIMAL32:
+            return f(DispatchDataType<TYPE_DECIMAL32>());
+        case PrimitiveType::TYPE_DECIMAL64:
+            return f(DispatchDataType<TYPE_DECIMAL64>());
+        case PrimitiveType::TYPE_DECIMAL128I:
+            return f(DispatchDataType<TYPE_DECIMAL128I>());
+        case PrimitiveType::TYPE_DECIMAL256:
+            return f(DispatchDataType<TYPE_DECIMAL256>());
+        default:
+            break;
+        }
+    }
+
+    if constexpr ((TypeMaskV & DispatchDataTypeMask::DECIMAL) != 0) {
+        switch (number) {
+        case PrimitiveType::TYPE_DECIMAL32:
+            return f(DispatchDataType<TYPE_DECIMAL32>());
+        case PrimitiveType::TYPE_DECIMAL64:
+            return f(DispatchDataType<TYPE_DECIMAL64>());
+        case PrimitiveType::TYPE_DECIMALV2:
+            return f(DispatchDataType<TYPE_DECIMALV2>());
+        case PrimitiveType::TYPE_DECIMAL128I:
+            return f(DispatchDataType<TYPE_DECIMAL128I>());
+        case PrimitiveType::TYPE_DECIMAL256:
+            return f(DispatchDataType<TYPE_DECIMAL256>());
+        default:
+            break;
+        }
+    }
+
+    if constexpr ((TypeMaskV & DispatchDataTypeMask::DATETIME) != 0) {
+        switch (number) {
+        case PrimitiveType::TYPE_DATE:
+            return f(DispatchDataType<TYPE_DATE>());
+        case PrimitiveType::TYPE_DATEV2:
+            return f(DispatchDataType<TYPE_DATEV2>());
+        case PrimitiveType::TYPE_DATETIMEV2:
+            return f(DispatchDataType<TYPE_DATETIMEV2>());
+        case PrimitiveType::TYPE_DATETIME:
+            return f(DispatchDataType<TYPE_DATETIME>());
+        case PrimitiveType::TYPE_TIMEV2:
+            return f(DispatchDataType<TYPE_TIMEV2>());
+        default:
+            break;
+        }
+    }
+
+    if constexpr ((TypeMaskV & DispatchDataTypeMask::IP) != 0) {
+        switch (number) {
+        case PrimitiveType::TYPE_IPV4:
+            return f(DispatchDataType<TYPE_IPV4>());
+        case PrimitiveType::TYPE_IPV6:
+            return f(DispatchDataType<TYPE_IPV6>());
+        default:
+            break;
+        }
+    }
+
+    if constexpr ((TypeMaskV & DispatchDataTypeMask::STRING) != 0) {
+        switch (number) {
+        case PrimitiveType::TYPE_STRING:
+        case PrimitiveType::TYPE_CHAR:
+        case PrimitiveType::TYPE_VARCHAR:
+            return f(DispatchDataType<TYPE_STRING>());
+        default:
+            break;
+        }
+    }
+
+    return false;
+}
+
+template <typename F>
+bool dispatch_switch_all(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::ALL>(number, std::forward<F>(f));
+}
+
+template <typename F>
+bool dispatch_switch_scalar(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::SCALAR>(number, std::forward<F>(f));
+}
+
+template <typename F>
+bool dispatch_switch_float(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::FLOAT>(number, std::forward<F>(f));
+}
+
+template <typename F>
+bool dispatch_switch_int(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::INT>(number, std::forward<F>(f));
+}
+
+template <typename F>
+bool dispatch_switch_number(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::NUMBER>(number, std::forward<F>(f));
+}
+
+template <typename F>
+bool dispatch_switch_decimal(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::DECIMAL>(number, std::forward<F>(f));
+}
+
+template <typename F>
+bool dispatch_switch_decimalv3(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::DECIMALV3>(number, std::forward<F>(f));
+}
+
 } // namespace doris::vectorized

@@ -136,6 +136,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
+    @SerializedName(value = "sv")
+    protected Map<String, String> sessionVariables;
 
     protected RollupJobV2() {
         super(JobType.ROLLUP);
@@ -148,7 +150,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                        Column whereColumn,
                        int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
                        short rollupShortKeyColumnCount,
-                       OriginStatement origStmt) throws AnalysisException {
+                       OriginStatement origStmt, Map<String, String> sessionVariables) throws AnalysisException {
         super(rawSql, jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
@@ -165,6 +167,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupShortKeyColumnCount = rollupShortKeyColumnCount;
 
         this.origStmt = origStmt;
+        this.sessionVariables = sessionVariables;
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
@@ -362,7 +365,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
-                rollupKeysType, origStmt, null);
+                rollupKeysType, origStmt, null, sessionVariables);
         tbl.rebuildFullSchema();
     }
 
@@ -952,5 +955,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     @Override
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
     }
 }

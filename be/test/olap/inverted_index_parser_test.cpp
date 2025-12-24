@@ -246,6 +246,23 @@ TEST_F(InvertedIndexParserTest, TestGetParserDictCompressionFromProperties) {
     EXPECT_EQ(get_parser_dict_compression_from_properties(properties), "false");
 }
 
+TEST_F(InvertedIndexParserTest, TestGetAnalyzerNameFromProperties) {
+    std::map<std::string, std::string> properties;
+
+    EXPECT_EQ(get_analyzer_name_from_properties(properties), "");
+
+    properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "my_analyzer";
+    EXPECT_EQ(get_analyzer_name_from_properties(properties), "my_analyzer");
+
+    properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "";
+    properties[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "my_normalizer";
+    EXPECT_EQ(get_analyzer_name_from_properties(properties), "my_normalizer");
+
+    properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "another_analyzer";
+    properties[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "another_normalizer";
+    EXPECT_EQ(get_analyzer_name_from_properties(properties), "another_analyzer");
+}
+
 // Test InvertedIndexCtx structure
 TEST_F(InvertedIndexParserTest, TestInvertedIndexCtxStructure) {
     InvertedIndexCtx ctx;

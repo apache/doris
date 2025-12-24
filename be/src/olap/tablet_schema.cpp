@@ -776,7 +776,8 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
         function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                agg_name, {type}, type->is_nullable(), BeExecVersionManager::get_newest_version());
+                agg_name, {type}, type, type->is_nullable(),
+                BeExecVersionManager::get_newest_version());
         if (!function) {
             LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
                          << ", column_type=" << type->get_name();
@@ -1167,6 +1168,17 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
     _enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
+    if (schema.has_is_external_segment_column_meta_used()) {
+        _is_external_segment_column_meta_used = schema.is_external_segment_column_meta_used();
+    } else {
+        _is_external_segment_column_meta_used = false;
+    }
+    if (schema.has_integer_type_default_use_plain_encoding()) {
+        _integer_type_default_use_plain_encoding = schema.integer_type_default_use_plain_encoding();
+    }
+    if (schema.has_binary_plain_encoding_default_impl()) {
+        _binary_plain_encoding_default_impl = schema.binary_plain_encoding_default_impl();
+    }
     update_metadata_size();
 }
 
@@ -1419,6 +1431,11 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
     tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
+    tablet_schema_pb->set_is_external_segment_column_meta_used(
+            _is_external_segment_column_meta_used);
+    tablet_schema_pb->set_integer_type_default_use_plain_encoding(
+            _integer_type_default_use_plain_encoding);
+    tablet_schema_pb->set_binary_plain_encoding_default_impl(_binary_plain_encoding_default_impl);
 }
 
 size_t TabletSchema::row_size() const {
@@ -1687,6 +1704,14 @@ vectorized::Block TabletSchema::create_block(
                             tablet_columns_need_convert_null->find(cid) !=
                                     tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
+        if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT ||
+            col.type() == FieldType::OLAP_FIELD_TYPE_MAP ||
+            col.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            if (_pruned_columns_data_type.contains(col.unique_id())) {
+                data_type = _pruned_columns_data_type.at(col.unique_id());
+            }
+        }
+
         if (_vir_col_idx_to_unique_id.contains(cid)) {
             block.insert({vectorized::ColumnNothing::create(0), data_type, col.name()});
             VLOG_DEBUG << fmt::format(
@@ -1706,7 +1731,13 @@ vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
         if (ignore_dropped_col && is_dropped_column(*col)) {
             continue;
         }
+
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
+        if (col->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            if (_pruned_columns_data_type.contains(col->unique_id())) {
+                data_type = _pruned_columns_data_type.at(col->unique_id());
+            }
+        }
         block.insert({data_type->create_column(), data_type, col->name()});
     }
     return block;
@@ -1717,6 +1748,11 @@ vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>
     for (const auto& cid : cids) {
         const auto& col = *_cols[cid];
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
+        if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            if (_pruned_columns_data_type.contains(col.unique_id())) {
+                data_type = _pruned_columns_data_type.at(col.unique_id());
+            }
+        }
         block.insert({data_type->create_column(), data_type, col.name()});
     }
     return block;
@@ -1780,6 +1816,12 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._storage_dict_page_size != b._storage_dict_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
+    if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
+        return false;
+    if (a._integer_type_default_use_plain_encoding != b._integer_type_default_use_plain_encoding)
+        return false;
+    if (a._binary_plain_encoding_default_impl != b._binary_plain_encoding_default_impl)
+        return false;
     return true;
 }
 

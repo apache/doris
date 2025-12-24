@@ -49,10 +49,12 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/external_col_meta_util.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant/variant_ext_meta_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -78,7 +80,6 @@
 #include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
-
 namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
@@ -302,6 +303,10 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     opts.footer = &_footer;
     opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
 
+    opts.encoding_preference = {.integer_type_default_use_plain_encoding =
+                                        _tablet_schema->integer_type_default_use_plain_encoding(),
+                                .binary_plain_encoding_default_impl =
+                                        _tablet_schema->binary_plain_encoding_default_impl()};
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -1331,6 +1336,17 @@ Status VerticalSegmentWriter::_write_primary_key_index() {
 
 Status VerticalSegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
+
+    // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
+
+    if (_tablet_schema->is_external_segment_column_meta_used()) {
+        _footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
+        VLOG_DEBUG << "use external column meta";
+        // External ColumnMetaPB writing (optional)
+        RETURN_IF_ERROR(ExternalColMetaUtil::write_external_column_meta(
+                _file_writer, &_footer, _opts.compression_type,
+                [this](const std::vector<Slice>& slices) { return _write_raw_data(slices); }));
+    }
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     VLOG_DEBUG << "footer " << _footer.DebugString();

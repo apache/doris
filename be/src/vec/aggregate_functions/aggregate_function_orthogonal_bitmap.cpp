@@ -35,6 +35,7 @@ namespace doris::vectorized {
 template <template <PrimitiveType> class Impl>
 AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& name,
                                                           const DataTypes& argument_types,
+                                                          const DataTypePtr& result_type,
                                                           const bool result_is_nullable,
                                                           const AggregateFunctionAttr& attr) {
     if (argument_types.empty()) {

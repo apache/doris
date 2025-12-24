@@ -376,6 +376,7 @@ ANN: 'ANN';
 NO: 'NO';
 NO_USE_MV: 'NO_USE_MV';
 NON_NULLABLE: 'NON_NULLABLE';
+NORMALIZER: 'NORMALIZER';
 NOT: 'NOT';
 NULL: 'NULL';
 NULLS: 'NULLS';
@@ -713,9 +714,6 @@ BRACKETED_COMMENT
     : COMMENT_START ( BRACKETED_COMMENT | . )*? '*/' -> channel(2)
     ;
 
-
-FROM_DUAL
-    : 'FROM' WS+ 'DUAL' -> channel(HIDDEN);
 
 WS
     : [ \r\n\t]+ -> channel(HIDDEN)

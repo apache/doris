@@ -612,6 +612,12 @@ DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DEFINE_mBool(enable_stream_load_record, "false");
+// Whether to enable stream load record to audit log table, the default is true.
+DEFINE_mBool(enable_stream_load_record_to_audit_log_table, "false");
+// the maximum bytes of a batch of stream load records to audit log table
+DEFINE_mInt64(stream_load_record_batch_bytes, "104857600"); // 100MB
+// the interval to send a batch of stream load records to audit log table
+DEFINE_mInt64(stream_load_record_batch_interval_secs, "120"); // 2 minutes
 // batch size of stream load record reported to FE
 DEFINE_mInt32(stream_load_record_batch_size, "50");
 // expire time of stream load record in rocksdb.
@@ -1068,8 +1074,6 @@ DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
 // Global segcompaction thread pool size.
 DEFINE_mInt32(segcompaction_num_threads, "5");
 
-DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
-
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
@@ -1137,6 +1141,10 @@ DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mBool(enable_file_cache_adaptive_write, "true");
 DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
+
+// if difference below this threshold, we consider cache's progressive upgrading (2.0->3.0) successful
+DEFINE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold, "0.3");
+DEFINE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio, "0.7");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");

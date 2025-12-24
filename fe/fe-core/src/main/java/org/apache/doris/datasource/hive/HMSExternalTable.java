@@ -40,6 +40,7 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -56,8 +57,11 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -65,6 +69,7 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
 import org.apache.doris.statistics.StatsType;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -384,6 +389,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public boolean supportInternalPartitionPruned() {
         return getDlaType() == DLAType.HIVE || getDlaType() == DLAType.HUDI;
+    }
+
+    @Override
+    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
+        if (getDlaType() != DLAType.HIVE) {
+            return Optional.empty();
+        }
+        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
+            return Optional.empty();
+        }
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
+        return hivePartitionValues.getSortedPartitionRanges();
     }
 
     public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {
@@ -741,7 +759,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private List<Column> initPartitionColumns(List<Column> schema) {
-        List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
+        // get table from remote, do not use `remoteTable` directly,
+        // because here we need to get schema from latest table info.
+        Table newTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
+        List<String> partitionKeys = newTable.getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
         List<Column> partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (String partitionKey : partitionKeys) {
@@ -795,7 +816,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             case ICEBERG:
                 if (GlobalVariable.enableFetchIcebergStats) {
                     return StatisticsUtil.getIcebergColumnStats(colName,
-                            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
+                            Env.getCurrentEnv().getExtMetaCacheMgr()
+                                .getIcebergMetadataCache((IcebergExternalCatalog) this.getCatalog())
+                                .getIcebergTable(this));
                 } else {
                     break;
                 }
@@ -1184,6 +1207,44 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 return Lists.newArrayList();
         }
     }
+
+    public TFileFormatType getFileFormatType(SessionVariable sessionVariable) throws UserException {
+        TFileFormatType type = null;
+        Table table = getRemoteTable();
+        String inputFormatName = table.getSd().getInputFormat();
+        String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
+        if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
+            type = TFileFormatType.FORMAT_PARQUET;
+        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
+            type = TFileFormatType.FORMAT_ORC;
+        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
+            String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
+            if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
+                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
+                type = TFileFormatType.FORMAT_JSON;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
+                if (!sessionVariable.isReadHiveJsonInOneColumn()) {
+                    type = TFileFormatType.FORMAT_JSON;
+                } else if (sessionVariable.isReadHiveJsonInOneColumn() && firstColumnIsString()) {
+                    type = TFileFormatType.FORMAT_CSV_PLAIN;
+                } else {
+                    throw new UserException("You set read_hive_json_in_one_column = true, but the first column of "
+                            + "table " + getName()
+                            + " is not a string column.");
+                }
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_TEXT_SERDE)) {
+                type = TFileFormatType.FORMAT_TEXT;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_OPEN_CSV_SERDE)) {
+                type = TFileFormatType.FORMAT_CSV_PLAIN;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
+                type = TFileFormatType.FORMAT_TEXT;
+            } else {
+                throw new UserException("Unsupported hive table serde: " + serDeLib);
+            }
+        }
+        return type;
+    }
+
 
     private Table loadHiveTable() {
         HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();

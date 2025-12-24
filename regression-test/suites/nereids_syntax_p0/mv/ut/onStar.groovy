@@ -45,7 +45,6 @@ suite ("onStar") {
     sql """insert into onStar values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table onStar with sync;"
-    sql """set enable_stats=false;"""
 
     order_qt_select_star "select * from onStar order by empid;"
     order_qt_select_mv "select * from onStar where deptno = 1 order by empid;"

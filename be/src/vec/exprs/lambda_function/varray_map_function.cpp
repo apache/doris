@@ -77,8 +77,9 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const vectorized::Block* block, ColumnPtr& result_column,
-                   const DataTypePtr& result_type, const VExprSPtrs& children) const override {
+    Status execute(VExprContext* context, const vectorized::Block* block, size_t count,
+                   ColumnPtr& result_column, const DataTypePtr& result_type,
+                   const VExprSPtrs& children) const override {
         LambdaArgs args_info;
         // collect used slot ref in lambda function body
         std::vector<int>& output_slot_ref_indexs = args_info.output_slot_ref_indexs;
@@ -111,7 +112,7 @@ public:
         ColumnsWithTypeAndName arguments(children.size() - 1);
         for (int i = 1; i < children.size(); ++i) {
             ColumnPtr column;
-            RETURN_IF_ERROR(children[i]->execute_column(context, block, column));
+            RETURN_IF_ERROR(children[i]->execute_column(context, block, count, column));
             arguments[i - 1].column = column;
             arguments[i - 1].type = children[i]->execute_type(block);
             arguments[i - 1].name = children[i]->expr_name();
@@ -264,7 +265,7 @@ public:
                     //current row is end of array, move to next row
                     args_info.current_row_idx++;
                     args_info.current_offset_in_array = 0;
-                    if (args_info.current_row_idx >= block->rows()) {
+                    if (args_info.current_row_idx >= count) {
                         break;
                     }
                     args_info.current_row_eos = false;
@@ -283,7 +284,8 @@ public:
             //3. child[0]->execute(new_block)
 
             ColumnPtr res_col;
-            RETURN_IF_ERROR(children[0]->execute_column(context, &lambda_block, res_col));
+            RETURN_IF_ERROR(children[0]->execute_column(context, &lambda_block, lambda_block.rows(),
+                                                        res_col));
             res_col = res_col->convert_to_full_column_if_const();
             res_type = children[0]->execute_type(&lambda_block);
 
@@ -292,7 +294,7 @@ public:
             }
             result_col->insert_range_from(*res_col, 0, res_col->size());
             lambda_block.clear_column_data(column_size);
-        } while (args_info.current_row_idx < block->rows());
+        } while (args_info.current_row_idx < count);
 
         //4. get the result column after execution, reassemble it into a new array column, and return.
         if (result_type->is_nullable()) {

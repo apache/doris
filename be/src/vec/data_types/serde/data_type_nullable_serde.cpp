@@ -36,9 +36,7 @@
 #include "vec/functions/cast/cast_base.h"
 #include "vec/runtime/vcsv_transformer.h"
 
-namespace doris {
-
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
 Status DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -403,8 +401,7 @@ bool DataTypeNullableSerDe::write_column_to_hive_text(const IColumn& column, Buf
 
 Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                            MysqlRowBinaryBuffer& result,
-                                                           int64_t row_idx, bool col_const,
-                                                           const FormatOptions& options) const {
+                                                           int64_t row_idx, bool col_const) const {
     const auto& col = assert_cast<const ColumnNullable&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     if (col.has_null() && col.is_null_at(col_index)) {
@@ -414,7 +411,7 @@ Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column
     } else {
         const auto& nested_col = col.get_nested_column();
         RETURN_IF_ERROR(nested_serde->write_column_to_mysql_binary(nested_col, result, col_index,
-                                                                   col_const, options));
+                                                                   col_const));
     }
     return Status::OK();
 }
@@ -489,10 +486,10 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
 Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                       const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    RETURN_IF_ERROR(nested_serde->from_string(str, null_column.get_nested_column(), options));
+    RETURN_IF_ERROR(
+            nested_serde->from_string_strict_mode(str, null_column.get_nested_column(), options));
     // fill not null if success
     null_column.get_null_map_data().push_back(0);
     return Status::OK();
 }
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

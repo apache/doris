@@ -18,6 +18,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <gtest/gtest.h>
 
+#include "common/status.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/rowset/beta_rowset.h"
@@ -144,15 +145,21 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
     columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
 
-    EXPECT_TRUE(rowset_writer->add_block(&block).ok());
-    EXPECT_TRUE(rowset_writer->flush().ok());
-    EXPECT_TRUE(rowset_writer->build(rowset).ok());
-    EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
+    Status st;
+    st = rowset_writer->add_block(&block);
+    ASSERT_TRUE(st.ok()) << st; // add_block failed, no valid segment will be written
+    st = rowset_writer->flush();
+    ASSERT_TRUE(st.ok()) << st; // flush failed
+    st = rowset_writer->build(rowset);
+    ASSERT_TRUE(st.ok()) << st; // build rowset failed
+    st = _tablet->add_rowset(rowset);
+    ASSERT_TRUE(st.ok()) << st; // add_rowset failed
 
     segment_v2::SegmentSharedPtr segment;
-    EXPECT_TRUE(((BetaRowset*)rowset.get())->load_segment(0, nullptr, &segment).ok());
+    st = ((BetaRowset*)rowset.get())->load_segment(0, nullptr, &segment);
+    ASSERT_TRUE(st.ok()) << st; // load_segment failed, segment may be null
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-    auto st = segment->_get_segment_footer(footer_pb_shared, nullptr);
+    st = segment->_get_segment_footer(footer_pb_shared, nullptr);
     EXPECT_TRUE(st.ok());
     st = segment->_create_column_meta(*footer_pb_shared);
     EXPECT_TRUE(st.ok());

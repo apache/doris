@@ -64,6 +64,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -76,6 +77,7 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.Util;
@@ -89,11 +91,13 @@ import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.StreamLoadHandler;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
@@ -161,6 +165,8 @@ import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TEncryptionKey;
+import org.apache.doris.thrift.TFetchLoadJobRequest;
+import org.apache.doris.thrift.TFetchLoadJobResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
 import org.apache.doris.thrift.TFetchRoutineLoadJobResult;
@@ -193,6 +199,8 @@ import org.apache.doris.thrift.TGetMetaDB;
 import org.apache.doris.thrift.TGetMetaRequest;
 import org.apache.doris.thrift.TGetMetaResult;
 import org.apache.doris.thrift.TGetMetaTable;
+import org.apache.doris.thrift.TGetOlapTableMetaRequest;
+import org.apache.doris.thrift.TGetOlapTableMetaResult;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TGetSnapshotRequest;
 import org.apache.doris.thrift.TGetSnapshotResult;
@@ -209,6 +217,7 @@ import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableMetadataNameIdsResult;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TLoadJob;
 import org.apache.doris.thrift.TLoadTxn2PCRequest;
 import org.apache.doris.thrift.TLoadTxn2PCResult;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
@@ -228,6 +237,7 @@ import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TPartitionMeta;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TPlsqlPackageResult;
@@ -302,7 +312,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -4320,12 +4333,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetBackendMetaResult result = new TGetBackendMetaResult();
-        TStatus status = checkMaster();
+        TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-
-        if (status.getStatusCode() != TStatusCode.OK) {
-            return result;
-        }
 
         try {
             result = getBackendMetaImpl(request, clientAddr);
@@ -4520,6 +4529,83 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TFetchLoadJobResult fetchLoadJob(TFetchLoadJobRequest request) {
+        TFetchLoadJobResult result = new TFetchLoadJobResult();
+
+        if (!Env.getCurrentEnv().isReady()) {
+            return result;
+        }
+
+        // Create a ConnectContext with skipAuth=true for system table access
+        // This is necessary because LoadJob.checkAuth() requires a ConnectContext
+        // and system table queries from backend don't have user context
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setSkipAuth(true);
+        ctx.setThreadLocalInfo();
+
+        try {
+            LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
+            List<TLoadJob> jobInfos = Lists.newArrayList();
+            List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
+            for (String dbName : dbNames) {
+                DatabaseIf db;
+                try {
+                    db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+                } catch (Exception e) {
+                    LOG.warn("Failed to get database: {}", dbName, e);
+                    continue;
+                }
+                long dbId = db.getId();
+                try {
+                    List<List<Comparable>> loadJobInfosByDb = loadManager.getLoadJobInfosByDb(
+                            dbId, null, false, null);
+                    for (List<Comparable> jobInfo : loadJobInfosByDb) {
+                        TLoadJob tJob = new TLoadJob();
+                        // Based on LOAD_TITLE_NAMES order:
+                        // JobId, Label, State, Progress, Type, EtlInfo, TaskInfo, ErrorMsg, CreateTime,
+                        // EtlStartTime, EtlFinishTime, LoadStartTime, LoadFinishTime, URL, JobDetails,
+                        // TransactionId, ErrorTablets, User, Comment, FirstErrorMsg
+                        if (jobInfo.size() >= 20) {
+                            tJob.setJobId(String.valueOf(jobInfo.get(0)));
+                            tJob.setLabel(String.valueOf(jobInfo.get(1)));
+                            tJob.setState(String.valueOf(jobInfo.get(2)));
+                            tJob.setProgress(String.valueOf(jobInfo.get(3)));
+                            tJob.setType(String.valueOf(jobInfo.get(4)));
+                            tJob.setEtlInfo(String.valueOf(jobInfo.get(5)));
+                            tJob.setTaskInfo(String.valueOf(jobInfo.get(6)));
+                            tJob.setErrorMsg(String.valueOf(jobInfo.get(7)));
+                            tJob.setCreateTime(String.valueOf(jobInfo.get(8)));
+                            tJob.setEtlStartTime(String.valueOf(jobInfo.get(9)));
+                            tJob.setEtlFinishTime(String.valueOf(jobInfo.get(10)));
+                            tJob.setLoadStartTime(String.valueOf(jobInfo.get(11)));
+                            tJob.setLoadFinishTime(String.valueOf(jobInfo.get(12)));
+                            tJob.setUrl(String.valueOf(jobInfo.get(13)));
+                            tJob.setJobDetails(String.valueOf(jobInfo.get(14)));
+                            tJob.setTransactionId(String.valueOf(jobInfo.get(15)));
+                            tJob.setErrorTablets(String.valueOf(jobInfo.get(16)));
+                            tJob.setUser(String.valueOf(jobInfo.get(17)));
+                            tJob.setComment(String.valueOf(jobInfo.get(18)));
+                            tJob.setFirstErrorMsg(String.valueOf(jobInfo.get(19)));
+                            jobInfos.add(tJob);
+                        }
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to get load jobs for database: {}", dbName, e);
+                }
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("load job infos: {}", jobInfos);
+            }
+            result.setLoadJobs(jobInfos);
+
+            return result;
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Override
     public TGetTableTDEInfoResult getTableTDEInfo(TGetTableTDEInfoRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
@@ -4559,6 +4645,102 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetTableTDEInfoResult result = new TGetTableTDEInfoResult();
         result.setAlgorithm(tdeAlgorithm).setStatus(status);
         return result;
+    }
+
+    /**
+     * only copy basic meta about table
+     * do not copy the partitions
+     * @param request
+     * @return
+     * @throws TException
+     */
+    @Override
+    public TGetOlapTableMetaResult getOlapTableMeta(TGetOlapTableMetaRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive getOlapTableMeta request: {}, client: {}", request, clientAddr);
+        }
+        TGetOlapTableMetaResult result = new TGetOlapTableMetaResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(), clientAddr, PrivPredicate.SELECT);
+            String dbName = request.getDb();
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+            if (db == null) {
+                throw new UserException("unknown database, database=" + dbName);
+            }
+            OlapTable table = (OlapTable) db.getTableNullable(request.getTable());
+            if (table == null) {
+                throw new UserException("unknown table, table=" + request.getTable());
+            }
+            MetaContext metaContext = new MetaContext();
+            metaContext.setMetaVersion(FeConstants.meta_version);
+            metaContext.setThreadLocalInfo();
+            table.readLock();
+            try (ByteArrayOutputStream bOutputStream = new ByteArrayOutputStream(8192)) {
+                OlapTable copyTable = table.copyTableMeta();
+                try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
+                    copyTable.write(out);
+                    out.flush();
+                    result.setTableMeta(bOutputStream.toByteArray());
+                }
+                Set<Long> updatedPartitionIds = Sets.newHashSet(table.getPartitionIds());
+                List<TPartitionMeta> partitionMetas = request.getPartitionsSize() == 0 ? Lists.newArrayList()
+                        : request.getPartitions();
+                for (TPartitionMeta partitionMeta : partitionMetas) {
+                    if (request.getTableId() != table.getId()) {
+                        result.addToRemovedPartitions(partitionMeta.getId());
+                        continue;
+                    }
+                    Partition partition = table.getPartition(partitionMeta.getId());
+                    if (partition == null) {
+                        result.addToRemovedPartitions(partitionMeta.getId());
+                        continue;
+                    }
+                    if (partition.getVisibleVersion() == partitionMeta.getVisibleVersion()
+                            && partition.getVisibleVersionTime() == partitionMeta.getVisibleVersionTime()) {
+                        updatedPartitionIds.remove(partitionMeta.getId());
+                    }
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("receive getOlapTableMeta  db: {} table:{} update partitions: {} removed partition:{}",
+                            request.getDb(), request.getTable(), updatedPartitionIds.size(),
+                            result.getRemovedPartitionsSize());
+                }
+                for (Long partitionId : updatedPartitionIds) {
+                    bOutputStream.reset();
+                    Partition partition = table.getPartition(partitionId);
+                    try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
+                        Text.writeString(out, GsonUtils.GSON.toJson(partition));
+                        out.flush();
+                        result.addToUpdatedPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
+                    }
+                }
+                return result;
+            } finally {
+                table.readUnlock();
+                MetaContext.remove();
+            }
+        } catch (AuthenticationException e) {
+            LOG.warn("failed to check user auth: {}", e);
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+            return result;
+        } catch (UserException e) {
+            LOG.warn("failed to get table meta db:{} table:{} : {}",
+                    request.getDb(), request.getTable(), e);
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        } catch (Exception e) {
+            LOG.warn("unknown exception when get table meta db:{} table:{} : {}",
+                    request.getDb(), request.getTable(), e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+            return result;
+        }
     }
 
     private TStatus checkMaster() {

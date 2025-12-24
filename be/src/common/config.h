@@ -650,6 +650,12 @@ DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DECLARE_mBool(enable_stream_load_record);
+// Whether to enable stream load record to audit log table, the default is true.
+DECLARE_mBool(enable_stream_load_record_to_audit_log_table);
+// the maximum bytes of a batch of stream load records to audit log table
+DECLARE_mInt64(stream_load_record_batch_bytes);
+// the interval to send a batch of stream load records to audit log table
+DECLARE_mInt64(stream_load_record_batch_interval_secs);
 // batch size of stream load record reported to FE
 DECLARE_mInt32(stream_load_record_batch_size);
 // expire time of stream load record in rocksdb.
@@ -1113,8 +1119,6 @@ DECLARE_Int32(segcompaction_task_max_rows);
 // Max total file size allowed in a single segcompaction task.
 DECLARE_Int64(segcompaction_task_max_bytes);
 
-DECLARE_Int32(segcompaction_wait_for_dbm_task_timeout_s);
-
 // Global segcompaction thread pool size.
 DECLARE_mInt32(segcompaction_num_threads);
 
@@ -1177,6 +1181,8 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 DECLARE_mBool(enable_file_cache_adaptive_write);
 DECLARE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio);
+DECLARE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold);
+DECLARE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);

@@ -63,8 +63,8 @@ suite("test_custom_analyzer", "p0") {
         CREATE INVERTED INDEX ANALYZER IF NOT EXISTS keyword_lowercase
         PROPERTIES
         (
-            "tokenizer" = "keyword",
-            "token_filter" = "asciifolding, lowercase"
+        "tokenizer" = "keyword",
+        "token_filter" = "asciifolding, lowercase"
         );
     """
 
@@ -582,5 +582,94 @@ suite("test_custom_analyzer", "p0") {
 
     } finally {
         sql "DROP TABLE IF EXISTS ${indexTbName6}"
+    }
+
+    // Test ignore_pinyin_offset parameter
+    // Create tokenizer with ignore_pinyin_offset=true (default)
+    sql """
+        CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS pinyin_tokenizer_ignore_true
+        PROPERTIES (
+            "type" = "pinyin",
+            "keep_first_letter" = "true",
+            "keep_full_pinyin" = "true",
+            "ignore_pinyin_offset" = "true"
+        );
+    """
+
+    // Create tokenizer with ignore_pinyin_offset=false
+    sql """
+        CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS pinyin_tokenizer_ignore_false
+        PROPERTIES (
+            "type" = "pinyin",
+            "keep_first_letter" = "true",
+            "keep_full_pinyin" = "true",
+            "ignore_pinyin_offset" = "false"
+        );
+    """
+
+    // Create analyzers
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS pinyin_analyzer_ignore_true
+        PROPERTIES (
+            "tokenizer" = "pinyin_tokenizer_ignore_true"
+        );
+    """
+
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS pinyin_analyzer_ignore_false
+        PROPERTIES (
+            "tokenizer" = "pinyin_tokenizer_ignore_false"
+        );
+    """
+
+    // Wait for all analyzers to be ready - increased timeout due to many objects
+    sql """ select sleep(15) """
+
+    // Test with ignore_pinyin_offset=true - all tokens should have same offset
+    qt_sql_ignore_offset_true_1 """ select tokenize('刘德华', '"analyzer"="pinyin_analyzer_ignore_true"'); """
+    qt_sql_ignore_offset_true_2 """ select tokenize('你好', '"analyzer"="pinyin_analyzer_ignore_true"'); """
+    qt_sql_ignore_offset_true_3 """ select tokenize('银行', '"analyzer"="pinyin_analyzer_ignore_true"'); """
+
+    // Test with ignore_pinyin_offset=false - tokens should have independent offsets
+    qt_sql_ignore_offset_false_1 """ select tokenize('刘德华', '"analyzer"="pinyin_analyzer_ignore_false"'); """
+    qt_sql_ignore_offset_false_2 """ select tokenize('你好', '"analyzer"="pinyin_analyzer_ignore_false"'); """
+    qt_sql_ignore_offset_false_3 """ select tokenize('银行', '"analyzer"="pinyin_analyzer_ignore_false"'); """
+
+    // Test with mixed content
+    qt_sql_ignore_offset_true_mixed """ select tokenize('刘a德', '"analyzer"="pinyin_analyzer_ignore_true"'); """
+    qt_sql_ignore_offset_false_mixed """ select tokenize('刘a德', '"analyzer"="pinyin_analyzer_ignore_false"'); """
+
+    // Test table creation and queries with ignore_pinyin_offset
+    def indexTbName7 = "test_custom_analyzer_pinyin_offset"
+    sql "DROP TABLE IF EXISTS ${indexTbName7}"
+    sql """
+        CREATE TABLE ${indexTbName7} (
+            `a` bigint NOT NULL AUTO_INCREMENT(1),
+            `content` text NULL,
+            INDEX idx_content (`content`) USING INVERTED PROPERTIES("support_phrase" = "true", "analyzer" = "pinyin_analyzer_ignore_true")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`a`)
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """ INSERT INTO ${indexTbName7} VALUES (1, "刘德华"); """
+    sql """ INSERT INTO ${indexTbName7} VALUES (2, "你好世界"); """
+    sql """ INSERT INTO ${indexTbName7} VALUES (3, "银行卡"); """
+
+    try {
+        sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+
+        // Test queries with ignore_pinyin_offset=true
+        qt_sql_table_ignore_offset_1 """ select * from ${indexTbName7} where content match 'liu' order by a; """
+        qt_sql_table_ignore_offset_2 """ select * from ${indexTbName7} where content match 'ldh' order by a; """
+        qt_sql_table_ignore_offset_3 """ select * from ${indexTbName7} where content match 'yin' order by a; """
+        qt_sql_table_ignore_offset_4 """ select * from ${indexTbName7} where content match 'hang' order by a; """
+
+    } finally {
+        sql "DROP TABLE IF EXISTS ${indexTbName7}"
     }
 }

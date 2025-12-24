@@ -181,7 +181,7 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
     }
     // parse is none and custom analyzer is empty mean no analyzer is set
     if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
-        inverted_index_ctx->custom_analyzer.empty()) {
+        inverted_index_ctx->analyzer_name.empty()) {
         query_tokens.emplace_back(match_query_str);
         return query_tokens;
     }
@@ -204,7 +204,7 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
             // parse is none and custom analyzer is empty mean no analyzer is set
             if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
-                inverted_index_ctx->custom_analyzer.empty()) {
+                inverted_index_ctx->analyzer_name.empty()) {
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
@@ -220,7 +220,7 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
         // parse is none and custom analyzer is empty mean no analyzer is set
         if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
-            inverted_index_ctx->custom_analyzer.empty()) {
+            inverted_index_ctx->analyzer_name.empty()) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(

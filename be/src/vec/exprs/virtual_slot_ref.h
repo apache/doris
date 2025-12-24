@@ -31,7 +31,7 @@ public:
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override;
     const std::string& expr_name() const override;
     std::string expr_label() override;

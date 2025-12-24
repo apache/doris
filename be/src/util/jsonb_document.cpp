@@ -18,12 +18,50 @@
 #include "jsonb_document.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "util/jsonb_writer.h"
 
 namespace doris {
+
+Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
+                                             const JsonbDocument** doc) {
+    *doc = nullptr;
+    if (!pb || size == 0) {
+        static const std::string buf = []() {
+            JsonbWriter writer;
+            (void)writer.writeNull();
+            auto* out = writer.getOutput();
+            return std::string(out->getBuffer(), out->getSize());
+        }();
+        // Treat empty input as a valid JSONB null document.
+        *doc = reinterpret_cast<const JsonbDocument*>(buf.data());
+        return Status::OK();
+    }
+    if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
+        return Status::InvalidArgument("Invalid JSONB document: too small size({}) or null pointer",
+                                       size);
+    }
+
+    const auto* doc_ptr = (const JsonbDocument*)pb;
+    if (doc_ptr->header_.ver_ != JSONB_VER) {
+        return Status::InvalidArgument("Invalid JSONB document: invalid version({})",
+                                       doc_ptr->header_.ver_);
+    }
+
+    const auto* val = (const JsonbValue*)doc_ptr->payload_;
+    if (val->type < JsonbType::T_Null || val->type >= JsonbType::NUM_TYPES ||
+        size != sizeof(JsonbHeader) + val->numPackedBytes()) {
+        return Status::InvalidArgument("Invalid JSONB document: invalid type({}) or size({})",
+                                       static_cast<JsonbTypeUnder>(val->type), size);
+    }
+
+    *doc = doc_ptr;
+    return Status::OK();
+}
+
 JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
     JsonbFindResult result;
     bool is_wildcard = false;

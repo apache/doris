@@ -38,6 +38,25 @@ const std::unordered_map<char, std::array<const char*, 4>> TONE_MARKS = {
 };
 
 constexpr const char* VOWELS = "aeiouv";
+
+// Pre-compiled regex patterns (compile once, reuse many times for performance)
+// Only use regex for patterns that require pattern matching (character classes, etc.)
+const std::regex TONE_NUMBER_REGEX("[1-5]");
+const std::regex PINYIN_VALIDATION_REGEX("[a-z]*[1-5]?");
+const std::regex PINYIN_WITH_TONE_REGEX("[a-z]*[1-5]");
+
+// Helper function for simple string replacement (faster than regex for fixed strings)
+inline std::string replaceAll(const std::string& str, const std::string& from,
+                              const std::string& to) {
+    if (from.empty()) return str;
+    std::string result = str;
+    size_t pos = 0;
+    while ((pos = result.find(from, pos)) != std::string::npos) {
+        result.replace(pos, from.length(), to);
+        pos += to.length();
+    }
+    return result;
+}
 } // namespace
 
 std::string PinyinFormatter::formatPinyin(const std::string& pinyin_str,
@@ -62,10 +81,10 @@ std::string PinyinFormatter::formatPinyin(const std::string& pinyin_str,
 
         switch (working_format.getToneType()) {
         case ToneType::WITHOUT_TONE:
-            result = std::regex_replace(result, std::regex("[1-5]"), "");
+            result = std::regex_replace(result, TONE_NUMBER_REGEX, "");
             break;
         case ToneType::WITH_TONE_MARK:
-            result = std::regex_replace(result, std::regex("u:"), "v");
+            result = replaceAll(result, "u:", "v");
             result = convertToneNumber2ToneMark(result);
             break;
         case ToneType::WITH_TONE_NUMBER:
@@ -76,10 +95,10 @@ std::string PinyinFormatter::formatPinyin(const std::string& pinyin_str,
         if (working_format.getToneType() != ToneType::WITH_TONE_MARK) {
             switch (working_format.getYuCharType()) {
             case YuCharType::WITH_V:
-                result = std::regex_replace(result, std::regex("u:"), "v");
+                result = replaceAll(result, "u:", "v");
                 break;
             case YuCharType::WITH_U_UNICODE:
-                result = std::regex_replace(result, std::regex("u:"), "ü");
+                result = replaceAll(result, "u:", "ü");
                 break;
             case YuCharType::WITH_U_AND_COLON:
             default:
@@ -143,7 +162,7 @@ std::string PinyinFormatter::convertToneNumber2ToneMark(const std::string& pinyi
     std::transform(lower_case_pinyin.begin(), lower_case_pinyin.end(), lower_case_pinyin.begin(),
                    [](unsigned char c) { return std::tolower(c); });
 
-    if (!std::regex_match(lower_case_pinyin, std::regex("[a-z]*[1-5]?"))) {
+    if (!std::regex_match(lower_case_pinyin, PINYIN_VALIDATION_REGEX)) {
         return lower_case_pinyin;
     }
 
@@ -153,7 +172,7 @@ std::string PinyinFormatter::convertToneNumber2ToneMark(const std::string& pinyi
     char unmarked_vowel = DEFAULT_CHAR_VALUE;
     int index_of_unmarked_vowel = DEFAULT_INDEX_VALUE;
 
-    if (std::regex_match(lower_case_pinyin, std::regex("[a-z]*[1-5]"))) {
+    if (std::regex_match(lower_case_pinyin, PINYIN_WITH_TONE_REGEX)) {
         int tune_number = lower_case_pinyin.back() - '0';
 
         size_t index_of_a = lower_case_pinyin.find('a');
@@ -190,7 +209,7 @@ std::string PinyinFormatter::convertToneNumber2ToneMark(const std::string& pinyi
 
                 std::string result;
                 std::string prefix = lower_case_pinyin.substr(0, index_of_unmarked_vowel);
-                result += std::regex_replace(prefix, std::regex("v"), "ü");
+                result += replaceAll(prefix, "v", "ü");
                 result += marked_vowel;
 
                 if (index_of_unmarked_vowel + 1 <
@@ -198,14 +217,14 @@ std::string PinyinFormatter::convertToneNumber2ToneMark(const std::string& pinyi
                     std::string suffix = lower_case_pinyin.substr(
                             index_of_unmarked_vowel + 1,
                             lower_case_pinyin.length() - 1 - index_of_unmarked_vowel - 1);
-                    result += std::regex_replace(suffix, std::regex("v"), "ü");
+                    result += replaceAll(suffix, "v", "ü");
                 }
 
                 return result;
             }
         }
     } else {
-        return std::regex_replace(lower_case_pinyin, std::regex("v"), "ü");
+        return replaceAll(lower_case_pinyin, "v", "ü");
     }
 
     return lower_case_pinyin;

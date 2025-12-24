@@ -115,8 +115,8 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_impl(
 }
 
 AggregateFunctionPtr create_aggregate_function_group_array_intersect(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr) {
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
     assert_arity_range(name, argument_types, 1, 1);
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
 
@@ -133,8 +133,8 @@ AggregateFunctionPtr create_aggregate_function_group_array_intersect(
 }
 
 AggregateFunctionPtr create_aggregate_function_group_array_union(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr) {
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
     assert_arity_range(name, argument_types, 1, 1);
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
 

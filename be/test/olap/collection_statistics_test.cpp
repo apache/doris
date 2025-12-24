@@ -53,7 +53,7 @@ public:
     }
 
     Status execute_column(vectorized::VExprContext* context, const vectorized::Block* block,
-                          vectorized::ColumnPtr& result_column) const override {
+                          size_t count, vectorized::ColumnPtr& result_column) const override {
         return Status::OK();
     }
 

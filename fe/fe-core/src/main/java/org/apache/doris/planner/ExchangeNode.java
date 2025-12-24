@@ -68,7 +68,7 @@ public class ExchangeNode extends PlanNode {
         offset = 0;
         limit = -1;
         this.conjuncts = Collections.emptyList();
-        this.children.add(inputNode);
+        children.add(inputNode);
         computeTupleIds();
     }
 
@@ -175,15 +175,8 @@ public class ExchangeNode extends PlanNode {
      */
     @Override
     public boolean isSerialOperator() {
-        return (
-                (
-                    ConnectContext.get() != null
-                        && ConnectContext.get().getSessionVariable().isUseSerialExchange()
-                        && (partitionType != TPartitionType.RANDOM_LOCAL_SHUFFLE)
-                )
-                || partitionType == TPartitionType.UNPARTITIONED
-            )
-            && mergeInfo == null;
+        return (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isUseSerialExchange()
+                || partitionType == TPartitionType.UNPARTITIONED) && mergeInfo == null;
     }
 
     @Override

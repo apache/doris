@@ -133,14 +133,20 @@ public:
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const {
         ColumnPtr result_column;
-        RETURN_IF_ERROR(execute_column(context, block, result_column));
+        RETURN_IF_ERROR(execute_column(context, block, block->rows(), result_column));
         *result_column_id = block->columns();
         block->insert({result_column, execute_type(block), expr_name()});
         return Status::OK();
     }
 
-    // execute current expr and return result column
-    virtual Status execute_column(VExprContext* context, const Block* block,
+    // Execute the current expression and return the result column.
+    // Note: the block will not be modified during execution.
+    // We allow columns in the block to have different numbers of rows.
+    // 'count' indicates the number of rows in the result column returned by this expression.
+    // In the future this interface will add an additional parameter, Selector, which specifies
+    // which rows in the block should be evaluated.
+    // If expr is executing constant expressions, then block should be nullptr.
+    virtual Status execute_column(VExprContext* context, const Block* block, size_t count,
                                   ColumnPtr& result_column) const = 0;
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
@@ -165,9 +171,9 @@ public:
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
-    virtual Status execute_runtime_filter(VExprContext* context, const Block* block,
+    virtual Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
                                           ColumnPtr& result_column, ColumnPtr* arg_column) const {
-        return execute_column(context, block, result_column);
+        return execute_column(context, block, count, result_column);
     };
 
     /// Subclasses overriding this function should call VExpr::Close().
@@ -244,8 +250,6 @@ public:
     virtual std::string debug_string() const;
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);
-
-    void set_getting_const_col(bool val = true) { _getting_const_col = val; }
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
 
@@ -363,7 +367,7 @@ protected:
         return (is_constant() && (_constant_col != nullptr));
     }
 
-    ColumnPtr get_result_from_const(const Block* block) const;
+    ColumnPtr get_result_from_const(size_t count) const;
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 
@@ -400,8 +404,6 @@ protected:
     // get_const_col()
     std::shared_ptr<ColumnPtrWrapper> _constant_col;
     bool _prepared = false; // for base class VExpr
-    bool _getting_const_col =
-            false; // if true, current execute() is in prepare() (that is, can't check _prepared)
     // for concrete classes
     bool _prepare_finished = false;
     bool _open_finished = false;

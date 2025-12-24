@@ -84,10 +84,10 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                        Column whereColumn,
                        int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
                        short rollupShortKeyColumnCount,
-                       OriginStatement origStmt) throws AnalysisException {
+                       OriginStatement origStmt, Map<String, String> sessionVariable) throws AnalysisException {
         super(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                 rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
-                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
+                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt, sessionVariable);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             String clusterName = "";
@@ -217,8 +217,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                             partitionId, rollupTablet, tabletType, rollupSchemaHash,
                                     rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
                                     tbl.getBfFpp(), null, rollupSchema,
-                                    tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
-                                    tbl.isInMemory(), true,
+                                    tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStorageFormat(),
+                                    tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                     tbl.getName(), tbl.getTTLSeconds(),
                                     tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
                                     tbl.getBaseSchemaVersion(), tbl.getCompactionPolicy(),

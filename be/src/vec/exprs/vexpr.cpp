@@ -49,6 +49,7 @@
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcolumn_ref.h"
 #include "vec/exprs/vcompound_pred.h"
+#include "vec/exprs/vcondition_expr.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -483,8 +484,22 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::ARITHMETIC_EXPR:
         case TExprNodeType::BINARY_PRED:
         case TExprNodeType::NULL_AWARE_BINARY_PRED:
-        case TExprNodeType::FUNCTION_CALL:
         case TExprNodeType::COMPUTE_FUNCTION_CALL: {
+            expr = VectorizedFnCall::create_shared(expr_node);
+            break;
+        }
+        case TExprNodeType::FUNCTION_CALL: {
+            if (expr_node.fn.name.function_name == "if") {
+                expr = VectorizedIfExpr::create_shared(expr_node);
+                break;
+            } else if (expr_node.fn.name.function_name == "ifnull" ||
+                       expr_node.fn.name.function_name == "nvl") {
+                expr = VectorizedIfNullExpr::create_shared(expr_node);
+                break;
+            } else if (expr_node.fn.name.function_name == "coalesce") {
+                expr = VectorizedCoalesceExpr::create_shared(expr_node);
+                break;
+            }
             expr = VectorizedFnCall::create_shared(expr_node);
             break;
         }
@@ -734,19 +749,9 @@ Status VExpr::get_const_col(VExprContext* context,
         return Status::OK();
     }
 
-    int result = -1;
-    Block block;
-    // If block is empty, some functions will produce no result. So we insert a column with
-    // single value here.
-    block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
-
-    _getting_const_col = true;
-    RETURN_IF_ERROR(execute(context, &block, &result));
-    _getting_const_col = false;
-
-    DCHECK(result != -1);
-    const auto& column = block.get_by_position(result).column;
-    _constant_col = std::make_shared<ColumnPtrWrapper>(column);
+    ColumnPtr result;
+    RETURN_IF_ERROR(execute_column(context, nullptr, 1, result));
+    _constant_col = std::make_shared<ColumnPtrWrapper>(result);
     if (column_wrapper != nullptr) {
         *column_wrapper = _constant_col;
     }
@@ -803,8 +808,8 @@ Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const 
     return Status::OK();
 }
 
-ColumnPtr VExpr::get_result_from_const(const Block* block) const {
-    return ColumnConst::create(_constant_col->column_ptr, block->rows());
+ColumnPtr VExpr::get_result_from_const(size_t count) const {
+    return ColumnConst::create(_constant_col->column_ptr, count);
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,

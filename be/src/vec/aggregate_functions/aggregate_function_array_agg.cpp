@@ -41,6 +41,7 @@ AggregateFunctionPtr do_create_agg_function_collect(const DataTypes& argument_ty
 
 AggregateFunctionPtr create_aggregate_function_array_agg(const std::string& name,
                                                          const DataTypes& argument_types,
+                                                         const DataTypePtr& result_type,
                                                          const bool result_is_nullable,
                                                          const AggregateFunctionAttr& attr) {
     switch (argument_types[0]->get_primitive_type()) {

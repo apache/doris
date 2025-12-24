@@ -130,26 +130,13 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
 
 Status DataTypeDateV2SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                          MysqlRowBinaryBuffer& result,
-                                                         int64_t row_idx, bool col_const,
-                                                         const FormatOptions& options) const {
+                                                         int64_t row_idx, bool col_const) const {
     const auto& data = assert_cast<const ColumnDateV2&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     DateV2Value<DateV2ValueType> date_val =
             binary_cast<UInt32, DateV2Value<DateV2ValueType>>(data[col_index]);
-    // _nesting_level >= 2 means this datetimev2 is in complex type
-    // and we should add double quotes
-    if (_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
     if (UNLIKELY(0 != result.push_vec_datetime(date_val))) {
         return Status::InternalError("pack mysql buffer failed.");
-    }
-    if (_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
     }
     return Status::OK();
 }

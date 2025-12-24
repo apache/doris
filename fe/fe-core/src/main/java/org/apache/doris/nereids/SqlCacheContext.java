@@ -164,7 +164,7 @@ public class SqlCacheContext {
         }
 
         StringBuilder kv = new StringBuilder();
-        sessionVariable.readAffectQueryResultVariables((k, v) -> {
+        sessionVariable. readAffectQueryResultVariables((k, v) -> {
             kv.append("|").append(k).append("=").append(v);
         });
         return kv.toString();

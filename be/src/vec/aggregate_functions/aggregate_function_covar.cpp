@@ -35,6 +35,7 @@ AggregateFunctionPtr create_function_single_value(const String& name,
 
 AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string& name,
                                                                const DataTypes& argument_types,
+                                                               const DataTypePtr& result_type,
                                                                const bool result_is_nullable,
                                                                const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampCovariance, SampData>(
@@ -43,6 +44,7 @@ AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string
 
 AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string& name,
                                                               const DataTypes& argument_types,
+                                                              const DataTypePtr& result_type,
                                                               const bool result_is_nullable,
                                                               const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampCovariance, PopData>(

@@ -46,7 +46,6 @@ suite ("mv_with_view") {
     sql "analyze table d_table with sync;"
     sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
 
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from d_table order by k1;", "k312")
     qt_select_star "select * from d_table order by k1;"
@@ -70,25 +69,4 @@ suite ("mv_with_view") {
     """
     mv_rewrite_fail("select * from v_k124 order by k1;", "k312")
     qt_select_mv "select * from v_k124 order by k1;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_fail("select * from d_table order by k1;", "k312")
-
-    sql """
-        drop view if exists v_k312;
-    """
-
-    sql """
-        create view v_k312 as select k1,k3,k2 from d_table where k3 = 1;
-    """
-    mv_rewrite_success("select * from v_k312 order by k1;", "k312")
-
-    sql """
-        drop view if exists v_k124;
-    """
-
-    sql """
-        create view v_k124 as select k1,k2,k4 from d_table where k1 = 1;
-    """
-    mv_rewrite_fail("select * from v_k124 order by k1;", "k312")
 }

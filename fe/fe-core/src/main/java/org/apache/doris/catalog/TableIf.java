@@ -22,11 +22,13 @@ import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -47,6 +49,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -353,6 +356,56 @@ public interface TableIf {
         dropConstraint(name, true);
     }
 
+    // when table has foreign key constraint referencing to primary key of other table,
+    // need to remove this table identifier from primary table's foreign table set when drop this
+    // when table has primary key constraint, when drop table(this), need to remove the foreign key referenced this
+    default void removeTableIdentifierFromPrimaryTable() {
+        Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
+        for (Constraint constraint : constraintMap.values()) {
+            dropConstraintRefWithLock(constraint);
+        }
+    }
+
+    default void dropConstraintRefWithLock(Constraint constraint) {
+        List<TableIf> tables = getConstraintRelatedTables(constraint);
+        tables.sort((Comparator.comparing(TableIf::getId)));
+        MetaLockUtils.writeLockTables(tables);
+        try {
+            dropConstraintRef(constraint);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tables);
+        }
+    }
+
+    default void dropConstraintRef(Constraint constraint) {
+        if (constraint instanceof PrimaryKeyConstraint) {
+            ((PrimaryKeyConstraint) constraint).getForeignTables()
+                    .forEach(t -> t.dropFKReferringPK(this, (PrimaryKeyConstraint) constraint));
+        } else if (constraint instanceof ForeignKeyConstraint) {
+            ForeignKeyConstraint foreignKeyConstraint = (ForeignKeyConstraint) constraint;
+            Optional<TableIf> primaryTableIf = foreignKeyConstraint.getReferencedTableOrNull();
+            if (primaryTableIf.isPresent()) {
+                Map<String, Constraint> refTableConstraintMap = primaryTableIf.get().getConstraintsMapUnsafe();
+                for (Constraint refTableConstraint : refTableConstraintMap.values()) {
+                    if (refTableConstraint instanceof PrimaryKeyConstraint) {
+                        PrimaryKeyConstraint primaryKeyConstraint = (PrimaryKeyConstraint) refTableConstraint;
+                        primaryKeyConstraint.removeForeignTable(new TableIdentifier(this));
+                    }
+                }
+            }
+        }
+    }
+
+    default List<TableIf> getConstraintRelatedTables(Constraint constraint) {
+        List<TableIf> tables = Lists.newArrayList();
+        if (constraint instanceof PrimaryKeyConstraint) {
+            tables.addAll(((PrimaryKeyConstraint) constraint).getForeignTables());
+        } else if (constraint instanceof ForeignKeyConstraint) {
+            tables.add(((ForeignKeyConstraint) constraint).getReferencedTable());
+        }
+        return tables;
+    }
+
     default void dropConstraint(String name, boolean replay) {
         Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
         if (!constraintMap.containsKey(name)) {
@@ -361,10 +414,7 @@ public interface TableIf {
         }
         Constraint constraint = constraintMap.get(name);
         constraintMap.remove(name);
-        if (constraint instanceof PrimaryKeyConstraint) {
-            ((PrimaryKeyConstraint) constraint).getForeignTables()
-                    .forEach(t -> t.dropFKReferringPK(this, (PrimaryKeyConstraint) constraint));
-        }
+        dropConstraintRefWithLock(constraint);
         if (!replay) {
             Env.getCurrentEnv().getEditLog().logDropConstraint(new AlterConstraintLog(constraint, this));
         }
@@ -437,6 +487,8 @@ public interface TableIf {
                     return "iceberg";
                 case DICTIONARY:
                     return "dictionary";
+                case DORIS_EXTERNAL_TABLE:
+                    return "External_Doris";
                 default:
                     return null;
             }

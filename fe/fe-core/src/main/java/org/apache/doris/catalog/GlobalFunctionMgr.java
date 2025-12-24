@@ -76,9 +76,11 @@ public class GlobalFunctionMgr extends MetaObject implements GsonPostProcessable
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddGlobalFunction(function);
             try {
-                FunctionUtil.translateToNereids(null, function);
+                FunctionUtil.translateToNereidsThrows(null, function);
             } catch (Exception e) {
                 LOG.warn("Nereids add function failed", e);
+                name2Function.remove(function.getFunctionName().getFunction());
+                throw e;
             }
         }
     }

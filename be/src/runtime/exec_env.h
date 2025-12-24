@@ -30,6 +30,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "exec/schema_scanner/schema_routine_load_job_scanner.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
@@ -68,6 +69,7 @@ namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
 class TmpFileDirs;
+class EncodingInfoResolver;
 
 namespace inverted_index {
 class AnalysisFactoryMgr;
@@ -102,6 +104,7 @@ class LoadStreamMgr;
 class LoadStreamMapPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
+class StreamLoadRecorderManager;
 class SmallFileMgr;
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
@@ -366,6 +369,9 @@ public:
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
+    segment_v2::EncodingInfoResolver* get_encoding_info_resolver() {
+        return _encoding_info_resolver;
+    }
     QueryCache* get_query_cache() { return _query_cache; }
 
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
@@ -482,6 +488,7 @@ private:
 
     std::unique_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
+    StreamLoadRecorderManager* _stream_load_recorder_manager = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
 
@@ -517,6 +524,7 @@ private:
     HeapProfiler* _heap_profiler = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    segment_v2::EncodingInfoResolver* _encoding_info_resolver = nullptr;
     QueryCache* _query_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
     DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};
