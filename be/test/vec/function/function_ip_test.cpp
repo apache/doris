@@ -165,7 +165,8 @@ TEST(FunctionIpTest, FunctionCutIPv6Test) {
 
 class MockIndexReader : public segment_v2::InvertedIndexReader {
 public:
-    MockIndexReader(const TabletIndex& index_meta) : segment_v2::InvertedIndexReader(&index_meta, nullptr) {}
+    MockIndexReader(const TabletIndex& index_meta)
+            : segment_v2::InvertedIndexReader(&index_meta, nullptr) {}
     ~MockIndexReader() override = default;
     segment_v2::InvertedIndexReaderType type() override {
         return segment_v2::InvertedIndexReaderType::BKD;
