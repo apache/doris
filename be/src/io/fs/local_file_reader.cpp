@@ -41,19 +41,20 @@
 #include "runtime/workload_management/io_throttle.h"
 #include "util/async_io.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
 
-std::atomic_bool BeConfDataDirReader::be_config_data_dir_list_inited = false;
+std::atomic_bool BeConfDataDirReader::be_config_data_dir_list_initing = false;
 
 std::vector<doris::DataDirInfo> BeConfDataDirReader::be_config_data_dir_list;
 
 void BeConfDataDirReader::get_data_dir_by_file_path(io::Path* file_path,
                                                     std::string* data_dir_arg) {
 #ifndef BE_TEST
-    be_config_data_dir_list_inited.wait(false);
+    be_config_data_dir_list_initing.wait(true);
 #endif
     for (const auto& data_dir_info : be_config_data_dir_list) {
         if (data_dir_info.path.size() >= file_path->string().size()) {
@@ -70,6 +71,11 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         const std::vector<doris::StorePath>& store_paths,
         const std::vector<doris::StorePath>& spill_store_paths,
         const std::vector<doris::CachePath>& cache_paths) {
+    be_config_data_dir_list_initing.store(true);
+    Defer defer {[]() {
+        be_config_data_dir_list_initing.store(false, std::memory_order_release);
+        be_config_data_dir_list_initing.notify_all();
+    }};
     for (int i = 0; i < store_paths.size(); i++) {
         DataDirInfo data_dir_info;
         data_dir_info.path = store_paths[i].path;
@@ -101,8 +107,6 @@ void BeConfDataDirReader::init_be_conf_data_dir(
               [](const DataDirInfo& a, const DataDirInfo& b) {
                   return a.path.length() > b.path.length();
               });
-    be_config_data_dir_list_inited.store(true, std::memory_order_release);
-    be_config_data_dir_list_inited.notify_all();
 }
 
 LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd)
