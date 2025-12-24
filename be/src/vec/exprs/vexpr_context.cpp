@@ -19,14 +19,13 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <ostream>
 #include <string>
 
-#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
