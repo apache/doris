@@ -1968,15 +1968,17 @@ public class Coordinator implements CoordInterface {
     private int findMaxParallelFragmentIndex(PlanFragment fragment) {
         Preconditions.checkState(!fragment.getChildren().isEmpty(), "fragment has no children");
 
-        // exclude broadcast join right side's child fragments
-        List<PlanFragment> childFragmentCandidates = fragment.getChildren().stream()
-                .filter(e -> e.getOutputPartition() != DataPartition.UNPARTITIONED)
-                .collect(Collectors.toList());
+        List<PlanFragment> childFragmentCandidates = fragment.getChildren();
 
         int maxParallelism = 0;
         int maxParaIndex = 0;
         for (int i = 0; i < childFragmentCandidates.size(); i++) {
-            PlanFragmentId childFragmentId = childFragmentCandidates.get(i).getFragmentId();
+            PlanFragment planFragment = childFragmentCandidates.get(i);
+            // exclude broadcast join right side's child fragments
+            if (planFragment.getOutputPartition() == DataPartition.UNPARTITIONED) {
+                continue;
+            }
+            PlanFragmentId childFragmentId = planFragment.getFragmentId();
             int currentChildFragmentParallelism = fragmentExecParamsMap.get(childFragmentId).instanceExecParams.size();
             if (currentChildFragmentParallelism > maxParallelism) {
                 maxParallelism = currentChildFragmentParallelism;
