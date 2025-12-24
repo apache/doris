@@ -1159,6 +1159,8 @@ void commit_txn_immediately(
         }
 
         std::vector<std::pair<std::string, std::string>> rowsets;
+        record_txn_commit_stats(txn.get(), instance_id, partition_ids.size(), tablet_ids.size(),
+                                txn_id);
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
         rowsets.reserve(tmp_rowsets_meta.size());
