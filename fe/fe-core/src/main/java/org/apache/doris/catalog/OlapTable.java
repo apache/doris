@@ -62,7 +62,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.rpc.RpcException;
