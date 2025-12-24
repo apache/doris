@@ -124,11 +124,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             try {
                 String branch = PaimonUtil.resolvePaimonBranch(scanParams.get(), paimonTable);
                 Table table = ((PaimonExternalCatalog) catalog).getPaimonTable(getOrBuildNameMapping(), branch, null);
-                Optional<Snapshot> latestSnapshot = table.latestSnapshot();
-                long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
-                if (latestSnapshot.isPresent()) {
-                    latestSnapshotId = latestSnapshot.get().id();
-                }
+                long latestSnapshotId = table.latestSnapshot().map(Snapshot::id)
+                        .orElse(PaimonSnapshot.INVALID_SNAPSHOT_ID);
                 // Branches in Paimon can have independent schemas and snapshots.
                 // TODO: Add time travel support for paimon branch tables.
                 DataTable dataTable = (DataTable) table;
@@ -139,6 +136,21 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 LOG.warn("Failed to get Paimon branch for table {}", paimonTable.name(), e);
                 throw new RuntimeException(
                         "Failed to get Paimon branch: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
+                        e);
+            }
+        } else if (scanParams.isPresent() && scanParams.get().isRo()) {
+            try {
+                Table table = ((PaimonExternalCatalog) catalog).getPaimonTable(getOrBuildNameMapping(), null, "ro");
+                long latestSnapshotId = table.latestSnapshot().map(Snapshot::id)
+                        .orElse(PaimonSnapshot.INVALID_SNAPSHOT_ID);
+                DataTable dataTable = (DataTable) table;
+                Long schemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);
+                return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
+                        new PaimonSnapshot(latestSnapshotId, schemaId, dataTable));
+            } catch (Exception e) {
+                LOG.warn("Failed to get Paimon ro for table {}", paimonTable.name(), e);
+                throw new RuntimeException(
+                        "Failed to get Paimon ro: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
                         e);
             }
         } else {
