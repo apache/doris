@@ -226,6 +226,15 @@ public class IcebergExternalTableTest {
         Assertions.assertEquals("month197204", entries.get(6).getKey());
         Assertions.assertEquals("day19730101", entries.get(7).getKey());
 
+        Assertions.assertEquals(nullRange, entries.get(0).getValue());
+        Assertions.assertEquals(year1970, entries.get(1).getValue());
+        Assertions.assertEquals(month197002, entries.get(2).getValue());
+        Assertions.assertEquals(day19700202, entries.get(3).getValue());
+        Assertions.assertEquals(year1971, entries.get(4).getValue());
+        Assertions.assertEquals(month197103, entries.get(5).getValue());
+        Assertions.assertEquals(month197204, entries.get(6).getValue());
+        Assertions.assertEquals(day19730101, entries.get(7).getValue());
+
         Map<String, Set<String>> stringSetMap = IcebergUtils.mergeOverlapPartitions(map);
         Assertions.assertEquals(2, stringSetMap.size());
         Assertions.assertTrue(stringSetMap.containsKey("year1970"));
