@@ -40,7 +40,8 @@ suite ("test_dup_mv_expr_priority") {
 
     sql """analyze table table_ngrambf with sync;"""
 
-    mv_rewrite_success("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""",
+    // the row count in based table and mv is same, so we do not need to check cbo chosen
+    mv_rewrite_success_without_check_chosen("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""",
     "test_mv_1")
 
     qt_select_mv """select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;"""

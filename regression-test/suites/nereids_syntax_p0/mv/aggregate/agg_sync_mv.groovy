@@ -21,6 +21,8 @@ suite("agg_sync_mv") {
     sql """ SET enable_fallback_to_original_planner=false """
     sql """ analyze table agg_mv_test with sync"""
 
+    sql """alter table agg_mv_test modify column id set stats ('row_count'='27');"""
+
     qt_select_any_value """select id, any_value(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync1 on agg_mv_test;"""
     createMV("""create materialized view mv_sync1 as select id as a1, any_value(kint) as a2 from agg_mv_test group by id order by id;""")
