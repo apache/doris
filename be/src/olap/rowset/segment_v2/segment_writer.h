@@ -164,7 +164,6 @@ private:
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();
-    Status _write_bitmap_index();
     Status _write_inverted_index();
     Status _write_ann_index();
     Status _write_bloom_filter_index();

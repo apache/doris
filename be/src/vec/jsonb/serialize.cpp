@@ -50,6 +50,9 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
     auto num_rows = block.rows();
     Arena arena;
     assert(num_cols <= block.columns());
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     for (int i = 0; i < num_rows; ++i) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         jsonb_writer.writeStartObject();
@@ -63,7 +66,7 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
             // TODO improve performance for checking column in group
             if (row_store_cids.empty() || row_store_cids.contains(tablet_column.unique_id())) {
                 serdes[j]->write_one_cell_to_jsonb(*column, jsonb_writer, arena,
-                                                   tablet_column.unique_id(), i);
+                                                   tablet_column.unique_id(), i, options);
             }
         }
         jsonb_writer.writeEndObject();
@@ -91,9 +94,9 @@ Status JsonbSerializeUtil::jsonb_to_block(
         const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx, Block& dst,
         const std::vector<std::string>& default_values,
         const std::unordered_set<int>& include_cids) {
-    JsonbDocument* pdoc = nullptr;
+    const JsonbDocument* pdoc = nullptr;
     RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(data, size, &pdoc));
-    JsonbDocument& doc = *pdoc;
+    const JsonbDocument& doc = *pdoc;
     size_t num_rows = dst.rows();
     size_t filled_columns = 0;
     for (auto it = doc->begin(); it != doc->end(); ++it) {

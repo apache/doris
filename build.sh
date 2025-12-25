@@ -142,6 +142,7 @@ if ! OPTS="$(getopt \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
+    -l 'be-cdc-client' \
     -l 'be-extension-ignore:' \
     -l 'clean' \
     -l 'coverage' \
@@ -165,6 +166,9 @@ BUILD_INDEX_TOOL='OFF'
 BUILD_BENCHMARK='OFF'
 BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
 BUILD_BE_JAVA_EXTENSIONS=0
+BUILD_BE_CDC_CLIENT=0
+BUILD_OBS_DEPENDENCIES=1
+BUILD_COS_DEPENDENCIES=1
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -187,6 +191,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_BENCHMARK='OFF'
     BUILD_HIVE_UDF=1
     BUILD_BE_JAVA_EXTENSIONS=1
+    BUILD_BE_CDC_CLIENT=1
     CLEAN=0
 else
     while true; do
@@ -200,6 +205,7 @@ else
         --be)
             BUILD_BE=1
             BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
             shift
             ;;
         --cloud)
@@ -245,6 +251,18 @@ else
             BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
+        --be-cdc-client)
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;    
+        --exclude-obs-dependencies)
+            BUILD_OBS_DEPENDENCIES=0
+            shift
+            ;; 
+        --exclude-cos-dependencies)
+            BUILD_COS_DEPENDENCIES=0
+            shift
+            ;;           
         --clean)
             CLEAN=1
             shift
@@ -296,6 +314,7 @@ else
 	BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
+        BUILD_BE_CDC_CLIENT=1
         CLEAN=0
     fi
 fi
@@ -426,6 +445,14 @@ if [[ -n "${DISABLE_BE_JAVA_EXTENSIONS}" ]]; then
     fi
 fi
 
+if [[ -n "${DISABLE_BE_CDC_CLIENT}" ]]; then
+    if [[ "${DISABLE_BE_CDC_CLIENT}" == "ON" ]]; then
+        BUILD_BE_CDC_CLIENT=0
+    else
+        BUILD_BE_CDC_CLIENT=1
+    fi
+fi
+
 if [[ -n "${DISABLE_BUILD_UI}" ]]; then
     if [[ "${DISABLE_BUILD_UI}" == "ON" ]]; then
         BUILD_UI=0
@@ -492,6 +519,7 @@ echo "Get params:
     BUILD_BENCHMARK                     -- ${BUILD_BENCHMARK}
     BUILD_TASK_EXECUTOR_SIMULATOR       -- ${BUILD_TASK_EXECUTOR_SIMULATOR}
     BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
+    BUILD_BE_CDC_CLIENT                 -- ${BUILD_BE_CDC_CLIENT}
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
     PARALLEL                            -- ${PARALLEL}
     CLEAN                               -- ${CLEAN}
@@ -725,18 +753,26 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
+    DEPENDENCIES_MVN_OPTS=" "
+    if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+        DEPENDENCIES_MVN_OPTS+=" -Dobs.dependency.scope=provided "
+    fi
+    if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+        DEPENDENCIES_MVN_OPTS+=" -Dcos.dependency.scope=provided "
+    fi
+    
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
         # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
         fi
     else
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
         fi
     fi
     cd "${DORIS_HOME}"
@@ -972,6 +1008,15 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
     copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
+    cd "${DORIS_HOME}"
+fi
+
+if [[ "${BUILD_BE_CDC_CLIENT}" -eq 1 ]]; then
+    install -d "${DORIS_OUTPUT}/be/lib/cdc_client"
+    cd "${DORIS_HOME}/fs_brokers/cdc_client"
+    ./build.sh
+    rm -rf "${DORIS_OUTPUT}/be/lib/cdc_client"/*
+    cp -r -p "${DORIS_HOME}/fs_brokers/cdc_client/target/cdc-client.jar" "${DORIS_OUTPUT}/be/lib/cdc_client/"
     cd "${DORIS_HOME}"
 fi
 

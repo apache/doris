@@ -64,6 +64,7 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
         _csv_header = "";
     }
 
+    _options.timezone = &state->timezone_obj();
     if (_is_text_format) {
         _options.field_delim = hive_serde_properties->field_delim;
         _options.collection_delim = hive_serde_properties->collection_delim[0];

@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -36,6 +37,7 @@
 #include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -138,6 +140,22 @@ public:
 
     ScoreRuntimeSPtr get_score_runtime() const { return _score_runtime; }
 
+    void set_analyzer_ctx_for_expr(const vectorized::VExpr* expr,
+                                   InvertedIndexAnalyzerCtxSPtr analyzer_ctx) {
+        if (expr == nullptr || analyzer_ctx == nullptr) {
+            return;
+        }
+        _expr_analyzer_ctx[expr] = std::move(analyzer_ctx);
+    }
+
+    const InvertedIndexAnalyzerCtx* get_analyzer_ctx_for_expr(const vectorized::VExpr* expr) const {
+        auto iter = _expr_analyzer_ctx.find(expr);
+        if (iter == _expr_analyzer_ctx.end()) {
+            return nullptr;
+        }
+        return iter->second.get();
+    }
+
 private:
     // A reference to a vector of column IDs for the current expression's output columns.
     const std::vector<ColumnId>& _col_ids;
@@ -154,6 +172,9 @@ private:
 
     // A map of expressions to their corresponding result columns.
     std::unordered_map<const vectorized::VExpr*, ColumnPtr> _index_result_column;
+
+    // Per-expression analyzer context for inverted index evaluation.
+    std::unordered_map<const vectorized::VExpr*, InvertedIndexAnalyzerCtxSPtr> _expr_analyzer_ctx;
 
     // A reference to a map of common expressions to their inverted index evaluation status.
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
@@ -177,7 +198,9 @@ public:
     [[nodiscard]] const std::string& expr_name() const;
     [[nodiscard]] bool is_blockable() const;
 
-    VExprSPtr root() { return _root; }
+    [[nodiscard]] Status execute_const_expr(ColumnWithTypeAndName& result);
+
+    VExprSPtr root() const { return _root; }
     void set_root(const VExprSPtr& expr) { _root = expr; }
     void set_index_context(std::shared_ptr<IndexExecContext> index_context) {
         _index_context = std::move(index_context);

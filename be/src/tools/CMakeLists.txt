@@ -53,3 +53,32 @@ add_custom_command(TARGET meta_tool POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:meta_tool>.dbg $<TARGET_FILE:meta_tool>
     )
 endif()
+
+add_executable(packed_file_tool
+    packed_file_tool.cpp
+)
+
+pch_reuse(packed_file_tool)
+
+set_target_properties(packed_file_tool PROPERTIES ENABLE_EXPORTS 1)
+
+if (COMPILER_CLANG)
+    target_compile_options(packed_file_tool PRIVATE
+    -Wno-implicit-int-conversion
+    -Wno-shorten-64-to-32
+    )
+endif()
+
+target_link_libraries(packed_file_tool
+    ${DORIS_LINK_LIBS}
+)
+
+install(TARGETS packed_file_tool DESTINATION ${OUTPUT_DIR}/lib/)
+
+if (NOT OS_MACOSX)
+add_custom_command(TARGET packed_file_tool POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:packed_file_tool> $<TARGET_FILE:packed_file_tool>.dbg
+    COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:packed_file_tool>
+    COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:packed_file_tool>.dbg $<TARGET_FILE:packed_file_tool>
+    )
+endif()

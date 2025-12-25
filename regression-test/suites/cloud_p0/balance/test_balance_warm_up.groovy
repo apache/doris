@@ -37,7 +37,8 @@ suite('test_balance_warm_up', 'docker') {
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
         'cache_read_from_peer_expired_seconds=100',
-        'enable_cache_read_from_peer=true'
+        'enable_cache_read_from_peer=true',
+        'enable_packed_file=false',
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -46,6 +47,9 @@ suite('test_balance_warm_up', 'docker') {
     
     def getBrpcMetrics = {ip, port, name ->
         def url = "http://${ip}:${port}/brpc_metrics"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            url = url.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         def metrics = new URL(url).text
         def matcher = metrics =~ ~"${name}\\s+(\\d+)"
         if (matcher.find()) {

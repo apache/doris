@@ -268,9 +268,8 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
             Optional<Column> seqMappingColInTable, Optional<Type> seqColType) {
         ImmutableList.Builder<Expression> builder = ImmutableList.builder();
         if (hasSequenceCol && seqColumnIndex < 0) {
-            if ((!seqMappingColInTable.isPresent() || seqMappingColInTable.get().getDefaultValue() == null
-                    || !seqMappingColInTable.get().getDefaultValue()
-                    .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP))) {
+            if (!seqMappingColInTable.isPresent() || seqMappingColInTable.get().getDefaultValue() == null
+                    || !DefaultValue.isCurrentTimeStampDefaultValue(seqMappingColInTable.get().getDefaultValue())) {
                 throw new AnalysisException("Table " + targetTable.getName()
                         + " has sequence column, need to specify the sequence column");
             }
@@ -331,8 +330,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
             }
             if (!colNameToExpression.containsKey(seqColumnName)
                     && (!seqMappingColInTable.isPresent() || seqMappingColInTable.get().getDefaultValue() == null
-                    || !seqMappingColInTable.get().getDefaultValue()
-                    .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP))) {
+                    || !DefaultValue.isCurrentTimeStampDefaultValue(seqMappingColInTable.get().getDefaultValue()))) {
                 throw new AnalysisException("Table " + targetTable.getName()
                         + " has sequence column, need to specify the sequence column");
             }

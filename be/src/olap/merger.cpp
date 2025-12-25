@@ -326,10 +326,12 @@ Status Merger::vertical_compact_one_group(
                                              tablet->tablet_id());
     }
 
-    if (is_key && stats_output != nullptr) {
-        stats_output->output_rows = output_rows;
-        stats_output->merged_rows = reader.merged_rows();
-        stats_output->filtered_rows = reader.filtered_rows();
+    if (stats_output != nullptr) {
+        if (is_key) {
+            stats_output->output_rows = output_rows;
+            stats_output->merged_rows = reader.merged_rows();
+            stats_output->filtered_rows = reader.filtered_rows();
+        }
         stats_output->bytes_read_from_local = reader.stats().file_cache_stats.bytes_read_from_local;
         stats_output->bytes_read_from_remote =
                 reader.stats().file_cache_stats.bytes_read_from_remote;
@@ -380,10 +382,12 @@ Status Merger::vertical_compact_one_group(
                                              tablet_id);
     }
 
-    if (is_key && stats_output != nullptr) {
-        stats_output->output_rows = output_rows;
-        stats_output->merged_rows = src_block_reader.merged_rows();
-        stats_output->filtered_rows = src_block_reader.filtered_rows();
+    if (stats_output != nullptr) {
+        if (is_key) {
+            stats_output->output_rows = output_rows;
+            stats_output->merged_rows = src_block_reader.merged_rows();
+            stats_output->filtered_rows = src_block_reader.filtered_rows();
+        }
         stats_output->bytes_read_from_local =
                 src_block_reader.stats().file_cache_stats.bytes_read_from_local;
         stats_output->bytes_read_from_remote =
@@ -475,6 +479,10 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
 
     vectorized::RowSourcesBuffer row_sources_buf(
             tablet->tablet_id(), dst_rowset_writer->context().tablet_path, reader_type);
+    Merger::Statistics total_stats;
+    if (stats_output != nullptr) {
+        total_stats.rowid_conversion = stats_output->rowid_conversion;
+    }
     {
         std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
         tablet->sample_infos.resize(column_groups.size());
@@ -487,15 +495,31 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                                      ? config::compaction_batch_size
                                      : estimate_batch_size(i, tablet, merge_way_num);
         CompactionSampleInfo sample_info;
+        Merger::Statistics group_stats;
+        group_stats.rowid_conversion = total_stats.rowid_conversion;
+        Merger::Statistics* group_stats_ptr = stats_output != nullptr ? &group_stats : nullptr;
         Status st = vertical_compact_one_group(
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
-                src_rowset_readers, dst_rowset_writer, max_rows_per_segment, stats_output,
+                src_rowset_readers, dst_rowset_writer, max_rows_per_segment, group_stats_ptr,
                 key_group_cluster_key_idxes, batch_size, &sample_info);
         {
             std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
             tablet->sample_infos[i] = sample_info;
         }
         RETURN_IF_ERROR(st);
+        if (stats_output != nullptr) {
+            total_stats.bytes_read_from_local += group_stats.bytes_read_from_local;
+            total_stats.bytes_read_from_remote += group_stats.bytes_read_from_remote;
+            total_stats.cached_bytes_total += group_stats.cached_bytes_total;
+            total_stats.cloud_local_read_time += group_stats.cloud_local_read_time;
+            total_stats.cloud_remote_read_time += group_stats.cloud_remote_read_time;
+            if (is_key) {
+                total_stats.output_rows = group_stats.output_rows;
+                total_stats.merged_rows = group_stats.merged_rows;
+                total_stats.filtered_rows = group_stats.filtered_rows;
+                total_stats.rowid_conversion = group_stats.rowid_conversion;
+            }
+        }
         if (is_key) {
             RETURN_IF_ERROR(row_sources_buf.flush());
         }
@@ -505,6 +529,10 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
     // finish compact, build output rowset
     VLOG_NOTICE << "finish compact groups";
     RETURN_IF_ERROR(dst_rowset_writer->final_flush());
+
+    if (stats_output != nullptr) {
+        *stats_output = total_stats;
+    }
 
     return Status::OK();
 }

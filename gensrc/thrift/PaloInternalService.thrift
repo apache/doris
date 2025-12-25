@@ -178,7 +178,7 @@ struct TQueryOptions {
   // For debug purpose, skip delete predicates when reading data
   50: optional bool skip_delete_predicate = false
 
-  51: optional bool enable_new_shuffle_hash_method // deprecated
+  51: optional bool enable_new_shuffle_hash_method
 
   52: optional i32 be_exec_version = 0
 
@@ -419,6 +419,8 @@ struct TQueryOptions {
   180: optional i32 max_file_scanners_concurrency = 0;
   181: optional i32 min_file_scanners_concurrency = 0;
 
+
+  182: optional i32 ivf_nprobe = 1;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

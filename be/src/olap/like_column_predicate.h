@@ -43,24 +43,33 @@ class Roaring;
 namespace doris {
 class FunctionContext;
 
-namespace segment_v2 {
-class BitmapIndexIterator;
-} // namespace segment_v2
-
 template <PrimitiveType T>
-class LikeColumnPredicate : public ColumnPredicate {
+class LikeColumnPredicate final : public ColumnPredicate {
 public:
+    ENABLE_FACTORY_CREATOR(LikeColumnPredicate);
     LikeColumnPredicate(bool opposite, uint32_t column_id, doris::FunctionContext* fn_ctx,
                         doris::StringRef val);
     ~LikeColumnPredicate() override = default;
+    LikeColumnPredicate(const LikeColumnPredicate<T>& other, uint32_t col_id)
+            : ColumnPredicate(other, col_id) {
+        _origin = other._origin;
+        pattern = other.pattern;
+        _state = other._state;
+        _opposite = other._opposite;
+    }
+    LikeColumnPredicate(const LikeColumnPredicate<T>& other) = delete;
+    std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
+        return LikeColumnPredicate<T>::create_shared(*this, col_id);
+    }
+    std::string debug_string() const override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "LikeColumnPredicate({}, pattern={}, origin={})",
+                       ColumnPredicate::debug_string(), pattern, _origin);
+        return fmt::to_string(debug_string_buffer);
+    }
 
     PredicateType type() const override { return PredicateType::EQ; }
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
-
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* roaring) const override {
-        return Status::OK();
-    }
 
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override;
@@ -180,11 +189,6 @@ private:
             std::shared_mutex>
             _segment_id_to_cached_res_flags;
 
-    std::string _debug_string() const override {
-        std::string info = "LikeColumnPredicate";
-        return info;
-    }
-
     std::string _origin;
     // lifetime controlled by scan node
     using StateType = vectorized::LikeState;
@@ -196,7 +200,7 @@ private:
     // Hyperscan API. So here _like_state is separate for each instance of
     // LikeColumnPredicate.
     vectorized::LikeSearchState _like_state;
-    std::unique_ptr<segment_v2::BloomFilter> _page_ng_bf; // for ngram-bf index
+    std::shared_ptr<segment_v2::BloomFilter> _page_ng_bf; // for ngram-bf index
 };
 
 } // namespace doris

@@ -35,6 +35,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.HashMap;
 import java.util.UUID;
 
 public class CreateViewTest {
@@ -222,8 +223,8 @@ public class CreateViewTest {
     @Test
     public void testResetViewDefForRestore() {
         View view = new View();
-        view.setInlineViewDefWithSqlMode("SELECT `internal`.`test`.`test`.`k2` AS `k1`, "
-                + "FROM `internal`.`test`.`test`;", 1);
+        view.setInlineViewDefWithSessionVariables("SELECT `internal`.`test`.`test`.`k2` AS `k1`, "
+                + "FROM `internal`.`test`.`test`;", new HashMap<>());
         view.resetViewDefForRestore("test", "test1");
         Assert.assertEquals("SELECT `internal`.`test1`.`test`.`k2` AS `k1`, "
                 + "FROM `internal`.`test1`.`test`;", view.getInlineViewDef());

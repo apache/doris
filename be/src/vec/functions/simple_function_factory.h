@@ -24,11 +24,10 @@
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
+#include "udf/udf.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
-
-constexpr auto DECIMAL256_FUNCTION_SUFFIX {"_decimal256"};
 
 class SimpleFunctionFactory;
 
@@ -78,7 +77,6 @@ void register_function_to_json(SimpleFunctionFactory& factory);
 void register_function_json_transform(SimpleFunctionFactory& factory);
 void register_function_json_hash(SimpleFunctionFactory& factory);
 void register_function_hash(SimpleFunctionFactory& factory);
-void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
@@ -86,7 +84,6 @@ void register_function_uniform(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_uuid_numeric(SimpleFunctionFactory& factory);
 void register_function_uuid_transforms(SimpleFunctionFactory& factory);
-void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
 void register_function_convert_tz(SimpleFunctionFactory& factory);
@@ -128,9 +125,12 @@ void register_function_soundex(SimpleFunctionFactory& factory);
 void register_function_throw_exception(SimpleFunctionFactory& factory);
 #endif
 
+using ArrayAggFunctionCreator = std::function<FunctionBuilderPtr(const DataTypePtr&)>;
+
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
+    using ArrayAggFunctionCreators = phmap::flat_hash_map<std::string, ArrayAggFunctionCreator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
     /// @TEMPORARY: for be_exec_version=5.
     /// whenever change this, please make sure old functions was all cleared. otherwise the version now-1 will think it should do replacement
@@ -157,9 +157,14 @@ public:
         function_creators[key_str] = ptr;
     }
 
+    void register_array_agg_function(const std::string& name, const ArrayAggFunctionCreator& ptr) {
+        array_function_creators[name] = ptr;
+    }
+
     template <class Function>
     void register_function() {
         if constexpr (std::is_base_of_v<IFunction, Function>) {
+            static_assert(sizeof(Function) == sizeof(IFunction), "Function must be no member data");
             register_function(Function::name, &createDefaultFunction<Function>);
         } else {
             register_function(Function::name, &Function::create);
@@ -168,6 +173,7 @@ public:
 
     template <class Function>
     void register_function(std::string name) {
+        static_assert(sizeof(Function) == sizeof(IFunction), "Function must be no member data");
         register_function(name, &createDefaultFunction<Function>);
     }
 
@@ -192,13 +198,6 @@ public:
             key_str = function_alias[name];
         }
 
-        if (attr.enable_decimal256) {
-            if (key_str == "array_sum" || key_str == "array_avg" || key_str == "array_product" ||
-                key_str == "array_cum_sum") {
-                key_str += DECIMAL256_FUNCTION_SUFFIX;
-            }
-        }
-
         if ((key_str.starts_with("unix_timestamp") || key_str.starts_with("from_unixtime")) &&
             attr.new_version_unix_timestamp) {
             key_str += "_new";
@@ -217,6 +216,15 @@ public:
             }
         }
 
+        auto iter0 = array_function_creators.find(key_str);
+        if (iter0 == array_function_creators.end()) {
+            // use original name as signature without variadic arguments
+            iter0 = array_function_creators.find(name);
+        }
+        if (iter0 != array_function_creators.end()) {
+            return iter0->second(return_type)->build(arguments, return_type);
+        }
+
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
             // use original name as signature without variadic arguments
@@ -232,6 +240,7 @@ public:
 
 private:
     FunctionCreators function_creators;
+    ArrayAggFunctionCreators array_function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
     /// @TEMPORARY: for be_exec_version=8. replace function to old version.
@@ -240,6 +249,11 @@ private:
     template <typename Function>
     static FunctionBuilderPtr createDefaultFunction() {
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
+    }
+
+    template <class FunctionTemplate>
+    static FunctionBuilderPtr createDefaultFunctionWithReturnType(DataTypePtr return_type) {
+        return std::make_shared<DefaultFunctionBuilder>(std::move(return_type));
     }
 
     /// @TEMPORARY: for be_exec_version=8
@@ -298,7 +312,6 @@ public:
             register_function_jsonb(instance);
             register_function_to_json(instance);
             register_function_hash(instance);
-            register_function_ifnull(instance);
             register_function_comparison_eq_for_null(instance);
             register_function_like(instance);
             register_function_regexp(instance);
@@ -307,7 +320,6 @@ public:
             register_function_uuid(instance);
             register_function_uuid_numeric(instance);
             register_function_uuid_transforms(instance);
-            register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);
             register_function_convert_tz(instance);

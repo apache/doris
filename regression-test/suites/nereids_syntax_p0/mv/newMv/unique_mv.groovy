@@ -48,11 +48,5 @@ suite ("unique_mv") {
     sql "analyze table c5816_t with sync;"
     sql """alter table c5816_t modify column org_id set stats ('row_count'='1');"""
 
-    sql """set enable_stats=false;"""
-
     mv_rewrite_success("SELECT * FROM c5816_t WHERE call_uuid='adc';", "mv_1")
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("SELECT * FROM c5816_t WHERE call_uuid='adc';", "mv_1")
-
 }

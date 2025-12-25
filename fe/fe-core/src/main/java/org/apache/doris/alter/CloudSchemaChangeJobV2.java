@@ -83,7 +83,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 indexIdMap.keySet().stream().collect(Collectors.toList());
         try {
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .commitMaterializedIndex(dbId, tableId, shadowIdxList, false);
+                    .commitMaterializedIndex(dbId, tableId, shadowIdxList, null, false);
         } catch (Exception e) {
             LOG.warn("commitMaterializedIndex exception:", e);
             throw new AlterCancelException(e.getMessage());
@@ -239,7 +239,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getPartitionInfo().getTabletType(partitionId),
                                             shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
                                             bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(),
-                                            tbl.getCompressionType(),
+                                            tbl.getCompressionType(), tbl.getStorageFormat(),
                                             tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                             tbl.getName(), tbl.getTTLSeconds(),
                                             tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),

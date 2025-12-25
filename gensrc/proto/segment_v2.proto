@@ -307,7 +307,7 @@ enum ColumnIndexTypePB {
     UNKNOWN_INDEX_TYPE = 0;
     ORDINAL_INDEX = 1;
     ZONE_MAP_INDEX = 2;
-    BITMAP_INDEX = 3;
+    BITMAP_INDEX = 3; // deprecated
     BLOOM_FILTER_INDEX = 4;
 }
 
@@ -315,7 +315,7 @@ message ColumnIndexMetaPB {
     optional ColumnIndexTypePB type = 1;
     optional OrdinalIndexPB ordinal_index = 7;
     optional ZoneMapIndexPB zone_map_index = 8;
-    optional BitmapIndexPB bitmap_index = 9;
+    optional BitmapIndexPB bitmap_index = 9; // deprecated
     optional BloomFilterIndexPB bloom_filter_index = 10;
 }
 

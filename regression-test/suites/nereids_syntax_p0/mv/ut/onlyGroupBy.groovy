@@ -53,10 +53,6 @@ suite ("onlyGroupBy") {
 
     sql "analyze table onlyGroupBy with sync;"
     sql """alter table onlyGroupBy modify column time_col set stats ('row_count'='9');"""
-    sql """set enable_stats=false;"""
 
-    mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
-
-    sql """set enable_stats=true;"""
     mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 }

@@ -157,9 +157,10 @@ public:
     ~OrcReader() override = default;
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
     Status init_reader(
-            const std::vector<std::string>* column_names, const VExprContextSPtrs& conjuncts,
-            bool is_acid, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const std::vector<std::string>* column_names,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const VExprContextSPtrs& conjuncts, bool is_acid,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
@@ -725,6 +726,9 @@ private:
 
     std::set<uint64_t> _column_ids;
     std::set<uint64_t> _filter_column_ids;
+
+    // Pointer to external column name to block index mapping (from FileScanner)
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
     VExprSPtrs _push_down_exprs;
 };

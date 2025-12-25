@@ -518,7 +518,10 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     EXPECT_TRUE(st.ok()) << st.msg();
 
     // key3 is in the sparse column, return variant type
-    auto data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    StorageReadOptions type_opts;
+    type_opts.tablet_schema = out_rowset->tablet_schema();
+    type_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+    auto data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
 
@@ -527,7 +530,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     subcolumn_in_sparse.set_path_info(PathInData("v1.keya"));
 
     // keya is not in the segment, return string type;
-    data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_STRING);
 
@@ -555,7 +558,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
         value_col.set_is_nullable(true);
         sparse_typed_col.add_sub_column(value_col);
     }
-    data_type = segment->get_data_type_of(sparse_typed_col, true);
+    data_type = segment->get_data_type_of(sparse_typed_col, type_opts);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_MAP);
 
@@ -565,7 +568,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     subcolumn_in_sparse._column_path->has_nested = true;
 
     // keyb has nested part, return int type;
-    data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_INT);
 
@@ -573,7 +576,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     subcolumn_in_sparse.set_name("v1.key1");
     subcolumn_in_sparse.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     subcolumn_in_sparse.set_path_info(PathInData("v1.key1"));
-    data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_STRING);
 

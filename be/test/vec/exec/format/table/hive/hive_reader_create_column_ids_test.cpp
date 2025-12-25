@@ -649,7 +649,7 @@ protected:
             return {nullptr, nullptr};
         }
 
-        RuntimeState runtime_state((TQueryGlobals()));
+        RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
         TFileScanRangeParams scan_params;
         scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
         TFileRangeDesc scan_range;
@@ -695,7 +695,7 @@ protected:
         }
 
         // Setup runtime state
-        RuntimeState runtime_state((TQueryGlobals()));
+        RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
 
         // Setup scan parameters
         TFileScanRangeParams scan_params;

@@ -68,6 +68,7 @@ add_thirdparty(curl)
 add_thirdparty(lz4)
 add_thirdparty(thrift)
 add_thirdparty(thriftnb)
+add_thirdparty(crc32c)
 
 add_thirdparty(libevent_core LIBNAME "lib/libevent_core.a")
 add_thirdparty(libevent_openssl LIBNAME "lib/libevent_openssl.a")

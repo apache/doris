@@ -24,6 +24,7 @@ import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionIncrementMaintainer.PartitionIncrementCheckContext;
@@ -650,5 +651,24 @@ public class MaterializedViewUtils {
             }
             return false;
         }
+    }
+
+    /**
+     * Check the prefix of two order key list is same from start
+     */
+    public static boolean isPrefixSameFromStart(List<OrderKey> queryShuttledOrderKeys,
+                                                 List<OrderKey> viewShuttledOrderKeys) {
+        if (queryShuttledOrderKeys == null || viewShuttledOrderKeys == null) {
+            return false;
+        }
+        if (queryShuttledOrderKeys.size() > viewShuttledOrderKeys.size()) {
+            return false;
+        }
+        for (int i = 0; i < queryShuttledOrderKeys.size(); i++) {
+            if (!java.util.Objects.equals(queryShuttledOrderKeys.get(i), viewShuttledOrderKeys.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 }

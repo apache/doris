@@ -138,10 +138,6 @@ Status Channel::add_rows(Block* block, const uint32_t* data, const uint32_t offs
     if (_pblock == nullptr) {
         _pblock = std::make_unique<PBlock>();
     }
-    int64_t old_channel_mem_usage = mem_usage();
-    Defer update_mem([&]() {
-        COUNTER_UPDATE(_parent->memory_used_counter(), mem_usage() - old_channel_mem_usage);
-    });
     RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
                                                       data, offset, size));
     if (serialized) {

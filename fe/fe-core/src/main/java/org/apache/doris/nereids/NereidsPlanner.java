@@ -928,7 +928,7 @@ public class NereidsPlanner extends Planner {
                 plan += "\n\n\n========== STATISTICS ==========\n";
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
-                        plan += "planed with unknown column statistics\n";
+                        plan += "planned with unknown column statistics\n";
                     }
                 }
         }

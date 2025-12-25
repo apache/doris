@@ -40,7 +40,7 @@ suite("test_non_overlap_seg_heavy_sc", "nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllBEs();
     GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush");
     try {
-        sql """ INSERT INTO ${tblName} select number, number, number from numbers("number" = "3240960") """
+        sql """ INSERT INTO ${tblName} select number, number, number from numbers("number" = "1240960") """
 
         sql """ DELETE FROM ${tblName} WHERE v2 = 24 """
 

@@ -28,11 +28,13 @@
 #include <cstdint>
 #include <memory>
 #include <stack>
+#include <string_view>
 #include <utility>
 
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "pipeline/pipeline_task.h"
@@ -49,6 +51,7 @@
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcolumn_ref.h"
 #include "vec/exprs/vcompound_pred.h"
+#include "vec/exprs/vcondition_expr.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -63,6 +66,7 @@
 #include "vec/exprs/vsearch.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
+#include "vec/runtime/timestamptz_value.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -167,7 +171,11 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         break;
     }
     case TYPE_TIMEV2: {
-        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(data, &node));
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_TIMESTAMPTZ: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMESTAMPTZ>(data, &node, precision, scale));
         break;
     }
     default:
@@ -244,6 +252,14 @@ TExprNode create_texpr_node_from(const vectorized::Field& field, const Primitive
 
         THROW_IF_ERROR(
                 create_texpr_literal_node<TYPE_DATETIMEV2>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_TIMESTAMPTZ: {
+        TimestampTzValue storage = binary_cast<uint64_t, TimestampTzValue>(
+                field.get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType>());
+
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_TIMESTAMPTZ>(&storage, &node, precision, scale));
         break;
     }
     case TYPE_DATE: {
@@ -333,6 +349,12 @@ TExprNode create_texpr_node_from(const vectorized::Field& field, const Primitive
         const auto& storage =
                 field.get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType>();
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(&storage, &node));
+        break;
+    }
+    case TYPE_VARBINARY: {
+        const auto& svf = field.get<vectorized::StringViewField>();
+        const std::string& storage = svf.get_string();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARBINARY>(&storage, &node));
         break;
     }
     default:
@@ -483,8 +505,22 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::ARITHMETIC_EXPR:
         case TExprNodeType::BINARY_PRED:
         case TExprNodeType::NULL_AWARE_BINARY_PRED:
-        case TExprNodeType::FUNCTION_CALL:
         case TExprNodeType::COMPUTE_FUNCTION_CALL: {
+            expr = VectorizedFnCall::create_shared(expr_node);
+            break;
+        }
+        case TExprNodeType::FUNCTION_CALL: {
+            if (expr_node.fn.name.function_name == "if") {
+                expr = VectorizedIfExpr::create_shared(expr_node);
+                break;
+            } else if (expr_node.fn.name.function_name == "ifnull" ||
+                       expr_node.fn.name.function_name == "nvl") {
+                expr = VectorizedIfNullExpr::create_shared(expr_node);
+                break;
+            } else if (expr_node.fn.name.function_name == "coalesce") {
+                expr = VectorizedCoalesceExpr::create_shared(expr_node);
+                break;
+            }
             expr = VectorizedFnCall::create_shared(expr_node);
             break;
         }
@@ -734,19 +770,9 @@ Status VExpr::get_const_col(VExprContext* context,
         return Status::OK();
     }
 
-    int result = -1;
-    Block block;
-    // If block is empty, some functions will produce no result. So we insert a column with
-    // single value here.
-    block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
-
-    _getting_const_col = true;
-    RETURN_IF_ERROR(execute(context, &block, &result));
-    _getting_const_col = false;
-
-    DCHECK(result != -1);
-    const auto& column = block.get_by_position(result).column;
-    _constant_col = std::make_shared<ColumnPtrWrapper>(column);
+    ColumnPtr result;
+    RETURN_IF_ERROR(execute_column(context, nullptr, 1, result));
+    _constant_col = std::make_shared<ColumnPtrWrapper>(result);
     if (column_wrapper != nullptr) {
         *column_wrapper = _constant_col;
     }
@@ -822,8 +848,8 @@ uint64_t VExpr::get_digest(uint64_t seed) const {
     return digest;
 }
 
-ColumnPtr VExpr::get_result_from_const(const Block* block) const {
-    return ColumnConst::create(_constant_col->column_ptr, block->rows());
+ColumnPtr VExpr::get_result_from_const(size_t count) const {
+    return ColumnConst::create(_constant_col->column_ptr, count);
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
@@ -934,9 +960,14 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return Status::OK(); // Nothing to evaluate or no literals to compare against
     }
 
+    const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
+    if (auto index_ctx = context->get_index_context(); index_ctx != nullptr) {
+        analyzer_ctx = index_ctx->get_analyzer_ctx_for_expr(this);
+    }
+
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
     auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
-                                                 segment_num_rows, result_bitmap);
+                                                 segment_num_rows, analyzer_ctx, result_bitmap);
     if (!res.ok()) {
         return res;
     }

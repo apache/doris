@@ -25,7 +25,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.core.SdkSystemSetting;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -71,7 +70,8 @@ public class OSSPropertiesTest {
         origProps.put("oss.connection.timeout", "1000");
         origProps.put("oss.use_path_style", "true");
         origProps.put("test_non_storage_param", "6000");
-        OSSProperties ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(0);
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(1);
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createAll(origProps).get(0).getClass());
         Map<String, String> s3Props;
 
         Map<String, String> ossConfig = ossProperties.getMatchedProperties();
@@ -94,7 +94,7 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         origProps.remove("oss.use_path_style");
-        ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(0);
+        ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(1);
         s3Props = ossProperties.generateBackendS3Configuration();
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
     }
@@ -121,7 +121,7 @@ public class OSSPropertiesTest {
         origProps.put("oss.endpoint", "http://s3.oss-cn-hongkong.aliyuncs.com");
         Assertions.assertEquals("cn-hongkong", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
         origProps.put("oss.endpoint", "https://dlf.cn-beijing.aliyuncs.com");
-        Assertions.assertEquals("cn-beijing", ((OSSProperties) StorageProperties.createAll(origProps).get(0)).getRegion());
+        Assertions.assertEquals("cn-beijing", ((OSSProperties) StorageProperties.createAll(origProps).get(1)).getRegion());
         origProps.put("oss.endpoint", "datalake-vpc.cn-shenzhen.aliyuncs.com");
         Assertions.assertEquals("cn-shenzhen", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
         origProps.put("oss.endpoint", "https://datalake-vpc.cn-shenzhen.aliyuncs.com");
@@ -267,15 +267,6 @@ public class OSSPropertiesTest {
         props.put("fs.oss.impl.disable.cache", "null");
         s3Properties = (OSSProperties) StorageProperties.createPrimary(props);
         Assertions.assertFalse(s3Properties.hadoopStorageConfig.getBoolean("fs.oss.impl.disable.cache", false));
-    }
-
-    @Test
-    public void testResuestCheckSum() throws UserException {
-        Map<String, String> props = Maps.newHashMap();
-        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
-        Assertions.assertEquals("WHEN_REQUIRED", System.getProperty(SdkSystemSetting.AWS_REQUEST_CHECKSUM_CALCULATION.property()));
-        System.setProperty("aws.requestChecksumCalculation", "ALWAYS");
-        Assertions.assertEquals("ALWAYS", System.getProperty(SdkSystemSetting.AWS_REQUEST_CHECKSUM_CALCULATION.property()));
     }
 
 }

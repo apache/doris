@@ -29,8 +29,9 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 Status ExprPushDownHelper::_extract_predicates(const VExprSPtr& expr, int& cid,
-                                               DataTypePtr& data_type, std::vector<Field>& values,
-                                               bool null_pred, bool& parsed) const {
+                                               DataTypePtr& data_type,
+                                               std::vector<StringRef>& values, bool null_pred,
+                                               bool& parsed) const {
     parsed = false;
     values.clear();
     if (!expr->children()[0]->is_slot_ref()) [[unlikely]] {
@@ -53,22 +54,22 @@ Status ExprPushDownHelper::_extract_predicates(const VExprSPtr& expr, int& cid,
         if (literal->get_column_ptr()->is_null_at(0)) {
             continue;
         }
-        values.emplace_back(literal->get_column_ptr()->operator[](0));
+        values.emplace_back(literal->get_column_ptr()->get_data_at(0));
         parsed = true;
     }
     return Status::OK();
 }
 
-Status ExprPushDownHelper::convert_predicates(
-        const VExprSPtrs& exprs, std::vector<std::unique_ptr<ColumnPredicate>>& predicates,
-        std::unique_ptr<MutilColumnBlockPredicate>& root, Arena& arena) {
+Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
+                                              std::unique_ptr<MutilColumnBlockPredicate>& root,
+                                              Arena& arena) {
     if (exprs.empty()) {
         return Status::OK();
     }
 
     int cid;
     DataTypePtr data_type;
-    std::vector<Field> values;
+    std::vector<StringRef> values;
     bool parsed = false;
     for (const auto& expr : exprs) {
         cid = -1;
@@ -76,47 +77,89 @@ Status ExprPushDownHelper::convert_predicates(
         parsed = false;
         switch (expr->node_type()) {
         case TExprNodeType::BINARY_PRED: {
-            decltype(create_comparison_predicate<PredicateType::UNKNOWN>)* create = nullptr;
-            if (expr->op() == TExprOpcode::EQ) {
-                create = create_comparison_predicate<PredicateType::EQ>;
-            } else if (expr->op() == TExprOpcode::NE) {
-                create = create_comparison_predicate<PredicateType::NE>;
-            } else if (expr->op() == TExprOpcode::LT) {
-                create = create_comparison_predicate<PredicateType::LT>;
-            } else if (expr->op() == TExprOpcode::LE) {
-                create = create_comparison_predicate<PredicateType::LE>;
-            } else if (expr->op() == TExprOpcode::GT) {
-                create = create_comparison_predicate<PredicateType::GT>;
-            } else if (expr->op() == TExprOpcode::GE) {
-                create = create_comparison_predicate<PredicateType::GE>;
-            } else {
-                break;
-            }
             RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, false, parsed));
             if (parsed) {
-                // TODO(gabriel): Use string view
-                predicates.push_back(std::unique_ptr<ColumnPredicate>(
-                        create(data_type, cid, values[0].to_string(), false, arena)));
-                root->add_column_predicate(
-                        SingleColumnBlockPredicate::create_unique(predicates.back().get()));
+                std::shared_ptr<ColumnPredicate> predicate;
+                if (expr->op() == TExprOpcode::EQ) {
+                    predicate = create_comparison_predicate0<PredicateType::EQ>(
+                            cid, data_type, values[0], false, arena);
+                } else if (expr->op() == TExprOpcode::NE) {
+                    predicate = create_comparison_predicate0<PredicateType::NE>(
+                            cid, data_type, values[0], false, arena);
+                } else if (expr->op() == TExprOpcode::LT) {
+                    predicate = create_comparison_predicate0<PredicateType::LT>(
+                            cid, data_type, values[0], false, arena);
+                } else if (expr->op() == TExprOpcode::LE) {
+                    predicate = create_comparison_predicate0<PredicateType::LE>(
+                            cid, data_type, values[0], false, arena);
+                } else if (expr->op() == TExprOpcode::GT) {
+                    predicate = create_comparison_predicate0<PredicateType::GT>(
+                            cid, data_type, values[0], false, arena);
+                } else if (expr->op() == TExprOpcode::GE) {
+                    predicate = create_comparison_predicate0<PredicateType::GE>(
+                            cid, data_type, values[0], false, arena);
+                } else {
+                    break;
+                }
+                root->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
             }
             break;
         }
         case TExprNodeType::IN_PRED: {
             switch (expr->op()) {
             case TExprOpcode::FILTER_IN: {
+                std::shared_ptr<HybridSetBase> set;
                 RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, false, parsed));
                 if (parsed) {
-                    // TODO(gabriel): Use string view
-                    std::vector<std::string> conditions(values.size());
-                    for (size_t i = 0; i < conditions.size(); i++) {
-                        conditions[i] = values[i].to_string();
+                    switch (data_type->get_primitive_type()) {
+#define BUILD_SET_CASE(PType)     \
+    case PType: {                 \
+        set = build_set<PType>(); \
+        break;                    \
+    }
+                        BUILD_SET_CASE(TYPE_TINYINT);
+                        BUILD_SET_CASE(TYPE_SMALLINT);
+                        BUILD_SET_CASE(TYPE_INT);
+                        BUILD_SET_CASE(TYPE_BIGINT);
+                        BUILD_SET_CASE(TYPE_LARGEINT);
+                        BUILD_SET_CASE(TYPE_FLOAT);
+                        BUILD_SET_CASE(TYPE_DOUBLE);
+                        BUILD_SET_CASE(TYPE_CHAR);
+                        BUILD_SET_CASE(TYPE_STRING);
+                        BUILD_SET_CASE(TYPE_DATE);
+                        BUILD_SET_CASE(TYPE_DATETIME);
+                        BUILD_SET_CASE(TYPE_DATEV2);
+                        BUILD_SET_CASE(TYPE_DATETIMEV2);
+                        BUILD_SET_CASE(TYPE_BOOLEAN);
+                        BUILD_SET_CASE(TYPE_IPV4);
+                        BUILD_SET_CASE(TYPE_IPV6);
+                        BUILD_SET_CASE(TYPE_DECIMALV2);
+                        BUILD_SET_CASE(TYPE_DECIMAL32);
+                        BUILD_SET_CASE(TYPE_DECIMAL64);
+                        BUILD_SET_CASE(TYPE_DECIMAL128I);
+                        BUILD_SET_CASE(TYPE_DECIMAL256);
+                    case TYPE_VARCHAR: {
+                        set = build_set<TYPE_STRING>();
+                        break;
                     }
-                    predicates.push_back(std::unique_ptr<ColumnPredicate>(
-                            create_list_predicate<PredicateType::IN_LIST>(
-                                    data_type, cid, conditions, false, arena)));
-                    root->add_column_predicate(
-                            SingleColumnBlockPredicate::create_unique(predicates.back().get()));
+#undef BUILD_SET_CASE
+                    default:
+                        throw Exception(Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                                "unsupported data type in delete handler. type={}",
+                                type_to_string(data_type->get_primitive_type())));
+                    }
+                    if (is_string_type(data_type->get_primitive_type())) {
+                        for (size_t i = 0; i < values.size(); i++) {
+                            set->insert(reinterpret_cast<const void*>(&values[i]));
+                        }
+                    } else {
+                        for (size_t i = 0; i < values.size(); i++) {
+                            set->insert(reinterpret_cast<const void*>(values[i].data));
+                        }
+                    }
+                    root->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+                            create_in_list_predicate<PredicateType::IN_LIST>(cid, data_type, set,
+                                                                             false)));
                 }
                 break;
             }
@@ -130,7 +173,7 @@ Status ExprPushDownHelper::convert_predicates(
             switch (expr->op()) {
             case TExprOpcode::COMPOUND_AND: {
                 for (const auto& child : expr->children()) {
-                    RETURN_IF_ERROR(convert_predicates({child}, predicates, root, arena));
+                    RETURN_IF_ERROR(convert_predicates({child}, root, arena));
                 }
                 break;
             }
@@ -138,7 +181,7 @@ Status ExprPushDownHelper::convert_predicates(
                 std::unique_ptr<MutilColumnBlockPredicate> new_root =
                         OrBlockColumnPredicate::create_unique();
                 for (const auto& child : expr->children()) {
-                    RETURN_IF_ERROR(convert_predicates({child}, predicates, new_root, arena));
+                    RETURN_IF_ERROR(convert_predicates({child}, new_root, arena));
                 }
                 root->add_column_predicate(std::move(new_root));
                 break;
@@ -155,10 +198,9 @@ Status ExprPushDownHelper::convert_predicates(
             if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
                 RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, true, parsed));
                 if (parsed) {
-                    predicates.push_back(std::unique_ptr<ColumnPredicate>(
-                            new NullPredicate(cid, true, fn_name == "is_not_null_pred")));
-                    root->add_column_predicate(
-                            SingleColumnBlockPredicate::create_unique(predicates.back().get()));
+                    root->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+                            NullPredicate::create_shared(cid, true, data_type->get_primitive_type(),
+                                                         fn_name == "is_not_null_pred")));
                 }
             }
             break;

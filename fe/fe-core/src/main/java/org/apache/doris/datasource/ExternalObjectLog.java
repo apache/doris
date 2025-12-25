@@ -58,6 +58,9 @@ public class ExternalObjectLog implements Writable {
     @SerializedName(value = "partitionNames")
     private List<String> partitionNames;
 
+    @SerializedName(value = "newPartitionNames")
+    private List<String> newPartitionNames;
+
     @SerializedName(value = "lastUpdateTime")
     private long lastUpdateTime;
 
@@ -77,6 +80,17 @@ public class ExternalObjectLog implements Writable {
         externalObjectLog.setCatalogId(catalogId);
         externalObjectLog.setDbName(dbName);
         externalObjectLog.setTableName(tblName);
+        return externalObjectLog;
+    }
+
+    public static ExternalObjectLog createForRefreshPartitions(long catalogId, String dbName, String tblName,
+            List<String> modifiedPartNames, List<String> newPartNames) {
+        ExternalObjectLog externalObjectLog = new ExternalObjectLog();
+        externalObjectLog.setCatalogId(catalogId);
+        externalObjectLog.setDbName(dbName);
+        externalObjectLog.setTableName(tblName);
+        externalObjectLog.setPartitionNames(modifiedPartNames);
+        externalObjectLog.setNewPartitionNames(newPartNames);
         return externalObjectLog;
     }
 
@@ -123,6 +137,12 @@ public class ExternalObjectLog implements Writable {
             sb.append("tableName: " + tableName + "]");
         } else {
             sb.append("tableId: " + tableId + "]");
+        }
+        if (partitionNames != null && !partitionNames.isEmpty()) {
+            sb.append(", partitionNames: " + partitionNames);
+        }
+        if (newPartitionNames != null && !newPartitionNames.isEmpty()) {
+            sb.append(", newPartitionNames: " + newPartitionNames);
         }
         return sb.toString();
     }

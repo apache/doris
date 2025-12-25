@@ -221,16 +221,21 @@ under the License.
         <module>be-java-extensions</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>3.0.1</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>3.1.0</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
         <parquet.version>1.16.0</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>1.0.2</hudi.version>
-        <gcs.version>3.1.9</gcs.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
-        <gcs.dependency.scope>compile</gcs.dependency.scope>
+        <qcloud-java-sdk.version>2.0.1</qcloud-java-sdk.version>
+        <tencentcos.version>8.2.7</tencentcos.version>
+        <cos-api.version>5.6.211</cos-api.version>
+        <tencentcloud-sdk-java-sts.version>3.1.678</tencentcloud-sdk-java-sts.version>
+        <huaweicloud-sdk-iam.version>3.1.20</huaweicloud-sdk-iam.version>
+        <esdk-obs.version>[3.21.11,)</esdk-obs.version>
+        <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
         <!--suppress UnresolvedMavenProperty -->
         <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
         <!--suppress UnresolvedMavenProperty -->
@@ -286,7 +291,7 @@ under the License.
         <grpc-java.version>1.34.0</grpc-java.version>
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.65.1</grpc.version>
-        <check.freamework.version>3.52.0</check.freamework.version>
+        <check.freamework.version>3.52.1</check.freamework.version>
         <protobuf.version>3.25.8</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
@@ -374,8 +379,6 @@ under the License.
         <aircompressor.version>0.27</aircompressor.version>
         <!-- paimon -->
         <paimon.version>1.1.1</paimon.version>
-        <!-- tencent cosn -->
-        <tencentcos.version>8.2.7</tencentcos.version>
         <disruptor.version>3.4.4</disruptor.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
@@ -390,7 +393,8 @@ under the License.
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
-        <awssdk.version>2.37.2</awssdk.version>
+        <!--Fixes the regression described in https://github.com/aws/aws-sdk-java-v2/issues/5805 that forced us to downgrade aws-s3 to version 2.29.x.-->
+        <awssdk.version>2.29.52</awssdk.version>
         <s3tables.catalog.version>0.1.4</s3tables.catalog.version>
         <mockito.version>4.11.0</mockito.version>
     </properties>
@@ -1285,6 +1289,11 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-api</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
                 <artifactId>iceberg-aws</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
@@ -1701,6 +1710,78 @@ under the License.
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- tencent COS -->
+            <dependency>
+                <groupId>com.qcloud</groupId>
+                <artifactId>cos_api</artifactId>
+                <version>${cos-api.version}</version>
+                <scope>${cos.dependency.scope}</scope>
+                <exclusions>
+                    <exclusion>
+                        <groupId>ch.qos.logback</groupId>
+                        <artifactId>logback-core</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.thoughtworks.xstream</groupId>
+                        <artifactId>xstream</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.bouncycastle</groupId>
+                        <artifactId>bcprov-jdk15on</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.qcloud</groupId>
+                <artifactId>qcloud-java-sdk</artifactId>
+                <version>${qcloud-java-sdk.version}</version>
+                <scope>${cos.dependency.scope}</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.qcloud.cos</groupId>
+                <artifactId>hadoop-cos</artifactId>
+                <version>${tencentcos.version}</version>
+                <scope>${cos.dependency.scope}</scope>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.json</groupId>
+                        <artifactId>json</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <!-- tencent cloud sts -->
+            <dependency>
+                <groupId>com.tencentcloudapi</groupId>
+                <artifactId>tencentcloud-sdk-java-sts</artifactId>
+                <version>${tencentcloud-sdk-java-sts.version}</version>
+                <scope>${cos.dependency.scope}</scope>
+            </dependency>
+            <!--Huawei OBS-->
+            <dependency>
+                <groupId>com.huaweicloud</groupId>
+                <artifactId>esdk-obs-java-bundle</artifactId>
+                <version>${esdk-obs.version}</version>
+                <scope>${obs.dependency.scope}</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.huaweicloud</groupId>
+                <artifactId>hadoop-huaweicloud</artifactId>
+                <version>${huaweiobs.version}</version>
+                <scope>${obs.dependency.scope}</scope>
+                <exclusions>
+                    <exclusion>
+                        <artifactId>jackson-databind</artifactId>
+                        <groupId>com.fasterxml.jackson.core</groupId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <!-- huawei cloud sts -->
+            <dependency>
+                <groupId>com.huaweicloud.sdk</groupId>
+                <artifactId>huaweicloud-sdk-iam</artifactId>
+                <version>${huaweicloud-sdk-iam.version}</version>
+                <scope>${obs.dependency.scope}</scope>
+            </dependency>
             <dependency>
                 <groupId>org.semver4j</groupId>
                 <artifactId>semver4j</artifactId>
@@ -1739,22 +1820,27 @@ under the License.
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.vintage</groupId>
             <artifactId>junit-vintage-engine</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-params</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.platform</groupId>
             <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.jmockit</groupId>
             <artifactId>jmockit</artifactId>
+            <scope>test</scope>
         </dependency>
         <!-- should be used in test scope -->
         <dependency>

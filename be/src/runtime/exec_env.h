@@ -64,6 +64,7 @@ struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
 class HdfsMgr;
+class PackedFileManager;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
@@ -117,6 +118,7 @@ class HeartbeatFlags;
 class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
+class CdcClientMgr;
 class TabletSchemaCache;
 class TabletColumnObjectPool;
 class UserFunctionCache;
@@ -170,9 +172,20 @@ public:
     }
 
     // Requires ExenEnv ready
+    /*
+     * Parameters:
+     * - tablet_id: the id of tablet to get
+     * - sync_stats: the stats of sync rowset
+     * - force_use_only_cached: whether only use cached data
+     * - cache_on_miss: whether cache the tablet meta when missing in cache
+     */
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
                                              SyncRowsetStats* sync_stats = nullptr,
-                                             bool force_use_only_cached = false);
+                                             bool force_use_only_cached = false,
+                                             bool cache_on_miss = true);
+
+    static Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                                  bool force_use_only_cached = false);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
@@ -276,6 +289,7 @@ public:
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
+    CdcClientMgr* cdc_client_mgr() { return _cdc_client_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
 
@@ -292,6 +306,7 @@ public:
 
     kerberos::KerberosTicketMgr* kerberos_ticket_mgr() { return _kerberos_ticket_mgr; }
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
+    io::PackedFileManager* packed_file_manager() { return _packed_file_manager; }
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
 
 #ifdef BE_TEST
@@ -507,6 +522,7 @@ private:
     // ip:brpc_port -> frontend_indo
     std::map<TNetworkAddress, FrontendInfo> _frontends;
     GroupCommitMgr* _group_commit_mgr = nullptr;
+    CdcClientMgr* _cdc_client_mgr = nullptr;
 
     // Maybe we should use unique_ptr, but it need complete type, which means we need
     // to include many headers, and for some cpp file that do not need class like TabletSchemaCache,
@@ -549,6 +565,7 @@ private:
 
     kerberos::KerberosTicketMgr* _kerberos_ticket_mgr = nullptr;
     io::HdfsMgr* _hdfs_mgr = nullptr;
+    io::PackedFileManager* _packed_file_manager = nullptr;
 };
 
 template <>

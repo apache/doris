@@ -96,8 +96,10 @@ suite ("q_4_1_r1") {
 
     sql """analyze table lineorder_flat with sync;"""
     sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
-    sql """set enable_stats=false;"""
+    sql """alter table lineorder_flat modify column a1 set stats ('row_count'='1');"""
 
+
+    sql """set enable_stats=true;"""
     mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
             C_NATION,
             SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
@@ -119,15 +121,4 @@ suite ("q_4_1_r1") {
                 AND P_MFGR IN ('MFGR#1', 'MFGR#2')
                 GROUP BY YEAR, C_NATION
                 ORDER BY YEAR ASC, C_NATION ASC;"""
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
-            C_NATION,
-            SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
-            FROM lineorder_flat
-            WHERE
-            C_REGION = 'AMERICA'
-            AND S_REGION = 'AMERICA'
-            AND P_MFGR IN ('MFGR#1', 'MFGR#2')
-            GROUP BY YEAR, C_NATION
-            ORDER BY YEAR ASC, C_NATION ASC;""", "lineorder_mv")
 }

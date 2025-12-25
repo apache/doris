@@ -47,9 +47,6 @@
 
 namespace doris::cloud {
 
-extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
-                                 size_t limit);
-
 extern std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode ret);
 
 RecyclerServiceImpl::RecyclerServiceImpl(std::shared_ptr<TxnKv> txn_kv, Recycler* recycler,

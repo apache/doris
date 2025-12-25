@@ -70,6 +70,7 @@
 #include "pipeline/task_scheduler.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/cache/result_cache.h"
+#include "runtime/cdc_client_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
@@ -130,6 +131,7 @@
 //  /doris/thirdparty/installed/include/hadoop_hdfs/hdfs.h:61:19: note: expanded from macro 'EINTERNAL'
 //  #define EINTERNAL 255
 #include "io/fs/hdfs/hdfs_mgr.h"
+#include "io/fs/packed_file_manager.h"
 // clang-format on
 
 namespace doris {
@@ -334,6 +336,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     RETURN_IF_ERROR(_routine_load_task_executor->init(MemInfo::mem_limit()));
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _group_commit_mgr = new GroupCommitMgr(this);
+    _cdc_client_mgr = new CdcClientMgr();
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
@@ -404,6 +407,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     RETURN_IF_ERROR(_create_internal_workload_group());
     _workload_sched_mgr = new WorkloadSchedPolicyMgr();
     _workload_sched_mgr->start(this);
+
+    // Initialize packed file manager
+    _packed_file_manager = io::PackedFileManager::instance();
+    if (config::is_cloud_mode()) {
+        RETURN_IF_ERROR(_packed_file_manager->init());
+        _packed_file_manager->start_background_manager();
+    }
 
     _index_policy_mgr = new IndexPolicyMgr();
 
@@ -837,6 +847,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_result_mgr);
     SAFE_DELETE(_file_meta_cache);
     SAFE_DELETE(_group_commit_mgr);
+    SAFE_DELETE(_cdc_client_mgr);
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_stream_load_recorder_manager);
     // _stream_load_executor
@@ -901,6 +912,11 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_dns_cache);
     SAFE_DELETE(_kerberos_ticket_mgr);
     SAFE_DELETE(_hdfs_mgr);
+    // PackedFileManager is a singleton, just stop its background thread
+    if (_packed_file_manager) {
+        _packed_file_manager->stop_background_manager();
+        _packed_file_manager = nullptr;
+    }
 
     SAFE_DELETE(_process_profile);
     SAFE_DELETE(_heap_profiler);

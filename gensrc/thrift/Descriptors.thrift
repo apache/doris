@@ -82,7 +82,7 @@ struct TColumn {
     9: optional bool visible = true
     10: optional list<TColumn> children_column
     11: optional i32 col_unique_id  = -1
-    12: optional bool has_bitmap_index = false
+    12: optional bool has_bitmap_index = false // deprecated
     13: optional bool has_ngram_bf_index = false
     14: optional i32 gram_size
     15: optional i32 gram_bf_size
@@ -209,6 +209,7 @@ enum TSchemaTableType {
     SCH_COLUMN_DATA_SIZES = 63;
     SCH_LOAD_JOBS = 64;
     SCH_FILE_CACHE_INFO = 65;
+    SCH_DATABASE_PROPERTIES = 66;
 }
 
 enum THdfsCompression {

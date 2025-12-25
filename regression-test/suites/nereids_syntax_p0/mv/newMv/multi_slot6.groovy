@@ -50,9 +50,6 @@ suite ("multi_slot6") {
     sql "analyze table multi_slot6 with sync;"
     sql """alter table multi_slot6 modify column k1 set stats ('row_count'='4');"""
 
-    sql """set enable_stats=false;"""
-
-
     order_qt_select_star "select * from multi_slot6 order by k1;"
 
     def retry_times = 60

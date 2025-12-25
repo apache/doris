@@ -49,7 +49,7 @@ class IColumn;
 template <PrimitiveType T>
 class DataTypeNumberBase : public IDataType {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2);
+                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
 
 public:
     static constexpr bool is_parametric = false;
@@ -104,6 +104,9 @@ public:
         }
         if constexpr (T == TYPE_DATETIMEV2) {
             return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+        }
+        if constexpr (T == TYPE_TIMESTAMPTZ) {
+            return doris::FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
         }
         if constexpr (T == TYPE_IPV4) {
             return doris::FieldType::OLAP_FIELD_TYPE_IPV4;

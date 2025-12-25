@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS store_returns (
     sr_reversed_charge decimal(7,2),
     sr_store_credit decimal(7,2),
     sr_net_loss decimal(7,2),
-    INDEX sr_item_sk_idx(sr_item_sk) USING BITMAP COMMENT "sr_item_sk index",
+    INDEX sr_item_sk_idx(sr_item_sk) USING INVERTED COMMENT "sr_item_sk index",
     INDEX sr_ticket_number_idx(sr_ticket_number) USING INVERTED COMMENT "sr_ticket_number index",
     INDEX sr_return_quantity_idx(sr_return_quantity) USING INVERTED COMMENT "sr_return_quantity index"
 )

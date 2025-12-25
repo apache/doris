@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <crc32c/crc32c.h>
 #include <gflags/gflags.h>
 
 #include <fstream>
@@ -27,7 +28,6 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/lru_queue_recorder.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 
 using namespace doris;
 
@@ -177,7 +177,7 @@ Status parse_one_lru_entry(std::ifstream& in, std::string& filename, io::UInt128
         std::string group_serialized(group_info.size(), '\0');
         in.read(&group_serialized[0], group_serialized.size());
         RETURN_IF_ERROR(check_ifstream_status(in, filename));
-        uint32_t checksum = crc32c::Value(group_serialized.data(), group_serialized.size());
+        uint32_t checksum = crc32c::Crc32c(group_serialized.data(), group_serialized.size());
         if (checksum != group_info.checksum()) {
             std::string warn_msg =
                     fmt::format("restore lru failed as checksum not match, file={}", filename);

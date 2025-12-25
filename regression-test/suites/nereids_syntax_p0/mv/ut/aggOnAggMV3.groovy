@@ -53,7 +53,6 @@ suite ("aggOnAggMV3") {
     sql "analyze table aggOnAggMV3 with sync;"
     sql """alter table aggOnAggMV3 modify column time_col set stats ('row_count'='8');"""
 
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from aggOnAggMV3 order by empid;", "aggOnAggMV3_mv")
     order_qt_select_star "select * from aggOnAggMV3 order by empid;"
@@ -61,10 +60,4 @@ suite ("aggOnAggMV3") {
     mv_rewrite_success("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;",
             "aggOnAggMV3_mv")
     order_qt_select_mv "select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_fail("select * from aggOnAggMV3 order by empid;", "aggOnAggMV3_mv")
-
-    mv_rewrite_success("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;",
-            "aggOnAggMV3_mv")
 }

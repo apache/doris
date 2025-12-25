@@ -97,6 +97,8 @@ private:
 
     // for reading metadata using reader from be
     std::unique_ptr<GenericReader> _reader;
+
+    std::unordered_map<std::string, uint32_t> _src_block_name_to_idx;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

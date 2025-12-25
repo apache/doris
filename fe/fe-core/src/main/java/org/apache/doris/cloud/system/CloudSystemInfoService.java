@@ -17,8 +17,6 @@
 
 package org.apache.doris.cloud.system;
 
-import org.apache.doris.analysis.ModifyBackendClause;
-import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -686,18 +684,8 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
-    public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
-        throw new UserException("Modifying backends is not supported in cloud mode");
-    }
-
-    @Override
     public void modifyBackends(ModifyBackendOp op) throws UserException {
         throw new UserException("Modifying backends is not supported in cloud mode");
-    }
-
-    @Override
-    public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
-        throw new UserException("Modifying backend hostname is not supported in cloud mode");
     }
 
     @Override
@@ -821,6 +809,9 @@ public class CloudSystemInfoService extends SystemInfoService {
     public List<Backend> getBackendsByClusterName(final String clusterName) {
         String physicalClusterName = getPhysicalCluster(clusterName);
         String clusterId = clusterNameToId.getOrDefault(physicalClusterName, "");
+        LOG.debug("getBackendsByClusterName clusterName={} "
+                + "physicalClusterName={} clusterId={} clusterNameToId={} clusterIdToBackend={}",
+                clusterName, physicalClusterName, clusterId, clusterNameToId, clusterIdToBackend);
         if (clusterId.isEmpty()) {
             return new ArrayList<>();
         }
@@ -832,6 +823,9 @@ public class CloudSystemInfoService extends SystemInfoService {
         String clusterName = getClusterNameByClusterId(clusterId);
         String physicalClusterName = getPhysicalCluster(clusterName);
         String physicalClusterId = getCloudClusterIdByName(physicalClusterName);
+        LOG.debug("getBackendsByClusterId clusterName={} "
+                + "physicalClusterName={} clusterId={} clusterNameToId={} clusterIdToBackend={}",
+                clusterName, physicalClusterName, clusterId, clusterNameToId, clusterIdToBackend);
 
         // copy a new List
         return new ArrayList<>(clusterIdToBackend.getOrDefault(physicalClusterId, new ArrayList<>()));

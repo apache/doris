@@ -33,6 +33,10 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
 import org.apache.doris.nereids.trees.expressions.functions.table.PaimonMeta;
+import org.apache.doris.nereids.trees.expressions.functions.table.ParquetBloomProbe;
+import org.apache.doris.nereids.trees.expressions.functions.table.ParquetFileMetadata;
+import org.apache.doris.nereids.trees.expressions.functions.table.ParquetKvMetadata;
+import org.apache.doris.nereids.trees.expressions.functions.table.ParquetMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
@@ -69,7 +73,11 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Query.class, "query"),
             tableValued(PartitionValues.class, "partition_values"),
             tableValued(File.class, "file"),
-            tableValued(Http.class, "http")
+            tableValued(Http.class, "http"),
+            tableValued(ParquetMeta.class, "parquet_meta"),
+            tableValued(ParquetFileMetadata.class, "parquet_file_metadata"),
+            tableValued(ParquetKvMetadata.class, "parquet_kv_metadata"),
+            tableValued(ParquetBloomProbe.class, "parquet_bloom_probe")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

@@ -48,6 +48,7 @@
 // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
 // 0x01 "meta" ${instance_id} "tablet_schema_pb_dict" ${index_id}                                -> SchemaCloudDictionary
 // 0x01 "meta" ${instance_id} "mow_tablet_job" ${table_id} ${initiator_id}                      -> MowTabletJobPB
+// 0x01 "meta" ${instance_id} "packed_file" ${packed_file_path}                                   -> PackedFileInfoPB
 //
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}               -> TabletStatsPB
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"   -> int64
@@ -241,6 +242,9 @@ using MetaSchemaPBDictionaryInfo = BasicKeyInfo<__LINE__ , std::tuple<std::strin
 //                                                        0:instance_id 1:table_id 2:initiator
 using MowTabletJobInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t, int64_t>>;
 
+//                                                        0:instance_id  1:packed_file_path
+using PackedFileKeyInfo = BasicKeyInfo<30, std::tuple<std::string, std::string>>;
+
 namespace versioned {
 
 // ATTN: Key info definitions in this namespace do not include timestamp and subsequent attributes.
@@ -318,6 +322,10 @@ using MetaDeleteBitmapInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int
 //                                                      0:instance_id  1:tablet_id  2:rowset_id
 using DataRowsetRefCountKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, std::string>>;
 
+// 0x03 "meta" ${instance_id} "rowset" ${tablet_id} ${rowset_id}            -> RowsetMetaPB
+//                                                      0:instance_id  1:tablet_id  2:rowset_id
+using MetaRowsetKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, std::string>>;
+
 // 0x03 "snapshot" ${instance_id} "full" ${timestamp}                       -> SnapshotPB
 //                                                      0:instance_id
 using SnapshotFullKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string>>;
@@ -370,6 +378,7 @@ void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out);
 void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out);
 void mow_tablet_job_key(const MowTabletJobInfo& in, std::string* out);
+void packed_file_key(const PackedFileKeyInfo& in, std::string* out);
 static inline std::string meta_rowset_key(const MetaRowsetKeyInfo& in) { std::string s; meta_rowset_key(in, &s); return s; }
 static inline std::string meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in) { std::string s; meta_rowset_tmp_key(in, &s); return s; }
 static inline std::string meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in) { std::string s; meta_tablet_idx_key(in, &s); return s; }
@@ -380,6 +389,11 @@ static inline std::string meta_delete_bitmap_update_lock_key(const MetaDeleteBit
 static inline std::string meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in) { std::string s; meta_pending_delete_bitmap_key(in, &s); return s; }
 static inline std::string meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in) { std::string s; meta_schema_pb_dictionary_key(in, &s); return s; }
 static inline std::string mow_tablet_job_key(const MowTabletJobInfo& in) { std::string s; mow_tablet_job_key(in, &s); return s; }
+static inline std::string packed_file_key(const PackedFileKeyInfo& in) {
+    std::string s;
+    packed_file_key(in, &s);
+    return s;
+}
 
 std::string recycle_key_prefix(std::string_view instance_id);
 void recycle_index_key(const RecycleIndexKeyInfo& in, std::string* out);
@@ -519,6 +533,9 @@ static inline std::string meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in)
 void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string* out);
 static inline std::string data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in) { std::string s; data_rowset_ref_count_key(in, &s); return s; }
 
+void meta_rowset_key(const MetaRowsetKeyInfo& in, std::string* out);
+static inline std::string meta_rowset_key(const MetaRowsetKeyInfo& in) { std::string s; meta_rowset_key(in, &s); return s; }
+
 void snapshot_full_key(const SnapshotFullKeyInfo& in, std::string* out);
 static inline std::string snapshot_full_key(const SnapshotFullKeyInfo& in) { std::string s; snapshot_full_key(in, &s); return s; }
 
@@ -580,10 +597,20 @@ bool decode_meta_schema_key(std::string_view* in, int64_t* index_id, int64_t* sc
 // Return true if decode successfully, otherwise false
 bool decode_meta_tablet_key(std::string_view* in, int64_t* tablet_id, Versionstamp* timestamp);
 
+// Decode tablet inverted index key
+// Return true if decode successfully, otherwise false
+bool decode_tablet_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
+                                      int64_t* index_id, int64_t* partition_id, int64_t* tablet_id);
+
 // Decode snapshot reference key
 // Return true if decode successfully, otherwise false
 bool decode_snapshot_ref_key(std::string_view* in, std::string* instance_id,
                              Versionstamp* timestamp, std::string* ref_instance_id);
+
+// Decode data rowset ref count key
+// Return true if decode successfully, otherwise false
+bool decode_data_rowset_ref_count_key(std::string_view* in, int64_t* tablet_id,
+                                      std::string* rowset_id);
 } // namespace versioned
 
 // Decode stats tablet key

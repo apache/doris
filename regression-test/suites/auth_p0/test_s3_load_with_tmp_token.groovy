@@ -91,13 +91,7 @@ suite("test_s3_load_with_tmp_token", "load_p0") {
             kd15 CHAR(255)       NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
             kd16 VARCHAR(300)    NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
             kd17 STRING          NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
-            kd18 JSON            NULL,
-
-            INDEX idx_bitmap_k104 (`k02`) USING BITMAP,
-            INDEX idx_bitmap_k110 (`kd01`) USING BITMAP,
-            INDEX idx_bitmap_k113 (`k13`) USING BITMAP,
-            INDEX idx_bitmap_k114 (`k14`) USING BITMAP,
-            INDEX idx_bitmap_k117 (`k17`) USING BITMAP
+            kd18 JSON            NULL
         )
         DUPLICATE KEY(k00,k01)
         PARTITION BY RANGE(k01)

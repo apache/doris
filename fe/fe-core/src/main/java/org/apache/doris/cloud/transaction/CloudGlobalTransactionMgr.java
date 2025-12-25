@@ -107,6 +107,7 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
+import org.apache.doris.transaction.AutoPartitionCacheManager;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.SubTransactionState;
@@ -208,6 +209,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private Map<Long, Map<Long, Long>> lastTxnIdMap = Maps.newConcurrentMap();
     // dbId -> txnId -> signature
     private Map<Long, Map<Long, Long>> txnLastSignatureMap = Maps.newConcurrentMap();
+
+    private final AutoPartitionCacheManager autoPartitionCacheManager = new AutoPartitionCacheManager();
+
+    public AutoPartitionCacheManager getAutoPartitionCacheMgr() {
+        return autoPartitionCacheManager;
+    }
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -954,12 +961,34 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private Map<Long, Long> getPartitionVersions(Map<Long, Partition> partitionMap) {
+        if (!Config.calc_delete_bitmap_get_versions_in_batch) {
+            Map<Long, Long> partitionToVersions = Maps.newHashMap();
+            partitionMap.forEach((key, value) -> {
+                long visibleVersion = value.getVisibleVersion();
+                long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
+                partitionToVersions.put(key, newVersion);
+            });
+            return partitionToVersions;
+        }
+
+        List<CloudPartition> partitions = partitionMap.values().stream()
+                .map(p -> (CloudPartition) p)
+                .collect(Collectors.toList());
+        List<Long> partitionVersions;
+        try {
+            partitionVersions = CloudPartition.getSnapshotVisibleVersionFromMs(
+                    partitions, Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns);
+        } catch (RpcException e) {
+            LOG.warn("get partition versions from ms failed, partitions: {}", partitions, e);
+            throw new RuntimeException("get partition versions from ms failed", e);
+        }
         Map<Long, Long> partitionToVersions = Maps.newHashMap();
-        partitionMap.forEach((key, value) -> {
-            long visibleVersion = value.getVisibleVersion();
-            long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
-            partitionToVersions.put(key, newVersion);
-        });
+        for (int i = 0; i < partitions.size(); i++) {
+            CloudPartition partition = partitions.get(i);
+            long visibleVersion = partitionVersions.get(i);
+            long newVersion = visibleVersion + 1;
+            partitionToVersions.put(partition.getId(), newVersion);
+        }
         return partitionToVersions;
     }
 
@@ -1621,6 +1650,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         List<Table> tablesToUnlock = getTablesNeedCommitLock(tableList);
         decreaseWaitingLockCount(tablesToUnlock);
         MetaLockUtils.commitUnlockTables(tablesToUnlock);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
     }
 
     @Override
@@ -1682,6 +1712,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException {
         cleanSubTransactions(transactionId);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
         abortTransaction(dbId, transactionId, reason, null, null);
     }
 
@@ -2106,7 +2137,18 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit) {
-        // do nothing in cloud mode
+        AbortTxnWithCoordinatorRequest.Builder builder = AbortTxnWithCoordinatorRequest.newBuilder();
+        builder.setIp(coordinateHost);
+        builder.setId(coordinateBeId);
+        final AbortTxnWithCoordinatorRequest request = builder.build();
+        AbortTxnWithCoordinatorResponse response = null;
+        try {
+            response = MetaServiceProxy
+                .getInstance().abortTxnWithCoordinator(request);
+            LOG.info("AbortTxnWithCoordinatorResponse: {}", response);
+        } catch (RpcException e) {
+            LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+        }
     }
 
     @Override

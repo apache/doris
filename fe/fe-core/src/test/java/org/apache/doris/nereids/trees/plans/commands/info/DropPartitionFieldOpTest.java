@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.DropPartitionFieldClause;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -34,11 +33,6 @@ public class DropPartitionFieldOpTest {
         Assertions.assertEquals("ts_year", op.getPartitionFieldName());
         Assertions.assertNull(op.getTransformName());
         Assertions.assertEquals("DROP PARTITION KEY ts_year", op.toSql());
-
-        DropPartitionFieldClause clause = (DropPartitionFieldClause) op.translateToLegacyAlterClause();
-        Assertions.assertNotNull(clause);
-        Assertions.assertEquals("ts_year", clause.getPartitionFieldName());
-        Assertions.assertNull(clause.getTransformName());
     }
 
     @Test
@@ -50,13 +44,6 @@ public class DropPartitionFieldOpTest {
         Assertions.assertEquals(16, op.getTransformArg());
         Assertions.assertEquals("id", op.getColumnName());
         Assertions.assertEquals("DROP PARTITION KEY bucket(16, id)", op.toSql());
-
-        DropPartitionFieldClause clause = (DropPartitionFieldClause) op.translateToLegacyAlterClause();
-        Assertions.assertNotNull(clause);
-        Assertions.assertNull(clause.getPartitionFieldName());
-        Assertions.assertEquals("bucket", clause.getTransformName());
-        Assertions.assertEquals(16, clause.getTransformArg());
-        Assertions.assertEquals("id", clause.getColumnName());
     }
 
     @Test
