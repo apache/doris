@@ -26,7 +26,6 @@
 #include <google/protobuf/extension_set.h>
 #include <stdlib.h>
 
-#include <climits>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -41,8 +40,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_fwd.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
