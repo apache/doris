@@ -140,6 +140,7 @@ public class SummaryProfile {
     public static final String ICEBERG_SCAN_METRICS = "Iceberg Scan Metrics";
     public static final String PAIMON_SCAN_METRICS = "Paimon Scan Metrics";
 
+
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
     // add many columns here. Add to ExecutionSummary list.
@@ -206,7 +207,6 @@ public class SummaryProfile {
         WORKLOAD_GROUP,
         CPU_SHARE,
         MEMORY_LIMIT,
-        ENABLE_MEMORY_OVERCOMMIT,
         MAX_CONCURRENCY,
         MAX_QUEUE_SIZE,
         QUEUE_TIMEOUT,
@@ -672,8 +672,6 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(MEMORY_LIMIT, memoryLimit + "%");
         executionSummaryProfile.addInfoString(MEMORY_LOW_WATERMARK, memoryLowWatermark + "%");
         executionSummaryProfile.addInfoString(MEMORY_HIGH_WATERMARK, memoryHighWatermark + "%");
-        executionSummaryProfile.addInfoString(ENABLE_MEMORY_OVERCOMMIT,
-            String.valueOf(enableMemoryOvercommit));
         executionSummaryProfile.addInfoString(MAX_CONCURRENCY,
             RuntimeProfile.printCounter(maxConcurrency, TUnit.NONE));
         executionSummaryProfile.addInfoString(MAX_QUEUE_SIZE,
@@ -917,9 +915,6 @@ public class SummaryProfile {
     }
 
 
-    public void setEnableMemoryOvercommit(boolean enableMemoryOvercommit) {
-        this.enableMemoryOvercommit = enableMemoryOvercommit;
-    }
 
     public void setMaxConcurrency(int maxConcurrency) {
         this.maxConcurrency = maxConcurrency;
