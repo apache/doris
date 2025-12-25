@@ -206,9 +206,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public synchronized void resetToUninitialized(boolean invalidCache) {
         super.resetToUninitialized(invalidCache);
-        if (metadataOps != null) {
-            metadataOps.close();
-        }
     }
 
     @Override
@@ -217,8 +214,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (null != fileSystemExecutor) {
             fileSystemExecutor.shutdown();
         }
+        if (null != metadataOps) {
+            metadataOps.close();
+            metadataOps = null;
+        }
         if (null != icebergMetadataOps) {
             icebergMetadataOps.close();
+            icebergMetadataOps = null;
         }
     }
 
