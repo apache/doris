@@ -490,7 +490,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             arrowFlightExternalTable, arrowCatalog.getUsername(),
                             arrowCatalog.getPassword(), arrowCatalog.getProperties(),
                             arrowCatalog.getQueryRetryCount(), false,
-                            arrowCatalog.getFlightSqlClientLoadBalancer()
+                            arrowCatalog.getFlightSqlClientLoadBalancer(), false
                     );
                     TableScanParams scanParams = unboundRelation.getScanParams();
                     if (scanParams == null) {
@@ -519,7 +519,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     ArrowFlightSource source = new ArrowFlightSource(
                             externalTable, catalog.getUsername(), catalog.getPassword(), catalog.getProperties(),
                             catalog.getQueryRetryCount(), catalog.enableParallelResultSink(),
-                            catalog.getSqlClientLoadBalancer()
+                            catalog.getSqlClientLoadBalancer(), true
                     );
                     TableScanParams params = unboundRelation.getScanParams();
                     if (params == null) {

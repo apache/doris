@@ -34,6 +34,7 @@ import org.apache.doris.datasource.arrowflight.FlightSqlClientLoadBalancer;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TArrowFlightFileDesc;
 import org.apache.doris.thrift.TExplainLevel;
@@ -191,6 +192,15 @@ public class ArrowFlightScanNode extends FileQueryScanNode {
     private String getQueryStr() {
         StringBuilder sql = new StringBuilder("SELECT ");
 
+        if (source.isPropagateSession()) {
+            String propagateSessions = getChangedSessionSql(sessionVariable);
+            if (!propagateSessions.isEmpty()) {
+                sql.append("/*+ SET_VAR(");
+                sql.append(propagateSessions);
+                sql.append(") */ ");
+            }
+        }
+
         sql.append(Joiner.on(", ").join(columns));
 
         sql.append(" FROM ").append(source.getTargetTableName());
@@ -206,6 +216,14 @@ public class ArrowFlightScanNode extends FileQueryScanNode {
         }
 
         return sql.toString();
+    }
+
+    private String getChangedSessionSql(SessionVariable sessionVariable) {
+        List<List<String>> changedVars = VariableMgr.dumpChangedVars(sessionVariable);
+
+        return changedVars.stream()
+            .map(vars -> vars.get(0) + "='" + vars.get(1) + "'")
+            .collect(Collectors.joining(","));
     }
 
     private void createFilters() {

@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class FlightSqlClientLoadBalancer implements Closeable {
     private final ImmutableList<FlightSqlClientWithOptions> clients;
@@ -42,6 +43,14 @@ public class FlightSqlClientLoadBalancer implements Closeable {
     public FlightSqlClientLoadBalancer(List<String> hosts, String username, String password,
                                        long timeoutMs, Map<String, String> sessionProperties) {
         ImmutableList.Builder<FlightSqlClientWithOptions> builder = ImmutableList.builder();
+
+        String sessionPropertiesSql = "";
+        if (sessionProperties != null) {
+            sessionPropertiesSql = sessionProperties.entrySet().stream()
+                .filter(entry -> entry.getValue() != null && !entry.getValue().isEmpty())
+                .map(e -> e.getKey() + "='" + e.getValue() + "'")
+                .collect(Collectors.joining(","));
+        }
 
         for (String host : hosts) {
             List<CallOption> callOptionList = new ArrayList<>();
@@ -68,10 +77,8 @@ public class FlightSqlClientLoadBalancer implements Closeable {
             FlightSqlClient flightSqlClient = new FlightSqlClient(flightClient);
             CallOption[] callOptions = callOptionList.toArray(new CallOption[0]);
 
-            if (sessionProperties != null) {
-                sessionProperties.forEach((key, value) -> {
-                    flightSqlClient.execute(String.format("SET %s=%s", key, value), callOptions);
-                });
+            if (!sessionPropertiesSql.isEmpty()) {
+                flightSqlClient.execute("SET " + sessionPropertiesSql, callOptions);
             }
 
             builder.add(new FlightSqlClientWithOptions(flightSqlClient, callOptions));

@@ -31,10 +31,12 @@ public class ArrowFlightSource implements ExternalSource {
     private final int queryRetryCount;
     private final boolean enableParallelResultSink;
     private final FlightSqlClientLoadBalancer clientLoadBalancer;
+    private final boolean propagateSession;
 
     public ArrowFlightSource(ExternalTable externalTable, String user, String password,
                              Map<String, String> properties, int queryRetryCount,
-                             boolean enableParallelResultSink, FlightSqlClientLoadBalancer clientLoadBalancer) {
+                             boolean enableParallelResultSink, FlightSqlClientLoadBalancer clientLoadBalancer,
+                             boolean propagateSession) {
         this.externalTable = externalTable;
         this.user = user;
         this.password = password;
@@ -42,6 +44,7 @@ public class ArrowFlightSource implements ExternalSource {
         this.queryRetryCount = queryRetryCount;
         this.enableParallelResultSink = enableParallelResultSink;
         this.clientLoadBalancer = clientLoadBalancer;
+        this.propagateSession = propagateSession;
     }
 
     public String getUsername() {
@@ -70,5 +73,9 @@ public class ArrowFlightSource implements ExternalSource {
 
     public FlightSqlClientLoadBalancer getSqlClientLoadBalancer() {
         return clientLoadBalancer;
+    }
+
+    public boolean isPropagateSession() {
+        return propagateSession;
     }
 }
