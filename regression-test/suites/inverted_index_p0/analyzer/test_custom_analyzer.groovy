@@ -94,7 +94,7 @@ suite("test_custom_analyzer", "p0") {
             "type" = "pinyin",
             "keep_first_letter" = "true",
             "keep_full_pinyin" = "false",
-            "keep_joined_full_pinyin    " = "false",
+            "keep_joined_full_pinyin" = "false",
             "keep_original" = "false",
             "lowercase" = "true"
         );
