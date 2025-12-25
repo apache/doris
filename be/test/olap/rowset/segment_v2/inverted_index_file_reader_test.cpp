@@ -202,8 +202,10 @@ public:
 
         dir->close();
 
-        // Write and close the file - only call close(), not write()
-        st = writer->close();
+        // Write and close the file - only call begin_close() and finish_close(), not write()
+        st = writer->begin_close();
+        ASSERT_TRUE(st.ok()) << st.msg();
+        st = writer->finish_close();
         ASSERT_TRUE(st.ok()) << st.msg();
     }
 

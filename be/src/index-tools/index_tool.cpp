@@ -621,9 +621,14 @@ int main(int argc, char** argv) {
         _CLLDELETE(analyzer);
         _CLLDELETE(char_string_reader);
 
-        auto ret = index_file_writer->close();
+        auto ret = index_file_writer->begin_close();
         if (!ret.ok()) {
             std::cerr << "IndexFileWriter close error:" << ret.msg() << std::endl;
+            return -1;
+        }
+        ret = index_file_writer->finish_close();
+        if (!ret.ok()) {
+            std::cerr << "IndexFileWriter wait close error:" << ret.msg() << std::endl;
             return -1;
         }
     } else if (FLAGS_operation == "show_nested_files_v2") {

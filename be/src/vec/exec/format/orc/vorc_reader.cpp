@@ -53,6 +53,7 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "olap/id_manager.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/utils.h"
 #include "orc/Exceptions.hh"
 #include "orc/Int128.hh"

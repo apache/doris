@@ -433,7 +433,7 @@ void DorisFSDirectory::FSIndexOutputV2::close() {
         _index_v2_file_writer = nullptr;
     })
     if (_index_v2_file_writer) {
-        auto ret = _index_v2_file_writer->close();
+        auto ret = _index_v2_file_writer->close(true);
         DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error",
                         { ret = Status::Error<INTERNAL_ERROR>("writer close status error"); })
         if (!ret.ok()) {

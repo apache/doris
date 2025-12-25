@@ -148,7 +148,7 @@ public:
             *inverted_index_file_size = 0;
             return Status::OK();
         }
-        RETURN_IF_ERROR(_index_file_writer->close());
+        RETURN_IF_ERROR(_index_file_writer->begin_close());
         *inverted_index_file_size = _index_file_writer->get_index_file_total_size();
         return Status::OK();
     }

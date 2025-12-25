@@ -249,7 +249,9 @@ public:
         EXPECT_TRUE(file_writer->close().ok());
 
         // Close the index file writer (it was already written by SegmentWriter during finalize)
-        st = index_file_writer->close();
+        st = index_file_writer->begin_close();
+        EXPECT_TRUE(st.ok()) << st;
+        st = index_file_writer->finish_close();
         EXPECT_TRUE(st.ok()) << st;
 
         return seg_path;

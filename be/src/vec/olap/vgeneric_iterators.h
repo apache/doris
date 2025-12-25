@@ -31,6 +31,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/iterators.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/schema.h"
 #include "olap/utils.h"
 #include "vec/core/block.h"

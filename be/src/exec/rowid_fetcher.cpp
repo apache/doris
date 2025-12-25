@@ -38,10 +38,6 @@
 #include <vector>
 
 #include "bthread/countdown_event.h"
-#include "cloud/cloud_storage_engine.h"
-#include "cloud/cloud_tablet.h"
-#include "cloud/cloud_tablet_mgr.h"
-#include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/exception.h"
@@ -49,16 +45,15 @@
 #include "exec/tablet_info.h" // DorisNodesInfo
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_fwd.h"
-#include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr
 #include "runtime/runtime_state.h" // RuntimeState
-#include "runtime/types.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "semaphore"
 #include "util/brpc_client_cache.h" // BrpcClientCache
@@ -69,13 +64,11 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h" // Block
-#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/file_scanner.h"
-#include "vec/functions/function_helpers.h"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
