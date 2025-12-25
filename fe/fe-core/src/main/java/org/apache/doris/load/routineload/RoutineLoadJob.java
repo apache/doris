@@ -67,8 +67,10 @@ import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -222,7 +224,8 @@ public abstract class RoutineLoadJob
     @SerializedName("mbsb")
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
-    protected boolean isPartialUpdate = false;
+    protected TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+    protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     protected String sequenceCol;
 
@@ -393,7 +396,10 @@ public abstract class RoutineLoadJob
         jobProperties.put(LoadStmt.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
         jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, stmt.isPartialUpdate() ? "true" : "false");
         if (stmt.isPartialUpdate()) {
-            this.isPartialUpdate = true;
+            this.uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+            this.partialUpdateNewKeyPolicy = stmt.getPartialUpdateNewKeyPolicy();
+            jobProperties.put(CreateRoutineLoadStmt.PARTIAL_UPDATE_NEW_KEY_POLICY,
+                    this.partialUpdateNewKeyPolicy == TPartialUpdateNewRowPolicy.ERROR ? "ERROR" : "APPEND");
         }
         jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
 
@@ -726,7 +732,22 @@ public abstract class RoutineLoadJob
 
     @Override
     public boolean isFixedPartialUpdate() {
-        return isPartialUpdate;
+        return uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+    }
+
+    @Override
+    public TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
+        return uniquekeyUpdateMode;
+    }
+
+    @Override
+    public boolean isFlexiblePartialUpdate() {
+        return uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
+    }
+
+    @Override
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return partialUpdateNewKeyPolicy;
     }
 
     @Override
@@ -1015,7 +1036,7 @@ public abstract class RoutineLoadJob
                 throw new UserException("txn does not exist: " + txnId);
             }
             txnState.addTableIndexes(planner.getDestTable());
-            if (isPartialUpdate) {
+            if (isFixedPartialUpdate()) {
                 txnState.setSchemaForPartialUpdate((OlapTable) table);
             }
 
@@ -1733,8 +1754,8 @@ public abstract class RoutineLoadJob
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
         appendProperties(sb, FileFormatProperties.PROP_FORMAT, getFormat(), false);
-        if (isPartialUpdate) {
-            appendProperties(sb, CreateRoutineLoadStmt.PARTIAL_COLUMNS, isPartialUpdate, false);
+        if (isFixedPartialUpdate()) {
+            appendProperties(sb, CreateRoutineLoadStmt.PARTIAL_COLUMNS, isFixedPartialUpdate(), false);
         }
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_PATHS, getJsonPaths(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
@@ -1829,7 +1850,11 @@ public abstract class RoutineLoadJob
                 sequenceCol == null ? STAR_STRING : sequenceCol);
 
         // job properties defined in CreateRoutineLoadStmt
-        jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+        jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, String.valueOf(isFixedPartialUpdate()));
+        if (isFixedPartialUpdate()) {
+            jobProperties.put(CreateRoutineLoadStmt.PARTIAL_UPDATE_NEW_KEY_POLICY,
+                    partialUpdateNewKeyPolicy == TPartialUpdateNewRowPolicy.ERROR ? "ERROR" : "APPEND");
+        }
         jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
         jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, String.valueOf(maxBatchIntervalS));
         jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, String.valueOf(maxBatchRows));
@@ -1895,7 +1920,16 @@ public abstract class RoutineLoadJob
         }
         jobProperties.forEach((k, v) -> {
             if (k.equals(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
-                isPartialUpdate = Boolean.parseBoolean(v);
+                boolean isPartialUpdate = Boolean.parseBoolean(v);
+                if (isPartialUpdate) {
+                    this.uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+                }
+            } else if (k.equals(CreateRoutineLoadStmt.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+                if ("ERROR".equalsIgnoreCase(v)) {
+                    partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
+                } else {
+                    partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+                }
             }
         });
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
@@ -1972,7 +2006,10 @@ public abstract class RoutineLoadJob
             String value = Text.readString(in);
             jobProperties.put(key, value);
             if (key.equals(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
-                isPartialUpdate = Boolean.parseBoolean(value);
+                boolean isPartialUpdate = Boolean.parseBoolean(value);
+                if (isPartialUpdate) {
+                    this.uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+                }
             }
         }
 

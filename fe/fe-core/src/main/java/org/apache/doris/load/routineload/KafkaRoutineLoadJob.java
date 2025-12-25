@@ -44,6 +44,8 @@ import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -797,7 +799,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             modifyCommonJobProperties(copiedJobProperties);
             this.jobProperties.putAll(copiedJobProperties);
             if (jobProperties.containsKey(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
-                this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadStmt.PARTIAL_COLUMNS));
+                boolean isPartialUpdate =
+                        BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadStmt.PARTIAL_COLUMNS));
+                this.uniquekeyUpdateMode =
+                        isPartialUpdate ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT;
+            }
+            if (jobProperties.containsKey(CreateRoutineLoadStmt.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+                String policy = jobProperties.get(CreateRoutineLoadStmt.PARTIAL_UPDATE_NEW_KEY_POLICY);
+                if ("ERROR".equalsIgnoreCase(policy)) {
+                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
+                } else {
+                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+                }
             }
         }
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
