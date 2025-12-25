@@ -134,7 +134,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     }
     if (resp.has_status()) {
         Status st2 = Status::create<false>(resp.status());
-        LOG_EVERY_N(WARNING, 1000) << "peer cache read failed, status=" << resp.status();
+        LOG_EVERY_N(WARNING, 1000) << "peer cache read failed, status=" << st2.msg();
         if (!st2.ok()) return st2;
     }
 
