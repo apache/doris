@@ -61,7 +61,8 @@ public final class AnalyzerSelector {
     }
 
     private static String normalize(String analyzer) {
-        return analyzer == null ? "" : analyzer.trim();
+        // Policy names are case-insensitive, convert to lowercase for consistent lookup
+        return analyzer == null ? "" : analyzer.trim().toLowerCase();
     }
 
     private static String selectDefaultAnalyzer(Map<String, String> properties) {
