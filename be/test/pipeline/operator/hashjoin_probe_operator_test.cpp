@@ -105,7 +105,7 @@ public:
         }
 
         auto sorted_block = block.clone_empty();
-        sort_block(block, sorted_block, sort_description);
+        sort_block_default(block, sorted_block, sort_description);
         return sorted_block;
     }
 
