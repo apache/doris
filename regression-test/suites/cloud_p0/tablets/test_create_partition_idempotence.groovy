@@ -36,7 +36,7 @@ suite('test_create_partition_idempotence', 'docker') {
 
     def options = new ClusterOptions()
     options.feConfigs += [
-        'enable_debug_points = true',
+        'enable_debug_points=true',
     ]
     options.cloudMode = true
     options.beNum = 3 

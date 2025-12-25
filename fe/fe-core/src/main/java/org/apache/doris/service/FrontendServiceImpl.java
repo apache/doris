@@ -77,6 +77,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -3841,6 +3842,28 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                     .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        }
+                        // The purpose of this injected code is to simulate tablet rebalance.
+                        // Before using this code to write tests, you should ensure that your
+                        // configuration is set to single replica.
+                        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
+                            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                                    "FE.FrontendServiceImpl.createPartition.MockRebalance");
+                            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+                            if (currentExecuteNum > 1) {
+                                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                                // (assign different distribution information to tablets)
+                                for (Long beId : bePathsMap.keySet()) {
+                                    Long otherBeId = allBeIds.stream()
+                                            .filter(id -> id != beId)
+                                            .findFirst()
+                                            .orElse(null);
+                                    if (otherBeId != null) {
+                                        LOG.info("Mock rebalance: beId={} otherBeId={}", beId, otherBeId);
+                                        bePathsMap.put(beId, otherBeId);
+                                    }
+                                }
+                            }
                         }
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
