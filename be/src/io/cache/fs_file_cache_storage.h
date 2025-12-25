@@ -111,6 +111,10 @@ private:
 
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
 
+    bool handle_already_loaded_block(BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset,
+                                     size_t new_size, int64_t tablet_id,
+                                     std::lock_guard<std::mutex>& cache_lock) const;
+
 private:
     // Helper function to count files in cache directory using statfs
     size_t estimate_file_count_from_statfs() const;
