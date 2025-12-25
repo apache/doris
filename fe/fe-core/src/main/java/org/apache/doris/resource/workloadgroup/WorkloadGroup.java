@@ -66,8 +66,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String MIN_MEMORY_PERCENT = "min_memory_percent";
 
-    public static final String ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
-
     public static final String MAX_CONCURRENCY = "max_concurrency";
 
     public static final String MAX_QUEUE_SIZE = "max_queue_size";
