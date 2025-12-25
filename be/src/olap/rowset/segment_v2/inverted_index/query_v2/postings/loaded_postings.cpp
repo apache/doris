@@ -130,7 +130,6 @@ void LoadedPostings::append_positions_with_offset(uint32_t offset, std::vector<u
     }
 }
 
-template LoadedPostingsPtr LoadedPostings::load<SegmentPostings<TermPositionsPtr>>(
-        SegmentPostings<TermPositionsPtr>& segment_postings);
+template LoadedPostingsPtr LoadedPostings::load<SegmentPostings>(SegmentPostings& segment_postings);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

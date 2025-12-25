@@ -178,6 +178,16 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
+    @ConfField(mutable = true, description = {
+            "MySQL 兼容性变量白名单。这些变量在 SET 语句中会被静默忽略，而不是抛出错误。"
+                    + "主要用于兼容 MySQL 客户端工具（如 phpMyAdmin, mysqldump）。"
+                    + "Doris 不需要理解这些变量的具体含义，只需要接受它们而不报错。",
+            "MySQL compatibility variable whitelist. These variables will be silently ignored in SET statements "
+                    + "instead of throwing an error. This is mainly used for compatibility with MySQL client tools "
+                    + "(such as phpMyAdmin, mysqldump). Doris does not need to understand the specific meaning of "
+                    + "these variables, it just needs to accept them without error."})
+    public static String[] mysql_compat_var_whitelist = {};
+
     @ConfField(mutable = true, masterOnly = true, description = {"强制 SQLServer Jdbc Catalog 加密为 false",
             "Force SQLServer Jdbc Catalog encrypt to false"})
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
@@ -1260,6 +1270,12 @@ public class Config extends ConfigBase {
     public static int routine_load_task_min_timeout_sec = 60;
 
     /**
+     * streaming task load timeout is equal to maxIntervalS * streaming_task_timeout_multiplier.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_task_timeout_multiplier = 10;
+
+    /**
      * the max timeout of get kafka meta.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -2230,7 +2246,7 @@ public class Config extends ConfigBase {
      * The default connection timeout for hive metastore.
      * hive.metastore.client.socket.timeout
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = false, masterOnly = false)
     public static long hive_metastore_client_timeout_second = 10;
 
     /**
@@ -3397,9 +3413,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static double cloud_balance_tablet_percent_per_run = 0.05;
 
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cloud_min_balance_tablet_num_per_run = 2;
-
     @ConfField(mutable = true, masterOnly = true, description = {"指定存算分离模式下所有 Compute group 的扩缩容预热方式。"
             + "without_warmup: 直接修改 tablet 分片映射，首次读从 S3 拉取，均衡最快但性能波动最大；"
             + "async_warmup: 异步预热，尽力而为拉取 cache，均衡较快但可能 cache miss；"
@@ -3420,6 +3433,20 @@ public class Config extends ConfigBase {
             + "to set balance type at compute group level, compute group level configuration has higher priority"},
             options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
     public static String cloud_warm_up_for_rebalance_type = "async_warmup";
+
+    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡时，"
+            + "同一个host内预热批次的最大tablet个数，默认10", "The max number of tablets per host "
+            + "when batching warm-up requests during cloud tablet rebalancing, default 10"})
+    public static int cloud_warm_up_batch_size = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡时，"
+            + "预热批次最长等待时间，单位毫秒，默认50ms", "Maximum wait time in milliseconds before a "
+            + "pending warm-up batch is flushed, default 50ms"})
+    public static int cloud_warm_up_batch_flush_interval_ms = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡预热rpc异步线程池大小，默认4",
+        "Thread pool size for asynchronous warm-up RPC dispatch during cloud tablet rebalancing, default 4"})
+    public static int cloud_warm_up_rpc_async_pool_size = 4;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -3779,4 +3806,19 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
+
+    @ConfField(mutable = true, description = {
+            "存算分离模式下，计算删除位图时，是否批量获取分区版本信息，默认开启",
+            "In the compute-storage separation mode, whether to obtain partition version information in batches when "
+                    + "calculating the delete bitmap, which is enabled by default"
+    })
+    public static boolean calc_delete_bitmap_get_versions_in_batch = true;
+
+    @ConfField(mutable = true, description = {
+            "存算分离模式下，计算删除位图时，是否等待挂起的事务完成后再获取分区版本信息，默认开启",
+            "In the compute-storage separation mode, whether to wait for pending transactions to complete before "
+                    + "obtaining partition version information when calculating the delete bitmap, which is enabled "
+                    + "by default"
+    })
+    public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
 }

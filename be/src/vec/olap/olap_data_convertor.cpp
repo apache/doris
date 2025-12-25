@@ -76,6 +76,10 @@ void OlapBlockDataConvertor::add_column_data_convertor(const TabletColumn& colum
     _convertors.emplace_back(create_olap_column_data_convertor(column));
 }
 
+void OlapBlockDataConvertor::add_column_data_convertor_at(const TabletColumn& column, size_t cid) {
+    _convertors[cid] = create_olap_column_data_convertor(column);
+}
+
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
 OlapBlockDataConvertor::create_map_convertor(const TabletColumn& column) {
     const auto& key_column = column.get_sub_column(0);
@@ -282,7 +286,9 @@ Status OlapBlockDataConvertor::set_source_content_with_specifid_columns(
 
 void OlapBlockDataConvertor::clear_source_content() {
     for (auto& convertor : _convertors) {
-        convertor->clear_source_column();
+        if (convertor != nullptr) {
+            convertor->clear_source_column();
+        }
     }
 }
 

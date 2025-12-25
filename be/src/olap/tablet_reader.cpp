@@ -81,10 +81,6 @@ std::string TabletReader::ReaderParams::to_string() const {
         ss << " end_keys=" << key;
     }
 
-    //    for (auto& condition : conditions) {
-    //        ss << " conditions=" << apache::thrift::ThriftDebugString(condition.filter);
-    //    }
-
     return ss.str();
 }
 

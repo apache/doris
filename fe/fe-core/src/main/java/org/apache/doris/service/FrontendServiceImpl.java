@@ -4179,12 +4179,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetBackendMetaResult result = new TGetBackendMetaResult();
-        TStatus status = checkMaster();
+        TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-
-        if (status.getStatusCode() != TStatusCode.OK) {
-            return result;
-        }
 
         try {
             result = getBackendMetaImpl(request, clientAddr);

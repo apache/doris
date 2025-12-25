@@ -108,7 +108,8 @@ enum TFileFormatType {
     FORMAT_CSV_SNAPPYBLOCK = 14,
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
-    FORMAT_TEXT = 17
+    FORMAT_TEXT = 17,
+    FORMAT_NATIVE = 18
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -631,6 +632,15 @@ struct TQueriesMetadataParams {
 struct TMetaCacheStatsParams {
 }
 
+struct TParquetMetadataParams {
+  1: optional list<string> paths
+  2: optional string mode
+  3: optional Types.TFileType file_type
+  4: optional map<string, string> properties
+  5: optional string bloom_column
+  6: optional string bloom_literal
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -650,6 +660,7 @@ struct TMetaScanRange {
   14: optional map<string, string> hadoop_props
   15: optional string serialized_table;
   16: optional list<string> serialized_splits;
+  17: optional TParquetMetadataParams parquet_params;
 }
 
 // Specification of an individual data range which is held in its entirety

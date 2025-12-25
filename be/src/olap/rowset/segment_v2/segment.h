@@ -31,6 +31,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h" // Status
+#include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "olap/field.h"
@@ -206,6 +207,9 @@ public:
                              OlapReaderStatistics* stats);
 
     Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
+
+    static StoragePageCache::CacheKey get_segment_footer_cache_key(
+            const io::FileReaderSPtr& file_reader);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
