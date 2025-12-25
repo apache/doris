@@ -23,9 +23,9 @@ suite("test_backup_restore_medium_edge_cases", "backup_restore") {
 
     def enableDebugLog = { ->
         try {
-            def result = sql """
-                ADMIN SET FRONTEND CONFIG ("sys_log_verbose_modules" = "org.apache.doris.backup")
-            """
+            def (host, port) = context.config.feHttpAddress.split(":")
+            def url = "http://${host}:${port}/rest/v1/log?add_verbose=org.apache.doris.backup"
+            def result = curl("POST", url)
             logger.info("Enabled debug logging for org.apache.doris.backup: ${result}")
         } catch (Exception e) {
             logger.warn("Failed to enable debug logging: ${e.message}")
@@ -34,9 +34,9 @@ suite("test_backup_restore_medium_edge_cases", "backup_restore") {
 
     def disableDebugLog = { ->
         try {
-            def result = sql """
-                ADMIN SET FRONTEND CONFIG ("sys_log_verbose_modules" = "")
-            """
+            def (host, port) = context.config.feHttpAddress.split(":")
+            def url = "http://${host}:${port}/rest/v1/log?del_verbose=org.apache.doris.backup"
+            def result = curl("POST", url)
             logger.info("Disabled debug logging: ${result}")
         } catch (Exception e) {
             logger.warn("Failed to disable debug logging: ${e.message}")
