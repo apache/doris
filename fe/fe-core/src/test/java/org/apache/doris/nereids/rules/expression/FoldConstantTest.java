@@ -508,7 +508,8 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         d = new DateFormat(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                         StringLiteral.of(StringUtils.repeat("s", 128) + " "));
         rewritten = executor.rewrite(d, context);
-        Assertions.assertEquals(new VarcharLiteral(StringUtils.repeat("s", 128) + " "), rewritten);
+        // Overlength output (>100 chars) is not folded
+        Assertions.assertEquals(d, rewritten);
 
         DateTrunc t = new DateTrunc(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("week"));
