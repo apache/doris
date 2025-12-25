@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -104,7 +105,7 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         assertRewrite(new Nvl(nonNullableSlot, NullLiteral.INSTANCE), nonNullableSlot);
 
         // nvl(null, null) -> null
-        assertRewrite(new Nvl(NullLiteral.INSTANCE, NullLiteral.INSTANCE), NullLiteral.INSTANCE);
+        assertRewrite(new Nvl(NullLiteral.INSTANCE, NullLiteral.INSTANCE), new NullLiteral(BooleanType.INSTANCE));
 
         SlotReference datetimeSlot = new SlotReference("dt", DateTimeV2Type.of(0), false);
         // nvl(null_datetime(0), non-nullable_slot_datetime(6))
@@ -126,7 +127,7 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         SlotReference nonNullableSlot = new SlotReference("b", StringType.INSTANCE, false);
         // nullif(null, slot) -> null
         assertRewrite(new NullIf(NullLiteral.INSTANCE, slot),
-                new Nullable(new NullLiteral(StringType.INSTANCE)));
+                new Nullable(new NullLiteral(VarcharType.SYSTEM_DEFAULT)));
 
         // nullif(nullable_slot, null) -> slot
         assertRewrite(new NullIf(slot, NullLiteral.INSTANCE), new Nullable(slot));
