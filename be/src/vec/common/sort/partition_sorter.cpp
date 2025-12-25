@@ -126,7 +126,7 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
             //1 row_number no need to check distinct, just output partition_inner_limit row
             if ((current_output_rows + _output_total_rows) < _partition_inner_limit) {
                 for (size_t i = 0; i < num_columns; ++i) {
-                    merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
+                    merged_columns[i]->insert_from(*current->columns[i], current->pos);
                 }
             } else {
                 //rows has get enough
@@ -160,7 +160,7 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
                 }
             }
             for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
+                merged_columns[i]->insert_from(*current->columns[i], current->pos);
             }
             break;
         }
@@ -185,7 +185,7 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
                 *_previous_row = current;
             }
             for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
+                merged_columns[i]->insert_from(*current->columns[i], current->pos);
             }
             current_output_rows++;
             break;
