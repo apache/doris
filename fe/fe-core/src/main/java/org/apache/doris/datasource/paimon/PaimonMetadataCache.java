@@ -28,6 +28,7 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -88,13 +89,15 @@ public class PaimonMetadataCache {
         }
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-                new PaimonSchemaCacheKey(nameMapping, schemaId));
+                new SchemaCacheKey(nameMapping));
         if (!schemaCacheValue.isPresent()) {
             throw new CacheException("failed to get paimon schema cache value for: %s.%s.%s with schema id: %s",
                     null, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),
                     schemaId);
         }
-        return (PaimonSchemaCacheValue) schemaCacheValue.get();
+        PaimonSchemaCacheValue cacheValue = (PaimonSchemaCacheValue) schemaCacheValue.get();
+        cacheValue.getSchema(schemaId);
+        return cacheValue;
     }
 
     private PaimonPartitionInfo loadPartitionInfo(PaimonSnapshotCacheKey key, List<Column> partitionColumns)

@@ -24,10 +24,11 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hudi.HudiMvccSnapshot;
-import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
+import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -123,11 +124,13 @@ public class HudiDlaTable extends HMSDlaTable {
     private HMSSchemaCacheValue getHudiSchemaCacheValue(long timestamp) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(hmsTable.getCatalog());
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-                new HudiSchemaCacheKey(hmsTable.getOrBuildNameMapping(), timestamp));
+                new SchemaCacheKey(hmsTable.getOrBuildNameMapping()));
         if (!schemaCacheValue.isPresent()) {
             throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
                     null, hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), timestamp);
         }
-        return (HMSSchemaCacheValue) schemaCacheValue.get();
+        HudiSchemaCacheValue cacheValue = (HudiSchemaCacheValue) schemaCacheValue.get();
+        cacheValue.getSchema(timestamp);
+        return cacheValue;
     }
 }

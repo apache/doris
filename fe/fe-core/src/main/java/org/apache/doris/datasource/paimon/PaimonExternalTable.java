@@ -294,35 +294,49 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         makeSureInitialized();
-        PaimonSchemaCacheKey paimonSchemaCacheKey = (PaimonSchemaCacheKey) key;
         try {
             Table table = ((PaimonExternalCatalog) getCatalog()).getPaimonTable(getOrBuildNameMapping());
-            TableSchema tableSchema = ((DataTable) table).schemaManager().schema(paimonSchemaCacheKey.getSchemaId());
-            List<DataField> columns = tableSchema.fields();
-            List<Column> dorisColumns = Lists.newArrayListWithCapacity(columns.size());
-            Set<String> partitionColumnNames = Sets.newHashSet(tableSchema.partitionKeys());
-            List<Column> partitionColumns = Lists.newArrayList();
-            for (DataField field : columns) {
-                Column column = new Column(field.name().toLowerCase(),
-                        PaimonUtil.paimonTypeToDorisType(field.type(), getCatalog().getEnableMappingVarbinary()), true,
-                        null, true, field.description(), true,
-                        -1);
-                PaimonUtil.updatePaimonColumnUniqueId(column, field);
-                if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
-                    column.setWithTZExtraInfo();
-                }
-                dorisColumns.add(column);
-                if (partitionColumnNames.contains(field.name())) {
-                    partitionColumns.add(column);
-                }
-            }
-            return Optional.of(new PaimonSchemaCacheValue(dorisColumns, partitionColumns, tableSchema));
+            TableSchema tableSchema = ((DataTable) table).schemaManager().latest()
+                    .orElseThrow(() -> new RuntimeException("No schema found for paimon table"));
+            long schemaId = tableSchema.id();
+            PaimonSchemaCacheValue.SchemaEntry entry = buildSchemaEntry(tableSchema);
+            return Optional.of(new PaimonSchemaCacheValue(schemaId, entry,
+                    id -> {
+                        try {
+                            TableSchema schema = ((DataTable) table).schemaManager().schema(id);
+                            return buildSchemaEntry(schema);
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    }));
         } catch (Exception e) {
             throw new CacheException("failed to initSchema for: %s.%s.%s.%s",
                     null, getCatalog().getName(), key.getNameMapping().getLocalDbName(),
                     key.getNameMapping().getLocalTblName(),
-                    paimonSchemaCacheKey.getSchemaId());
+                    "latest");
         }
+    }
+
+    private PaimonSchemaCacheValue.SchemaEntry buildSchemaEntry(TableSchema tableSchema) {
+        List<DataField> columns = tableSchema.fields();
+        List<Column> dorisColumns = Lists.newArrayListWithCapacity(columns.size());
+        Set<String> partitionColumnNames = Sets.newHashSet(tableSchema.partitionKeys());
+        List<Column> partitionColumns = Lists.newArrayList();
+        for (DataField field : columns) {
+            Column column = new Column(field.name().toLowerCase(),
+                    PaimonUtil.paimonTypeToDorisType(field.type(), getCatalog().getEnableMappingVarbinary()), true,
+                    null, true, field.description(), true,
+                    -1);
+            PaimonUtil.updatePaimonColumnUniqueId(column, field);
+            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                column.setWithTZExtraInfo();
+            }
+            dorisColumns.add(column);
+            if (partitionColumnNames.contains(field.name())) {
+                partitionColumns.add(column);
+            }
+        }
+        return new PaimonSchemaCacheValue.SchemaEntry(dorisColumns, partitionColumns, tableSchema);
     }
 
     private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {

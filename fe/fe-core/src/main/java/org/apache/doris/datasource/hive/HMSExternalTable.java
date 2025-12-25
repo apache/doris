@@ -37,12 +37,10 @@ import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
-import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
-import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -95,6 +93,8 @@ import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
 import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
@@ -371,9 +371,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         makeSureInitialized();
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-                new HudiSchemaCacheKey(getOrBuildNameMapping(), timestamp));
-        return schemaCacheValue.map(value -> ((HMSSchemaCacheValue) value).getPartitionColTypes())
-                .orElse(Collections.emptyList());
+                new SchemaCacheKey(getOrBuildNameMapping()));
+        return schemaCacheValue.map(value -> {
+            HudiSchemaCacheValue hudiValue = (HudiSchemaCacheValue) value;
+            hudiValue.getSchema(timestamp);
+            return hudiValue.getPartitionColTypes();
+        }).orElse(Collections.emptyList());
     }
 
     public List<Column> getPartitionColumns() {
@@ -678,35 +681,56 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private Optional<SchemaCacheValue> initIcebergSchema(SchemaCacheKey key) {
-        return IcebergUtils.loadSchemaCacheValue(
-                this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView());
+        Table table = IcebergUtils.getIcebergTable(this);
+        long schemaId = table.schema().schemaId();
+        return Optional.of(new IcebergSchemaCacheValue(schemaId,
+                IcebergUtils.loadSchemaEntry(this, schemaId, isView()),
+                id -> IcebergUtils.loadSchemaEntry(this, id, isView())));
     }
 
     private Optional<SchemaCacheValue> initHudiSchema(SchemaCacheKey key) {
-        boolean[] enableSchemaEvolution = {false};
-        HudiSchemaCacheKey hudiSchemaCacheKey = (HudiSchemaCacheKey) key;
-        InternalSchema hudiInternalSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this, enableSchemaEvolution,
-                Long.toString(hudiSchemaCacheKey.getTimestamp()));
-        org.apache.avro.Schema hudiSchema = AvroInternalSchemaConverter.convert(hudiInternalSchema, name);
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hudiSchema.getFields().size());
-        List<String> colTypes = Lists.newArrayList();
-        for (int i = 0; i < hudiSchema.getFields().size(); i++) {
-            Types.Field hudiInternalfield = hudiInternalSchema.getRecord().fields().get(i);
-            org.apache.avro.Schema.Field hudiAvroField =  hudiSchema.getFields().get(i);
-            String columnName = hudiAvroField.name().toLowerCase(Locale.ROOT);
-            Column column = new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiAvroField.schema()),
-                    true, null, true, null, "", true, null,
-                    -1, null);
-            HudiUtils.updateHudiColumnUniqueId(column, hudiInternalfield);
-            tmpSchema.add(column);
+        HoodieTableMetaClient metaClient = getHudiClient();
+        HoodieTimeline timeline = metaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants();
+        String latestInstant = timeline.lastInstant().map(HoodieInstant::getTimestamp).orElse("");
+        long latestTimestamp = parseHudiTimestamp(latestInstant);
+        HudiSchemaCacheValue.SchemaEntry entry = buildHudiSchemaEntry(latestInstant);
+        return Optional.of(new HudiSchemaCacheValue(latestTimestamp, entry,
+                ts -> buildHudiSchemaEntry(Long.toString(ts))));
+    }
 
-            colTypes.add(HudiUtils.convertAvroToHiveType(hudiAvroField.schema()));
+    private HudiSchemaCacheValue.SchemaEntry buildHudiSchemaEntry(String timestamp) {
+        try {
+            boolean[] enableSchemaEvolution = {false};
+            InternalSchema hudiInternalSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this,
+                    enableSchemaEvolution, timestamp);
+            org.apache.avro.Schema hudiSchema = AvroInternalSchemaConverter.convert(hudiInternalSchema, name);
+            List<Column> tmpSchema = Lists.newArrayListWithCapacity(hudiSchema.getFields().size());
+            List<String> colTypes = Lists.newArrayList();
+            for (int i = 0; i < hudiSchema.getFields().size(); i++) {
+                Types.Field hudiInternalfield = hudiInternalSchema.getRecord().fields().get(i);
+                org.apache.avro.Schema.Field hudiAvroField =  hudiSchema.getFields().get(i);
+                String columnName = hudiAvroField.name().toLowerCase(Locale.ROOT);
+                Column column = new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiAvroField.schema()),
+                        true, null, true, null, "", true, null,
+                        -1, null);
+                HudiUtils.updateHudiColumnUniqueId(column, hudiInternalfield);
+                tmpSchema.add(column);
+                colTypes.add(HudiUtils.convertAvroToHiveType(hudiAvroField.schema()));
+            }
+            List<Column> partitionColumns = initPartitionColumns(tmpSchema);
+            return new HudiSchemaCacheValue.SchemaEntry(tmpSchema, partitionColumns, colTypes,
+                    enableSchemaEvolution[0]);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-        List<Column> partitionColumns = initPartitionColumns(tmpSchema);
-        HudiSchemaCacheValue hudiSchemaCacheValue =
-                new HudiSchemaCacheValue(tmpSchema, partitionColumns, enableSchemaEvolution[0]);
-        hudiSchemaCacheValue.setColTypes(colTypes);
-        return Optional.of(hudiSchemaCacheValue);
+    }
+
+    private long parseHudiTimestamp(String timestamp) {
+        try {
+            return Long.parseLong(timestamp);
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
     }
 
     private Optional<SchemaCacheValue> initHiveSchema() {

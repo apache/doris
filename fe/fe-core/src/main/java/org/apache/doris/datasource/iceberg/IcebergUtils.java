@@ -54,6 +54,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
@@ -1215,12 +1216,14 @@ public class IcebergUtils {
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(dorisTable.getCatalog());
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-                new IcebergSchemaCacheKey(dorisTable.getOrBuildNameMapping(), schemaId));
+                new SchemaCacheKey(dorisTable.getOrBuildNameMapping()));
         if (!schemaCacheValue.isPresent()) {
             throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
                     null, dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), schemaId);
         }
-        return (IcebergSchemaCacheValue) schemaCacheValue.get();
+        IcebergSchemaCacheValue cacheValue = (IcebergSchemaCacheValue) schemaCacheValue.get();
+        cacheValue.ensureSchema(schemaId);
+        return cacheValue;
     }
 
     public static IcebergSnapshot getLastedIcebergSnapshot(ExternalTable dorisTable) {
@@ -1529,7 +1532,7 @@ public class IcebergUtils {
         return metadataCache.getIcebergView(dorisTable);
     }
 
-    public static Optional<SchemaCacheValue> loadSchemaCacheValue(
+    public static IcebergSchemaCacheValue.SchemaEntry loadSchemaEntry(
             ExternalTable dorisTable, long schemaId, boolean isView) {
         List<Column> schema = IcebergUtils.getSchema(dorisTable, schemaId, isView);
         List<Column> tmpColumns = Lists.newArrayList();
@@ -1547,7 +1550,7 @@ public class IcebergUtils {
                 }
             }
         }
-        return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
+        return new IcebergSchemaCacheValue.SchemaEntry(schema, tmpColumns);
     }
 
     public static String showCreateView(IcebergExternalTable icebergExternalTable) {

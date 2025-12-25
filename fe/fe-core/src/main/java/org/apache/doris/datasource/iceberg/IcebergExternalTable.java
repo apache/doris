@@ -91,7 +91,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         boolean isView = isView();
-        return IcebergUtils.loadSchemaCacheValue(this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView);
+        Table table = IcebergUtils.getIcebergTable(this);
+        long schemaId = table.schema().schemaId();
+        IcebergSchemaCacheValue.SchemaEntry entry = IcebergUtils.loadSchemaEntry(this, schemaId, isView);
+        return Optional.of(new IcebergSchemaCacheValue(schemaId, entry,
+                id -> IcebergUtils.loadSchemaEntry(this, id, isView)));
     }
 
     @Override
@@ -160,9 +164,10 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         IcebergSnapshotCacheValue snapshotValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this);
-        IcebergSchemaCacheValue schemaValue = IcebergUtils.getSchemaCacheValue(
-                this, snapshotValue.getSnapshot().getSchemaId());
-        return schemaValue.getPartitionColumns();
+        long schemaId = snapshotValue.getSnapshot().getSchemaId();
+        IcebergSchemaCacheValue schemaValue = IcebergUtils.getSchemaCacheValue(this, schemaId);
+        schemaValue.ensureSchema(schemaId);
+        return schemaValue.getPartitionColumns(schemaId);
     }
 
     @Override

@@ -22,22 +22,35 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class HMSSchemaCacheValue extends SchemaCacheValue {
 
-    private List<Column> partitionColumns;
+    protected final Map<Long, List<Column>> partitionColumnsById;
 
     public HMSSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
         super(schema);
-        this.partitionColumns = partitionColumns;
+        this.partitionColumnsById = new ConcurrentHashMap<>();
+        this.partitionColumnsById.put(primaryVersionId, partitionColumns);
+    }
+
+    public HMSSchemaCacheValue(Map<Long, List<Column>> schemas, long primaryVersionId,
+            Map<Long, List<Column>> partitionColumns) {
+        super(schemas, primaryVersionId);
+        this.partitionColumnsById = new ConcurrentHashMap<>(partitionColumns);
     }
 
     public List<Column> getPartitionColumns() {
-        return partitionColumns;
+        return getPartitionColumns(primaryVersionId);
+    }
+
+    public List<Column> getPartitionColumns(long versionId) {
+        return partitionColumnsById.get(versionId);
     }
 
     public List<Type> getPartitionColTypes() {
-        return partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
+        return getPartitionColumns().stream().map(Column::getType).collect(Collectors.toList());
     }
 }

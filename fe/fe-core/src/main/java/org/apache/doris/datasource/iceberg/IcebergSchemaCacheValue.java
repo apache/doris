@@ -20,18 +20,71 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.SchemaCacheValue;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 public class IcebergSchemaCacheValue extends SchemaCacheValue {
 
-    private final List<Column> partitionColumns;
+    public static class SchemaEntry {
+        private final List<Column> schema;
+        private final List<Column> partitionColumns;
 
-    public IcebergSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
-        super(schema);
-        this.partitionColumns = partitionColumns;
+        public SchemaEntry(List<Column> schema, List<Column> partitionColumns) {
+            this.schema = schema;
+            this.partitionColumns = partitionColumns;
+        }
+
+        public List<Column> getSchema() {
+            return schema;
+        }
+
+        public List<Column> getPartitionColumns() {
+            return partitionColumns;
+        }
+    }
+
+    private final Map<Long, List<Column>> partitionColumnsBySchemaId;
+    private final Function<Long, SchemaEntry> schemaLoader;
+
+    public IcebergSchemaCacheValue(long schemaId, SchemaEntry entry, Function<Long, SchemaEntry> schemaLoader) {
+        super(Collections.singletonMap(schemaId, entry.getSchema()), schemaId);
+        this.partitionColumnsBySchemaId = new ConcurrentHashMap<>();
+        this.partitionColumnsBySchemaId.put(schemaId, entry.getPartitionColumns());
+        this.schemaLoader = schemaLoader;
+    }
+
+    public SchemaEntry ensureSchema(long schemaId) {
+        List<Column> schema = schemas.get(schemaId);
+        List<Column> partitions = partitionColumnsBySchemaId.get(schemaId);
+        if (schema != null && partitions != null) {
+            primaryVersionId = schemaId;
+            return new SchemaEntry(schema, partitions);
+        }
+        SchemaEntry loaded = schemaLoader.apply(schemaId);
+        addSchema(schemaId, loaded.getSchema());
+        partitionColumnsBySchemaId.put(schemaId, loaded.getPartitionColumns());
+        primaryVersionId = schemaId;
+        return loaded;
+    }
+
+    @Override
+    public List<Column> getSchema() {
+        return getSchema(primaryVersionId);
+    }
+
+    @Override
+    public List<Column> getSchema(long versionId) {
+        return ensureSchema(versionId).getSchema();
     }
 
     public List<Column> getPartitionColumns() {
-        return partitionColumns;
+        return getPartitionColumns(primaryVersionId);
+    }
+
+    public List<Column> getPartitionColumns(long schemaId) {
+        return ensureSchema(schemaId).getPartitionColumns();
     }
 }

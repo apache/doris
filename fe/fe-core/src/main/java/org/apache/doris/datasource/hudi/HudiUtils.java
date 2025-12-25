@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -329,9 +330,16 @@ public class HudiUtils {
 
     public static HudiSchemaCacheValue getSchemaCacheValue(HMSExternalTable hmsTable, String queryInstant) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(hmsTable.getCatalog());
-        SchemaCacheKey key = new HudiSchemaCacheKey(hmsTable.getOrBuildNameMapping(), Long.parseLong(queryInstant));
+        SchemaCacheKey key = new SchemaCacheKey(hmsTable.getOrBuildNameMapping());
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(key);
-        return (HudiSchemaCacheValue) schemaCacheValue.get();
+        if (!schemaCacheValue.isPresent()) {
+            throw new CacheException("failed to get hudi schema cache value for: %s.%s.%s.%s",
+                    null, hmsTable.getCatalog().getName(), hmsTable.getDbName(),
+                    hmsTable.getName(), queryInstant);
+        }
+        HudiSchemaCacheValue cacheValue = (HudiSchemaCacheValue) schemaCacheValue.get();
+        cacheValue.getSchema(Long.parseLong(queryInstant));
+        return cacheValue;
     }
 
     public static TStructField getSchemaInfo(List<Types.Field> hudiFields) {

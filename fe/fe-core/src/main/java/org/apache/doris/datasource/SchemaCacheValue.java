@@ -19,9 +19,11 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The cache value of ExternalSchemaCache.
@@ -30,17 +32,51 @@ import java.util.Set;
  * All objects that should be refreshed along with schema should be put in this class.
  */
 public class SchemaCacheValue {
-    protected List<Column> schema;
+    public static final long DEFAULT_VERSION = -1L;
+    protected final Map<Long, List<Column>> schemas;
+    protected volatile long primaryVersionId;
 
     public SchemaCacheValue(List<Column> schema) {
-        this.schema = schema;
+        this(Collections.singletonMap(DEFAULT_VERSION, schema), DEFAULT_VERSION);
+    }
+
+    public SchemaCacheValue(Map<Long, List<Column>> schemas, long primaryVersionId) {
+        this.schemas = new ConcurrentHashMap<>(schemas);
+        this.primaryVersionId = primaryVersionId;
+    }
+
+    public Map<Long, List<Column>> getSchemas() {
+        return Collections.unmodifiableMap(schemas);
     }
 
     public List<Column> getSchema() {
-        return schema;
+        List<Column> primary = schemas.get(primaryVersionId);
+        if (primary != null) {
+            return primary;
+        }
+        return schemas.values().stream().findFirst().orElse(null);
+    }
+
+    public List<Column> getSchema(long versionId) {
+        return schemas.get(versionId);
+    }
+
+    public void addSchema(long versionId, List<Column> schema) {
+        validateSchema(schema);
+        schemas.put(versionId, schema);
+    }
+
+    public boolean containsVersion(long versionId) {
+        return schemas.containsKey(versionId);
     }
 
     public void validateSchema() throws IllegalArgumentException {
+        for (List<Column> schema : schemas.values()) {
+            validateSchema(schema);
+        }
+    }
+
+    protected void validateSchema(List<Column> schema) {
         Set<String> columnNames = new HashSet<>();
         for (Column column : schema) {
             if (!columnNames.add(column.getName().toLowerCase())) {

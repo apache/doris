@@ -22,26 +22,91 @@ import org.apache.doris.datasource.SchemaCacheValue;
 
 import org.apache.paimon.schema.TableSchema;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 public class PaimonSchemaCacheValue extends SchemaCacheValue {
 
-    private List<Column> partitionColumns;
+    public static class SchemaEntry {
+        private final List<Column> schema;
+        private final List<Column> partitionColumns;
+        private final TableSchema tableSchema;
 
-    private TableSchema tableSchema;
+        public SchemaEntry(List<Column> schema, List<Column> partitionColumns, TableSchema tableSchema) {
+            this.schema = schema;
+            this.partitionColumns = partitionColumns;
+            this.tableSchema = tableSchema;
+        }
+
+        public List<Column> getSchema() {
+            return schema;
+        }
+
+        public List<Column> getPartitionColumns() {
+            return partitionColumns;
+        }
+
+        public TableSchema getTableSchema() {
+            return tableSchema;
+        }
+    }
+
+    private final Map<Long, List<Column>> partitionColumnsBySchemaId;
+    private final Map<Long, TableSchema> tableSchemaById;
+    private final Function<Long, SchemaEntry> schemaLoader;
     // Caching TableSchema can reduce the reading of schema files and json parsing.
 
-    public PaimonSchemaCacheValue(List<Column> schema, List<Column> partitionColumns, TableSchema tableSchema) {
-        super(schema);
-        this.partitionColumns = partitionColumns;
-        this.tableSchema = tableSchema;
+    public PaimonSchemaCacheValue(long schemaId, SchemaEntry entry, Function<Long, SchemaEntry> schemaLoader) {
+        super(Collections.singletonMap(schemaId, entry.getSchema()), schemaId);
+        this.partitionColumnsBySchemaId = new ConcurrentHashMap<>();
+        this.partitionColumnsBySchemaId.put(schemaId, entry.getPartitionColumns());
+        this.tableSchemaById = new ConcurrentHashMap<>();
+        this.tableSchemaById.put(schemaId, entry.getTableSchema());
+        this.schemaLoader = schemaLoader;
     }
 
     public List<Column> getPartitionColumns() {
-        return partitionColumns;
+        return getPartitionColumns(primaryVersionId);
+    }
+
+    public List<Column> getPartitionColumns(long schemaId) {
+        return ensureSchema(schemaId).getPartitionColumns();
     }
 
     public TableSchema getTableSchema() {
-        return tableSchema;
+        return getTableSchema(primaryVersionId);
+    }
+
+    public TableSchema getTableSchema(long schemaId) {
+        return ensureSchema(schemaId).getTableSchema();
+    }
+
+    @Override
+    public List<Column> getSchema() {
+        return getSchema(primaryVersionId);
+    }
+
+    @Override
+    public List<Column> getSchema(long schemaId) {
+        return ensureSchema(schemaId).getSchema();
+    }
+
+    private SchemaEntry ensureSchema(long schemaId) {
+        List<Column> schema = schemas.get(schemaId);
+        List<Column> partitions = partitionColumnsBySchemaId.get(schemaId);
+        TableSchema tableSchema = tableSchemaById.get(schemaId);
+        if (schema != null && partitions != null && tableSchema != null) {
+            primaryVersionId = schemaId;
+            return new SchemaEntry(schema, partitions, tableSchema);
+        }
+        SchemaEntry entry = schemaLoader.apply(schemaId);
+        addSchema(schemaId, entry.getSchema());
+        partitionColumnsBySchemaId.put(schemaId, entry.getPartitionColumns());
+        tableSchemaById.put(schemaId, entry.getTableSchema());
+        primaryVersionId = schemaId;
+        return entry;
     }
 }
