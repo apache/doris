@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/Types_types.h>
 #include <xxh3.h>
 #include <xxhash.h>
@@ -30,7 +31,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/cpu_info.h"
-#include "util/crc32c.h"
 #include "util/hash/city.h"
 #include "util/murmur_hash3.h"
 #include "util/sse_util.hpp"
@@ -50,10 +50,25 @@ public:
         return (uint32_t)crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
     }
 
-    // ATTN: crc32c's result is different with zlib_crc32 coz of different polynomial
-    // crc32c have better performance than zlib_crc32/crc_hash
-    static uint32_t crc32c_hash(const void* data, uint32_t bytes, uint32_t hash) {
-        return crc32c::Extend(hash, static_cast<const char*>(data), bytes);
+    template <typename T>
+    static uint32_t crc32c_fixed(const T& value, uint32_t hash) {
+        if constexpr (sizeof(T) == 1) {
+            return _mm_crc32_u8(hash, *reinterpret_cast<const uint8_t*>(&value));
+        } else if constexpr (sizeof(T) == 2) {
+            return _mm_crc32_u16(hash, *reinterpret_cast<const uint16_t*>(&value));
+        } else if constexpr (sizeof(T) == 4) {
+            return _mm_crc32_u32(hash, *reinterpret_cast<const uint32_t*>(&value));
+        } else if constexpr (sizeof(T) == 8) {
+            return (uint32_t)_mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(&value));
+        } else {
+            return crc32c_extend(hash, (const uint8_t*)&value, sizeof(T));
+        }
+    }
+
+    static uint32_t crc32c_null(uint32_t hash) {
+        // null is treat as 0 when hash
+        static const int INT_VALUE = 0;
+        return crc32c_fixed(INT_VALUE, hash);
     }
 
     // Compute the Crc32 hash for data using SSE4 instructions.  The input hash parameter is
@@ -65,7 +80,7 @@ public:
     // NOTE: Any changes made to this function need to be reflected in Codegen::GetHashFn.
     // TODO: crc32 hashes with different seeds do not result in different hash functions.
     // The resulting hashes are correlated.
-    // ATTN: prefer do not use this function anymore, use crc32c_hash instead
+    // ATTN: prefer do not use this function anymore, use crc32c::Extend instead
     // This function is retained because it is not certain whether there are compatibility issues with historical data.
     static uint32_t crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         if (!CpuInfo::is_supported(CpuInfo::SSE4_2)) {

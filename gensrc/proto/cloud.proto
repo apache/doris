@@ -137,6 +137,9 @@ message InstanceInfoPB {
 
     repeated KeySetType migrated_key_sets = 119;    // convert single version keys to multi version keys
     repeated KeySetType compacted_key_sets = 120;   // compact snapshot chain ...
+
+    optional int64 snapshot_retained_data_size = 121;
+    optional int64 snapshot_billable_data_size = 122;
 }
 
 message StagePB {
@@ -758,6 +761,8 @@ message DropPartitionLogPB {
     repeated int64 partition_ids = 4;
     optional int64 expired_at_s = 5; // expiration timestamp
     optional bool update_table_version = 6;
+
+    map<string, int64> index_partition_to_data_size = 7;
 }
 
 message CommitIndexLogPB {
@@ -765,6 +770,7 @@ message CommitIndexLogPB {
     optional int64 table_id = 2;
     repeated int64 index_ids = 3;
     optional bool update_table_version = 4;
+    repeated int64 partition_ids = 5;
 }
 
 message DropIndexLogPB {
@@ -772,6 +778,8 @@ message DropIndexLogPB {
     optional int64 table_id = 2;
     repeated int64 index_ids = 3;
     optional int64 expiration = 4; // expiration timestamp
+
+    map<string, int64> index_partition_to_data_size = 5;
 }
 
 message UpdateTabletLogPB {
@@ -849,8 +857,10 @@ message SnapshotPB {
     optional string upload_file = 15;
     optional string upload_id = 16;
 
-    optional int64 image_file_size = 17;
-    optional int64 snapshot_data_size = 18;
+    optional int64 snapshot_meta_image_size = 17;
+    optional int64 snapshot_logical_data_size = 18;
+    optional int64 snapshot_retained_data_size = 19;
+    optional int64 snapshot_billable_data_size = 20;
 
     // TODO: add the referenced resources
 }
@@ -1139,6 +1149,9 @@ message GetVersionRequest {
     optional bool is_table_version = 9;
 
     optional string request_ip = 10;
+
+    // Wait the pending txn to be finished before getting version
+    optional bool wait_for_pending_txn = 11;
 };
 
 message GetVersionResponse {
@@ -1329,6 +1342,7 @@ message IndexRequest {
     optional int64 db_id = 5;
     optional bool is_new_table = 6; // For table version
     optional string request_ip = 7;
+    repeated int64 partition_ids = 8;
 }
 
 message IndexResponse {
@@ -2040,8 +2054,8 @@ message CommitSnapshotRequest {
     optional string image_url = 3;
     optional int64 last_journal_id = 4;
     optional string request_ip = 5;
-    optional int64 image_file_size = 6;
-    optional int64 snapshot_data_size = 7;
+    optional int64 snapshot_meta_image_size = 6;
+    optional int64 snapshot_logical_data_size = 7;
 }
 
 message CommitSnapshotResponse {
@@ -2076,8 +2090,10 @@ message SnapshotInfoPB {
     optional string reason = 14;
 
     repeated string derived_instance_ids = 15;
-    optional int64 image_file_size = 16;
-    optional int64 snapshot_data_size = 17;
+    optional int64 snapshot_meta_image_size = 16;
+    optional int64 snapshot_logical_data_size = 17;
+    optional int64 snapshot_retained_data_size = 18;
+    optional int64 snapshot_billable_data_size = 19;
 }
 
 message ListSnapshotRequest {

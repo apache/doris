@@ -118,6 +118,7 @@ class HeartbeatFlags;
 class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
+class CdcClientMgr;
 class TabletSchemaCache;
 class TabletColumnObjectPool;
 class UserFunctionCache;
@@ -288,6 +289,7 @@ public:
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
+    CdcClientMgr* cdc_client_mgr() { return _cdc_client_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
 
@@ -520,6 +522,7 @@ private:
     // ip:brpc_port -> frontend_indo
     std::map<TNetworkAddress, FrontendInfo> _frontends;
     GroupCommitMgr* _group_commit_mgr = nullptr;
+    CdcClientMgr* _cdc_client_mgr = nullptr;
 
     // Maybe we should use unique_ptr, but it need complete type, which means we need
     // to include many headers, and for some cpp file that do not need class like TabletSchemaCache,
