@@ -1194,6 +1194,7 @@ TEST(RecyclerTest, recycle_rowsets) {
     }
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
 
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
@@ -1273,6 +1274,7 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
                               i & 1);
     }
 
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
     ASSERT_EQ(recycler.check_recycle_tasks(), false);
 
@@ -1358,6 +1360,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
 
     auto start = std::chrono::steady_clock::now();
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     auto finish = std::chrono::steady_clock::now();
     std::cout << "recycle tmp rowsets cost="
               << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
@@ -1431,6 +1434,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
         }
     }
 
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
@@ -1633,6 +1637,7 @@ TEST(RecyclerTest, recycle_indexes) {
     ASSERT_EQ(it->size(), 0);
 
     // Test recycle tmp rowsets after recycle indexes
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     begin_key = meta_rowset_tmp_key({instance_id, 0, 0});

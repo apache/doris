@@ -204,6 +204,10 @@ public:
         new_load_id->set_lo(load_id.lo());
     }
 
+    void set_job_id(const std::string& job_id) { _rowset_meta_pb.set_job_id(job_id); }
+
+    const std::string& job_id() const { return _rowset_meta_pb.job_id(); }
+
     bool delete_flag() const { return _rowset_meta_pb.delete_flag(); }
 
     int64_t creation_time() const { return _rowset_meta_pb.creation_time(); }

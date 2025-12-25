@@ -67,6 +67,18 @@ static void* run_bthread_work(void* arg) {
                                               int64_t partition_count, int64_t tablet_count,
                                               int64_t txn_id);
 
+[[maybe_unused]] void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request,
+                                 Transaction* txn, TxnInfoPB& return_txn_info,
+                                 std::stringstream& ss, MetaServiceCode& code, std::string& msg);
+
+[[maybe_unused]] void _finish_tablet_job(const FinishTabletJobRequest* request,
+                                         FinishTabletJobResponse* response,
+                                         std::string& instance_id,
+                                         std::unique_ptr<Transaction>& txn, TxnKv* txn_kv,
+                                         DeleteBitmapLockWhiteList* delete_bitmap_lock_white_list,
+                                         MetaServiceCode& code, std::string& msg,
+                                         std::stringstream& ss);
+
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,

@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "common/bvars.h"
+#include "meta-service/delete_bitmap_lock_white_list.h"
 #include "meta-service/txn_lazy_committer.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
@@ -385,6 +386,38 @@ private:
     // for scan all rs of tablet and statistics metrics
     int scan_tablet_and_statistics(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
 
+    void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor) {
+        accessor_map_.insert({std::string(id), std::move(accessor)});
+    }
+
+    // Abort the transaction/job associated with a rowset that is about to be recycled.
+    // This function is called during rowset recycling to prevent data loss by ensuring that
+    // the transaction/job cannot be committed after its rowset data has been deleted.
+    //
+    // Scenario:
+    // When recycler detects an expired prepared rowset (e.g., from a failed load transaction/job),
+    // it needs to recycle the rowset data. However, if the transaction/job is still active and gets
+    // committed after the data is deleted, it would lead to data loss - the transaction/job would
+    // reference non-existent data.
+    //
+    // Solution:
+    // Before recycling the rowset data, this function aborts the associated transaction/job to ensure
+    // it cannot be committed. This guarantees that:
+    // 1. The transaction/job state is marked as ABORTED
+    // 2. Any subsequent commit_rowset/commit_txn attempts will fail
+    // 3. The rowset data can be safely deleted without risk of data loss
+    //
+    // Parameters:
+    //   txn_id: The transaction/job ID associated with the rowset to be recycled
+    //
+    // Returns:
+    //   0 on success, -1 on failure
+    int abort_txn_for_related_rowset(int64_t txn_id);
+    int abort_job_for_related_rowset(const RowsetMetaCloudPB& rowset_meta);
+
+    template <typename T>
+    int abort_txn_or_job_for_recycle(T& rowset_meta_pb);
+
 private:
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
@@ -410,6 +443,7 @@ private:
     RecyclerThreadPoolGroup _thread_pool_group;
 
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+    std::shared_ptr<DeleteBitmapLockWhiteList> delete_bitmap_lock_white_list_;
 
     TabletRecyclerMetricsContext tablet_metrics_context_;
     SegmentRecyclerMetricsContext segment_metrics_context_;
