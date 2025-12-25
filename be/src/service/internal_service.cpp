@@ -68,6 +68,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
 #include "olap/data_dir.h"
+#include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -83,6 +84,7 @@
 #include "olap/txn_manager.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/cache/result_cache.h"
+#include "runtime/cdc_client_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
@@ -121,6 +123,7 @@
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
+#include "vec/exec/format/native/native_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/text/text_reader.h"
@@ -414,6 +417,7 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
         LOG(INFO) << "open load stream, load_id=" << request->load_id()
                   << ", src_id=" << request->src_id();
 
+        std::vector<BaseTabletSPtr> tablets;
         for (const auto& req : request->tablets()) {
             BaseTabletSPtr tablet;
             if (auto res = ExecEnv::get_tablet(req.tablet_id()); !res.has_value()) [[unlikely]] {
@@ -428,6 +432,14 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
             resp->set_index_id(req.index_id());
             resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
             tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
+            tablets.push_back(tablet);
+        }
+        if (!tablets.empty()) {
+            auto* tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
+            for (const auto& tablet : tablets) {
+                BaseDeltaWriter::collect_tablet_load_rowset_num_info(tablet.get(),
+                                                                     tablet_load_infos);
+            }
         }
 
         LoadStream* load_stream = nullptr;
@@ -725,14 +737,23 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             }
         }
 
-        auto&& res = FileFactory::create_file_writer(
-                FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
-                ExecEnv::GetInstance(), file_options.broker_addresses,
-                file_options.broker_properties, file_name,
-                {
-                        .write_file_cache = false,
-                        .sync_file_data = false,
-                });
+        auto file_type_res =
+                FileFactory::convert_storage_type(result_file_sink.storage_backend_type);
+        if (!file_type_res.has_value()) [[unlikely]] {
+            st = std::move(file_type_res).error();
+            st.to_protobuf(result->mutable_status());
+            LOG(WARNING) << "encounter unkonw type=" << result_file_sink.storage_backend_type
+                         << ", st=" << st;
+            return;
+        }
+
+        auto&& res = FileFactory::create_file_writer(file_type_res.value(), ExecEnv::GetInstance(),
+                                                     file_options.broker_addresses,
+                                                     file_options.broker_properties, file_name,
+                                                     {
+                                                             .write_file_cache = false,
+                                                             .sync_file_data = false,
+                                                     });
         using T = std::decay_t<decltype(res)>;
         if (!res.has_value()) [[unlikely]] {
             st = std::forward<T>(res).error();
@@ -835,6 +856,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         case TFileFormatType::FORMAT_ORC: {
             reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_NATIVE: {
+            reader = vectorized::NativeReader::create_unique(profile.get(), params, range, &io_ctx,
+                                                             nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
@@ -1661,14 +1687,6 @@ void PInternalService::_transmit_block(google::protobuf::RpcController* controll
     // The response is accessed when done->Run is called in transmit_block(),
     // give response a default value to avoid null pointers in high concurrency.
     Status st;
-    // Temporary code for debugging; it will be removed in the future.
-    CHECK(request->IsInitialized());
-    for (int i = 0; i < request->blocks_size(); ++i) {
-        CHECK(request->blocks(i).IsInitialized());
-    }
-    if (request->has_block()) {
-        CHECK(request->block().IsInitialized());
-    }
     if (extract_st.ok()) {
         st = _exec_env->vstream_mgr()->transmit_block(request, &done, wait_for_worker);
         if (!st.ok() && !st.is<END_OF_FILE>()) {
@@ -2116,8 +2134,8 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
     }
 
     doris::pipeline::TaskScheduler* exec_sched = nullptr;
-    vectorized::SimplifiedScanScheduler* scan_sched = nullptr;
-    vectorized::SimplifiedScanScheduler* remote_scan_sched = nullptr;
+    vectorized::ScannerScheduler* scan_sched = nullptr;
+    vectorized::ScannerScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 
@@ -2392,6 +2410,20 @@ void PInternalService::get_tablet_rowsets(google::protobuf::RpcController* contr
         *response->mutable_delete_bitmap() = std::move(diffset);
     }
     Status::OK().to_protobuf(response->mutable_status());
+}
+
+void PInternalService::request_cdc_client(google::protobuf::RpcController* controller,
+                                          const PRequestCdcClientRequest* request,
+                                          PRequestCdcClientResult* result,
+                                          google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
+        _exec_env->cdc_client_mgr()->request_cdc_client_impl(request, result, done);
+    });
+
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
 }
 
 #include "common/compile_check_avoid_end.h"

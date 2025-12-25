@@ -45,10 +45,13 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
 
+namespace doris {
+struct InvertedIndexAnalyzerCtx;
+} // namespace doris
+
 namespace doris::vectorized {
 
 struct FunctionAttr {
-    bool enable_decimal256 {false};
     bool new_version_unix_timestamp {false};
 };
 
@@ -98,7 +101,7 @@ public:
     virtual String get_name() const = 0;
 
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           uint32_t result, size_t input_rows_count, bool dry_run) const = 0;
+                           uint32_t result, size_t input_rows_count) const = 0;
 };
 
 using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
@@ -106,7 +109,7 @@ using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
 class PreparedFunctionImpl : public IPreparedFunction {
 public:
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t input_rows_count, bool dry_run = false) const final;
+                   uint32_t result, size_t input_rows_count) const final;
 
     /** If the function have non-zero number of arguments,
       *  and if all arguments are constant, that we could automatically provide default implementation:
@@ -122,12 +125,6 @@ public:
     virtual bool need_replace_null_data_to_default() const { return false; }
 
 protected:
-    virtual Status execute_impl_dry_run(FunctionContext* context, Block& block,
-                                        const ColumnNumbers& arguments, uint32_t result,
-                                        size_t input_rows_count) const {
-        return execute_impl(context, block, arguments, result, input_rows_count);
-    }
-
     virtual Status execute_impl(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, uint32_t result,
                                 size_t input_rows_count) const = 0;
@@ -150,18 +147,16 @@ protected:
 private:
     Status default_implementation_for_nulls(FunctionContext* context, Block& block,
                                             const ColumnNumbers& args, uint32_t result,
-                                            size_t input_rows_count, bool dry_run,
-                                            bool* executed) const;
+                                            size_t input_rows_count, bool* executed) const;
     Status default_implementation_for_constant_arguments(FunctionContext* context, Block& block,
                                                          const ColumnNumbers& args, uint32_t result,
-                                                         size_t input_rows_count, bool dry_run,
+                                                         size_t input_rows_count,
                                                          bool* executed) const;
-    Status execute_without_low_cardinality_columns(FunctionContext* context, Block& block,
-                                                   const ColumnNumbers& arguments, uint32_t result,
-                                                   size_t input_rows_count, bool dry_run) const;
+    Status default_execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                           uint32_t result, size_t input_rows_count) const;
     Status _execute_skipped_constant_deal(FunctionContext* context, Block& block,
                                           const ColumnNumbers& args, uint32_t result,
-                                          size_t input_rows_count, bool dry_run) const;
+                                          size_t input_rows_count) const;
 };
 
 /// Function with known arguments and return type.
@@ -187,10 +182,10 @@ public:
     }
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t input_rows_count, bool dry_run = false) const {
+                   uint32_t result, size_t input_rows_count) const {
         try {
             return prepare(context, block, arguments, result)
-                    ->execute(context, block, arguments, result, input_rows_count, dry_run);
+                    ->execute(context, block, arguments, result, input_rows_count);
         } catch (const Exception& e) {
             return e.to_status();
         }
@@ -200,6 +195,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return Status::OK();
     }
@@ -391,7 +387,6 @@ public:
     }
 
     using PreparedFunctionImpl::execute;
-    using PreparedFunctionImpl::execute_impl_dry_run;
     using FunctionBuilderImpl::get_return_type_impl;
     using FunctionBuilderImpl::get_variadic_argument_types_impl;
     using FunctionBuilderImpl::get_return_type;
@@ -468,9 +463,10 @@ public:
             const ColumnsWithTypeAndName& args,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
-                                                 bitmap_result);
+                                                 analyzer_ctx, bitmap_result);
     }
 
     bool is_use_default_implementation_for_constants() const override {
@@ -487,10 +483,81 @@ private:
     DataTypePtr return_type;
 };
 
+struct simple_function_creator_without_type0 {
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static std::shared_ptr<IFunction> create(const DataTypePtr& result_type, TArgs&&... args) {
+        std::unique_ptr<IFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                result_type, std::forward<TArgs>(args)...));
+        return std::shared_ptr<IFunction>(result.release());
+    }
+};
+template <template <PrimitiveType> class FunctionTemplate>
+struct SimpleFunctionCurryDirectWithResultType0 {
+    template <PrimitiveType ResultType>
+    using T = FunctionTemplate<ResultType>;
+};
+template <PrimitiveType... AllowedTypes>
+struct simple_function_creator_with_result_type0 {
+    template <typename Class, typename... TArgs>
+    static std::shared_ptr<IFunction> create_base_with_result_type(const DataTypePtr& result_type,
+                                                                   TArgs&&... args) {
+        auto create = [&]<PrimitiveType ResultType>() {
+            return simple_function_creator_without_type0::create<
+                    typename Class::template T<ResultType>>(result_type,
+                                                            std::forward<TArgs>(args)...);
+        };
+        std::shared_ptr<IFunction> result = nullptr;
+        auto type = result_type->get_primitive_type();
+
+        (
+                [&] {
+                    if (type == AllowedTypes) {
+                        static_assert(AllowedTypes == TYPE_DECIMAL128I ||
+                                      AllowedTypes == TYPE_DECIMAL256);
+                        result = create.template operator()<AllowedTypes>();
+                    }
+                }(),
+                ...);
+
+        return result;
+    }
+
+    // Create agg function with result type from FE.
+    // Currently only used for decimalv3 sum and avg.
+    template <template <PrimitiveType> class FunctionTemplate>
+    static std::shared_ptr<IFunction> creator_with_result_type(const DataTypePtr& result_type) {
+        return create_base_with_result_type<
+                SimpleFunctionCurryDirectWithResultType0<FunctionTemplate>>(result_type);
+    }
+};
+
 class DefaultFunctionBuilder : public FunctionBuilderImpl {
 public:
     explicit DefaultFunctionBuilder(std::shared_ptr<IFunction> function_)
             : function(std::move(function_)) {}
+
+    // template <template <PrimitiveType> class FunctionTemplate>
+    explicit DefaultFunctionBuilder(DataTypePtr return_type)
+            : _return_type(std::move(return_type)) {}
+
+    template <template <PrimitiveType> class FunctionTemplate>
+    static FunctionBuilderPtr create_array_agg_function_decimalv3(DataTypePtr return_type) {
+        auto builder = std::make_shared<DefaultFunctionBuilder>(return_type);
+        DataTypePtr real_return_type;
+        // for array_cum_sum, the return type is array,
+        // so here should check nested type
+        if (PrimitiveType::TYPE_ARRAY == return_type->get_primitive_type()) {
+            const DataTypeArray* data_type_array =
+                    static_cast<const DataTypeArray*>(remove_nullable(return_type).get());
+            real_return_type = data_type_array->get_nested_type();
+        } else {
+            real_return_type = return_type;
+        }
+        builder->function =
+                simple_function_creator_with_result_type0<TYPE_DECIMAL128I, TYPE_DECIMAL256>::
+                        creator_with_result_type<FunctionTemplate>(real_return_type);
+        return builder;
+    }
 
     void check_number_of_arguments(size_t number_of_arguments) const override {
         function->check_number_of_arguments(number_of_arguments);
@@ -537,14 +604,14 @@ protected:
 
 private:
     std::shared_ptr<IFunction> function;
+    DataTypePtr _return_type;
 };
 
 using FunctionPtr = std::shared_ptr<IFunction>;
-
 /** Return ColumnNullable of src, with null map as OR-ed null maps of args columns in blocks.
   * Or ColumnConst(ColumnNullable) if the result is always NULL or if the result is constant and always not NULL.
   */
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
-                           uint32_t result, size_t input_rows_count);
+                           size_t input_rows_count);
 
 } // namespace doris::vectorized

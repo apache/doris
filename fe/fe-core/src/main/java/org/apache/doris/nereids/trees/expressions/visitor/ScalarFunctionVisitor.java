@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.StateComb
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AddTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
@@ -54,10 +55,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerat
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirst;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirstIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFlatten;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAll;
@@ -139,6 +142,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCoun
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Century;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
@@ -175,6 +179,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfWeek;
@@ -211,6 +216,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExportSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Factorial;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
@@ -342,6 +348,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsS
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
@@ -417,6 +424,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
@@ -475,6 +483,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
@@ -500,6 +509,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
@@ -509,6 +519,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnicodeNormalize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uniform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
@@ -563,6 +574,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAcosh(Acosh acosh, C context) {
         return visitScalarFunction(acosh, context);
+    }
+
+    default R visitAddTime(AddTime addTime, C context) {
+        return visitScalarFunction(addTime, context);
     }
 
     default R visitAesDecrypt(AesDecrypt aesDecrypt, C context) {
@@ -641,6 +656,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayFilter, context);
     }
 
+    default R visitArrayFirst(ArrayFirst arrayFirst, C context) {
+        return visitElementAt(arrayFirst, context);
+    }
+
     default R visitArrayFirstIndex(ArrayFirstIndex arrayFirstIndex, C context) {
         return visitScalarFunction(arrayFirstIndex, context);
     }
@@ -651,6 +670,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayJoin(ArrayJoin arrayJoin, C context) {
         return visitScalarFunction(arrayJoin, context);
+    }
+
+    default R visitArrayLast(ArrayLast arrayLast, C context) {
+        return visitElementAt(arrayLast, context);
     }
 
     default R visitArrayLastIndex(ArrayLastIndex arrayLastIndex, C context) {
@@ -757,8 +780,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayFlatten, context);
     }
 
-    default R visitArrayMap(ArrayMap arraySort, C context) {
-        return visitScalarFunction(arraySort, context);
+    default R visitArrayMap(ArrayMap arrayMap, C context) {
+        return visitScalarFunction(arrayMap, context);
     }
 
     default R visitArrayMatchAll(ArrayMatchAll arrayMatchAll, C context) {
@@ -1130,6 +1153,18 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(daysDiff, context);
     }
 
+    default R visitDayHourAdd(DayHourAdd dayHourAdd, C context) {
+        return visitScalarFunction(dayHourAdd, context);
+    }
+
+    default R visitMinuteSecondAdd(MinuteSecondAdd minuteSecondAdd, C context) {
+        return visitScalarFunction(minuteSecondAdd, context);
+    }
+
+    default R visitSecondMicrosecondAdd(SecondMicrosecondAdd secondMicrosecondAdd, C context) {
+        return visitScalarFunction(secondMicrosecondAdd, context);
+    }
+
     default R visitDaysAdd(DaysAdd daysAdd, C context) {
         return visitScalarFunction(daysAdd, context);
     }
@@ -1292,6 +1327,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitExtractUrlParameter(ExtractUrlParameter extractUrlParameter, C context) {
         return visitScalarFunction(extractUrlParameter, context);
+    }
+
+    default R visitFactorial(Factorial factorial, C context) {
+        return visitScalarFunction(factorial, context);
     }
 
     default R visitField(Field field, C context) {
@@ -2246,6 +2285,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(subReplace, context);
     }
 
+    default R visitSubTime(SubTime subTime, C context) {
+        return visitScalarFunction(subTime, context);
+    }
+
     default R visitSubstring(Substring substring, C context) {
         return visitScalarFunction(substring, context);
     }
@@ -2360,6 +2403,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitToQuantileState(ToQuantileState toQuantileState, C context) {
         return visitScalarFunction(toQuantileState, context);
+    }
+
+    default R visitToSeconds(ToSeconds toSeconds, C context) {
+        return visitScalarFunction(toSeconds, context);
     }
 
     default R visitTranslate(Translate translate, C context) {
@@ -2484,6 +2531,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitYear(Year year, C context) {
         return visitScalarFunction(year, context);
+    }
+
+    default R visitCentury(Century century, C context) {
+        return visitScalarFunction(century, context);
     }
 
     default R visitYearOfWeek(YearOfWeek yearOfWeek, C context) {
@@ -2669,5 +2720,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitPeriodDiff(PeriodDiff periodDiff, C context) {
         return visitScalarFunction(periodDiff, context);
+    }
+
+    default R visitUnicodeNormalize(UnicodeNormalize func, C context) {
+        return visitScalarFunction(func, context);
     }
 }

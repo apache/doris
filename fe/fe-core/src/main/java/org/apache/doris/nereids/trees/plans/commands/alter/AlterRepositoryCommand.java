@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 
 import java.util.HashMap;
 import java.util.Map;

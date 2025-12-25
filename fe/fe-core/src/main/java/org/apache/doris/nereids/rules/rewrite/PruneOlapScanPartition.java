@@ -90,7 +90,9 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         if (rewrittenLogicalRelation instanceof LogicalEmptyRelation) {
                             return rewrittenLogicalRelation;
                         } else {
-                            return PartitionPruner.prunePredicate(ctx.statementContext.isSkipPrunePredicate(),
+                            return PartitionPruner.prunePredicate(
+                                    ctx.connectContext.getSessionVariable().skipPrunePredicate
+                                            || ctx.statementContext.isSkipPrunePredicate(),
                                     prunedRes.second, filter, rewrittenLogicalRelation);
                         }
                     }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE)

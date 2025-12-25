@@ -86,7 +86,8 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
-                                 int32_t col_id, int64_t row_num) const override;
+                                 int32_t col_id, int64_t row_num,
+                                 const FormatOptions& options) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
@@ -108,16 +109,14 @@ public:
                                  const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
+    Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
+                                        int64_t row_idx, bool col_const,
+                                        const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               const FormatOptions& options) const override;
 
     Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
                                               uint64_t* num_deserialized,
@@ -128,9 +127,11 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
 
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                   const FormatOptions& options) const override;
 
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const override;
+    void to_string_batch(const IColumn& column, ColumnString& column_to,
+                         const FormatOptions& options) const override;
 
     static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column);
 
@@ -138,11 +139,6 @@ public:
                                                       FieldInfo& info);
 
 private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int64_t row_idx, bool col_const,
-                                  const FormatOptions& options) const;
-
     int precision;
     int scale;
     const typename FieldType::NativeType scale_multiplier;

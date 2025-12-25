@@ -29,7 +29,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
@@ -48,6 +47,8 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpHeaderNames;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,8 +65,6 @@ import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Optional;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 @RestController
 public class LoadAction extends RestBaseController {
@@ -589,18 +588,6 @@ public class LoadAction extends RestBaseController {
         }
 
         return Pair.of(pair[0], port);
-    }
-
-    // NOTE: This function can only be used for AuditlogPlugin stream load for now.
-    // AuditlogPlugin should be re-disigned carefully, and blow method focuses on
-    // temporarily addressing the users' needs for audit logs.
-    // So this function is not widely tested under general scenario
-    private boolean checkClusterToken(String token) {
-        try {
-            return Env.getCurrentEnv().getTokenManager().checkAuthToken(token);
-        } catch (UserException e) {
-            throw new UnauthorizedException(e.getMessage());
-        }
     }
 
     // NOTE: This function can only be used for AuditlogPlugin stream load for now.

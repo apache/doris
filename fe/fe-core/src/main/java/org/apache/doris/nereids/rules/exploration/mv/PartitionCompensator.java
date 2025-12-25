@@ -21,11 +21,12 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -57,9 +58,10 @@ import java.util.Set;
 public class PartitionCompensator {
 
     public static final Logger LOG = LogManager.getLogger(PartitionCompensator.class);
-    // if partition pair is null which means can not get partitions from table in QueryPartitionCollector,
-    // we think this table scan query all partitions default
+    // if the partition pair is null which means could not get partitions from table in QueryPartitionCollector,
+    // we think the table scans query all-partitions default
     public static final Pair<RelationId, Set<String>> ALL_PARTITIONS = Pair.of(null, null);
+    // It means all partitions are used when query
     public static final Collection<Pair<RelationId, Set<String>>> ALL_PARTITIONS_LIST =
             ImmutableList.of(ALL_PARTITIONS);
 
@@ -223,14 +225,38 @@ public class PartitionCompensator {
 
     /**
      * Check if need union compensate or not
+     * If query base table all partitions with ALL_PARTITIONS or ALL_PARTITIONS_LIST, should not do union compensate
+     * because it means query all partitions from base table and prune partition failed
      */
-    public static boolean needUnionRewrite(MaterializationContext materializationContext) {
+    public static boolean needUnionRewrite(MaterializationContext materializationContext,
+                                           StatementContext statementContext) throws AnalysisException {
         if (!(materializationContext instanceof AsyncMaterializationContext)) {
             return false;
         }
         MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
         PartitionType type = mtmv.getPartitionInfo().getType();
-        List<BaseColInfo> pctInfos = mtmv.getMvPartitionInfo().getPctInfos();
+        MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
+        List<BaseColInfo> pctInfos = mvPartitionInfo.getPctInfos();
+        Set<MTMVRelatedTableIf> pctTables = mvPartitionInfo.getPctTables();
+        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
+                statementContext.getTableUsedPartitionNameMap();
+        for (MTMVRelatedTableIf pctTable : pctTables) {
+            if (pctTable instanceof ExternalTable && !((ExternalTable) pctTable).supportInternalPartitionPruned()) {
+                // if pct table is external table and not support internal partition pruned,
+                // we consider query all partitions from pct table, this would cause loop union compensate,
+                // so we skip union compensate in this case
+                return false;
+            }
+            Collection<Pair<RelationId, Set<String>>> tableUsedPartitions
+                    = tableUsedPartitionNameMap.get(pctTable.getFullQualifiers());
+            if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)
+                    || tableUsedPartitions.stream().anyMatch(ALL_PARTITIONS::equals)) {
+                // If query base table all partitions with ALL_PARTITIONS or ALL_PARTITIONS_LIST,
+                // should not do union compensate, because it means query all partitions from base table
+                // and prune partition failed
+                return false;
+            }
+        }
         return !PartitionType.UNPARTITIONED.equals(type) && !pctInfos.isEmpty();
     }
 
@@ -238,11 +264,11 @@ public class PartitionCompensator {
      * Get query used partitions
      * this is calculated from tableUsedPartitionNameMap and tables in statementContext
      *
-     * @param customRelationIdSet if union compensate occurs, the new query used partitions is changed,
+     * @param currentUsedRelationIdSet if union compensate occurs, the new query used partitions is changed,
      *         so need to get used partitions by relation id set
      */
     public static Map<List<String>, Set<String>> getQueryUsedPartitions(StatementContext statementContext,
-            BitSet customRelationIdSet) {
+            BitSet currentUsedRelationIdSet) {
         // get table used partitions
         // if table is not in statementContext().getTables() which means the table is partition prune as empty relation
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
@@ -252,33 +278,31 @@ public class PartitionCompensator {
         // if value is not empty, means query some partitions
         Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap = new HashMap<>();
         tableLoop:
-        for (Map.Entry<List<String>, TableIf> queryUsedTableEntry : statementContext.getTables().entrySet()) {
+        for (List<String> queryUsedTable : tableUsedPartitionNameMap.keySet()) {
             Set<String> usedPartitionSet = new HashSet<>();
             Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
-                    tableUsedPartitionNameMap.get(queryUsedTableEntry.getKey());
-            if (!tableUsedPartitions.isEmpty()) {
-                if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)) {
-                    queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
+                    tableUsedPartitionNameMap.get(queryUsedTable);
+            if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)) {
+                // It means all partitions are used when query
+                queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
+                continue;
+            }
+            for (Pair<RelationId, Set<String>> tableUsedPartitionPair : tableUsedPartitions) {
+                if (ALL_PARTITIONS.equals(tableUsedPartitionPair)) {
+                    // It means all partitions are used when query
+                    queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
+                    continue tableLoop;
+                }
+                // If currentUsedRelationIdSet is not empty, need check relation id to get concrete used partitions
+                BitSet usedPartitionRelation = new BitSet();
+                usedPartitionRelation.set(tableUsedPartitionPair.key().asInt());
+                if (!currentUsedRelationIdSet.isEmpty()
+                        && !currentUsedRelationIdSet.intersects(usedPartitionRelation)) {
                     continue;
                 }
-                for (Pair<RelationId, Set<String>> partitionPair : tableUsedPartitions) {
-                    if (!customRelationIdSet.isEmpty()) {
-                        if (ALL_PARTITIONS.equals(partitionPair)) {
-                            continue;
-                        }
-                        if (customRelationIdSet.get(partitionPair.key().asInt())) {
-                            usedPartitionSet.addAll(partitionPair.value());
-                        }
-                    } else {
-                        if (ALL_PARTITIONS.equals(partitionPair)) {
-                            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
-                            continue tableLoop;
-                        }
-                        usedPartitionSet.addAll(partitionPair.value());
-                    }
-                }
+                usedPartitionSet.addAll(tableUsedPartitionPair.value());
             }
-            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), usedPartitionSet);
+            queryUsedRelatedTablePartitionsMap.put(queryUsedTable, usedPartitionSet);
         }
         return queryUsedRelatedTablePartitionsMap;
     }

@@ -80,13 +80,6 @@
 #define SCOPED_PEAK_MEM(peak_mem) \
     auto VARNAME_LINENUM(scope_peak_mem) = doris::ScopedPeakMem(peak_mem)
 
-// Count a code segment memory (memory malloc - memory free) to MemTracker.
-// Compared to count `scope_mem`, MemTracker is easier to observe from the outside and is thread-safe.
-// Usage example: std::unique_ptr<MemTracker> tracker = std::make_unique<MemTracker>("first_tracker");
-//                { SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(_mem_tracker.get()); xxx; xxx; }
-#define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
-    auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
-
 #define SCOPED_SKIP_MEMORY_CHECK() \
     auto VARNAME_LINENUM(scope_skip_memory_check) = doris::ScopeSkipMemoryCheck()
 
@@ -154,8 +147,6 @@ static std::string NO_THREAD_CONTEXT_MSG =
 // Is true after ThreadContext construction.
 inline thread_local bool pthread_context_ptr_init = false;
 inline thread_local constinit ThreadContext* thread_context_ptr = nullptr;
-// use mem hook to consume thread mem tracker.
-inline thread_local bool use_mem_hook = false;
 
 // The thread context saves some info about a working thread.
 // 2 required info:
@@ -383,15 +374,6 @@ private:
     bool _need_pop = false;
 };
 
-class AddThreadMemTrackerConsumerByHook {
-public:
-    explicit AddThreadMemTrackerConsumerByHook(const std::shared_ptr<MemTracker>& mem_tracker);
-    ~AddThreadMemTrackerConsumerByHook();
-
-private:
-    std::shared_ptr<MemTracker> _mem_tracker;
-};
-
 class ScopeSkipMemoryCheck {
 public:
     explicit ScopeSkipMemoryCheck() {
@@ -409,7 +391,7 @@ public:
 // must call create_thread_local_if_not_exits() before use thread_context().
 #define CONSUME_THREAD_MEM_TRACKER(size)                                                           \
     do {                                                                                           \
-        if (size == 0 || doris::use_mem_hook) {                                                    \
+        if (size == 0) {                                                                           \
             break;                                                                                 \
         }                                                                                          \
         if (doris::pthread_context_ptr_init) {                                                     \

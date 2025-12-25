@@ -84,8 +84,13 @@ public class UtcTime extends ScalarFunction
 
     @Override
     public void checkLegalityAfterRewrite() {
-        if (arity() == 1 && !child(0).isLiteral()) {
-            throw new AnalysisException("UTC_TIME scale argument must be a constant literal.");
+        if (arity() == 1) {
+            if (child(0).isNullLiteral()) {
+                throw new AnalysisException("UTC_TIME argument cannot be NULL.");
+            }
+            if (!child(0).isLiteral()) {
+                throw new AnalysisException("UTC_TIME scale argument must be a constant literal.");
+            }
         }
     }
 

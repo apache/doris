@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.suite.ClusterOptions
-
 // Every docker suite will connect to a docker cluster.
 // The docker cluster is new created and independent, not contains history data,
 // not affect the external doris cluster, not affect other docker cluster.
@@ -62,6 +60,8 @@ import org.apache.doris.regression.suite.ClusterOptions
 //    Because when run docker suite without an external doris cluster, if suite use code `isCloudMode()`, it need specific -runMode=cloud/not_cloud.
 //    On the contrary, `ClusterOptions.cloudMode = true/false` no need specific -runMode=cloud/not_cloud when no external doris cluster exists.
 // 3. For more options and functions usage, read the file `suite/SuiteCluster.groovy` in regression framework.
+
+import org.apache.doris.regression.suite.ClusterOptions
 
 suite('docker_action', 'docker') {
     // run a new docker

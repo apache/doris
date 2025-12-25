@@ -46,7 +46,6 @@ struct IteratorRowRef;
 namespace segment_v2 {
 struct SubstreamIterator;
 }
-
 class StorageReadOptions {
 public:
     struct KeyRange {
@@ -104,9 +103,10 @@ public:
             AndBlockColumnPredicate::create_shared();
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
-    std::vector<ColumnPredicate*> column_predicates;
+    std::vector<std::shared_ptr<ColumnPredicate>> column_predicates;
     std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
-    std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> del_predicates_for_zone_map;
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            del_predicates_for_zone_map;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
     // REQUIRED (null is not allowed)
@@ -143,6 +143,9 @@ public:
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
 
+    std::map<int32_t, TColumnAccessPaths> all_access_paths;
+    std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
+
     std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
 
@@ -156,7 +159,14 @@ public:
 struct CompactionSampleInfo {
     int64_t bytes = 0;
     int64_t rows = 0;
-    int64_t group_data_size;
+    int64_t group_data_size = 0;
+};
+
+struct BlockWithSameBit {
+    vectorized::Block* block;
+    std::vector<bool>& same_bit;
+
+    bool empty() const { return block->rows() == 0; }
 };
 
 class RowwiseIterator;
@@ -172,11 +182,13 @@ public:
     // Return Status::OK() if init successfully,
     // Return other error otherwise
     virtual Status init(const StorageReadOptions& opts) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("to be implemented, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
     virtual Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
     // If there is any valid data, this function will load data
@@ -184,24 +196,34 @@ public:
     // If there is no data to read, will return Status::EndOfFile.
     // If other error happens, other error code will be returned.
     virtual Status next_batch(vectorized::Block* block) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
-    virtual Status next_block_view(vectorized::BlockView* block_view) {
-        return Status::NotSupported("to be implemented");
+    virtual Status next_batch(BlockWithSameBit* block_with_same_bit) {
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
+    }
+
+    virtual Status next_batch(vectorized::BlockView* block_view) {
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
     virtual Status next_row(vectorized::IteratorRowRef* ref) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
     virtual Status unique_key_next_row(vectorized::IteratorRowRef* ref) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
-    virtual bool support_return_data_by_ref() { return false; }
+    virtual bool is_merge_iterator() const { return false; }
 
     virtual Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
     // return schema for this Iterator

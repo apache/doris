@@ -292,7 +292,7 @@ Status CgroupCpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) 
         std::string wg_path = query_path + unused_wg_id;
         int ret = rmdir(wg_path.c_str());
         if (ret < 0) {
-            LOG(WARNING) << "rmdir failed, path=" << wg_path;
+            LOG(WARNING) << "remove cgroup path failed, path=" << wg_path << ", error=" << ret;
             failed_count++;
         }
     }
@@ -317,7 +317,8 @@ Status CgroupV1CpuCtl::init() {
     if (access(_cgroup_v1_cpu_tg_path.c_str(), F_OK) != 0) {
         int ret = mkdir(_cgroup_v1_cpu_tg_path.c_str(), S_IRWXU);
         if (ret != 0) {
-            LOG(ERROR) << "cgroup v1 mkdir workload group failed, path=" << _cgroup_v1_cpu_tg_path;
+            LOG(WARNING) << "cgroup v1 make workload group dir failed, path="
+                         << _cgroup_v1_cpu_tg_path << ", error=" << ret;
             return Status::InternalError<false>("cgroup v1 mkdir workload group failed, path={}",
                                                 _cgroup_v1_cpu_tg_path);
         }
@@ -382,6 +383,8 @@ Status CgroupV2CpuCtl::init() {
     if (access(_cgroup_v2_query_wg_path.c_str(), F_OK) != 0) {
         int ret = mkdir(_cgroup_v2_query_wg_path.c_str(), S_IRWXU);
         if (ret != 0) {
+            LOG(WARNING) << "cgroup v2 make workload group dir failed, path="
+                         << _cgroup_v2_query_wg_path << ", error=" << ret;
             return Status::InternalError<false>("cgroup v2 mkdir wg failed, path={}",
                                                 _cgroup_v2_query_wg_path);
         }

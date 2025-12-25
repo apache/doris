@@ -30,12 +30,12 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
@@ -49,7 +49,6 @@ import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
@@ -64,12 +63,11 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeSet;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -98,9 +96,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected long selectedPartitionNum = 0;
     protected int selectedSplitNum = 0;
 
-    // create a mapping between output slot's id and project expr
-    Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
-
     // support multi topn filter
     protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
 
@@ -112,8 +107,8 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     // Now only OlapScanNode and FileQueryScanNode implement this.
     protected HashSet<Long> scanBackendIds = new HashSet<>();
 
-    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
-        super(id, desc.getId().asList(), planNodeName, statisticalType);
+    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
+        super(id, desc.getId().asList(), planNodeName);
         this.desc = desc;
     }
 
@@ -264,10 +259,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         List<Range<ColumnBound>> result = Lists.newArrayList();
         if (expr instanceof BinaryPredicate) {
             BinaryPredicate binPred = (BinaryPredicate) expr;
-            ArrayList<Expr> partitionExprs = (partitionsInfo != null && partitionsInfo.enableAutomaticPartition())
-                    ? partitionsInfo.getPartitionExprs()
-                    : null;
-            Expr slotBinding = binPred.getSlotBinding(desc.getId(), partitionExprs);
+            Expr slotBinding = binPred.getSlotBinding(desc.getId());
             if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                 return ColumnRanges.createFailure();
             }
@@ -357,10 +349,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                     continue;
                 }
 
-                ArrayList<Expr> partitionExprs = (partitionsInfo != null && partitionsInfo.enableAutomaticPartition())
-                        ? partitionsInfo.getPartitionExprs()
-                        : null;
-                Expr slotBinding = binPredicate.getSlotBinding(desc.getId(), partitionExprs);
+                Expr slotBinding = binPredicate.getSlotBinding(desc.getId());
 
                 if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                     continue;
@@ -536,7 +525,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 .add("tid", desc.getId().asInt())
                 .add("tblName", desc.getTable().getName())
                 .add("keyRanges", "")
-                .addValue(super.debugString()).toString();
+                .add("preds", Expr.debugString(conjuncts))
+                .add("limit", Long.toString(limit))
+                .toString();
     }
 
     public List<TupleId> getOutputTupleIds() {
@@ -715,5 +706,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public void setDesc(TupleDescriptor desc) {
         this.desc = desc;
+    }
+
+    public long getCatalogId() {
+        return Env.getCurrentInternalCatalog().getId();
     }
 }

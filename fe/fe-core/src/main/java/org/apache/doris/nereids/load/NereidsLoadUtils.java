@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -199,8 +198,8 @@ public class NereidsLoadUtils {
                 partitionNamesInfo != null ? partitionNamesInfo.getPartitionNames() : ImmutableList.of(),
                 isPartialUpdate, partialUpdateNewKeyPolicy, DMLCommandType.LOAD, currentRootPlan);
 
-        CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), currentRootPlan,
-                PhysicalProperties.ANY);
+        CascadesContext cascadesContext = CascadesContext.initContext(ConnectContext.get().getStatementContext(),
+                currentRootPlan, PhysicalProperties.ANY);
         ConnectContext ctx = cascadesContext.getConnectContext();
         // we force convert nullable column to non-nullable column for load
         // so set feDebug to false to avoid AdjustNullableRule report error

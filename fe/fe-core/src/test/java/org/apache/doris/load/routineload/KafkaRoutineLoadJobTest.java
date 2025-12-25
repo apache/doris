@@ -18,7 +18,6 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.ImportSequenceStmt;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -78,7 +77,6 @@ public class KafkaRoutineLoadJobTest {
 
     private String jobName = "job1";
     private String dbName = "db1";
-    private LabelName labelName = new LabelName(dbName, jobName);
     private LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
     private String tableNameString = "table1";
     private String topicName = "topic1";

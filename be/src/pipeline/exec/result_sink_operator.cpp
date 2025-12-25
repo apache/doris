@@ -77,13 +77,8 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     // create writer based on sink type
     switch (p._sink_type) {
     case TResultSinkType::MYSQL_PROTOCOL: {
-        if (state->mysql_row_binary_format()) {
-            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<true>(
-                    _sender, _output_vexpr_ctxs, custom_profile()));
-        } else {
-            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<false>(
-                    _sender, _output_vexpr_ctxs, custom_profile()));
-        }
+        _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter(
+                _sender, _output_vexpr_ctxs, custom_profile(), state->mysql_row_binary_format()));
         break;
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCOL: {
@@ -121,12 +116,6 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     // prepare output_expr
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
-    if (_fetch_option.use_two_phase_fetch) {
-        for (auto& expr_ctx : _output_vexpr_ctxs) {
-            // Must materialize if it a slot, or the slot column id will be -1
-            expr_ctx->set_force_materialize_slot();
-        }
-    }
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
 

@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -42,19 +41,6 @@ public class StructLiteral extends LiteralExpr {
         children = new ArrayList<>();
     }
 
-    public StructLiteral(LiteralExpr... exprs) throws AnalysisException {
-        type = new StructType();
-        children = new ArrayList<>();
-        for (int i = 0; i < exprs.length; i++) {
-            if (!StructType.STRUCT.supportSubType(exprs[i].getType())) {
-                throw new AnalysisException("Invalid element type in STRUCT: " + exprs[i].getType());
-            }
-            ((StructType) type).addField(
-                    new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), exprs[i].getType()));
-            children.add(exprs[i]);
-        }
-    }
-
     /**
      * for nereids
      */
@@ -67,6 +53,7 @@ public class StructLiteral extends LiteralExpr {
             }
             children.add(expr);
         }
+        this.nullable = false;
     }
 
     protected StructLiteral(StructLiteral other) {
@@ -85,13 +72,6 @@ public class StructLiteral extends LiteralExpr {
             TableIf table) {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toSqlImpl(disableTableName, needExternalSql, tableType, table)));
-        return "STRUCT(" + StringUtils.join(list, ", ") + ")";
-    }
-
-    @Override
-    public String toDigestImpl() {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.toDigestImpl()));
         return "STRUCT(" + StringUtils.join(list, ", ") + ")";
     }
 

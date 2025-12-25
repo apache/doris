@@ -24,6 +24,8 @@
 #include <algorithm>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include <crc32c/crc32c.h>
+
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -46,10 +48,12 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/external_col_meta_util.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant/variant_ext_meta_writer.h"
 #include "olap/rowset/segment_v2/variant_stats_calculator.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
@@ -60,7 +64,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "util/simd/bits.h"
@@ -72,7 +75,6 @@
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
 #include "vec/runtime/vdatetime_value.h"
-
 namespace doris {
 namespace segment_v2 {
 #include "common/compile_check_begin.h"
@@ -213,7 +215,6 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         opts.gram_bf_size = cast_set<uint16_t>(gram_bf_size);
     }
 
-    opts.need_bitmap_index = column.has_bitmap_index();
     bool skip_inverted_index = false;
     if (_opts.rowset_ctx != nullptr) {
         // skip write inverted index for index compaction column
@@ -246,7 +247,6 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opts.need_zone_map = false;                           \
         opts.need_bloom_filter = false;                       \
-        opts.need_bitmap_index = false;                       \
     }
 
     DISABLE_INDEX_IF_FIELD_TYPE(STRUCT, "struct")
@@ -303,6 +303,10 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.rowset_ctx != nullptr) {
         opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
     }
+    opts.encoding_preference = {.integer_type_default_use_plain_encoding =
+                                        _tablet_schema->integer_type_default_use_plain_encoding(),
+                                .binary_plain_encoding_default_impl =
+                                        _tablet_schema->binary_plain_encoding_default_impl()};
 
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
@@ -965,7 +969,6 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
-    RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_inverted_index());
     RETURN_IF_ERROR(_write_ann_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
@@ -1043,10 +1046,9 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
                                                              cache_builder->_expiration_time == 0 &&
                                                              config::is_cloud_mode()) {
         auto size = *index_size + *segment_file_size;
-        auto holder = cache_builder->allocate_cache_holder(index_start, size);
+        auto holder = cache_builder->allocate_cache_holder(index_start, size, _tablet->tablet_id());
         for (auto& segment : holder->file_blocks) {
-            static_cast<void>(
-                    segment->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
+            static_cast<void>(segment->change_cache_type(io::FileCacheType::INDEX));
         }
     }
     return Status::OK();
@@ -1098,13 +1100,6 @@ Status SegmentWriter::_write_zone_map() {
     return Status::OK();
 }
 
-Status SegmentWriter::_write_bitmap_index() {
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->write_bitmap_index());
-    }
-    return Status::OK();
-}
-
 Status SegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
@@ -1144,6 +1139,15 @@ Status SegmentWriter::_write_primary_key_index() {
 
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
+    // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
+    if (_tablet_schema->is_external_segment_column_meta_used()) {
+        _footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
+        VLOG_DEBUG << "use external column meta";
+        // External ColumnMetaPB writing (optional)
+        RETURN_IF_ERROR(ExternalColMetaUtil::write_external_column_meta(
+                _file_writer, &_footer, _opts.compression_type,
+                [this](const std::vector<Slice>& slices) { return _write_raw_data(slices); }));
+    }
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;
@@ -1156,7 +1160,7 @@ Status SegmentWriter::_write_footer() {
     // footer's size
     put_fixed32_le(&fixed_buf, cast_set<uint32_t>(footer_buf.size()));
     // footer's checksum
-    uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
     // Append magic number. we don't write magic number in the header because
     // that will need an extra seek when reading

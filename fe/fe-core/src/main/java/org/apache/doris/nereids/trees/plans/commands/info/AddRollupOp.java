@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AddRollupClause;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -92,11 +90,6 @@ public class AddRollupOp extends AlterTableOp {
             }
         }
         baseRollupName = Strings.emptyToNull(baseRollupName);
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new AddRollupClause(rollupName, columnNames, dupKeys, baseRollupName, properties);
     }
 
     @Override

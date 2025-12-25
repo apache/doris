@@ -103,6 +103,7 @@ std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode r
     case PROTOBUF_PARSE_ERR:
         return {400, "INVALID_ARGUMENT"};
     case CLUSTER_NOT_FOUND:
+    case TABLET_NOT_FOUND:
         return {404, "NOT_FOUND"};
     case ALREADY_EXISTED:
         return {409, "ALREADY_EXISTED"};
@@ -608,10 +609,39 @@ static HttpResponse process_fix_tablet_stats(MetaServiceImpl* service, brpc::Con
     auto& uri = ctrl->http_request().uri();
     std::string_view cloud_unique_id = http_query(uri, "cloud_unique_id");
     std::string_view table_id = http_query(uri, "table_id");
+    std::string_view tablet_id = http_query(uri, "tablet_id");
 
-    MetaServiceResponseStatus st =
-            service->fix_tablet_stats(std::string(cloud_unique_id), std::string(table_id));
+    MetaServiceResponseStatus st = service->fix_tablet_stats(
+            std::string(cloud_unique_id), std::string(table_id), std::string(tablet_id));
     return http_text_reply(st, st.DebugString());
+}
+
+static HttpResponse process_fix_tablet_db_id(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    std::string tablet_id_str(http_query(uri, "tablet_id"));
+    std::string db_id_str(http_query(uri, "db_id"));
+
+    int64_t tablet_id = 0, db_id = 0;
+    try {
+        db_id = std::stol(db_id_str);
+    } catch (const std::exception& e) {
+        auto msg = fmt::format("db_id {} must be a number, meet error={}", db_id_str, e.what());
+        LOG(WARNING) << msg;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
+
+    try {
+        tablet_id = std::stol(tablet_id_str);
+    } catch (const std::exception& e) {
+        auto msg = fmt::format("tablet_id {} must be a number, meet error={}", tablet_id_str,
+                               e.what());
+        LOG(WARNING) << msg;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
+
+    auto [code, msg] = service->fix_tablet_db_id(instance_id, tablet_id, db_id);
+    return http_text_reply(code, msg, "");
 }
 
 static HttpResponse process_get_stage(MetaServiceImpl* service, brpc::Controller* ctrl) {
@@ -878,6 +908,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"txn_lazy_commit", process_txn_lazy_commit},
             {"injection_point", process_injection_point},
             {"fix_tablet_stats", process_fix_tablet_stats},
+            {"fix_tablet_db_id", process_fix_tablet_db_id},
             {"v1/decode_key", process_decode_key},
             {"v1/encode_key", process_encode_key},
             {"v1/get_value", process_get_value},
@@ -886,6 +917,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/txn_lazy_commit", process_txn_lazy_commit},
             {"v1/injection_point", process_injection_point},
             {"v1/fix_tablet_stats", process_fix_tablet_stats},
+            {"v1/fix_tablet_db_id", process_fix_tablet_db_id},
             // for get
             {"get_instance", process_get_instance_info},
             {"get_obj_store_info", process_get_obj_store_info},

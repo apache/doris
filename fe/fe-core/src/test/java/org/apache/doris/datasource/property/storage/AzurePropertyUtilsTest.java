@@ -44,6 +44,22 @@ public class AzurePropertyUtilsTest {
     }
 
     @Test
+    public void testAbfssUri() throws Exception {
+        String input = "abfss://container@account.blob.core.windows.net/data/file.txt";
+        String expected = "s3://container/data/file.txt";
+        Assertions.assertEquals(expected, AzurePropertyUtils.validateAndNormalizeUri(input));
+        input = "abfs://container@account.blob.core.windows.net/data/file.txt";
+        expected = "s3://container/data/file.txt";
+        Assertions.assertEquals(expected, AzurePropertyUtils.validateAndNormalizeUri(input));
+        input = "abfss://1a2b3c4d-1234-5678-abcd-9876543210ef@onelake.dfs.fabric.microsoft.com/myworkspace/lakehouse/default/Files/data/test.parquet";
+        Assertions.assertEquals(input,
+                AzurePropertyUtils.validateAndNormalizeUri(input));
+        input = "abfs://1a2b3c4d-1234-5678-abcd-9876543210ef@onelake.dfs.fabric.microsoft.com/myworkspace/lakehouse/default/Files/data/test.parquet";
+        Assertions.assertEquals(input,
+                AzurePropertyUtils.validateAndNormalizeUri(input));
+    }
+
+    @Test
     public void testAbfssUriWithoutPath() throws Exception {
         String input = "abfss://container@account.blob.core.windows.net";
         String expected = "s3://container";

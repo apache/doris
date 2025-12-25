@@ -37,6 +37,7 @@ import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
+import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -125,7 +126,8 @@ public abstract class ExternalCatalog
     // Properties that should not be shown in the `show create catalog` result
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
             CREATE_TIME,
-            USE_META_CACHE);
+            USE_META_CACHE,
+            CatalogProperty.ENABLE_MAPPING_VARBINARY);
 
     protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
 
@@ -241,6 +243,13 @@ public abstract class ExternalCatalog
         // set default value to true, no matter is replaying or not.
         // After 4.0, all external catalogs will use meta cache by default.
         catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
+        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_VARBINARY, "").isEmpty()) {
+            catalogProperty.setEnableMappingVarbinary(false);
+        }
+    }
+
+    public boolean getEnableMappingVarbinary() {
+        return catalogProperty.getEnableMappingVarbinary();
     }
 
     // we need check auth fallback for kerberos or simple
@@ -351,7 +360,7 @@ public abstract class ExternalCatalog
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
-                    Config.max_meta_object_cache_num,
+                    Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> getFilteredDatabaseNames(),
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
@@ -533,6 +542,7 @@ public abstract class ExternalCatalog
      * @param invalidCache
      */
     public void onRefreshCache(boolean invalidCache) {
+        setLastUpdateTime(System.currentTimeMillis());
         refreshMetaCacheOnly();
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
@@ -842,6 +852,8 @@ public abstract class ExternalCatalog
                 return new PaimonExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TRINO_CONNECTOR:
                 return new TrinoConnectorExternalDatabase(this, dbId, localDbName, remoteDbName);
+            case REMOTE_DORIS:
+                return new RemoteDorisExternalDatabase(this, dbId, localDbName, remoteDbName);
             default:
                 break;
         }

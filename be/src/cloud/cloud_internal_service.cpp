@@ -47,6 +47,8 @@ bvar::LatencyRecorder g_file_cache_get_by_peer_server_latency(
         "file_cache_get_by_peer_server_latency");
 bvar::LatencyRecorder g_file_cache_get_by_peer_read_cache_file_latency(
         "file_cache_get_by_peer_read_cache_file_latency");
+bvar::LatencyRecorder g_cloud_internal_service_get_file_cache_meta_by_tablet_id_latency(
+        "cloud_internal_service_get_file_cache_meta_by_tablet_id_latency");
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
         : PInternalService(exec_env), _engine(engine) {}
@@ -95,13 +97,26 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         LOG_WARNING("try to access tablet file cache meta, but file cache not enabled");
         return;
     }
-    LOG(INFO) << "warm up get meta from this be, tablets num=" << request->tablet_ids().size();
+    auto begin_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch())
+                            .count();
+    std::ostringstream tablet_ids_stream;
+    int count = 0;
+    for (const auto& tablet_id : request->tablet_ids()) {
+        tablet_ids_stream << tablet_id << ", ";
+        count++;
+        if (count >= 10) {
+            break;
+        }
+    }
+    LOG(INFO) << "warm up get meta from this be, tablets num=" << request->tablet_ids().size()
+              << ", first 10 tablet_ids=[ " << tablet_ids_stream.str() << " ]";
     for (const auto& tablet_id : request->tablet_ids()) {
         auto res = _engine.tablet_mgr().get_tablet(tablet_id);
         if (!res.has_value()) {
             LOG(ERROR) << "failed to get tablet: " << tablet_id
                        << " err msg: " << res.error().msg();
-            return;
+            continue;
         }
         CloudTabletSPtr tablet = std::move(res.value());
         auto st = tablet->sync_rowsets();
@@ -166,7 +181,13 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
             }
         }
     }
-    VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
+    auto end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                          std::chrono::steady_clock::now().time_since_epoch())
+                          .count();
+    g_cloud_internal_service_get_file_cache_meta_by_tablet_id_latency << (end_ts - begin_ts);
+    LOG(INFO) << "get file cache meta by tablet ids = [ " << tablet_ids_stream.str() << " ] took "
+              << end_ts - begin_ts << " us";
+    VLOG_DEBUG << "get file cache meta by tablet id request=" << request->DebugString()
                << ", response=" << response->DebugString();
 }
 
@@ -187,10 +208,20 @@ void set_error_response(PFetchPeerDataResponse* response, const std::string& err
     response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
 }
 
-Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block,
+Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block, size_t file_size,
                        doris::CacheBlockPB* output) {
     std::string data;
-    data.resize(file_block->range().size());
+    // ATTN: calculate the rightmost boundary value of the block, due to inaccurate current block meta information.
+    // see CachedRemoteFileReader::read_at_impl for more details.
+    // Ensure file_size >= file_block->offset() to avoid underflow
+    if (file_size < file_block->offset()) {
+        LOG(WARNING) << "file_size (" << file_size << ") < file_block->offset("
+                     << file_block->offset() << ")";
+        return Status::InternalError<false>("file_size less than block offset");
+    }
+    size_t read_size = std::min(static_cast<size_t>(file_size - file_block->offset()),
+                                file_block->range().size());
+    data.resize(read_size);
 
     auto begin_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                       std::chrono::steady_clock::now().time_since_epoch())
@@ -206,6 +237,8 @@ Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block,
     g_file_cache_get_by_peer_read_cache_file_latency << (end_read_file_ts - begin_read_file_ts);
 
     if (read_st.ok()) {
+        output->set_block_offset(static_cast<int64_t>(file_block->offset()));
+        output->set_block_size(static_cast<int64_t>(read_size));
         output->set_data(std::move(data));
         return Status::OK();
     } else {
@@ -223,7 +256,7 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
     if (cache == nullptr) {
         g_file_cache_get_by_peer_failed_num << 1;
         set_error_response(response, "can't get file cache instance");
-        return Status::InternalError("can't get file cache instance");
+        return Status::InternalError<false>("can't get file cache instance");
     }
 
     io::CacheContext ctx {};
@@ -240,15 +273,12 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
                 g_file_cache_get_by_peer_failed_num << 1;
                 LOG(WARNING) << "read cache block failed, state=" << fb->state();
                 set_error_response(response, "read cache file error");
-                return Status::InternalError("cache block not downloaded");
+                return Status::InternalError<false>("cache block not downloaded");
             }
 
             g_file_cache_get_by_peer_blocks_num << 1;
             doris::CacheBlockPB* out = response->add_datas();
-            out->set_block_offset(static_cast<int64_t>(fb->offset()));
-            out->set_block_size(static_cast<int64_t>(fb->range().size()));
-
-            Status read_status = read_file_block(fb, out);
+            Status read_status = read_file_block(fb, request->file_size(), out);
             if (!read_status.ok()) {
                 set_error_response(response, "read cache file error");
                 return read_status;
@@ -416,13 +446,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                       << " us, tablet_id: " << rs_meta.tablet_id()
                       << ", rowset_id: " << rowset_id.to_string();
         }
-        int64_t expiration_time =
-                tablet_meta->ttl_seconds() == 0 || rs_meta.newest_write_timestamp() <= 0
-                        ? 0
-                        : rs_meta.newest_write_timestamp() + tablet_meta->ttl_seconds();
-        if (expiration_time <= UnixSeconds()) {
-            expiration_time = 0;
-        }
+        int64_t expiration_time = tablet_meta->ttl_seconds();
 
         if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpTriggerSource::EVENT_DRIVEN)) {
             LOG(INFO) << "found duplicate warmup task for rowset " << rowset_id.to_string()

@@ -29,6 +29,8 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "common/bvars.h"
@@ -127,6 +129,15 @@ private:
 enum class RowsetRecyclingState {
     FORMAL_ROWSET,
     TMP_ROWSET,
+};
+
+// Represents a single rowset deletion task for batch delete
+struct RowsetDeleteTask {
+    RowsetMetaCloudPB rowset_meta;
+    std::string recycle_rowset_key;       // Primary key marking "pending recycle"
+    std::string non_versioned_rowset_key; // Legacy non-versioned rowset meta key
+    std::string versioned_rowset_key;     // Versioned meta rowset key
+    std::string rowset_ref_count_key;
 };
 
 class RecyclerMetricsContext {
@@ -234,6 +245,17 @@ public:
 
 class InstanceRecycler {
 public:
+    struct PackedFileRecycleStats {
+        int64_t num_scanned = 0;          // packed-file kv scanned
+        int64_t num_corrected = 0;        // packed-file kv corrected
+        int64_t num_deleted = 0;          // packed-file kv deleted
+        int64_t num_failed = 0;           // packed-file kv failed
+        int64_t bytes_deleted = 0;        // packed-file kv bytes deleted from txn-kv
+        int64_t num_object_deleted = 0;   // packed-file objects deleted from storage (vault/HDFS)
+        int64_t bytes_object_deleted = 0; // bytes deleted from storage objects
+        int64_t rowset_scan_count = 0;    // rowset metas scanned during correction
+    };
+
     explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
                               RecyclerThreadPoolGroup thread_pool_group,
                               std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
@@ -336,9 +358,20 @@ public:
     // returns 0 for success otherwise error
     int recycle_restore_jobs();
 
+    /**
+     * Scan packed-file metadata, correct reference counters, and recycle unused packed files.
+     *
+     * @return 0 on success, non-zero error code otherwise
+     */
+    int recycle_packed_files();
+
     // scan and recycle snapshots
     // returns 0 for success otherwise error
     int recycle_cluster_snapshots();
+
+    // scan and recycle ref rowsets for deleted instance
+    // returns 0 for success otherwise error
+    int recycle_ref_rowsets(bool* has_unrecycled_rowsets);
 
     bool check_recycle_tasks();
 
@@ -363,6 +396,15 @@ public:
     int scan_and_statistics_versions();
 
     int scan_and_statistics_restore_jobs();
+
+    /**
+     * Decode the key of a packed-file metadata record into the persisted object path.
+     *
+     * @param key raw key persisted in txn-kv
+     * @param packed_path output object storage path referenced by the key
+     * @return true if decoding succeeds, false otherwise
+     */
+    static bool decode_packed_file_key(std::string_view key, std::string* packed_path);
 
     void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor) {
         accessor_map_.insert({std::string(id), std::move(accessor)});
@@ -403,6 +445,13 @@ private:
     int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
                            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
 
+    // return 0 for success otherwise error
+    int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
+
+    int delete_packed_file_and_kv(const std::string& packed_file_path,
+                                  const std::string& packed_key,
+                                  const cloud::PackedFileInfoPB& packed_info);
+
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
      * @return 0 if accessor is successfully inited, 1 if stage not found, negative for error
@@ -422,20 +471,71 @@ private:
     // for scan all rs of tablet and statistics metrics
     int scan_tablet_and_statistics(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
 
-    // Recycle operation log and the log key.
+    // Recycle operation log and the log keys. The log keys are specified by `raw_keys`.
     //
-    // The log_key is constructed from the log_version and instance_id.
-    // Both `operation_log` and `log_key` will be removed in the same transaction, to ensure atomicity.
-    int recycle_operation_log(Versionstamp log_version, OperationLogPB operation_log);
+    // Both `operation_log` and `raw_keys` will be removed in the same transaction, to ensure atomicity.
+    int recycle_operation_log(Versionstamp log_version, const std::vector<std::string>& raw_keys,
+                              OperationLogPB operation_log);
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
+    // Both recycle_rowset_key and non_versioned_rowset_key will be removed in the same transaction.
+    //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
     int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                     const RowsetMetaCloudPB& rowset_meta);
+                                     const RowsetMetaCloudPB& rowset_meta,
+                                     std::string_view non_versioned_rowset_key = "");
+
+    // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
+    int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,
+                                          std::vector<RowsetDeleteTask>& batch_delete_tasks);
+
+    // Cleanup metadata for deleted rowsets, return 0 for success otherwise error
+    int cleanup_rowset_metadata(const std::vector<RowsetDeleteTask>& tasks);
 
     // Whether the instance has any snapshots, return 0 for success otherwise error.
     int has_cluster_snapshots(bool* any);
+
+    // Whether need to recycle versioned keys
+    bool should_recycle_versioned_keys() const;
+
+    /**
+     * Parse the path of a packed-file fragment and output the owning tablet and rowset identifiers.
+     *
+     * @param path packed-file fragment path to decode
+     * @param tablet_id output tablet identifier extracted from the path
+     * @param rowset_id output rowset identifier extracted from the path
+     * @return true if both identifiers are successfully parsed, false otherwise
+     */
+    static bool parse_packed_slice_path(std::string_view path, int64_t* tablet_id,
+                                        std::string* rowset_id);
+    // Check whether a rowset referenced by a packed file still exists in metadata.
+    // @param stats optional recycle statistics collector.
+    int check_rowset_exists(int64_t tablet_id, const std::string& rowset_id, bool* exists,
+                            PackedFileRecycleStats* stats = nullptr);
+    int check_recycle_and_tmp_rowset_exists(int64_t tablet_id, const std::string& rowset_id,
+                                            int64_t txn_id, bool* recycle_exists, bool* tmp_exists);
+    /**
+     * Resolve which storage accessor should be used for a packed file.
+     *
+     * @param hint preferred storage resource identifier persisted with the file
+     * @return pair of the resolved resource identifier and accessor; the accessor can be null if unavailable
+     */
+    std::pair<std::string, std::shared_ptr<StorageVaultAccessor>> resolve_packed_file_accessor(
+            const std::string& hint);
+    // Recompute packed-file counters and lifecycle state after validating contained fragments.
+    // @param stats optional recycle statistics collector.
+    int correct_packed_file_info(cloud::PackedFileInfoPB* packed_info, bool* changed,
+                                 const std::string& packed_file_path,
+                                 PackedFileRecycleStats* stats = nullptr);
+    // Correct and recycle a single packed-file record, updating metadata and accounting statistics.
+    // @param stats optional recycle statistics collector.
+    int process_single_packed_file(const std::string& packed_key,
+                                   const std::string& packed_file_path,
+                                   PackedFileRecycleStats* stats);
+    // Process a packed-file KV while scanning and aggregate recycling statistics.
+    int handle_packed_file_kv(std::string_view key, std::string_view value,
+                              PackedFileRecycleStats* stats, int* ret);
 
 private:
     std::atomic_bool stopped_ {false};
@@ -468,6 +568,12 @@ private:
     SegmentRecyclerMetricsContext segment_metrics_context_;
 };
 
+struct OperationLogReferenceInfo {
+    bool referenced_by_instance = false;
+    bool referenced_by_snapshot = false;
+    Versionstamp referenced_snapshot_timestamp;
+};
+
 // Helper class to check if operation logs can be recycled based on snapshots and versionstamps
 class OperationLogRecycleChecker {
 public:
@@ -479,9 +585,14 @@ public:
     int init();
 
     // Check if an operation log can be recycled
-    bool can_recycle(const Versionstamp& log_versionstamp, int64_t log_min_timestamp) const;
+    bool can_recycle(const Versionstamp& log_versionstamp, int64_t log_min_timestamp,
+                     OperationLogReferenceInfo* reference_info) const;
 
     Versionstamp max_versionstamp() const { return max_versionstamp_; }
+
+    const std::vector<std::pair<SnapshotPB, Versionstamp>>& get_snapshots() const {
+        return snapshots_;
+    }
 
 private:
     std::string_view instance_id_;
@@ -491,6 +602,35 @@ private:
     Versionstamp source_snapshot_versionstamp_;
     std::map<Versionstamp, size_t> snapshot_indexes_;
     std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots_;
+};
+
+class SnapshotDataSizeCalculator {
+public:
+    SnapshotDataSizeCalculator(std::string_view instance_id, std::shared_ptr<TxnKv> txn_kv)
+            : instance_id_(instance_id), txn_kv_(std::move(txn_kv)) {}
+
+    void init(const std::vector<std::pair<SnapshotPB, Versionstamp>>& snapshots);
+
+    int calculate_operation_log_data_size(const std::string_view& log_key,
+                                          OperationLogPB& operation_log,
+                                          OperationLogReferenceInfo& reference_info);
+
+    int save_snapshot_data_size_with_retry();
+
+private:
+    int get_all_index_partitions(int64_t db_id, int64_t table_id, int64_t index_id,
+                                 std::vector<int64_t>* partition_ids);
+    int get_index_partition_data_size(int64_t db_id, int64_t table_id, int64_t index_id,
+                                      int64_t partition_id, int64_t* data_size);
+    int save_operation_log(const std::string_view& log_key, OperationLogPB& operation_log);
+    int save_snapshot_data_size();
+
+    std::string_view instance_id_;
+    std::shared_ptr<TxnKv> txn_kv_;
+
+    int64_t instance_retained_data_size_ = 0;
+    std::map<Versionstamp, int64_t> retained_data_size_;
+    std::set<std::string> calculated_partitions_;
 };
 
 } // namespace doris::cloud

@@ -39,7 +39,12 @@ suite("test_array_export", "export,external") {
     // check whether the FE config 'enable_outfile_to_local' is true
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
+        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
+    } else {
+        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
+    }
     String command = strBuilder.toString()
     def process = command.toString().execute()
     def code = process.waitFor()

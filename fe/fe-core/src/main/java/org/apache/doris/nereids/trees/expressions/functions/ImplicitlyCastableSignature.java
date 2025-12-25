@@ -18,16 +18,16 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
-import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Implicitly castable function signature. This class equals to 'CompareMode.IS_SUPERTYPE_OF'.
@@ -56,16 +56,24 @@ public interface ImplicitlyCastableSignature extends ComputeSignature {
             return false;
         }
         try {
-            // TODO: copy isImplicitlyCastable method to DataType
-            // TODO: resolve AnyDataType invoke toCatalogDataType
             if (signatureType instanceof ArrayType) {
                 if (((ArrayType) signatureType).getItemType() instanceof AnyDataType) {
                     return false;
                 }
             }
-            if (Type.isImplicitlyCastable(realType.toCatalogDataType(), signatureType.toCatalogDataType(), true,
-                    SessionVariable.getEnableDecimal256())) {
+            if (realType.isStringLikeType() && signatureType.isStringLikeType()
+                    || realType.equals(signatureType)) {
                 return true;
+            }
+            if ((realType.isNumericType() || realType.isBooleanType()) && signatureType.isNumericType()
+                    || (realType.isDateLikeType() || realType.isTimeType())
+                    && (signatureType.isDateLikeType() || signatureType.isTimeType())) {
+                Optional<DataType> commonType = TypeCoercionUtils.findWiderTypeForTwo(
+                        realType, signatureType, true, true);
+                if (commonType.isPresent() && commonType.get().toCatalogDataType()
+                        .matchesType(signatureType.toCatalogDataType())) {
+                    return true;
+                }
             }
         } catch (Throwable t) {
             // the signatureType maybe DataType and can not cast to catalog data type.

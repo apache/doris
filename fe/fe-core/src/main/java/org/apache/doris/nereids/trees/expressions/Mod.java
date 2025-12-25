@@ -32,7 +32,7 @@ import java.util.List;
 /**
  * Mod Expression.
  */
-public class Mod extends BinaryArithmetic implements AlwaysNullable, PropagateNullLiteral {
+public class Mod extends BinaryArithmetic implements AlwaysNullable, PropagateNullLiteral, NeedSessionVarGuard {
 
     public Mod(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.MOD);

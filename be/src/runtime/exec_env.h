@@ -30,6 +30,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "exec/schema_scanner/schema_routine_load_job_scanner.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
@@ -50,7 +51,6 @@ class MemoryPool;
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
-class ScannerScheduler;
 class SpillStreamManager;
 class DeltaWriterV2Pool;
 class DictionaryFactory;
@@ -64,6 +64,7 @@ struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
 class HdfsMgr;
+class PackedFileManager;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
@@ -105,6 +106,7 @@ class LoadStreamMgr;
 class LoadStreamMapPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
+class StreamLoadRecorderManager;
 class SmallFileMgr;
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
@@ -116,6 +118,7 @@ class HeartbeatFlags;
 class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
+class CdcClientMgr;
 class TabletSchemaCache;
 class TabletColumnObjectPool;
 class UserFunctionCache;
@@ -135,7 +138,10 @@ class IndexPolicyMgr;
 struct SyncRowsetStats;
 class DeleteBitmapAggCache;
 
+// set to true when BE is shutting down
 inline bool k_doris_exit = false;
+// set to true after BE start ready
+inline bool k_is_server_ready = false;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -166,9 +172,20 @@ public:
     }
 
     // Requires ExenEnv ready
+    /*
+     * Parameters:
+     * - tablet_id: the id of tablet to get
+     * - sync_stats: the stats of sync rowset
+     * - force_use_only_cached: whether only use cached data
+     * - cache_on_miss: whether cache the tablet meta when missing in cache
+     */
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
                                              SyncRowsetStats* sync_stats = nullptr,
-                                             bool force_use_cache = false);
+                                             bool force_use_only_cached = false,
+                                             bool cache_on_miss = true);
+
+    static Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                                  bool force_use_only_cached = false);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
@@ -246,6 +263,7 @@ public:
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
     ThreadPool* non_block_close_thread_pool();
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
+    ThreadPool* udf_close_workers_pool() { return _udf_close_workers_thread_pool.get(); }
 
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
@@ -271,13 +289,13 @@ public:
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
+    CdcClientMgr* cdc_client_mgr() { return _cdc_client_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
 
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor.get(); }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
-    vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
     WalManager* wal_mgr() { return _wal_manager.get(); }
@@ -288,6 +306,7 @@ public:
 
     kerberos::KerberosTicketMgr* kerberos_ticket_mgr() { return _kerberos_ticket_mgr; }
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
+    io::PackedFileManager* packed_file_manager() { return _packed_file_manager; }
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
 
 #ifdef BE_TEST
@@ -465,6 +484,8 @@ private:
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
     std::unique_ptr<ThreadPool> _non_block_close_thread_pool;
     std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
+    // for java-udf to close
+    std::unique_ptr<ThreadPool> _udf_close_workers_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
     WorkloadGroupMgr* _workload_group_manager = nullptr;
@@ -484,9 +505,9 @@ private:
 
     std::unique_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
+    StreamLoadRecorderManager* _stream_load_recorder_manager = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
-    vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
@@ -501,6 +522,7 @@ private:
     // ip:brpc_port -> frontend_indo
     std::map<TNetworkAddress, FrontendInfo> _frontends;
     GroupCommitMgr* _group_commit_mgr = nullptr;
+    CdcClientMgr* _cdc_client_mgr = nullptr;
 
     // Maybe we should use unique_ptr, but it need complete type, which means we need
     // to include many headers, and for some cpp file that do not need class like TabletSchemaCache,
@@ -543,6 +565,7 @@ private:
 
     kerberos::KerberosTicketMgr* _kerberos_ticket_mgr = nullptr;
     io::HdfsMgr* _hdfs_mgr = nullptr;
+    io::PackedFileManager* _packed_file_manager = nullptr;
 };
 
 template <>

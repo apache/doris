@@ -406,7 +406,8 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv1");
         Assertions.assertDoesNotThrow(
-                () -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, MTMVPlanUtil.createMTMVContext(mtmv)));
+                () -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
+                        MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE)));
     }
 
     @Test
@@ -445,7 +446,8 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("analyze_faild_mv1");
         JobException exception = Assertions.assertThrows(
                 org.apache.doris.job.exception.JobException.class, () -> {
-                    MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, MTMVPlanUtil.createMTMVContext(mtmv));
+                    MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
+                            MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE));
                 });
         Assertions.assertTrue(exception.getMessage().contains("suitable"));
     }
@@ -489,7 +491,8 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("t_partition1_mv1");
         JobException exception = Assertions.assertThrows(
                 org.apache.doris.job.exception.JobException.class, () -> {
-                    MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, MTMVPlanUtil.createMTMVContext(mtmv));
+                    MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
+                            MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE));
                 });
         Assertions.assertTrue(exception.getMessage().contains("changed"));
     }

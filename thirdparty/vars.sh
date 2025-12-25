@@ -115,6 +115,12 @@ ZLIB_NAME=zlib-1.3.1.tar.gz
 ZLIB_SOURCE=zlib-1.3.1
 ZLIB_MD5SUM="9855b6d802d7fe5b7bd5b196a2271655"
 
+# crc32c
+CRC32C_DOWNLOAD="https://github.com/google/crc32c/archive/refs/tags/1.1.2.tar.gz"
+CRC32C_NAME=crc32c-1.1.2.tar.gz
+CRC32C_SOURCE=crc32c-1.1.2
+CRC32C_MD5SUM="cc0338e6a60c38cab04a70a2c36cd9f2"
+
 # lz4
 LZ4_DOWNLOAD="https://github.com/lz4/lz4/archive/v1.9.4.tar.gz"
 LZ4_NAME=lz4-1.9.4.tar.gz
@@ -372,13 +378,13 @@ XML2_SOURCE="libxml2-v2.9.10"
 XML2_MD5SUM="b18faee9173c3378c910f6d7d1493115"
 
 # idn
-IDN_DOWNLOAD="https://ftpmirror.gnu.org/libidn/libidn-1.38.tar.gz"
+IDN_DOWNLOAD="https://ftp.nluug.nl/pub/gnu/libidn/libidn-1.38.tar.gz"
 IDN_NAME="libidn-1.38.tar.gz"
 IDN_SOURCE="libidn-1.38"
 IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
 
 # gsasl
-GSASL_DOWNLOAD="https://ftpmirror.gnu.org/gsasl/libgsasl-1.8.0.tar.gz"
+GSASL_DOWNLOAD="https://ftp.nluug.nl/pub/gnu/gsasl/libgsasl-1.8.0.tar.gz"
 GSASL_NAME="libgsasl-1.8.0.tar.gz"
 GSASL_SOURCE="libgsasl-1.8.0"
 GSASL_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
@@ -469,10 +475,10 @@ HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
 HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
 
 # libhdfs 3.4
-HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.1-for-doris.tar.gz"
-HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.1-for-doris.tar.gz"
-HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.1-for-doris"
-HADOOP_LIBS_3_4_MD5SUM="4ca35773ecfae856962885413f6bbeac"
+HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.2-for-doris.tar.gz"
+HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.2-for-doris.tar.gz"
+HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.2-for-doris"
+HADOOP_LIBS_3_4_MD5SUM="b649508cdff5c8603abd659b754a2796"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
@@ -559,6 +565,7 @@ export TP_ARCHIVES=(
     'SNAPPY'
     'GPERFTOOLS'
     'ZLIB'
+    'CRC32C'
     'LZ4'
     'BZIP'
     'LZO2'
@@ -631,13 +638,13 @@ export TP_ARCHIVES=(
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     #binutils
-    BINUTILS_DOWNLOAD='https://ftpmirror.gnu.org/gnu/binutils/binutils-2.39.tar.gz'
+    BINUTILS_DOWNLOAD='https://ftp.nluug.nl/pub/gnu/binutils/binutils-2.39.tar.gz'
     BINUTILS_NAME=binutils-2.39.tar.gz
     BINUTILS_SOURCE=binutils-2.39
     BINUTILS_MD5SUM='ab6825df57514ec172331e988f55fc10'
 
     #gettext
-    GETTEXT_DOWNLOAD='https://ftpmirror.gnu.org/gettext/gettext-0.21.tar.gz'
+    GETTEXT_DOWNLOAD='https://ftp.nluug.nl/pub/gnu/gettext/gettext-0.21.tar.gz'
     GETTEXT_NAME='gettext-0.21.tar.gz'
     GETTEXT_SOURCE='gettext-0.21'
     GETTEXT_MD5SUM='28b1cd4c94a74428723ed966c38cf479'

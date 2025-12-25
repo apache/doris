@@ -51,7 +51,6 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -113,13 +112,13 @@ public class HiveScanNode extends FileQueryScanNode {
      */
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
             DirectoryLister directoryLister) {
-        this(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv, sv, directoryLister);
+        this(id, desc, "HIVE_SCAN_NODE", needCheckColumnPriv, sv, directoryLister);
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, boolean needCheckColumnPriv, SessionVariable sv,
+            boolean needCheckColumnPriv, SessionVariable sv,
             DirectoryLister directoryLister) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv, sv);
+        super(id, desc, planNodeName, needCheckColumnPriv, sv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
         this.directoryLister = directoryLister;
@@ -409,43 +408,8 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public TFileFormatType getFileFormatType() throws UserException {
-        TFileFormatType type = null;
-        Table table = hmsTable.getRemoteTable();
-        String inputFormatName = table.getSd().getInputFormat();
-        String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
-        if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
-            type = TFileFormatType.FORMAT_PARQUET;
-        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
-            type = TFileFormatType.FORMAT_ORC;
-        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
-            String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
-            if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
-                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
-                type = TFileFormatType.FORMAT_JSON;
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
-                if (!sessionVariable.isReadHiveJsonInOneColumn()) {
-                    type = TFileFormatType.FORMAT_JSON;
-                } else if (sessionVariable.isReadHiveJsonInOneColumn()
-                        && hmsTable.firstColumnIsString()) {
-                    type = TFileFormatType.FORMAT_CSV_PLAIN;
-                } else {
-                    throw new UserException("You set read_hive_json_in_one_column = true, but the first column of "
-                            + "table " + hmsTable.getName()
-                            + " is not a string column.");
-                }
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_TEXT_SERDE)) {
-                type = TFileFormatType.FORMAT_TEXT;
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_OPEN_CSV_SERDE)) {
-                type = TFileFormatType.FORMAT_CSV_PLAIN;
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
-                type = TFileFormatType.FORMAT_TEXT;
-            } else {
-                throw new UserException("Unsupported hive table serde: " + serDeLib);
-            }
-        }
-        return type;
+        return hmsTable.getFileFormatType(sessionVariable);
     }
-
 
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {

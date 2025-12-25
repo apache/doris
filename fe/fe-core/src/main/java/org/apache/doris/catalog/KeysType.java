@@ -26,7 +26,8 @@ public enum KeysType {
     PRIMARY_KEYS,
     DUP_KEYS,
     UNIQUE_KEYS,
-    AGG_KEYS;
+    AGG_KEYS,
+    UNKNOWN;
 
     /**
      * Determine whether it is an aggregation type.

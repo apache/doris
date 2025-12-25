@@ -361,6 +361,153 @@ TEST_F(CloneChainReaderTest, GetTabletLoadStats) {
     }
 }
 
+TEST_F(CloneChainReaderTest, BatchGetTabletLoadStats) {
+    std::string instance_id = instance_ids_[2]; // C
+    Versionstamp snapshot_version = snapshot_versions_[2];
+    CloneChainReader reader(instance_id, snapshot_version, txn_kv_.get(), resource_mgr_.get());
+
+    std::vector<int64_t> tablet_ids = {2001, 2002, 2003, 2004};
+
+    // Case 1: Test empty input
+    {
+        std::vector<int64_t> empty_ids;
+        std::unordered_map<int64_t, TabletStatsPB> tablet_stats;
+        std::unordered_map<int64_t, Versionstamp> versionstamps;
+        ASSERT_EQ(reader.get_tablet_load_stats(empty_ids, &tablet_stats, &versionstamps),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(tablet_stats.empty());
+        ASSERT_TRUE(versionstamps.empty());
+    }
+
+    // Case 2: Test all keys not found
+    {
+        std::unordered_map<int64_t, TabletStatsPB> tablet_stats;
+        std::unordered_map<int64_t, Versionstamp> versionstamps;
+        ASSERT_EQ(reader.get_tablet_load_stats(tablet_ids, &tablet_stats, &versionstamps),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(tablet_stats.empty());
+        ASSERT_TRUE(versionstamps.empty());
+    }
+
+    // Case 3: Insert some tablet load stats in instance A (skip tablet_ids[1])
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (size_t i = 0; i < tablet_ids.size(); ++i) {
+            if (i == 1) continue; // Skip tablet_ids[1]
+            std::string tablet_load_stats_key =
+                    versioned::tablet_load_stats_key({instance_ids_[0], tablet_ids[i]});
+            TabletStatsPB tablet_stats;
+            tablet_stats.set_data_size(1000 * (i + 1));
+            tablet_stats.set_num_rows(100 * (i + 1));
+            std::string key = encode_versioned_key(tablet_load_stats_key, Versionstamp(100 + i, 1));
+            txn->put(key, tablet_stats.SerializeAsString());
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 3: Read from instance C should find partial data from A through clone chain
+    {
+        std::unordered_map<int64_t, TabletStatsPB> tablet_stats;
+        std::unordered_map<int64_t, Versionstamp> versionstamps;
+        ASSERT_EQ(reader.get_tablet_load_stats(tablet_ids, &tablet_stats, &versionstamps),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(tablet_stats.size(), 3); // All except tablet_ids[1]
+        ASSERT_EQ(versionstamps.size(), 3);
+
+        // Check min_read_version
+        Versionstamp min_expected = Versionstamp::max();
+        for (const auto& [tablet_id, versionstamp] : versionstamps) {
+            min_expected = std::min(min_expected, versionstamp);
+        }
+        ASSERT_EQ(reader.min_read_versionstamp(), min_expected);
+
+        for (size_t i = 0; i < tablet_ids.size(); ++i) {
+            if (i == 1) {
+                ASSERT_EQ(tablet_stats.count(tablet_ids[i]), 0);
+                ASSERT_EQ(versionstamps.count(tablet_ids[i]), 0);
+            } else {
+                ASSERT_EQ(tablet_stats.count(tablet_ids[i]), 1);
+                ASSERT_EQ(versionstamps.count(tablet_ids[i]), 1);
+                ASSERT_EQ(tablet_stats.at(tablet_ids[i]).data_size(), 1000 * (i + 1));
+                ASSERT_EQ(tablet_stats.at(tablet_ids[i]).num_rows(), 100 * (i + 1));
+                ASSERT_EQ(versionstamps.at(tablet_ids[i]), Versionstamp(100 + i, 1));
+            }
+        }
+    }
+
+    // Case 4: Insert data with version > snapshot_version in instance B (should be ignored)
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int64_t tablet_id : tablet_ids) {
+            std::string tablet_load_stats_key =
+                    versioned::tablet_load_stats_key({instance_ids_[1], tablet_id});
+            TabletStatsPB tablet_stats;
+            tablet_stats.set_data_size(9999);
+            tablet_stats.set_num_rows(999);
+            // Use a version larger than snapshot_versions_[1] (2000)
+            std::string key = encode_versioned_key(tablet_load_stats_key, Versionstamp(2500, 1));
+            txn->put(key, tablet_stats.SerializeAsString());
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 4: Should still return data from A, ignoring the large version from B
+    {
+        std::unordered_map<int64_t, TabletStatsPB> tablet_stats;
+        std::unordered_map<int64_t, Versionstamp> versionstamps;
+        ASSERT_EQ(reader.get_tablet_load_stats(tablet_ids, &tablet_stats, &versionstamps),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(tablet_stats.size(), 3); // Still missing tablet_ids[1]
+
+        for (size_t i = 0; i < tablet_ids.size(); ++i) {
+            if (i == 1) continue;
+            ASSERT_EQ(tablet_stats.at(tablet_ids[i]).data_size(), 1000 * (i + 1))
+                    << "Should not read data with version > snapshot";
+            ASSERT_EQ(tablet_stats.at(tablet_ids[i]).num_rows(), 100 * (i + 1));
+        }
+    }
+
+    // Case 5: Insert valid data in instance B (within snapshot version), including the missing one
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (size_t i = 0; i < tablet_ids.size(); ++i) {
+            std::string tablet_load_stats_key =
+                    versioned::tablet_load_stats_key({instance_ids_[1], tablet_ids[i]});
+            TabletStatsPB tablet_stats;
+            tablet_stats.set_data_size(1500 * (i + 1));
+            tablet_stats.set_num_rows(150 * (i + 1));
+            std::string key =
+                    encode_versioned_key(tablet_load_stats_key, Versionstamp(1500 + i, 1));
+            txn->put(key, tablet_stats.SerializeAsString());
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 5: Should return the first encountered data (from B for all tablets)
+    {
+        std::unordered_map<int64_t, TabletStatsPB> tablet_stats;
+        std::unordered_map<int64_t, Versionstamp> versionstamps;
+        ASSERT_EQ(reader.get_tablet_load_stats(tablet_ids, &tablet_stats, &versionstamps),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(tablet_stats.size(), tablet_ids.size());
+        ASSERT_EQ(versionstamps.size(), tablet_ids.size());
+
+        for (size_t i = 0; i < tablet_ids.size(); ++i) {
+            ASSERT_EQ(tablet_stats.count(tablet_ids[i]), 1);
+            ASSERT_EQ(tablet_stats.at(tablet_ids[i]).data_size(), 1500 * (i + 1))
+                    << "Should return first valid data encountered in chain";
+            ASSERT_EQ(tablet_stats.at(tablet_ids[i]).num_rows(), 150 * (i + 1));
+            ASSERT_EQ(versionstamps.at(tablet_ids[i]), Versionstamp(1500 + i, 1));
+        }
+    }
+}
+
 TEST_F(CloneChainReaderTest, GetTabletCompactStats) {
     std::string instance_id = instance_ids_[2]; // C
     Versionstamp snapshot_version = snapshot_versions_[2];

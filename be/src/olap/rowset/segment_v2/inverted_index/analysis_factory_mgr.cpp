@@ -19,9 +19,12 @@
 
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_replace_char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/empty_char_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/char_filter/icu_normalizer_char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/ascii_folding_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/empty_token_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/token_filter/icu_normalizer_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/lower_case_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/token_filter/pinyin_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/word_delimiter_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/basic/basic_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/char/char_group_tokenizer_factory.h"
@@ -29,6 +32,7 @@
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/icu/icu_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/keyword/keyword_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/ngram/edge_ngram_tokenizer_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/pinyin/pinyin_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/standard/standard_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -41,6 +45,9 @@ void AnalysisFactoryMgr::initialise() {
                 "empty", []() { return std::make_shared<EmptyCharFilterFactory>(); });
         registerFactory<CharFilterFactory>(
                 "char_replace", []() { return std::make_shared<CharReplaceCharFilterFactory>(); });
+        registerFactory<CharFilterFactory>("icu_normalizer", []() {
+            return std::make_shared<ICUNormalizerCharFilterFactory>();
+        });
 
         // tokenizer
         registerFactory<TokenizerFactory>(
@@ -59,6 +66,8 @@ void AnalysisFactoryMgr::initialise() {
                 "basic", []() { return std::make_shared<BasicTokenizerFactory>(); });
         registerFactory<TokenizerFactory>("icu",
                                           []() { return std::make_shared<ICUTokenizerFactory>(); });
+        registerFactory<TokenizerFactory>(
+                "pinyin", []() { return std::make_shared<PinyinTokenizerFactory>(); });
 
         // token_filter
         registerFactory<TokenFilterFactory>(
@@ -69,6 +78,10 @@ void AnalysisFactoryMgr::initialise() {
                 "asciifolding", []() { return std::make_shared<ASCIIFoldingFilterFactory>(); });
         registerFactory<TokenFilterFactory>(
                 "word_delimiter", []() { return std::make_shared<WordDelimiterFilterFactory>(); });
+        registerFactory<TokenFilterFactory>(
+                "pinyin", []() { return std::make_shared<PinyinFilterFactory>(); });
+        registerFactory<TokenFilterFactory>(
+                "icu_normalizer", []() { return std::make_shared<ICUNormalizerFilterFactory>(); });
     });
 }
 

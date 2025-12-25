@@ -50,6 +50,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -92,13 +93,13 @@ public class RuntimeProfile {
     private transient ReentrantReadWriteLock infoStringsLock = new ReentrantReadWriteLock();
 
     @SerializedName(value = "counterMap")
-    private Map<String, Counter> counterMap = Maps.newConcurrentMap();
+    private ConcurrentMap<String, Counter> counterMap = Maps.newConcurrentMap();
     @SerializedName(value = "childCounterMap")
-    private Map<String, TreeSet<String>> childCounterMap = Maps.newConcurrentMap();
+    private ConcurrentMap<String, TreeSet<String>> childCounterMap = Maps.newConcurrentMap();
     // protect TreeSet in ChildCounterMap
     private transient ReentrantReadWriteLock counterLock = new ReentrantReadWriteLock();
     @SerializedName(value = "childMap")
-    private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
+    private ConcurrentMap<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
     @SerializedName(value = "childList")
     private LinkedList<Pair<RuntimeProfile, Boolean>> childList = Lists.newLinkedList();
     private transient ReentrantReadWriteLock childLock = new ReentrantReadWriteLock();

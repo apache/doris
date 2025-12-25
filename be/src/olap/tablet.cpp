@@ -2905,14 +2905,13 @@ Status Tablet::prepare_txn(TPartitionId partition_id, TTransactionId transaction
 
     // TODO: rename debugpoint.
     DBUG_EXECUTE_IF("PushHandler::_do_streaming_ingestion.try_lock_fail", {
-        return Status::Error<TRY_LOCK_FAILED>(
-                "PushHandler::_do_streaming_ingestion get lock failed");
+        return Status::ObtainLockFailed("PushHandler::_do_streaming_ingestion get lock failed");
     })
 
     if (!base_migration_lock.try_lock_for(
                 std::chrono::milliseconds(config::migration_lock_timeout_ms))) {
-        return Status::Error<TRY_LOCK_FAILED>("try_lock migration lock failed after {}ms",
-                                              config::migration_lock_timeout_ms);
+        return Status::ObtainLockFailed("try_lock migration lock failed after {}ms",
+                                        config::migration_lock_timeout_ms);
     }
 
     std::lock_guard<std::mutex> push_lock(get_push_lock());

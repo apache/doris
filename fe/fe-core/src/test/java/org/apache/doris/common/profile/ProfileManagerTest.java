@@ -524,8 +524,10 @@ class ProfileManagerTest {
     @Test
     void testDeleteOutdatedProfilesFromStorage() throws IOException {
         int originMaxSpilledProfileNum = Config.max_spilled_profile_num;
+        boolean originalArchiveEnabled = Config.enable_profile_archive;
 
         try {
+            Config.enable_profile_archive = false; // Disable archiving for this test
             Config.max_spilled_profile_num = 10;
 
             // Create test profiles
@@ -557,6 +559,7 @@ class ProfileManagerTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         } finally {
+            Config.enable_profile_archive = originalArchiveEnabled;
             Config.max_spilled_profile_num = originMaxSpilledProfileNum;
         }
     }
@@ -843,6 +846,233 @@ class ProfileManagerTest {
         // Verify unfinished profile was not deleted
         for (Profile profile : profileUnfinished) {
             Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+        }
+    }
+
+    /**
+     * Integration Test: Test ProfileManager archives profiles when storage limit is exceeded.
+     * This tests the integration between ProfileManager and ProfileArchiveManager.
+     */
+    @Test
+    void testProfileArchiveIntegration() throws Exception {
+        // Save original config
+        boolean originalArchiveEnabled = Config.enable_profile_archive;
+        int originalMaxSpilled = Config.max_spilled_profile_num;
+        int originalBatchSize = Config.profile_archive_batch_size;
+
+        try {
+            // Enable archiving with small limits for testing
+            Config.enable_profile_archive = true;
+            Config.max_spilled_profile_num = 5;
+            Config.profile_archive_batch_size = 3;
+
+            // Create and store profiles
+            List<Profile> profiles = new ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                Thread.sleep(100);
+                Profile profile = ProfilePersistentTest.constructRandomProfile(1);
+                profile.isQueryFinished = true;
+                profile.setQueryFinishTimestamp(System.currentTimeMillis());
+
+                new Expectations(profile) {
+                    {
+                        profile.profileHasBeenStored();
+                        result = true;
+                    }
+                };
+
+                profileManager.pushProfile(profile);
+                profile.writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
+                profiles.add(profile);
+            }
+
+            // Trigger cleanup - should move old profiles to pending and possibly archive
+            profileManager.isProfileLoaded = true;
+            profileManager.deleteOutdatedProfilesFromStorage();
+
+            // Verify storage directory only has max allowed profiles
+            File storageDir = new File(ProfileManager.PROFILE_STORAGE_PATH);
+            File[] storageFiles = storageDir.listFiles(file -> file.isFile() && !file.getName().equals(".gitkeep"));
+            Assertions.assertNotNull(storageFiles);
+            Assertions.assertTrue(storageFiles.length <= Config.max_spilled_profile_num,
+                    "Storage should have at most " + Config.max_spilled_profile_num + " files, but has " + storageFiles.length);
+
+            // Verify pending directory exists and may contain profiles
+            File pendingDir = new File(ProfileManager.PROFILE_STORAGE_PATH + "/pending");
+            if (pendingDir.exists()) {
+                File[] pendingFiles = pendingDir.listFiles(File::isFile);
+                if (pendingFiles != null && pendingFiles.length > 0) {
+                    LOG.info("Pending directory has {} profiles waiting for archive", pendingFiles.length);
+                }
+            }
+
+            // Verify archive directory may exist if batch was completed
+            File archiveDir = new File(ProfileManager.PROFILE_STORAGE_PATH + "/archive");
+            if (archiveDir.exists()) {
+                File[] archiveFiles = archiveDir.listFiles(file -> file.getName().endsWith(".zip"));
+                if (archiveFiles != null && archiveFiles.length > 0) {
+                    LOG.info("Archive directory has {} archive files", archiveFiles.length);
+                    Assertions.assertTrue(archiveFiles.length > 0, "Archive files should exist");
+                }
+            }
+
+        } finally {
+            // Restore config
+            Config.enable_profile_archive = originalArchiveEnabled;
+            Config.max_spilled_profile_num = originalMaxSpilled;
+            Config.profile_archive_batch_size = originalBatchSize;
+        }
+    }
+
+    /**
+     * Integration Test: Test that profiles are directly deleted when archiving is disabled.
+     */
+    @Test
+    void testProfileDeletionWhenArchiveDisabled() throws Exception {
+        boolean originalArchiveEnabled = Config.enable_profile_archive;
+        int originalMaxSpilled = Config.max_spilled_profile_num;
+
+        try {
+            // Disable archiving
+            Config.enable_profile_archive = false;
+            Config.max_spilled_profile_num = 5;
+
+            // Create and store profiles
+            for (int i = 0; i < 10; i++) {
+                Thread.sleep(100);
+                Profile profile = ProfilePersistentTest.constructRandomProfile(1);
+                profile.isQueryFinished = true;
+                profile.setQueryFinishTimestamp(System.currentTimeMillis());
+
+                int finalI = i;
+                new Expectations(profile) {
+                    {
+                        profile.profileHasBeenStored();
+                        result = true;
+                        profile.deleteFromStorage();
+                        times = finalI < 5 ? 1 : 0; // First 5 should be deleted
+                    }
+                };
+
+                profileManager.pushProfile(profile);
+                profile.writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
+            }
+
+            // Trigger cleanup - should directly delete old profiles
+            profileManager.isProfileLoaded = true;
+            profileManager.deleteOutdatedProfilesFromStorage();
+
+            // Verify no pending or archive directories were created
+            File pendingDir = new File(ProfileManager.PROFILE_STORAGE_PATH + "/pending");
+            File archiveDir = new File(ProfileManager.PROFILE_STORAGE_PATH + "/archive");
+
+            Assertions.assertFalse(pendingDir.exists() && pendingDir.listFiles() != null && pendingDir.listFiles().length > 0,
+                    "Pending directory should not have files when archiving is disabled");
+            Assertions.assertFalse(archiveDir.exists() && archiveDir.listFiles() != null && archiveDir.listFiles().length > 0,
+                    "Archive directory should not have files when archiving is disabled");
+
+        } finally {
+            Config.enable_profile_archive = originalArchiveEnabled;
+            Config.max_spilled_profile_num = originalMaxSpilled;
+        }
+    }
+
+    /**
+     * Integration Test: Test periodic archive cleanup (runAfterCatalogReady).
+     */
+    @Test
+    void testPeriodicArchiveCleanup() throws Exception {
+        boolean originalArchiveEnabled = Config.enable_profile_archive;
+        int originalRetention = Config.profile_archive_retention_seconds;
+        int originalMaxSpilled = Config.max_spilled_profile_num;
+        int originalBatchSize = Config.profile_archive_batch_size;
+
+        try {
+            // Enable archiving with short retention for testing
+            Config.enable_profile_archive = true;
+            Config.profile_archive_retention_seconds = 1; // 1 second retention for testing
+            Config.max_spilled_profile_num = 3;
+            Config.profile_archive_batch_size = 2;
+
+            // Create archive manager
+            ProfileArchiveManager archiveManager = new ProfileArchiveManager(
+                    ProfileManager.PROFILE_STORAGE_PATH, Config.profile_archive_batch_size);
+            archiveManager.createArchiveDirectoryIfNecessary();
+
+            // Create an archive file with old timestamp in filename (2 seconds ago)
+            long oldTimestamp = System.currentTimeMillis() - (2 * 1000L);
+            String oldDateStr = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+                    .withZone(java.time.ZoneId.systemDefault())
+                    .format(java.time.Instant.ofEpochMilli(oldTimestamp));
+            String archiveFilename = String.format("profiles_%s_%s.zip", oldDateStr, oldDateStr);
+            File archive = new File(archiveManager.getArchivePath(), archiveFilename);
+            archive.createNewFile();
+            Assertions.assertTrue(archive.exists());
+
+            // Simulate periodic cleanup via runAfterCatalogReady
+            // Note: The first call will trigger cleanup since lastArchiveCleanupTime is 0
+            profileManager.isProfileLoaded = true;
+            profileManager.runAfterCatalogReady();
+
+            // Verify that the old archive was deleted by runAfterCatalogReady
+            Assertions.assertFalse(archive.exists(), "Old archive should be deleted by runAfterCatalogReady");
+
+        } finally {
+            Config.enable_profile_archive = originalArchiveEnabled;
+            Config.profile_archive_retention_seconds = originalRetention;
+            Config.max_spilled_profile_num = originalMaxSpilled;
+            Config.profile_archive_batch_size = originalBatchSize;
+        }
+    }
+
+    /**
+     * Integration Test: Test archive pending timeout triggers archiving even when batch is not full.
+     */
+    @Test
+    void testArchivePendingTimeoutIntegration() throws Exception {
+        boolean originalArchiveEnabled = Config.enable_profile_archive;
+        int originalTimeout = Config.profile_archive_pending_timeout_seconds;
+        int originalBatchSize = Config.profile_archive_batch_size;
+
+        try {
+            // Enable archiving with short timeout and large batch size
+            Config.enable_profile_archive = true;
+            Config.profile_archive_pending_timeout_seconds = 1; // 1 second timeout
+            Config.profile_archive_batch_size = 100; // Large batch that won't be reached
+
+            ProfileArchiveManager archiveManager = new ProfileArchiveManager(
+                    ProfileManager.PROFILE_STORAGE_PATH, Config.profile_archive_batch_size);
+
+            // Move a few profiles to pending (less than batch size)
+            for (int i = 0; i < 3; i++) {
+                UUID taskId = UUID.randomUUID();
+                TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                String profileId = DebugUtil.printId(queryId);
+                File profileFile = new File(tempDir, System.currentTimeMillis() + "_" + profileId + ".zip");
+                profileFile.createNewFile();
+
+                boolean moved = archiveManager.moveToArchivePending(profileFile);
+                Assertions.assertTrue(moved);
+            }
+
+            // Wait for timeout
+            Thread.sleep(1500);
+
+            // Check and archive - should trigger due to timeout even though batch is not full
+            int archived = archiveManager.checkAndArchivePendingProfiles();
+            Assertions.assertTrue(archived > 0, "Profiles should be archived due to timeout");
+
+            // Verify archive was created
+            File archiveDir = new File(ProfileManager.PROFILE_STORAGE_PATH + "/archive");
+            Assertions.assertTrue(archiveDir.exists());
+            File[] archiveFiles = archiveDir.listFiles(file -> file.getName().endsWith(".zip"));
+            Assertions.assertNotNull(archiveFiles);
+            Assertions.assertTrue(archiveFiles.length > 0);
+
+        } finally {
+            Config.enable_profile_archive = originalArchiveEnabled;
+            Config.profile_archive_pending_timeout_seconds = originalTimeout;
+            Config.profile_archive_batch_size = originalBatchSize;
         }
     }
 }

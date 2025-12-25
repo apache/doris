@@ -37,11 +37,6 @@ import java.util.Objects;
  * Both left and right boundaries are always non-null after analyze().
  */
 public class AnalyticWindow {
-    // default window used when an analytic expr was given an order by but no window
-    public static final AnalyticWindow DEFAULT_WINDOW = new AnalyticWindow(Type.RANGE,
-            new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
-            new Boundary(BoundaryType.CURRENT_ROW, null));
-
     public enum Type {
         ROWS("ROWS"),
         RANGE("RANGE");
@@ -101,33 +96,6 @@ public class AnalyticWindow {
         public boolean isOffset() {
             return this == PRECEDING || this == FOLLOWING;
         }
-
-        public boolean isPreceding() {
-            return this == UNBOUNDED_PRECEDING || this == PRECEDING;
-        }
-
-        public boolean isFollowing() {
-            return this == UNBOUNDED_FOLLOWING || this == FOLLOWING;
-        }
-
-        public BoundaryType converse() {
-            switch (this) {
-                case UNBOUNDED_PRECEDING:
-                    return UNBOUNDED_FOLLOWING;
-
-                case UNBOUNDED_FOLLOWING:
-                    return UNBOUNDED_PRECEDING;
-
-                case PRECEDING:
-                    return FOLLOWING;
-
-                case FOLLOWING:
-                    return PRECEDING;
-
-                default:
-                    return CURRENT_ROW;
-            }
-        }
     }
 
     public static class Boundary {
@@ -142,10 +110,6 @@ public class AnalyticWindow {
 
         public BoundaryType getType() {
             return type;
-        }
-
-        public Expr getExpr() {
-            return expr;
         }
 
         public Boundary(BoundaryType type, Expr e) {
@@ -179,17 +143,6 @@ public class AnalyticWindow {
 
             if (expr != null) {
                 sb.append(expr.toSql(disableTableName, needExternalSql, tableType, table)).append(" ");
-            }
-
-            sb.append(type.toString());
-            return sb.toString();
-        }
-
-        public String toDigest() {
-            StringBuilder sb = new StringBuilder();
-
-            if (expr != null) {
-                sb.append(expr.toDigest()).append(" ");
             }
 
             sb.append(type.toString());
@@ -232,13 +185,6 @@ public class AnalyticWindow {
             return type == o.type && exprEqual;
         }
 
-        public Boundary converse() {
-            Boundary result = new Boundary(type.converse(),
-                    (expr != null) ? expr.clone() : null);
-            result.offsetValue = offsetValue;
-            return result;
-        }
-
         @Override
         public Boundary clone() {
             return new Boundary(type, expr != null ? expr.clone() : null, offsetValue);
@@ -250,34 +196,9 @@ public class AnalyticWindow {
     private Boundary rightBoundary;  // may be null before analyze()
     private String toSqlString;  // cached after analysis
 
-    public Type getType() {
-        return type;
-    }
-
-    public Boundary getLeftBoundary() {
-        return leftBoundary;
-    }
-
-    public Boundary getRightBoundary() {
-        return rightBoundary;
-    }
-
-    public Boundary setRightBoundary(Boundary b) {
-        return rightBoundary = b;
-    }
-
-    public AnalyticWindow(Type type, Boundary b) {
-        this.type = type;
-        Preconditions.checkNotNull(b);
-        leftBoundary = b;
-        rightBoundary = null;
-    }
-
     public AnalyticWindow(Type type, Boundary l, Boundary r) {
         this.type = type;
-        Preconditions.checkNotNull(l);
         leftBoundary = l;
-        Preconditions.checkNotNull(r);
         rightBoundary = r;
     }
 
@@ -294,19 +215,6 @@ public class AnalyticWindow {
         }
 
         toSqlString = other.toSqlString;  // safe to share
-    }
-
-    public AnalyticWindow reverse() {
-        Boundary newRightBoundary = leftBoundary.converse();
-        Boundary newLeftBoundary = null;
-
-        if (rightBoundary == null) {
-            newLeftBoundary = new Boundary(leftBoundary.getType(), null);
-        } else {
-            newLeftBoundary = rightBoundary.converse();
-        }
-
-        return new AnalyticWindow(type, newLeftBoundary, newRightBoundary);
     }
 
     public String toSql() {
@@ -346,21 +254,6 @@ public class AnalyticWindow {
 
         return sb.toString();
     }
-
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(type.toString()).append(" ");
-
-        if (rightBoundary == null) {
-            sb.append(leftBoundary.toDigest());
-        } else {
-            sb.append("BETWEEN ").append(leftBoundary.toDigest()).append(" AND ");
-            sb.append(rightBoundary.toDigest());
-        }
-
-        return sb.toString();
-    }
-
 
     public TAnalyticWindow toThrift() {
         TAnalyticWindow result = new TAnalyticWindow(type.toThrift());

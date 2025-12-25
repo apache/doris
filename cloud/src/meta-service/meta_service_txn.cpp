@@ -32,6 +32,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/clone_chain_reader.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
@@ -1661,6 +1662,20 @@ void MetaServiceImpl::commit_txn_immediately(
                       << " rowset_size=" << rowset_size;
 
             if (is_versioned_write) {
+                auto& rowset_meta = i.second;
+                std::string meta_rowset_key = versioned::meta_rowset_key(
+                        {instance_id, tablet_id, rowset_meta.rowset_id_v2()});
+                if (config::enable_recycle_rowset_strip_key_bounds) {
+                    doris::RowsetMetaCloudPB rowset_meta_copy = rowset_meta;
+                    // Strip key bounds to shrink operation log for ts compaction recycle entries
+                    rowset_meta_copy.clear_segments_key_bounds();
+                    rowset_meta_copy.clear_segments_key_bounds_truncated();
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
+                } else {
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta.SerializeAsString(), 0);
+                }
+                LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
+
                 std::string versioned_rowset_key =
                         versioned::meta_rowset_load_key({instance_id, tablet_id, version});
                 RowsetMetaCloudPB copied_rowset_meta(i.second);
@@ -1769,6 +1784,20 @@ void MetaServiceImpl::commit_txn_immediately(
         txn->put(info_key, info_val);
         LOG(INFO) << "put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
+        // Batch get existing versioned tablet stats if needed
+        std::unordered_map<int64_t, TabletStatsPB> existing_versioned_stats;
+        if (is_versioned_write && !tablet_stats.empty()) {
+            internal_get_load_tablet_stats_batch(code, msg, meta_reader, txn.get(), instance_id,
+                                                 tablet_ids, &existing_versioned_stats);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "batch get versioned tablet stats failed, code=" << code
+                             << " msg=" << msg << " txn_id=" << txn_id;
+                return;
+            }
+            LOG(INFO) << "batch get " << existing_versioned_stats.size()
+                      << " versioned tablet stats, txn_id=" << txn_id;
+        }
+
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -1779,16 +1808,7 @@ void MetaServiceImpl::commit_txn_immediately(
             if (code != MetaServiceCode::OK) return;
 
             if (is_versioned_write) {
-                TabletStatsPB stats_pb;
-                internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
-                                                    tablet_idx, stats_pb);
-                if (code != MetaServiceCode::OK) {
-                    LOG(WARNING) << "update versioned tablet stats failed, code=" << code
-                                 << " msg=" << msg << " txn_id=" << txn_id
-                                 << " tablet_id=" << tablet_id;
-                    return;
-                }
-
+                TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
                 merge_tablet_stats(stats_pb, stats);
                 std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
                 if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
@@ -1811,7 +1831,6 @@ void MetaServiceImpl::commit_txn_immediately(
         LOG(INFO) << "remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
         txn->remove(running_key);
 
-        std::string recycle_key = recycle_txn_key({instance_id, db_id, txn_id});
         RecycleTxnPB recycle_pb;
         recycle_pb.set_creation_time(commit_time);
         recycle_pb.set_label(txn_info.label());
@@ -1824,18 +1843,11 @@ void MetaServiceImpl::commit_txn_immediately(
                 operation_log.set_min_timestamp(meta_reader.min_read_version());
             }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
-            std::string operation_log_value;
-            if (!operation_log.SerializeToString(&operation_log_value)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize operation_log, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
+            versioned::blob_put(txn.get(), log_key, operation_log);
             LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
-                      << " txn_id=" << txn_id
-                      << " operation_log_size=" << operation_log_value.size();
-            versioned_put(txn.get(), log_key, operation_log_value);
+                      << " txn_id=" << txn_id;
         } else {
+            std::string recycle_key = recycle_txn_key({instance_id, db_id, txn_id});
             std::string recycle_val;
             if (!recycle_pb.SerializeToString(&recycle_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -1844,6 +1856,8 @@ void MetaServiceImpl::commit_txn_immediately(
                 return;
             }
             txn->put(recycle_key, recycle_val);
+            LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key)
+                      << " txn_id=" << txn_id;
         }
 
         if (txn_info.load_job_source_type() ==
@@ -1861,8 +1875,6 @@ void MetaServiceImpl::commit_txn_immediately(
             }
         }
 
-        LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key)
-                  << " txn_id=" << txn_id;
         LOG(INFO) << "commit_txn put_size=" << txn->put_bytes()
                   << " del_size=" << txn->delete_bytes() << " num_put_keys=" << txn->num_put_keys()
                   << " num_del_keys=" << txn->num_del_keys()
@@ -2353,22 +2365,15 @@ void MetaServiceImpl::commit_txn_eventually(
                 operation_log.set_min_timestamp(meta_reader.min_read_version());
             }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
-            std::string operation_log_value;
-            if (!operation_log.SerializeToString(&operation_log_value)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize operation_log, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
-            versioned_put(txn.get(), log_key, operation_log_value);
+            versioned::blob_put(txn.get(), log_key, operation_log);
             LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
-                      << " txn_id=" << txn_id << " log_size=" << operation_log_value.size();
+                      << " txn_id=" << txn_id;
         }
 
-        VLOG_DEBUG << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
-                   << " num_put_keys=" << txn->num_put_keys()
-                   << " num_del_keys=" << txn->num_del_keys()
-                   << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
+        LOG(INFO) << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
+                  << " num_put_keys=" << txn->num_put_keys()
+                  << " num_del_keys=" << txn->num_del_keys()
+                  << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
@@ -2714,6 +2719,20 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                       << " rowset_size=" << rowset_size;
 
             if (is_versioned_write) {
+                auto& rowset_meta = i.second;
+                std::string meta_rowset_key = versioned::meta_rowset_key(
+                        {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
+                if (config::enable_recycle_rowset_strip_key_bounds) {
+                    doris::RowsetMetaCloudPB rowset_meta_copy = rowset_meta;
+                    // Strip key bounds to shrink operation log for ts compaction recycle entries
+                    rowset_meta_copy.clear_segments_key_bounds();
+                    rowset_meta_copy.clear_segments_key_bounds_truncated();
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
+                } else {
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta.SerializeAsString(), 0);
+                }
+                LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
+
                 std::string versioned_rowset_key =
                         versioned::meta_rowset_load_key({instance_id, tablet_id, version});
                 if (!versioned::document_put(txn.get(), versioned_rowset_key,
@@ -2817,6 +2836,20 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         txn->put(info_key, info_val);
         LOG(INFO) << "xxx put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
+        // Batch get existing versioned tablet stats if needed
+        std::unordered_map<int64_t, TabletStatsPB> existing_versioned_stats;
+        if (is_versioned_write && !tablet_stats.empty()) {
+            internal_get_load_tablet_stats_batch(code, msg, meta_reader, txn.get(), instance_id,
+                                                 tablet_ids, &existing_versioned_stats);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "batch get versioned tablet stats failed, code=" << code
+                             << " msg=" << msg << " txn_id=" << txn_id;
+                return;
+            }
+            LOG(INFO) << "batch get " << existing_versioned_stats.size()
+                      << " versioned tablet stats, txn_id=" << txn_id;
+        }
+
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -2827,16 +2860,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             if (code != MetaServiceCode::OK) return;
 
             if (is_versioned_write) {
-                TabletStatsPB stats_pb;
-                internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
-                                                    tablet_idx, stats_pb);
-                if (code != MetaServiceCode::OK) {
-                    LOG(WARNING) << "update versioned tablet stats failed, code=" << code
-                                 << " msg=" << msg << " txn_id=" << txn_id
-                                 << " tablet_id=" << tablet_id;
-                    return;
-                }
-
+                TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
                 merge_tablet_stats(stats_pb, stats);
                 std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
                 if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
@@ -2870,21 +2894,14 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         if (is_versioned_write) {
             commit_txn_log.mutable_recycle_txn()->Swap(&recycle_pb);
             std::string log_key = versioned::log_key({instance_id});
-            std::string operation_log_value;
             OperationLogPB operation_log;
             if (is_versioned_read) {
                 operation_log.set_min_timestamp(meta_reader.min_read_version());
             }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
-            if (!operation_log.SerializeToString(&operation_log_value)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize operation_log, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
-            versioned_put(txn.get(), log_key, operation_log_value);
+            versioned::blob_put(txn.get(), log_key, operation_log);
             LOG(INFO) << "put commit txn operation log key=" << hex(recycle_key)
-                      << " txn_id=" << txn_id << " log_size=" << operation_log_value.size();
+                      << " txn_id=" << txn_id;
         } else {
             if (!recycle_pb.SerializeToString(&recycle_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;

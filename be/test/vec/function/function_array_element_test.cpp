@@ -89,42 +89,6 @@ TEST(function_array_element_test, element_at) {
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 
-    // element_at(Array<DateTime>, Int64)
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIME,
-                                    PrimitiveType::TYPE_BIGINT};
-
-        TestArray vec = {std::string("2022-01-02 01:00:00"), std::string(""),
-                         std::string("2022-07-08 03:00:00")};
-        DataSet data_set = {{{vec, Int64(0)}, Null()},
-                            {{vec, Int64(1)}, std::string("2022-01-02 01:00:00")},
-                            {{vec, Int64(4)}, Null()},
-                            {{vec, Int64(-1)}, std::string("2022-07-08 03:00:00")},
-                            {{vec, Int64(-2)}, std::string("")},
-                            {{vec, Int64(-4)}, Null()},
-                            {{Null(), Int64(1)}, Null()},
-                            {{empty_arr, Int64(0)}, Null()},
-                            {{empty_arr, Int64(1)}, Null()}};
-
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-
-    // element_at(Array<Date>, Int64)
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE,
-                                    PrimitiveType::TYPE_BIGINT};
-
-        TestArray vec = {std::string("2022-01-02"), std::string(""), std::string("2022-07-08")};
-        DataSet data_set = {
-                {{vec, Int64(0)}, Null()},           {{vec, Int64(1)}, std::string("2022-01-02")},
-                {{vec, Int64(4)}, Null()},           {{vec, Int64(-1)}, std::string("2022-07-08")},
-                {{vec, Int64(-2)}, std::string("")}, {{vec, Int64(-4)}, Null()},
-                {{Null(), Int64(1)}, Null()},        {{empty_arr, Int64(0)}, Null()},
-                {{empty_arr, Int64(1)}, Null()}};
-
-        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
-    }
-
     // element_at(Array<Decimal128V2>, Int64)
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,

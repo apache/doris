@@ -19,7 +19,6 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
-#include "olap/rowset/segment_v2/inverted_index_common.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -47,8 +46,5 @@ private:
 
 template <typename TPostings>
 using PostingsWithOffsetPtr = std::shared_ptr<PostingsWithOffset<TPostings>>;
-
-using PositionPostings = std::shared_ptr<SegmentPostings<TermPositionsPtr>>;
-using PositionPostingsWithOffsetPtr = std::shared_ptr<PostingsWithOffset<PositionPostings>>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <stddef.h>
@@ -137,14 +138,14 @@ public:
         bool start_key_include = false;
         bool end_key_include = false;
 
-        std::vector<FilterOlapParam<TCondition>> conditions;
-        std::vector<FilterOlapParam<std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
-        std::vector<FilterOlapParam<std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
-        std::vector<FilterOlapParam<std::shared_ptr<HybridSetBase>>> in_filters;
+        std::vector<std::shared_ptr<ColumnPredicate>> predicates;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
         std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
+
+        std::map<int32_t, TColumnAccessPaths> all_access_paths;
+        std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
 
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
@@ -161,7 +162,6 @@ public:
         std::vector<ColumnId>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
-        vectorized::VExpr* remaining_vconjunct_root = nullptr;
         std::vector<vectorized::VExprSPtr> remaining_conjunct_roots;
         vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
 
@@ -208,7 +208,7 @@ public:
 
     TabletReader() = default;
 
-    virtual ~TabletReader();
+    virtual ~TabletReader() = default;
 
     TabletReader(const TabletReader&) = delete;
     void operator=(const TabletReader&) = delete;
@@ -254,24 +254,14 @@ protected:
 
     Status _capture_rs_readers(const ReaderParams& read_params);
 
-    bool _optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers);
-
     Status _init_keys_param(const ReaderParams& read_params);
 
     Status _init_orderby_keys_param(const ReaderParams& read_params);
 
     Status _init_conditions_param(const ReaderParams& read_params);
 
-    ColumnPredicate* _parse_to_predicate(
-            const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
-
-    ColumnPredicate* _parse_to_predicate(
-            const std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>& bitmap_filter);
-
-    ColumnPredicate* _parse_to_predicate(
-            const std::pair<std::string, std::shared_ptr<HybridSetBase>>& in_filter);
-
-    virtual ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter);
+    virtual std::shared_ptr<ColumnPredicate> _parse_to_predicate(
+            const FunctionFilter& function_filter);
 
     Status _init_delete_condition(const ReaderParams& read_params);
 
@@ -304,8 +294,8 @@ protected:
     KeysParam _keys_param;
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
-    std::vector<ColumnPredicate*> _col_predicates;
-    std::vector<ColumnPredicate*> _value_col_predicates;
+    std::vector<std::shared_ptr<ColumnPredicate>> _col_predicates;
+    std::vector<std::shared_ptr<ColumnPredicate>> _value_col_predicates;
     DeleteHandler _delete_handler;
 
     // Indicates whether the tablets has do a aggregation in storage engine.

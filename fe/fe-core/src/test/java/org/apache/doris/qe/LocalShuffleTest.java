@@ -34,7 +34,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Map.Entry;
 
-public class LocalShuffleTest extends TestWithFeService  {
+public class LocalShuffleTest extends TestWithFeService {
     @Override
     protected int backendNum() {
         return 2;

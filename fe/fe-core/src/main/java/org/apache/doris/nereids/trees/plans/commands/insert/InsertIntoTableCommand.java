@@ -81,7 +81,7 @@ import org.apache.doris.system.Backend;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -244,7 +244,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             // check auth
-            if (!Env.getCurrentEnv().getAccessManager()
+            if (needAuthCheck(targetTableIf) && !Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
                             targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
                             PrivPredicate.LOAD)) {
@@ -312,6 +312,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
+    }
+
+    /**
+     * Hook method to determine if auth check is needed.
+     * Subclasses can override this to skip auth check, e.g., WarmupSelectCommand.
+     * @param targetTableIf the target table
+     * @return true if auth check is needed, false otherwise
+     */
+    protected boolean needAuthCheck(TableIf targetTableIf) {
+        return true;
     }
 
     private BuildInsertExecutorResult initPlanOnce(ConnectContext ctx,

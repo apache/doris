@@ -438,6 +438,14 @@ class UpCommand(Command):
             "Add custom host-to-IP mappings (host:ip). For example: --extra-hosts myhost1:192.168.10.1 myhost2:192.168.10.2 . Only use when creating new cluster."
         )
 
+        parser.add_argument(
+            "--env",
+            nargs="*",
+            type=str,
+            help=
+            "Add environment variables. For example: --env KEY1=VALUE1 KEY2=VALUE2. Only use when creating new cluster."
+        )
+
         parser.add_argument("--coverage-dir",
                             default="",
                             help="Set code coverage output directory")
@@ -657,7 +665,7 @@ class UpCommand(Command):
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
-                args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts,
+                args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts, args.env,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
                 args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk,
                 external_ms_cluster, instance_id, cluster_snapshot)

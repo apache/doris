@@ -43,7 +43,7 @@ public class ArrayLiteral extends LiteralExpr {
     public ArrayLiteral(Type type, LiteralExpr... exprs) {
         this.type = type;
         children = new ArrayList<>(Arrays.asList(exprs));
-        analysisDone();
+        this.nullable = false;
     }
 
     protected ArrayLiteral(ArrayLiteral other) {
@@ -81,14 +81,6 @@ public class ArrayLiteral extends LiteralExpr {
             TableIf table) {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toSqlImpl(disableTableName, needExternalSql, tableType, table)));
-
-        return "[" + StringUtils.join(list, ", ") + "]";
-    }
-
-    @Override
-    public String toDigestImpl() {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.toDigestImpl()));
 
         return "[" + StringUtils.join(list, ", ") + "]";
     }

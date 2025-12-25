@@ -21,10 +21,13 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -143,6 +146,12 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             DateTimeV2Literal datetime = (DateTimeV2Literal) expression;
             return new DateTimeLiteral((DateTimeType) targetType, datetime.year, datetime.month, datetime.day,
                     datetime.hour, datetime.minute, datetime.second, datetime.microSecond);
+        } else if (targetType.isTimeStampTzType()) {
+            DateTimeV2Literal expression = castToDateTime(DateTimeV2Type.MAX, strictCast, true);
+            expression = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(expression,
+                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone), new StringLiteral("UTC")));
+            return new TimestampTzLiteral((TimeStampTzType) targetType, expression.year, expression.month,
+                    expression.day, expression.hour, expression.minute, expression.second, expression.microSecond);
         } else if (targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast, true);
         } else if (targetType.isFloatType()) {
@@ -257,7 +266,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         throw new CastException(String.format("%s can't cast to decimal in strict mode.", value));
     }
 
-    protected Expression castToDateTime(DataType targetType, boolean strictCast, boolean isDatetime) {
+    protected DateTimeV2Literal castToDateTime(DataType targetType, boolean strictCast, boolean isDatetime) {
         Matcher strictMatcher = dateStrictPattern.matcher(value);
         String year;
         String month;

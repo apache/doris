@@ -23,6 +23,7 @@
 #include <tuple>
 #include <type_traits>
 
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -289,20 +290,6 @@ struct FunctionFieldImpl {
             }
             break;
         }
-        case PrimitiveType::TYPE_DATETIME: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DATETIME>(res_data, argument_columns[0],
-                                                  argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DATE: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DATE>(res_data, argument_columns[0], argument_columns[col],
-                                              input_rows_count, col);
-            }
-            break;
-        }
         case PrimitiveType::TYPE_DATEV2: {
             for (int col = 1; col < arguments.size(); ++col) {
                 insert_result_data<TYPE_DATEV2>(res_data, argument_columns[0],
@@ -314,6 +301,13 @@ struct FunctionFieldImpl {
             for (int col = 1; col < arguments.size(); ++col) {
                 insert_result_data<TYPE_DATETIMEV2>(res_data, argument_columns[0],
                                                     argument_columns[col], input_rows_count, col);
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_TIMESTAMPTZ: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                insert_result_data<TYPE_TIMESTAMPTZ>(res_data, argument_columns[0],
+                                                     argument_columns[col], input_rows_count, col);
             }
             break;
         }

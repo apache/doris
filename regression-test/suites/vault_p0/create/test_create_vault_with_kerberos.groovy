@@ -71,7 +71,7 @@ suite("test_create_vault_with_kerberos", "nonConcurrent") {
 
     expectExceptionLike({
         sql """ insert into ${tableName} values(1, 1); """
-    }, "Permission denied: user=not_exist_user")
+    }, "open file failed")
 
     expectExceptionLike({
         sql """

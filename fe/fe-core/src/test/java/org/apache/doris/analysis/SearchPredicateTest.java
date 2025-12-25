@@ -53,11 +53,6 @@ public class SearchPredicateTest {
             typeField.setAccessible(true);
             typeField.set(slotRef, Type.STRING);
 
-            // Set analyzed flag to true from parent class Expr
-            java.lang.reflect.Field analyzedField = Expr.class.getDeclaredField("isAnalyzed");
-            analyzedField.setAccessible(true);
-            analyzedField.set(slotRef, true);
-
             // Create a mock SlotDescriptor and set it
             java.lang.reflect.Field descField = SlotRef.class.getDeclaredField("desc");
             descField.setAccessible(true);
@@ -79,7 +74,7 @@ public class SearchPredicateTest {
         SearchDslParser.QsPlan plan = createTestPlan();
         List<Expr> children = Arrays.asList(createTestSlotRef("title"));
 
-        SearchPredicate predicate = new SearchPredicate(dsl, plan, children);
+        SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         Assertions.assertNotNull(predicate);
         Assertions.assertEquals(Type.BOOLEAN, predicate.getType());
@@ -92,7 +87,7 @@ public class SearchPredicateTest {
         SearchDslParser.QsPlan plan = createTestPlan();
         List<Expr> children = Arrays.asList(createTestSlotRef("title"));
 
-        SearchPredicate predicate = new SearchPredicate(dsl, plan, children);
+        SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         String sql = predicate.toSqlImpl(false, false, null, null);
         Assertions.assertEquals("search('title:hello')", sql);
@@ -105,7 +100,7 @@ public class SearchPredicateTest {
         SlotRef titleSlot = createTestSlotRef("title");
         List<Expr> children = Arrays.asList(titleSlot);
 
-        SearchPredicate predicate = new SearchPredicate(dsl, plan, children);
+        SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
         predicate.toThrift(thriftNode);
@@ -138,7 +133,7 @@ public class SearchPredicateTest {
         SlotRef contentSlot = createTestSlotRef("content");
         List<Expr> children = Arrays.asList(titleSlot, contentSlot);
 
-        SearchPredicate predicate = new SearchPredicate(dsl, plan, children);
+        SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
         predicate.toThrift(thriftNode);
@@ -160,7 +155,7 @@ public class SearchPredicateTest {
         SearchDslParser.QsPlan plan = createTestPlan();
         List<Expr> children = Arrays.asList(createTestSlotRef("title"));
 
-        SearchPredicate original = new SearchPredicate(dsl, plan, children);
+        SearchPredicate original = new SearchPredicate(dsl, plan, children, true);
         SearchPredicate cloned = (SearchPredicate) original.clone();
 
         Assertions.assertNotNull(cloned);
@@ -178,9 +173,9 @@ public class SearchPredicateTest {
         SearchDslParser.QsPlan plan = createTestPlan();
         List<Expr> children = Arrays.asList(createTestSlotRef("title"));
 
-        SearchPredicate pred1 = new SearchPredicate(dsl1, plan, children);
-        SearchPredicate pred2 = new SearchPredicate(dsl2, plan, children);
-        SearchPredicate pred3 = new SearchPredicate(dsl3, plan, children);
+        SearchPredicate pred1 = new SearchPredicate(dsl1, plan, children, true);
+        SearchPredicate pred2 = new SearchPredicate(dsl2, plan, children, true);
+        SearchPredicate pred3 = new SearchPredicate(dsl3, plan, children, true);
 
         Assertions.assertTrue(pred1.equals(pred2));
         Assertions.assertTrue(!pred1.equals(pred3));
@@ -217,7 +212,7 @@ public class SearchPredicateTest {
                 createTestSlotRef("content"),
                 createTestSlotRef("category"));
 
-        SearchPredicate predicate = new SearchPredicate(dsl, plan, children);
+        SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
         predicate.toThrift(thriftNode);
@@ -247,7 +242,7 @@ public class SearchPredicateTest {
         SearchDslParser.QsPlan plan = createTestPlan();
         List<Expr> emptyChildren = Collections.emptyList();
 
-        SearchPredicate predicate = new SearchPredicate(dsl, plan, emptyChildren);
+        SearchPredicate predicate = new SearchPredicate(dsl, plan, emptyChildren, true);
 
         Assertions.assertEquals(0, predicate.getChildren().size());
 

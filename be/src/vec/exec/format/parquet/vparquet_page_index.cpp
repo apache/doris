@@ -41,20 +41,6 @@ struct FieldSchema;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-Status PageIndex::create_skipped_row_range(tparquet::OffsetIndex& offset_index,
-                                           int64_t total_rows_of_group, int page_idx,
-                                           RowRange* row_range) {
-    const auto& page_locations = offset_index.page_locations;
-    DCHECK_LT(page_idx, page_locations.size());
-    row_range->first_row = page_locations[page_idx].first_row_index;
-    // the row range is right open section as "[first_row, last_row)"
-    if (page_idx == page_locations.size() - 1) {
-        row_range->last_row = total_rows_of_group;
-    } else {
-        row_range->last_row = page_locations[page_idx + 1].first_row_index;
-    }
-    return Status::OK();
-}
 
 bool PageIndex::check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns) {
     int64_t ci_start = std::numeric_limits<int64_t>::max();
@@ -84,7 +70,7 @@ bool PageIndex::check_and_get_page_index_ranges(const std::vector<tparquet::Colu
 }
 
 Status PageIndex::parse_column_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
-                                     tparquet::ColumnIndex* column_index) {
+                                     tparquet::ColumnIndex* column_index) const {
     int64_t buffer_offset = chunk.column_index_offset - _column_index_start;
     uint32_t length = chunk.column_index_length;
     DCHECK_GE(buffer_offset, 0);
@@ -94,7 +80,7 @@ Status PageIndex::parse_column_index(const tparquet::ColumnChunk& chunk, const u
 }
 
 Status PageIndex::parse_offset_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
-                                     tparquet::OffsetIndex* offset_index) {
+                                     tparquet::OffsetIndex* offset_index) const {
     int64_t buffer_offset = chunk.offset_index_offset - _offset_index_start;
     uint32_t length = chunk.offset_index_length;
     DCHECK_GE(buffer_offset, 0);

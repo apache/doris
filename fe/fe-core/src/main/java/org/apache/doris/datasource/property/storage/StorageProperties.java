@@ -49,12 +49,14 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_COS_SUPPORT = "fs.cos.support";
     public static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
     public static final String FS_LOCAL_SUPPORT = "fs.local.support";
+    public static final String FS_HTTP_SUPPORT = "fs.http.support";
+
     public static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
     protected static final String URI_KEY = "uri";
 
     public static final String FS_PROVIDER_KEY = "provider";
 
-    protected  final String userFsPropsPrefix = "fs.";
+    protected final String userFsPropsPrefix = "fs.";
 
     public enum Type {
         HDFS,
@@ -68,6 +70,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         AZURE,
         BROKER,
         LOCAL,
+        HTTP,
         UNKNOWN
     }
 
@@ -115,12 +118,19 @@ public abstract class StorageProperties extends ConnectionProperties {
     /**
      * Creates a list of StorageProperties instances based on the provided properties.
      * <p>
-     * This method iterates through the list of supported storage types and creates an instance
-     * for each supported type. If no supported type is found, an HDFSProperties instance is added
-     * by default.
+     * This method iterates through all registered storage providers and constructs one
+     * {@link StorageProperties} instance for each provider that recognizes the given properties.
+     * <p>
+     * If no HDFSProperties is explicitly configured, a default HDFSProperties will be added
+     * automatically. The default HDFSProperties is inserted at index 0 to ensure that:
+     * <ul>
+     *   <li>The list preserves a deterministic order (it is an ordered List).</li>
+     *   <li>The default HDFS configuration does not override or shadow explicitly configured
+     *       object storage providers, which are appended after detection.</li>
+     * </ul>
      *
-     * @param origProps the original properties map to create the StorageProperties instances
-     * @return a list of StorageProperties instances for all supported storage types
+     * @param origProps the raw property map used to initialize each StorageProperties instance
+     * @return an ordered list of StorageProperties instances
      */
     public static List<StorageProperties> createAll(Map<String, String> origProps) throws UserException {
         List<StorageProperties> result = new ArrayList<>();
@@ -132,7 +142,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         }
         // Add default HDFS storage if not explicitly configured
         if (result.stream().noneMatch(HdfsProperties.class::isInstance)) {
-            result.add(new HdfsProperties(origProps, false));
+            result.add(0, new HdfsProperties(origProps, false));
         }
 
         for (StorageProperties storageProperties : result) {
@@ -168,13 +178,22 @@ public abstract class StorageProperties extends ConnectionProperties {
             Arrays.asList(
                     props -> (isFsSupport(props, FS_HDFS_SUPPORT)
                             || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null,
-                    props -> ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
-                            || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
-                            || OSSHdfsProperties.guessIsMe(props)) ? new OSSHdfsProperties(props) : null,
+                    props -> {
+                        // OSS-HDFS and OSS are mutually exclusive - check OSS-HDFS first
+                        if ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
+                                || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
+                                || OSSHdfsProperties.guessIsMe(props)) {
+                            return new OSSHdfsProperties(props);
+                        }
+                        // Only check for regular OSS if OSS-HDFS is not enabled
+                        if (isFsSupport(props, FS_OSS_SUPPORT)
+                                || OSSProperties.guessIsMe(props)) {
+                            return new OSSProperties(props);
+                        }
+                        return null;
+                    },
                     props -> (isFsSupport(props, FS_S3_SUPPORT)
                             || S3Properties.guessIsMe(props)) ? new S3Properties(props) : null,
-                    props -> (isFsSupport(props, FS_OSS_SUPPORT)
-                            || OSSProperties.guessIsMe(props)) ? new OSSProperties(props) : null,
                     props -> (isFsSupport(props, FS_OBS_SUPPORT)
                             || OBSProperties.guessIsMe(props)) ? new OBSProperties(props) : null,
                     props -> (isFsSupport(props, FS_COS_SUPPORT)
@@ -188,7 +207,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_BROKER_SUPPORT)
                             || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
                     props -> (isFsSupport(props, FS_LOCAL_SUPPORT)
-                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null
+                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null,
+                    props -> (isFsSupport(props, FS_HTTP_SUPPORT)
+                            || HttpProperties.guessIsMe(props)) ? new HttpProperties(props) : null
             );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {

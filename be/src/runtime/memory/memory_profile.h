@@ -91,6 +91,10 @@ private:
     RuntimeProfile::HighWaterMarkCounter* _jemalloc_cache_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _jemalloc_metadata_usage_counter;
 
+    // JVM memory counter
+    RuntimeProfile::HighWaterMarkCounter* _jvm_heap_memory_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _jvm_non_heap_memory_usage_counter;
+
     // global/metadata/cache memory counter
     RuntimeProfile::HighWaterMarkCounter* _global_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _metadata_usage_counter;
@@ -98,11 +102,14 @@ private:
 
     // tasks memory counter
     RuntimeProfile::HighWaterMarkCounter* _tasks_memory_usage_counter;
+
+    // Memtable memory counter
+    RuntimeProfile::HighWaterMarkCounter* _memtable_memory_usage_counter;
+
     // reserved memory is the sum of all task reserved memory, is duplicated with all task memory counter.
     RuntimeProfile::HighWaterMarkCounter* _reserved_memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _query_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _load_usage_counter;
-    RuntimeProfile::HighWaterMarkCounter* _load_all_memtables_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _compaction_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _schema_change_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _other_usage_counter;

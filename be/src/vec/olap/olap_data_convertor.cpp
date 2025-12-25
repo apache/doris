@@ -76,6 +76,10 @@ void OlapBlockDataConvertor::add_column_data_convertor(const TabletColumn& colum
     _convertors.emplace_back(create_olap_column_data_convertor(column));
 }
 
+void OlapBlockDataConvertor::add_column_data_convertor_at(const TabletColumn& column, size_t cid) {
+    _convertors[cid] = create_olap_column_data_convertor(column);
+}
+
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
 OlapBlockDataConvertor::create_map_convertor(const TabletColumn& column) {
     const auto& key_column = column.get_sub_column(0);
@@ -163,6 +167,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
         return std::make_unique<OlapColumnDataConvertorDateTimeV2>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ: {
+        return std::make_unique<OlapColumnDataConvertorSimple<TYPE_TIMESTAMPTZ>>();
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<OlapColumnDataConvertorDecimal>();
@@ -279,7 +286,9 @@ Status OlapBlockDataConvertor::set_source_content_with_specifid_columns(
 
 void OlapBlockDataConvertor::clear_source_content() {
     for (auto& convertor : _convertors) {
-        convertor->clear_source_column();
+        if (convertor != nullptr) {
+            convertor->clear_source_column();
+        }
     }
 }
 
@@ -603,7 +612,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                 }
                 // Make sure that the json binary data written in is the correct jsonb value.
                 if (_is_jsonb) {
-                    JsonbDocument* doc = nullptr;
+                    const JsonbDocument* doc = nullptr;
                     RETURN_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(
                             slice->data, slice->size, &doc));
                 }
@@ -630,7 +639,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
             }
             // Make sure that the json binary data written in is the correct jsonb value.
             if (_is_jsonb) {
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 RETURN_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(slice->data,
                                                                              slice->size, &doc));
             }

@@ -230,6 +230,7 @@ TEST_F(IndexFileWriterTest, DeleteIndexTest) {
 }
 
 TEST_F(IndexFileWriterTest, WriteV1Test) {
+    config::enable_write_index_searcher_cache = false;
     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
                            InvertedIndexStorageFormatPB::V1);
 
@@ -251,6 +252,11 @@ TEST_F(IndexFileWriterTest, WriteV1Test) {
         std::cout << "close error:" << close_status.msg() << std::endl;
     }
     ASSERT_TRUE(close_status.ok());
+
+    auto file_names = writer.get_index_file_names();
+    ASSERT_EQ(file_names.size(), 1);
+    EXPECT_EQ(file_names[0], InvertedIndexDescriptor::get_index_file_name_v1(
+                                     _rowset_id, _seg_id, index_id, index_suffix));
 
     const InvertedIndexFileInfo* file_info = writer.get_index_file_info();
     ASSERT_NE(file_info, nullptr);
@@ -686,9 +692,8 @@ public:
     IndexStorageFormatV2MockCreateOutputStream(IndexFileWriter* index_file_writer)
             : IndexStorageFormatV2(index_file_writer) {}
 
-    MOCK_METHOD((std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                           std::unique_ptr<lucene::store::IndexOutput>>),
-                create_output_stream, (), (override));
+    MOCK_METHOD((std::unique_ptr<lucene::store::IndexOutput>), create_output_stream, (),
+                (override));
 };
 
 class IndexFileWriterMockCreateOutputStreamV1 : public IndexFileWriter {
@@ -802,12 +807,9 @@ TEST_F(IndexFileWriterTest, WriteV2OutputTest) {
     EXPECT_CALL(
             *(IndexStorageFormatV2MockCreateOutputStream*)writer_mock._index_storage_format.get(),
             create_output_stream())
-            .WillOnce(::testing::Invoke(
-                    [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                                       std::unique_ptr<lucene::store::IndexOutput>> {
-                        return std::make_pair(std::move(out_dir_ptr),
-                                              std::move(compound_file_output));
-                    }));
+            .WillOnce(::testing::Invoke([&]() -> std::unique_ptr<lucene::store::IndexOutput> {
+                return std::move(compound_file_output);
+            }));
 
     int64_t index_id = 1;
     std::string index_suffix = "suffix1";
@@ -865,12 +867,9 @@ TEST_F(IndexFileWriterTest, WriteV2OutputCloseErrorTest) {
     EXPECT_CALL(
             *(IndexStorageFormatV2MockCreateOutputStream*)writer_mock._index_storage_format.get(),
             create_output_stream())
-            .WillOnce(::testing::Invoke(
-                    [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                                       std::unique_ptr<lucene::store::IndexOutput>> {
-                        return std::make_pair(std::move(out_dir_ptr),
-                                              std::move(compound_file_output));
-                    }));
+            .WillOnce(::testing::Invoke([&]() -> std::unique_ptr<lucene::store::IndexOutput> {
+                return std::move(compound_file_output);
+            }));
 
     int64_t index_id = 1;
     std::string index_suffix = "suffix1";
@@ -1656,6 +1655,55 @@ TEST_F(IndexFileWriterTest, DeleteIndexNullMetaTest) {
     ASSERT_FALSE(status.ok());
     ASSERT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
     ASSERT_TRUE(status.msg().find("Index metadata is null") != std::string::npos);
+}
+
+TEST_F(IndexFileWriterTest, GetIndexFileNamesTest) {
+    // Test V2 format
+    {
+        IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                               InvertedIndexStorageFormatPB::V2);
+        std::vector<std::string> file_names = writer.get_index_file_names();
+        ASSERT_EQ(file_names.size(), 1);
+        EXPECT_EQ(file_names[0],
+                  InvertedIndexDescriptor::get_index_file_name_v2(_rowset_id, _seg_id));
+    }
+
+    // Test V1 format
+    {
+        IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                               InvertedIndexStorageFormatPB::V1);
+
+        // Insert some directories
+        int64_t index_id_1 = 1;
+        std::string suffix_1 = "suffix1";
+        EXPECT_TRUE(writer._insert_directory_into_map(index_id_1, suffix_1,
+                                                      std::make_shared<DorisFSDirectory>())
+                            .ok());
+
+        int64_t index_id_2 = 2;
+        std::string suffix_2 = "suffix2";
+        EXPECT_TRUE(writer._insert_directory_into_map(index_id_2, suffix_2,
+                                                      std::make_shared<DorisFSDirectory>())
+                            .ok());
+
+        std::vector<std::string> file_names = writer.get_index_file_names();
+        ASSERT_EQ(file_names.size(), 2);
+
+        std::string expected_name_1 = InvertedIndexDescriptor::get_index_file_name_v1(
+                _rowset_id, _seg_id, index_id_1, suffix_1);
+        std::string expected_name_2 = InvertedIndexDescriptor::get_index_file_name_v1(
+                _rowset_id, _seg_id, index_id_2, suffix_2);
+
+        bool found_1 = false;
+        bool found_2 = false;
+        for (const auto& name : file_names) {
+            if (name == expected_name_1) found_1 = true;
+            if (name == expected_name_2) found_2 = true;
+        }
+
+        EXPECT_TRUE(found_1);
+        EXPECT_TRUE(found_2);
+    }
 }
 
 // Test for add_into_searcher_cache with StreamSinkFileWriter nullptr check

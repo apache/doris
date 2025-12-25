@@ -119,8 +119,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
         auto serialized_block = response_.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
+        int64_t compress_time = 0;
         auto s = resp_block1.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
-                                       CompressionTypePB::LZ4);
+                                       &compress_time, CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
 
         _shared_state->rpc_struct_map[_backend_id1].response = std::move(response_);
@@ -141,8 +142,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
         auto serialized_block = response_.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
+        int64_t compress_time = 0;
         auto s = resp_block2.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
-                                       CompressionTypePB::LZ4);
+                                       &compress_time, CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
 
         _shared_state->rpc_struct_map[_backend_id2].response = std::move(response_);
@@ -219,8 +221,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto serialized_block = response_.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
+        int64_t compress_time = 0;
         auto s = resp_block1.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
-                                       CompressionTypePB::LZ4);
+                                       &compress_time, CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
 
         _shared_state->rpc_struct_map[_backend_id1].response = std::move(response_);
@@ -240,8 +243,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto serialized_block = response_.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
+        int64_t compress_time = 0;
         auto s = resp_block2.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
-                                       CompressionTypePB::LZ4);
+                                       &compress_time, CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
 
         _shared_state->rpc_struct_map[_backend_id2].response = std::move(response_);
@@ -260,8 +264,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
                 _shared_state->rpc_struct_map[_backend_id1].response.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
+        int64_t compress_time = 0;
         auto s = resp_block1.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
-                                       CompressionTypePB::LZ4);
+                                       &compress_time, CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
         _shared_state->response_blocks[1] = resp_block1.clone_empty();
     }
@@ -278,8 +283,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
                 _shared_state->rpc_struct_map[_backend_id2].response.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
+        int64_t compress_time = 0;
         auto s = resp_block2.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
-                                       CompressionTypePB::LZ4);
+                                       &compress_time, CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
     }
 

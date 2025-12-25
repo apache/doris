@@ -19,6 +19,7 @@
 
 #include <mutex>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -50,7 +51,7 @@ IndexBuilder::IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
 
 IndexBuilder::~IndexBuilder() {
     _olap_data_convertor.reset();
-    _inverted_index_builders.clear();
+    _index_column_writers.clear();
 }
 
 Status IndexBuilder::init() {
@@ -113,12 +114,9 @@ Status IndexBuilder::update_inverted_index_info() {
                     }
                 }
                 auto column = output_rs_tablet_schema->column(column_idx);
+
+                // inverted index
                 auto index_metas = output_rs_tablet_schema->inverted_indexs(column);
-                if (index_metas.empty()) {
-                    LOG(ERROR) << "failed to find column: " << column_name
-                               << " index_id: " << t_inverted_index.index_id;
-                    continue;
-                }
                 for (const auto& index_meta : index_metas) {
                     if (output_rs_tablet_schema->get_inverted_index_storage_format() ==
                         InvertedIndexStorageFormatPB::V1) {
@@ -143,7 +141,20 @@ Status IndexBuilder::update_inverted_index_info() {
                     // remove dropped index_meta from output rowset tablet schema
                     output_rs_tablet_schema->remove_index(index_meta->index_id());
                 }
+
+                // ann index
+                const auto* ann_index = output_rs_tablet_schema->ann_index(column);
+                if (!ann_index) {
+                    continue;
+                }
+                DCHECK(output_rs_tablet_schema->get_inverted_index_storage_format() !=
+                       InvertedIndexStorageFormatPB::V1);
+                _dropped_inverted_indexes.push_back(*ann_index);
+                // ATTN: DO NOT REMOVE INDEX AFTER OUTPUT_ROWSET_WRITER CREATED.
+                // remove dropped index_meta from output rowset tablet schema
+                output_rs_tablet_schema->remove_index(ann_index->index_id());
             }
+
             DBUG_EXECUTE_IF("index_builder.update_inverted_index_info.drop_index", {
                 auto indexes_count = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                         "index_builder.update_inverted_index_info.drop_index", "indexes_count", 0);
@@ -172,6 +183,8 @@ Status IndexBuilder::update_inverted_index_info() {
                     continue;
                 }
                 const TabletColumn& col = output_rs_tablet_schema->column_by_uid(column_uid);
+
+                // inverted index
                 auto exist_indexs = output_rs_tablet_schema->inverted_indexs(col);
                 for (const auto& exist_index : exist_indexs) {
                     if (exist_index->index_id() != index.index_id()) {
@@ -188,6 +201,21 @@ Status IndexBuilder::update_inverted_index_info() {
                         }
                     }
                 }
+
+                // ann index
+                const auto* exist_index = output_rs_tablet_schema->ann_index(col);
+                if (exist_index && exist_index->index_id() != index.index_id()) {
+                    if (exist_index->is_same_except_id(&index)) {
+                        LOG(WARNING) << fmt::format(
+                                "column: {} has a exist ann index, but the index id not "
+                                "equal request's index id, , exist index id: {}, request's index "
+                                "id: {}, remove exist index in new output_rs_tablet_schema",
+                                column_uid, exist_index->index_id(), index.index_id());
+                        without_index_uids.insert(exist_index->index_id());
+                        output_rs_tablet_schema->remove_index(exist_index->index_id());
+                    }
+                }
+
                 output_rs_tablet_schema->append_index(std::move(index));
             }
         }
@@ -357,7 +385,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
         return Status::OK();
     } else {
-        // create inverted index writer
+        // create inverted or ann index writer
         const auto& fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
         size_t inverted_index_size = 0;
@@ -402,8 +430,10 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
                         seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format());
             }
-            // create inverted index writer
+            // create inverted index writer, or ann index writer
             for (auto inverted_index : _alter_inverted_indexes) {
+                DCHECK(inverted_index.index_type == TIndexType::INVERTED ||
+                       inverted_index.index_type == TIndexType::ANN);
                 DCHECK_EQ(inverted_index.columns.size(), 1);
                 auto index_id = inverted_index.index_id;
                 auto column_name = inverted_index.columns[0];
@@ -425,44 +455,79 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 // variant column is not support for building index
                 auto is_support_inverted_index =
                         IndexColumnWriter::check_support_inverted_index(column);
+                auto is_support_ann_index = IndexColumnWriter::check_support_ann_index(column);
                 DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_support_inverted_index",
                                 { is_support_inverted_index = false; })
-                if (!is_support_inverted_index) {
+                if (!is_support_inverted_index && !is_support_ann_index) {
                     continue;
                 }
                 DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id));
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
                 std::unique_ptr<Field> field(FieldFactory::create(column));
-                auto index_metas = output_rowset_schema->inverted_indexs(column);
-                for (const auto& index_meta : index_metas) {
-                    if (index_meta->index_id() != index_id) {
-                        continue;
-                    }
-                    std::unique_ptr<segment_v2::IndexColumnWriter> inverted_index_builder;
-                    try {
-                        RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(
-                                field.get(), &inverted_index_builder, index_file_writer.get(),
-                                index_meta));
-                        DBUG_EXECUTE_IF(
-                                "IndexBuilder::handle_single_rowset_index_column_writer_create_"
-                                "error",
-                                {
-                                    _CLTHROWA(CL_ERR_IO,
-                                              "debug point: "
-                                              "handle_single_rowset_index_column_writer_create_"
-                                              "error");
-                                })
-                    } catch (const std::exception& e) {
-                        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                                "CLuceneError occured: {}", e.what());
-                    }
 
-                    if (inverted_index_builder) {
-                        auto writer_sign = std::make_pair(seg_ptr->id(), index_id);
-                        _inverted_index_builders.insert(
-                                std::make_pair(writer_sign, std::move(inverted_index_builder)));
-                        inverted_index_writer_signs.emplace_back(writer_sign);
+                if (inverted_index.index_type == TIndexType::INVERTED) {
+                    // inverted index
+                    auto index_metas = output_rowset_schema->inverted_indexs(column);
+                    for (const auto& index_meta : index_metas) {
+                        if (index_meta->index_id() != index_id) {
+                            continue;
+                        }
+                        std::unique_ptr<segment_v2::IndexColumnWriter> inverted_index_builder;
+                        try {
+                            RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(
+                                    field.get(), &inverted_index_builder, index_file_writer.get(),
+                                    index_meta));
+                            DBUG_EXECUTE_IF(
+                                    "IndexBuilder::handle_single_rowset_index_column_writer_create_"
+                                    "error",
+                                    {
+                                        _CLTHROWA(CL_ERR_IO,
+                                                  "debug point: "
+                                                  "handle_single_rowset_index_column_writer_create_"
+                                                  "error");
+                                    })
+                        } catch (const std::exception& e) {
+                            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                                    "CLuceneError occured: {}", e.what());
+                        }
+
+                        if (inverted_index_builder) {
+                            auto writer_sign = std::make_pair(seg_ptr->id(), index_id);
+                            _index_column_writers.insert(
+                                    std::make_pair(writer_sign, std::move(inverted_index_builder)));
+                            inverted_index_writer_signs.emplace_back(writer_sign);
+                        }
+                    }
+                } else if (inverted_index.index_type == TIndexType::ANN) {
+                    // ann index
+                    const auto* index_meta = output_rowset_schema->ann_index(column);
+                    if (index_meta && index_meta->index_id() == index_id) {
+                        std::unique_ptr<segment_v2::IndexColumnWriter> index_writer;
+                        try {
+                            RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(
+                                    field.get(), &index_writer, index_file_writer.get(),
+                                    index_meta));
+                            DBUG_EXECUTE_IF(
+                                    "IndexBuilder::handle_single_rowset_index_column_writer_create_"
+                                    "error",
+                                    {
+                                        _CLTHROWA(CL_ERR_IO,
+                                                  "debug point: "
+                                                  "handle_single_rowset_index_column_writer_create_"
+                                                  "error");
+                                    })
+                        } catch (const std::exception& e) {
+                            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                                    "CLuceneError occured: {}", e.what());
+                        }
+
+                        if (index_writer) {
+                            auto writer_sign = std::make_pair(seg_ptr->id(), index_id);
+                            _index_column_writers.insert(
+                                    std::make_pair(writer_sign, std::move(index_writer)));
+                            inverted_index_writer_signs.emplace_back(writer_sign);
+                        }
                     }
                 }
             }
@@ -510,7 +575,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     return status;
                 }
 
-                // write inverted index data
+                // write inverted index data, or ann index data
                 status = _write_inverted_index_data(output_rowset_schema, iter->data_id(),
                                                     block.get());
                 DBUG_EXECUTE_IF(
@@ -529,8 +594,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             // finish write inverted index, flush data to compound file
             for (auto& writer_sign : inverted_index_writer_signs) {
                 try {
-                    if (_inverted_index_builders[writer_sign]) {
-                        RETURN_IF_ERROR(_inverted_index_builders[writer_sign]->finish());
+                    if (_index_column_writers[writer_sign]) {
+                        RETURN_IF_ERROR(_index_column_writers[writer_sign]->finish());
                     }
                     DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_index_build_finish_error", {
                         _CLTHROWA(CL_ERR_IO,
@@ -556,7 +621,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             }
             inverted_index_size += index_file_writer->get_index_file_total_size();
         }
-        _inverted_index_builders.clear();
+        _index_column_writers.clear();
         _index_file_writers.clear();
         output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size());
         output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
@@ -571,7 +636,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
 
 Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, int64_t segment_idx,
                                                 vectorized::Block* block) {
-    VLOG_DEBUG << "begin to write inverted index";
+    VLOG_DEBUG << "begin to write inverted/ann index";
     // converter block data
     _olap_data_convertor->set_source_content(block, 0, block->rows());
     for (auto i = 0; i < _alter_inverted_indexes.size(); ++i) {
@@ -634,14 +699,14 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         try {
             auto data = *(data_ptr + 2);
             auto nested_null_map = *(data_ptr + 3);
-            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
+            RETURN_IF_ERROR(_index_column_writers[index_writer_sign]->add_array_values(
                     field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
             DBUG_EXECUTE_IF("IndexBuilder::_add_nullable_add_array_values_error", {
                 _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_add_array_values_error");
             })
-            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_nulls(null_map,
-                                                                                         num_rows));
+            RETURN_IF_ERROR(
+                    _index_column_writers[index_writer_sign]->add_array_nulls(null_map, num_rows));
         } catch (const std::exception& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occured: {}", e.what());
@@ -665,11 +730,11 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         do {
             auto step = next_run_step();
             if (null_map[offset]) {
-                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(
+                RETURN_IF_ERROR(_index_column_writers[index_writer_sign]->add_nulls(
                         static_cast<uint32_t>(step)));
             } else {
-                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
-                        column_name, *ptr, step));
+                RETURN_IF_ERROR(_index_column_writers[index_writer_sign]->add_values(column_name,
+                                                                                     *ptr, step));
             }
             *ptr += field->size() * step;
             offset += step;
@@ -699,13 +764,13 @@ Status IndexBuilder::_add_data(const std::string& column_name,
             if (element_cnt > 0) {
                 auto data = *(data_ptr + 2);
                 auto nested_null_map = *(data_ptr + 3);
-                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
+                RETURN_IF_ERROR(_index_column_writers[index_writer_sign]->add_array_values(
                         field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
                         reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
             }
         } else {
-            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
-                    column_name, *ptr, num_rows));
+            RETURN_IF_ERROR(_index_column_writers[index_writer_sign]->add_values(column_name, *ptr,
+                                                                                 num_rows));
         }
         DBUG_EXECUTE_IF("IndexBuilder::_add_data_throw_exception",
                         { _CLTHROWA(CL_ERR_IO, "debug point: _add_data_throw_exception"); })
@@ -785,6 +850,7 @@ Status IndexBuilder::do_build_inverted_index() {
                                         _tablet->tablet_id());
     }
 
+    DCHECK(!_alter_index_ids.empty());
     _input_rowsets =
             _tablet->pick_candidate_rowsets_to_build_inverted_index(_alter_index_ids, _is_drop_op);
     if (_input_rowsets.empty()) {

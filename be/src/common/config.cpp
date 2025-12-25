@@ -65,6 +65,8 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
+DEFINE_Int32(cdc_client_port, "9096");
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:
@@ -301,21 +303,10 @@ DEFINE_mInt32(pipeline_task_exec_time_slice, "100");
 DEFINE_Int32(task_executor_min_concurrency_per_task, "1");
 // task executor max concurrency per task
 DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
-DEFINE_Validator(task_executor_max_concurrency_per_task, [](const int config) -> bool {
-    if (config == -1) {
-        task_executor_max_concurrency_per_task = std::numeric_limits<int>::max();
-    }
-    return true;
-});
+
 // task task executor inital split max concurrency per task, later concurrency may be adjusted dynamically
 DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
-DEFINE_Validator(task_executor_initial_max_concurrency_per_task, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        task_executor_initial_max_concurrency_per_task = std::max(48, CpuInfo::num_cores() * 2);
-    }
-    return true;
-});
+
 // Enable task executor in internal table scan.
 DEFINE_Bool(enable_task_executor_in_internal_table, "false");
 // Enable task executor in external table scan.
@@ -324,13 +315,7 @@ DEFINE_Bool(enable_task_executor_in_external_table, "true");
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
-DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 2);
-    }
-    return true;
-});
+
 DEFINE_Int32(doris_scanner_min_thread_pool_thread_num, "8");
 DEFINE_Int32(remote_split_source_batch_size, "1000");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
@@ -369,6 +354,8 @@ DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_mInt32(quering_rowsets_evict_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_mString(broken_storage_path, "");
+DEFINE_Int32(min_active_scan_threads, "-1");
+DEFINE_Int32(min_active_file_scan_threads, "-1");
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -627,6 +614,12 @@ DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DEFINE_mBool(enable_stream_load_record, "false");
+// Whether to enable stream load record to audit log table, the default is true.
+DEFINE_mBool(enable_stream_load_record_to_audit_log_table, "false");
+// the maximum bytes of a batch of stream load records to audit log table
+DEFINE_mInt64(stream_load_record_batch_bytes, "104857600"); // 100MB
+// the interval to send a batch of stream load records to audit log table
+DEFINE_mInt64(stream_load_record_batch_interval_secs, "120"); // 2 minutes
 // batch size of stream load record reported to FE
 DEFINE_mInt32(stream_load_record_batch_size, "50");
 // expire time of stream load record in rocksdb.
@@ -637,6 +630,9 @@ DEFINE_mInt64(clean_stream_load_record_interval_secs, "1800");
 DEFINE_mBool(enable_stream_load_commit_txn_on_be, "false");
 // The buffer size to store stream table function schema info
 DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
+
+// request cdc client timeout
+DEFINE_mInt32(request_cdc_client_timeout_ms, "60000");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -1083,8 +1079,6 @@ DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
 // Global segcompaction thread pool size.
 DEFINE_mInt32(segcompaction_num_threads, "5");
 
-DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
-
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
@@ -1152,6 +1146,9 @@ DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mBool(enable_file_cache_adaptive_write, "true");
 DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
+// if difference below this threshold, we consider cache's progressive upgrading (2.0->3.0) successful
+DEFINE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold, "0.3");
+DEFINE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio, "0.7");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
@@ -1159,7 +1156,9 @@ DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
-DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
+DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "180000");
+DEFINE_mInt64(file_cache_background_ttl_info_update_interval_ms, "180000");
+DEFINE_mInt64(file_cache_background_tablet_id_flush_interval_ms, "1000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
@@ -1315,6 +1314,7 @@ DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
 DEFINE_Int32(grace_shutdown_wait_seconds, "120");
+DEFINE_Int32(grace_shutdown_post_delay_seconds, "30");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
 
@@ -1600,14 +1600,15 @@ DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 // -1 means auto: use 80% of the available CPU cores.
 DEFINE_Int32(omp_threads_limit, "-1");
 DEFINE_Validator(omp_threads_limit, [](const int config) -> bool {
+    if (config > 0) {
+        omp_threads_limit = config;
+        return true;
+    }
     CpuInfo::init();
     int core_cap = config::num_cores > 0 ? config::num_cores : CpuInfo::num_cores();
     core_cap = std::max(1, core_cap);
-    int limit = config;
-    if (limit < 0) {
-        limit = std::max(1, core_cap * 4 / 5);
-    }
-    omp_threads_limit = std::max(1, std::min(limit, core_cap));
+    // Use at most 80% of the available CPU cores.
+    omp_threads_limit = std::max(1, core_cap * 4 / 5);
     return true;
 });
 // The capacity of segment partial column cache, used to cache column readers for each segment.
@@ -1615,6 +1616,12 @@ DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+// Chunk size for ANN/vector index building per training/adding batch
+// 1M By default.
+DEFINE_mInt64(ann_index_build_chunk_size, "1000000");
+DEFINE_Validator(ann_index_build_chunk_size,
+                 [](const int64_t config) -> bool { return config > 0; });
 
 DEFINE_mBool(enable_wal_tde, "false");
 
@@ -1626,15 +1633,6 @@ DEFINE_String(aws_credentials_provider_version, "v2");
 DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config) -> bool {
     return config == "v1" || config == "v2";
 });
-
-DEFINE_mString(binary_plain_encoding_default_impl, "v1");
-DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& config) -> bool {
-    return config == "v1" || config == "v2";
-});
-
-DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
-
-DEFINE_mBool(enable_fuzzy_storage_encoding, "false");
 
 // clang-format off
 #ifdef BE_TEST
@@ -2089,10 +2087,6 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
-    if (config::enable_fuzzy_storage_encoding) {
-        fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
-                ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
-    }
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

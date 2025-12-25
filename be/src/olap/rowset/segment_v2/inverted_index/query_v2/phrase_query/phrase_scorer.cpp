@@ -22,7 +22,7 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 template <typename TPostings>
 ScorerPtr PhraseScorer<TPostings>::create_with_offset(
         const std::vector<std::pair<size_t, TPostings>>& term_postings_with_offset,
-        const SimilarityPtr& similarity, uint32_t slop, size_t offset) {
+        const SimilarityPtr& similarity, uint32_t slop, size_t offset, uint32_t num_docs) {
     size_t max_offset = offset;
     for (const auto& [term_offset, _] : term_postings_with_offset) {
         max_offset = std::max(max_offset, term_offset + offset);
@@ -38,9 +38,8 @@ ScorerPtr PhraseScorer<TPostings>::create_with_offset(
         postings_with_offsets.emplace_back(std::move(postings_with_offset));
     }
 
-    using IntersectionType =
-            Intersection<PostingsWithOffsetPtr<TPostings>, PostingsWithOffsetPtr<TPostings>>;
-    auto intersection_docset = IntersectionType::create(postings_with_offsets);
+    auto intersection_docset =
+            make_intersection<PostingsWithOffsetPtr<TPostings>>(postings_with_offsets, num_docs);
     std::vector<uint32_t> left_positions(100);
     std::vector<uint32_t> right_positions(100);
     auto scorer = std::make_shared<PhraseScorer<TPostings>>(
@@ -64,7 +63,7 @@ uint32_t PhraseScorer<TPostings>::advance() {
 
 template <typename TPostings>
 uint32_t PhraseScorer<TPostings>::seek(uint32_t target) {
-    assert(target > doc());
+    assert(target >= doc());
     uint32_t doc = _intersection_docset->seek(target);
     if (doc == TERMINATED || phrase_match()) {
         return doc;
@@ -80,6 +79,11 @@ uint32_t PhraseScorer<TPostings>::doc() const {
 template <typename TPostings>
 uint32_t PhraseScorer<TPostings>::size_hint() const {
     return _intersection_docset->size_hint();
+}
+
+template <typename TPostings>
+uint64_t PhraseScorer<TPostings>::cost() const {
+    return static_cast<uint64_t>(_intersection_docset->size_hint()) * 10 * _num_terms;
 }
 
 template <typename TPostings>
@@ -183,6 +187,7 @@ bool PhraseScorer<TPostings>::intersection_exists(const std::vector<uint32_t>& l
     return false;
 }
 
-template class PhraseScorer<PositionPostings>;
+template class PhraseScorer<PostingsPtr>;
+template class PhraseScorer<SegmentPostingsPtr>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

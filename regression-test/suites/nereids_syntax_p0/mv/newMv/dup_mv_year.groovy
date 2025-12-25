@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("dup_mv_year") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
     sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS dup_mv_year; """
@@ -42,16 +44,10 @@ suite ("dup_mv_year") {
     sql "analyze table dup_mv_year with sync;"
     sql """alter table dup_mv_year modify column k1 set stats ('row_count'='4');"""
 
-    sql """set enable_stats=false;"""
-
-
     mv_rewrite_success("select k1,year(k2) from dup_mv_year order by k1;", "k12y")
     order_qt_select_mv "select k1,year(k2) from dup_mv_year order by k1;"
 
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select k1,year(k2) from dup_mv_year order by k1;", "k12y")
-
-    createMV "create materialized view k13y as select k1 as a3,year(k3) as a4 from dup_mv_year;"
+    create_sync_mv(db, "dup_mv_year", "k13y", "select k1 as a3,year(k3) as a4 from dup_mv_year;")
 
     sql "insert into dup_mv_year select 4,'2033-12-31','2033-12-31 01:02:03';"
     Thread.sleep(1000)
@@ -61,6 +57,4 @@ suite ("dup_mv_year") {
     mv_rewrite_success("select year(k3) from dup_mv_year order by k1;", "k13y")
     order_qt_select_mv_sub "select year(k3) from dup_mv_year order by k1;"
 
-    sql """set enable_stats=false;"""
-    mv_rewrite_success("select year(k3) from dup_mv_year order by k1;", "k13y")
 }

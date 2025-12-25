@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 
 import org.apache.commons.lang3.NotImplementedException;
 
@@ -72,5 +73,9 @@ public class DistributionDesc {
 
     public boolean inDistributionColumns(String columnName) {
         return getDistributionColumnNames() != null && getDistributionColumnNames().contains(columnName);
+    }
+
+    public DistributionDescriptor toDistributionDescriptor() {
+        throw new NotImplementedException("toDistributionDescriptor not implemented");
     }
 }

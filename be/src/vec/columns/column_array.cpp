@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/simd/bits.h"
 #include "util/simd/vstring_function.h"
@@ -427,6 +428,50 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
     }
 }
 
+void ColumnArray::update_crc32c_batch(uint32_t* __restrict hashes,
+                                      const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                update_crc32c_single(i, i + 1, hashes[i], nullptr);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            update_crc32c_single(i, i + 1, hashes[i], nullptr);
+        }
+    }
+}
+
+void ColumnArray::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                       const uint8_t* __restrict null_map) const {
+    const auto& offsets_column = get_offsets();
+    if (null_map) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_map[i] == 0) {
+                size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+                if (elem_size == 0) {
+                    hash = HashUtil::crc32c_null(hash);
+                } else {
+                    get_data().update_crc32c_single(offsets_column[i - 1], offsets_column[i], hash,
+                                                    nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+            if (elem_size == 0) {
+                hash = HashUtil::crc32c_null(hash);
+            } else {
+                get_data().update_crc32c_single(offsets_column[i - 1], offsets_column[i], hash,
+                                                nullptr);
+            }
+        }
+    }
+}
+
 void ColumnArray::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_ARRAY);
     if (x.is_null()) {
@@ -794,6 +839,8 @@ ColumnArrayDataOffsets filter_return_new_dispatch(const Filter& filt, ssize_t re
         return filter_number_return_new<TYPE_DATETIME>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
         return filter_number_return_new<TYPE_DATETIMEV2>(filt, result_size_hint, data, offsets);
+    if (typeid_cast<const ColumnTimeStampTz*>(data.get()))
+        return filter_number_return_new<TYPE_TIMESTAMPTZ>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnTimeV2*>(data.get()))
         return filter_number_return_new<TYPE_TIMEV2>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnTime*>(data.get()))
@@ -860,6 +907,8 @@ size_t filter_inplace_dispatch(const Filter& filter, IColumn& src_data,
         return filter_number_inplace<TYPE_DATETIME>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnDateTimeV2*>(&src_data))
         return filter_number_inplace<TYPE_DATETIMEV2>(filter, src_data, src_offsets);
+    if (typeid_cast<ColumnTimeStampTz*>(&src_data))
+        return filter_number_inplace<TYPE_TIMESTAMPTZ>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnTimeV2*>(&src_data))
         return filter_number_inplace<TYPE_TIMEV2>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnTime*>(&src_data))

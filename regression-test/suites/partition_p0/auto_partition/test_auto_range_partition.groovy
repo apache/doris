@@ -212,7 +212,7 @@ suite("test_auto_range_partition") {
                 "replication_num" = "1"
             );
         """
-        exception "partition expr date_trunc is illegal!"
+        exception "is illegal!"
     }
     test {
         sql """
@@ -226,21 +226,21 @@ suite("test_auto_range_partition") {
                 "replication_num" = "1"
             );
         """
-        exception "partition expr date_trunc is illegal!"
+        exception "is illegal!"
     }
-    sql """
-        CREATE TABLE awh_test_range_auto (
-            DATE_ID BIGINT NOT NULL,
-            LAST_UPLOAD_TIME DATETIME NOT NULL
-        )
-        AUTO PARTITION BY RANGE (date_trunc(LAST_UPLOAD_TIME, 'yeear'))()
-        DISTRIBUTED BY HASH(DATE_ID) BUCKETS AUTO
-        PROPERTIES (
-            "replication_num" = "1"
-        );
-    """
+
     test {
-        sql "insert into awh_test_range_auto values (1,'20201212')"
-        exception "date_trunc function time unit param only support argument is"
+        sql """
+            CREATE TABLE awh_test_range_auto (
+                DATE_ID BIGINT NOT NULL,
+                LAST_UPLOAD_TIME DATETIME NOT NULL
+            )
+            AUTO PARTITION BY RANGE (date_trunc(LAST_UPLOAD_TIME, 'yeear'))()
+            DISTRIBUTED BY HASH(DATE_ID) BUCKETS AUTO
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "is illegal!"
     }
 }

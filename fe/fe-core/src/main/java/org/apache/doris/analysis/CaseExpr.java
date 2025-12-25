@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TCaseExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
@@ -74,32 +73,23 @@ public class CaseExpr extends Expr {
         // use for serde only
     }
 
-    public CaseExpr(Expr caseExpr, List<CaseWhenClause> whenClauses, Expr elseExpr) {
+    /**
+     * use for Nereids ONLY
+     */
+    public CaseExpr(List<CaseWhenClause> whenClauses, Expr elseExpr, boolean nullable) {
         super();
-        if (caseExpr != null) {
-            children.add(caseExpr);
-            hasCaseExpr = true;
-        }
         for (CaseWhenClause whenClause : whenClauses) {
-            Preconditions.checkNotNull(whenClause.getWhenExpr());
             children.add(whenClause.getWhenExpr());
-            Preconditions.checkNotNull(whenClause.getThenExpr());
             children.add(whenClause.getThenExpr());
         }
         if (elseExpr != null) {
             children.add(elseExpr);
             hasElseExpr = true;
         }
-    }
-
-    /**
-     * use for Nereids ONLY
-     */
-    public CaseExpr(List<CaseWhenClause> whenClauses, Expr elseExpr) {
-        this(null, whenClauses, elseExpr);
         // nereids do not have CaseExpr, and nereids will unify the types,
         // so just use the first then type
         type = children.get(1).getType();
+        this.nullable = nullable;
     }
 
     protected CaseExpr(CaseExpr other) {
@@ -169,54 +159,8 @@ public class CaseExpr extends Expr {
     }
 
     @Override
-    public String toDigestImpl() {
-        StringBuilder sb = new StringBuilder("CASE");
-        int childIdx = 0;
-        if (hasCaseExpr) {
-            sb.append(" ").append(children.get(childIdx++).toDigest());
-        }
-        while (childIdx + 2 <= children.size()) {
-            sb.append(" WHEN ").append(children.get(childIdx++).toDigest());
-            sb.append(" THEN ").append(children.get(childIdx++).toDigest());
-        }
-        if (hasElseExpr) {
-            sb.append(" ELSE ").append(children.get(children.size() - 1).toDigest());
-        }
-        sb.append(" END");
-        return sb.toString();
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CASE_EXPR;
         msg.case_expr = new TCaseExpr(hasCaseExpr, hasElseExpr);
-    }
-
-    @Override
-    public boolean isNullable() {
-        int loopStart;
-        int loopEnd = children.size();
-        if (hasCaseExpr) {
-            loopStart = 2;
-        } else {
-            loopStart = 1;
-        }
-        if (hasElseExpr) {
-            --loopEnd;
-        }
-        for (int i = loopStart; i < loopEnd; i += 2) {
-            Expr thenExpr = children.get(i);
-            if (thenExpr.isNullable()) {
-                return true;
-            }
-        }
-        if (hasElseExpr) {
-            if (children.get(children.size() - 1).isNullable()) {
-                return true;
-            }
-        } else {
-            return true;
-        }
-        return false;
     }
 }

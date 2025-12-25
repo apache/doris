@@ -33,6 +33,13 @@ import org.apache.hadoop.fs.Path
 import org.apache.hadoop.fs.RemoteIterator
 import org.apache.hadoop.security.UserGroupInformation
 
+import com.azure.storage.blob.BlobContainerClient
+import com.azure.storage.blob.BlobContainerClientBuilder
+import com.azure.storage.blob.models.BlobItem
+import com.azure.storage.blob.models.ListBlobsOptions
+import com.azure.storage.common.StorageSharedKeyCredential
+import java.time.Duration
+
 suite("test_checker") {
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId;
@@ -77,7 +84,7 @@ suite("test_checker") {
     // Randomly delete segment file under tablet dir
     getObjStoreInfoApiResult = getObjStoreInfo(token, cloudUniqueId)
     if (getObjStoreInfoApiResult.result.toString().contains("obj_info")) {
-        String ak, sk, endpoint, region, prefix, bucket
+        String ak, sk, endpoint, region, prefix, bucket, provider
         if(!getObjStoreInfoApiResult.result.toString().contains("storage_vault=[")){
             ak = getObjStoreInfoApiResult.result.obj_info[0].ak
             sk = getObjStoreInfoApiResult.result.obj_info[0].sk
@@ -85,6 +92,7 @@ suite("test_checker") {
             region = getObjStoreInfoApiResult.result.obj_info[0].region
             prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
             bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
+            provider = getObjStoreInfoApiResult.result.obj_info[0].provider
         }else{
             ak = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.ak
             sk = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.sk
@@ -92,19 +100,43 @@ suite("test_checker") {
             region = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.region
             prefix = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.prefix
             bucket = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.bucket
+            provider = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.provider
         }
-        def credentials = new BasicAWSCredentials(ak, sk)
-        def endpointConfiguration = new EndpointConfiguration(endpoint, region)
-        def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
-                .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
-        def objectListing = s3Client.listObjects(
-                new ListObjectsRequest().withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
-        def objectSummaries = objectListing.getObjectSummaries()
-        assertTrue(!objectSummaries.isEmpty())
-        Random random = new Random(caseStartTime);
-        def objectKey = objectSummaries[random.nextInt(objectSummaries.size())].getKey()
-        logger.info("delete objectKey: ${objectKey}")
-        s3Client.deleteObject(new DeleteObjectRequest(bucket, objectKey))
+
+        if (provider?.equalsIgnoreCase("AZURE")) {
+            // Use Azure Blob Storage SDK
+            String uri = String.format("https://%s/%s", endpoint, bucket);
+            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(ak, sk);
+            BlobContainerClient containerClient = new BlobContainerClientBuilder()
+                .credential(cred)
+                .endpoint(uri)
+                .buildClient();
+
+            def blobs = containerClient.listBlobs(
+                new ListBlobsOptions().setPrefix("${prefix}/data/${tabletId}/"),
+                Duration.ofMinutes(1));
+            def blobsList = blobs.stream().toList()
+            assertTrue(!blobsList.isEmpty())
+            Random random = new Random(caseStartTime);
+            def blobToDelete = blobsList[random.nextInt(blobsList.size())]
+            def blobName = blobToDelete.getName()
+            logger.info("delete blob: ${blobName}")
+            containerClient.getBlobClient(blobName).delete()
+        } else {
+            // Use AWS S3 SDK
+            def credentials = new BasicAWSCredentials(ak, sk)
+            def endpointConfiguration = new EndpointConfiguration(endpoint, region)
+            def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
+                    .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+            def objectListing = s3Client.listObjects(
+                    new ListObjectsRequest().withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
+            def objectSummaries = objectListing.getObjectSummaries()
+            assertTrue(!objectSummaries.isEmpty())
+            Random random = new Random(caseStartTime);
+            def objectKey = objectSummaries[random.nextInt(objectSummaries.size())].getKey()
+            logger.info("delete objectKey: ${objectKey}")
+            s3Client.deleteObject(new DeleteObjectRequest(bucket, objectKey))
+        }
     } else if (getObjStoreInfoApiResult.result.toString().contains("storage_vault=[") && getObjStoreInfoApiResult.result.toString().contains("hdfs_info")) {
         System.setProperty("java.security.krb5.conf", "/etc/krb/krb5.conf")
         String fsUri = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.fs_name

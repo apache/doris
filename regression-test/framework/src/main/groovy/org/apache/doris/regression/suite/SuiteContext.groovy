@@ -339,6 +339,25 @@ class SuiteContext implements Closeable {
 
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
         def originConnection = threadLocalConn.get()
+        if ((config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
+            String clientCAKey = "clientCertificateKeyStoreUrl=file:" + config.otherConfigs.get("keyStorePath")
+            String clientCAPwd = "clientCertificateKeyStorePassword=" + config.otherConfigs.get("keyStorePassword")
+            String trustCAKey = "trustCertificateKeyStoreUrl=file:" + config.otherConfigs.get("trustStorePath")
+            String trustCAPwd = "trustCertificateKeyStorePassword=" + config.otherConfigs.get("trustStorePassword")
+            String tlsUrl = useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
+            if (!url.contains("clientCertificateKeyStoreUrl")){
+                if (url.charAt(url.length() - 1) == '?') {
+                    return url + tlsUrl
+                    // e.g: jdbc:mysql://locahost:8080/dbname?a=b
+                } else if (url.contains('?')) {
+                    return url + '&' + tlsUrl
+                    // e.g: jdbc:mysql://locahost:8080/dbname
+                } else {
+                    return url + '?' + tlsUrl
+                }
+            }
+        }
         try {
             log.info("Create new connection for user '${user}' to '${url}'")
             return DriverManager.getConnection(url, user, password).withCloseable { newConn ->

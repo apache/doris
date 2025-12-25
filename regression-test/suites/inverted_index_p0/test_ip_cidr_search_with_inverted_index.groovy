@@ -43,8 +43,8 @@ suite("test_ip_cidr_search_with_inverted_index", "nonConcurrent"){
     sql """ set enable_profile = true;"""
 
     sql """ insert into tc_ip_cidr_search_with_inverted_index values(1, '59.50.185.152', '2a02:e980:83:5b09:ecb8:c669:b336:650e', '127.0.0.0/8'),(3, '119.36.22.147', '2001:4888:1f:e891:161:26::', '127.0.0.0/8'),(2, '42.117.228.166', '2001:16a0:2:200a::2', null); """
-    sql """ insert into tc_ip_cidr_search_with_inverted_index values(4, '.', '2001:1b70:a1:610::b102:2', null); """
-    sql """ insert into tc_ip_cidr_search_with_inverted_index values(5, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffffg', null) """
+    sql """ insert into tc_ip_cidr_search_with_inverted_index values(4, NULL, '2001:1b70:a1:610::b102:2', null); """
+    sql """ insert into tc_ip_cidr_search_with_inverted_index values(5, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', null) """
 
     qt_sql """ select count() from tc_ip_cidr_search_with_inverted_index"""
     // without inverted index query

@@ -28,12 +28,14 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 class RegexpWeight : public Weight {
 public:
     RegexpWeight(IndexQueryContextPtr context, std::wstring field, std::string pattern,
-                 bool enable_scoring);
+                 bool enable_scoring, bool nullable);
     ~RegexpWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) override;
 
 private:
+    ScorerPtr regexp_scorer(const QueryExecutionContext& context, const std::string& binding_key);
+
     std::optional<std::string> get_regex_prefix(const std::string& pattern);
     void collect_matching_terms(const QueryExecutionContext& context,
                                 const std::string& binding_key, std::vector<std::wstring>& terms,
@@ -45,6 +47,7 @@ private:
     std::wstring _field;
     std::string _pattern;
     bool _enable_scoring = false;
+    bool _nullable = true;
     int32_t _max_expansions = 50;
 };
 

@@ -491,6 +491,7 @@ Status NewJsonReader::_read_one_message(DorisUniqueBufferPtr<uint8_t>* file_buf,
     case TFileType::FILE_LOCAL:
         [[fallthrough]];
     case TFileType::FILE_HDFS:
+    case TFileType::FILE_HTTP:
         [[fallthrough]];
     case TFileType::FILE_S3: {
         size_t file_size = _file_reader->size();
@@ -909,6 +910,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
     bool has_valid_value = false;
     // iterate through object, simdjson::ondemond will parsing on the fly
     size_t key_index = 0;
+
     for (auto field : *value) {
         std::string_view key = field.unescaped_key();
         StringRef name_ref(key.data(), key.size());
@@ -937,7 +939,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         }
         simdjson::ondemand::value val = field.value();
         auto* column_ptr = block.get_by_position(column_index).column->assume_mutable().get();
-        RETURN_IF_ERROR(_simdjson_write_data_to_column(
+        RETURN_IF_ERROR(_simdjson_write_data_to_column<false>(
                 val, slot_descs[column_index]->type(), column_ptr,
                 slot_descs[column_index]->col_name(), _serdes[column_index], valid));
         if (!(*valid)) {
@@ -985,9 +987,6 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             column_ptr->insert_default();
             continue;
         }
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         if (column_ptr->size() < cur_row_count + 1) {
             DCHECK(column_ptr->size() == cur_row_count);
             if (_should_process_skip_bitmap_col()) {
@@ -1028,6 +1027,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
     return Status::OK();
 }
 
+template <bool use_string_cache>
 Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& value,
                                                      const DataTypePtr& type_desc,
                                                      vectorized::IColumn* column_ptr,
@@ -1064,7 +1064,20 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
     auto primitive_type = type_desc->get_primitive_type();
     if (_is_load || !is_complex_type(primitive_type)) {
         if (value.type() == simdjson::ondemand::json_type::string) {
-            std::string_view value_string = value.get_string();
+            std::string_view value_string;
+            if constexpr (use_string_cache) {
+                const auto cache_key = value.raw_json().value();
+                if (_cached_string_values.contains(cache_key)) {
+                    value_string = _cached_string_values[cache_key];
+                } else {
+                    value_string = value.get_string();
+                    _cached_string_values.emplace(cache_key, value_string);
+                }
+            } else {
+                DCHECK(_cached_string_values.empty());
+                value_string = value.get_string();
+            }
+
             Slice slice {value_string.data(), value_string.size()};
             RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
                                                                        _serde_options));
@@ -1125,7 +1138,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             has_value[sub_column_idx] = true;
 
             const auto& sub_col_type = type_struct->get_element(sub_column_idx);
-            RETURN_IF_ERROR(_simdjson_write_data_to_column(
+            RETURN_IF_ERROR(_simdjson_write_data_to_column<use_string_cache>(
                     sub.value(), sub_col_type, sub_column_ptr.get(), column_name + "." + sub_key,
                     sub_serdes[sub_column_idx], valid));
         }
@@ -1184,7 +1197,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                               sub_serdes[0], _serde_options, valid));
 
             simdjson::ondemand::value field_value = member_value.value();
-            RETURN_IF_ERROR(_simdjson_write_data_to_column(
+            RETURN_IF_ERROR(_simdjson_write_data_to_column<use_string_cache>(
                     field_value,
                     assert_cast<const DataTypeMap*>(remove_nullable(type_desc).get())
                             ->get_value_type(),
@@ -1209,7 +1222,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
 
         int field_count = 0;
         for (simdjson::ondemand::value sub_value : array_value) {
-            RETURN_IF_ERROR(_simdjson_write_data_to_column(
+            RETURN_IF_ERROR(_simdjson_write_data_to_column<use_string_cache>(
                     sub_value,
                     assert_cast<const DataTypeArray*>(remove_nullable(type_desc).get())
                             ->get_nested_type(),
@@ -1405,11 +1418,11 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Block& block, bool* valid) {
     // write by jsonpath
     bool has_valid_value = false;
+
+    Defer clear_defer([this]() { _cached_string_values.clear(); });
+
     for (size_t i = 0; i < slot_descs.size(); i++) {
         auto* slot_desc = slot_descs[i];
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
         simdjson::ondemand::value json_value;
         Status st;
@@ -1439,9 +1452,9 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
                 return Status::OK();
             }
         } else {
-            RETURN_IF_ERROR(_simdjson_write_data_to_column(json_value, slot_desc->type(),
-                                                           column_ptr, slot_desc->col_name(),
-                                                           _serdes[i], valid));
+            RETURN_IF_ERROR(_simdjson_write_data_to_column<true>(json_value, slot_desc->type(),
+                                                                 column_ptr, slot_desc->col_name(),
+                                                                 _serdes[i], valid));
             if (!(*valid)) {
                 return Status::OK();
             }

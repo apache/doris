@@ -190,7 +190,7 @@ public class QueryBuildersTest {
         List<Expr> exprs = new ArrayList<>();
         exprs.add(k1);
         exprs.add(stringLiteral);
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr("esquery", exprs);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("esquery", exprs, true);
         Assertions.assertEquals(str, QueryBuilders.toEsDsl(functionCallExpr, column2typeMap).toJson());
 
         SlotRef k2 = new SlotRef(null, "k2");
@@ -213,7 +213,7 @@ public class QueryBuildersTest {
         List<Expr> exprs1 = new ArrayList<>();
         exprs1.add(k1);
         exprs1.add(stringLiteral1);
-        FunctionCallExpr likeFunctionCallExpr = new FunctionCallExpr("like", exprs1);
+        FunctionCallExpr likeFunctionCallExpr = new FunctionCallExpr("like", exprs1, true);
         Assertions.assertEquals("{\"wildcard\":{\"k1\":\"text*\"}}",
                 QueryBuilders.toEsDsl(likeFunctionCallExpr, column2typeMap).toJson());
 
@@ -223,7 +223,7 @@ public class QueryBuildersTest {
         List<Expr> exprs2 = new ArrayList<>();
         exprs2.add(k2);
         exprs2.add(stringLiteral2);
-        FunctionCallExpr regexFunctionCallExpr = new FunctionCallExpr("regexp", exprs2);
+        FunctionCallExpr regexFunctionCallExpr = new FunctionCallExpr("regexp", exprs2, true);
         Assertions.assertEquals("{\"wildcard\":{\"k2\":\"text$\"}}",
                 QueryBuilders.toEsDsl(regexFunctionCallExpr, column2typeMap).toJson());
 
@@ -243,7 +243,7 @@ public class QueryBuildersTest {
     @Test
     public void testCastConvertEsDsl() {
         FloatLiteral floatLiteral = new FloatLiteral(3.14);
-        CastExpr castExpr = new CastExpr(Type.INT, floatLiteral, null);
+        CastExpr castExpr = new CastExpr(Type.INT, floatLiteral, true);
         BinaryPredicate castPredicate = new BinaryPredicate(Operator.EQ, castExpr, new IntLiteral(3));
         List<Expr> notPushDownList = new ArrayList<>();
         Map<String, String> fieldsContext = new HashMap<>();
@@ -264,7 +264,7 @@ public class QueryBuildersTest {
 
         SlotRef k3 = new SlotRef(null, "k3");
         k3.setType(Type.FLOAT);
-        CastExpr castDoubleExpr = new CastExpr(Type.DOUBLE, k3, null);
+        CastExpr castDoubleExpr = new CastExpr(Type.DOUBLE, k3, true);
         BinaryPredicate castDoublePredicate = new BinaryPredicate(Operator.GE, castDoubleExpr,
                 new FloatLiteral(3.0, Type.DOUBLE));
         QueryBuilders.toEsDsl(castDoublePredicate, notPushDownList, fieldsContext, builderOptions, col2typeMap);
@@ -272,7 +272,7 @@ public class QueryBuildersTest {
 
         SlotRef k4 = new SlotRef(null, "k4");
         k4.setType(Type.FLOAT);
-        CastExpr castFloatExpr = new CastExpr(Type.FLOAT, k4, null);
+        CastExpr castFloatExpr = new CastExpr(Type.FLOAT, k4, true);
         BinaryPredicate castFloatPredicate = new BinaryPredicate(Operator.GE, new FloatLiteral(3.0, Type.FLOAT),
                 castFloatExpr);
         QueryBuilders.QueryBuilder queryBuilder = QueryBuilders.toEsDsl(castFloatPredicate, notPushDownList,
@@ -302,6 +302,38 @@ public class QueryBuildersTest {
         Assertions.assertEquals(3, notPushDownList.size());
     }
 
+
+    @Test
+    public void testDateV1PredicateConvertEsDsl() {
+        SlotRef dt = new SlotRef(null, "dt");
+        dt.setType(Type.DATE);
+        List<Expr> notPushDownList = new ArrayList<>();
+        Map<String, String> fieldsContext = new HashMap<>();
+        Map<String, String> col2typeMap = new HashMap<>();
+        BuilderOptions builderOptions = BuilderOptions.builder()
+                        .likePushDown(true)
+                        .needCompatDateFields(Arrays.asList("dt"))
+                        .build();
+
+        // dt = '2024-01-02 00:00:00'
+        BinaryPredicate eq = new BinaryPredicate(Operator.EQ, dt, new StringLiteral("2024-01-02 00:00:00"));
+        QueryBuilders.QueryBuilder qb = QueryBuilders.toEsDsl(eq, notPushDownList, fieldsContext, builderOptions,
+                        col2typeMap);
+        Assertions.assertEquals("{\"term\":{\"dt\":\"2024-01-02T00:00:00.000+08:00\"}}", qb.toJson());
+
+        // dt < '2024-01-03 00:00:00'
+        BinaryPredicate lt = new BinaryPredicate(Operator.LT, dt, new StringLiteral("2024-01-03 00:00:00"));
+        qb = QueryBuilders.toEsDsl(lt, notPushDownList, fieldsContext, builderOptions, col2typeMap);
+        Assertions.assertEquals("{\"range\":{\"dt\":{\"lt\":\"2024-01-03T00:00:00.000+08:00\"}}}", qb.toJson());
+
+        // '2024-01-02 00:00:00' <= dt (flip side, expect gte)
+        BinaryPredicate geFlip = new BinaryPredicate(Operator.LE, new StringLiteral("2024-01-02 00:00:00"), dt);
+        qb = QueryBuilders.toEsDsl(geFlip, notPushDownList, fieldsContext, builderOptions, col2typeMap);
+        Assertions.assertEquals("{\"range\":{\"dt\":{\"gte\":\"2024-01-02T00:00:00.000+08:00\"}}}", qb.toJson());
+
+        // Ensure no unexpected not-pushdown entries were added
+        Assertions.assertTrue(notPushDownList.isEmpty());
+    }
 
     @Test
     public void testTermQuery() throws Exception {

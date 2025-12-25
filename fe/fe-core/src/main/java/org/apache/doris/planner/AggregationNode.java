@@ -27,7 +27,6 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.planner.normalize.Normalizer;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -37,7 +36,6 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TSortInfo;
 
-import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -67,15 +65,11 @@ public class AggregationNode extends PlanNode {
      * isIntermediate is true if it is a slave node in a 2-part agg plan.
      */
     public AggregationNode(PlanNodeId id, PlanNode input, AggregateInfo aggInfo) {
-        super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE", StatisticalType.AGG_NODE);
+        super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE");
         this.aggInfo = aggInfo;
         this.children.add(input);
         this.needsFinalize = true;
         updateplanNodeName();
-    }
-
-    public AggregateInfo getAggInfo() {
-        return aggInfo;
     }
 
     // Unsets this node as requiring finalize. Only valid to call this if it is
@@ -89,11 +83,6 @@ public class AggregationNode extends PlanNode {
     // Used by new optimizer
     public void setUseStreamingPreagg(boolean useStreamingPreagg) {
         this.useStreamingPreagg = useStreamingPreagg;
-    }
-
-    @Override
-    public void setCompactData(boolean on) {
-        this.compactData = on;
     }
 
     private void updateplanNodeName() {
@@ -112,12 +101,6 @@ public class AggregationNode extends PlanNode {
         }
         sb.append(")");
         setPlanNodeName(sb.toString());
-    }
-
-    @Override
-    protected String debugString() {
-        return MoreObjects.toStringHelper(this).add("aggInfo", aggInfo.debugString()).addValue(
-          super.debugString()).toString();
     }
 
     @Override
@@ -211,20 +194,12 @@ public class AggregationNode extends PlanNode {
         aggregateNode.setProjectToAggOutputTuple(projects);
     }
 
-    protected String getDisplayLabelDetail() {
-        if (useStreamingPreagg) {
-            return "STREAMING";
-        }
-        return null;
-    }
-
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
         aggInfo.updateMaterializedSlots();
         StringBuilder output = new StringBuilder();
-        String nameDetail = getDisplayLabelDetail();
-        if (nameDetail != null) {
-            output.append(detailPrefix).append(nameDetail).append("\n");
+        if (useStreamingPreagg) {
+            output.append(detailPrefix).append("STREAMING").append("\n");
         }
 
         if (detailLevel == TExplainLevel.BRIEF) {

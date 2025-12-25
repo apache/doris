@@ -602,6 +602,117 @@ public:
                 << "Second query should be searcher cache hit";
     }
 
+    void test_inverted_index_cache_matrix() {
+        std::string_view rowset_id = "test_cache_matrix";
+        int seg_id = 0;
+
+        std::vector<Slice> values = {Slice("images"), Slice("english"), Slice("other"),
+                                     Slice("unique")};
+
+        TabletIndex idx_meta;
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(1);
+        index_meta_pb->set_index_name("test_cache_matrix");
+        index_meta_pb->clear_col_unique_id();
+        index_meta_pb->add_col_unique_id(1);
+        idx_meta.init_from_pb(*index_meta_pb.get());
+
+        std::string index_path_prefix;
+        prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix,
+                             InvertedIndexStorageFormatPB::V2);
+
+        auto reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        ASSERT_TRUE(reader->init().ok());
+
+        auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
+        ASSERT_NE(str_reader, nullptr);
+
+        io::IOContext io_ctx;
+        std::string field_name = "1";
+        const std::string kImages = "images";
+        const std::string kEnglish = "english";
+        const std::string kOther = "other";
+        const std::string kUnique = "unique";
+
+        auto run_match = [&](bool enable_query_cache, bool enable_searcher_cache,
+                             const std::string& term, OlapReaderStatistics* stats) {
+            RuntimeState runtime_state;
+            TQueryOptions query_options;
+            query_options.enable_inverted_index_query_cache = enable_query_cache;
+            query_options.enable_inverted_index_searcher_cache = enable_searcher_cache;
+            runtime_state.set_query_options(query_options);
+
+            auto context = std::make_shared<IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = stats;
+            context->runtime_state = &runtime_state;
+
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            StringRef term_ref(term.data(), term.size());
+            auto status = str_reader->query(context, field_name, &term_ref,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok()) << status;
+            EXPECT_EQ(1, bitmap->cardinality());
+        };
+
+        // Warm both caches with two different keys so subsequent checks can rely on cache hits.
+        {
+            OlapReaderStatistics warm_stats;
+            run_match(true, true, kImages, &warm_stats);
+            EXPECT_EQ(1, warm_stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(1, warm_stats.inverted_index_searcher_cache_miss);
+        }
+        {
+            OlapReaderStatistics warm_stats;
+            run_match(true, true, kEnglish, &warm_stats);
+            EXPECT_EQ(1, warm_stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(0, warm_stats.inverted_index_searcher_cache_miss);
+            EXPECT_EQ(1, warm_stats.inverted_index_searcher_cache_hit);
+        }
+
+        // Query cache hit / searcher cache not accessed (query cache returns early).
+        {
+            OlapReaderStatistics stats;
+            run_match(true, true, kImages, &stats);
+            EXPECT_EQ(1, stats.inverted_index_query_cache_hit);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_miss);
+            // When query cache hits, searcher cache is not accessed, so no hit/miss
+            EXPECT_EQ(0, stats.inverted_index_searcher_cache_hit);
+            EXPECT_EQ(0, stats.inverted_index_searcher_cache_miss);
+        }
+
+        // Query cache disabled (miss) while searcher cache should still hit.
+        {
+            OlapReaderStatistics stats;
+            run_match(false, true, kImages, &stats);
+            EXPECT_EQ(1, stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(1, stats.inverted_index_searcher_cache_hit);
+            EXPECT_EQ(0, stats.inverted_index_searcher_cache_miss);
+        }
+
+        // Query cache enabled while searcher cache disabled using a new term -> both should miss.
+        {
+            OlapReaderStatistics stats;
+            run_match(true, false, kOther, &stats);
+            EXPECT_EQ(1, stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_hit);
+            EXPECT_EQ(0, stats.inverted_index_searcher_cache_hit);
+            EXPECT_EQ(1, stats.inverted_index_searcher_cache_miss);
+        }
+
+        // Both caches disabled should report misses.
+        {
+            OlapReaderStatistics stats;
+            run_match(false, false, kUnique, &stats);
+            EXPECT_EQ(1, stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_hit);
+            EXPECT_EQ(0, stats.inverted_index_searcher_cache_hit);
+            EXPECT_EQ(1, stats.inverted_index_searcher_cache_miss);
+        }
+    }
+
     // Test string index with large document set (>512 docs)
     void test_string_index_large_docset() {
         std::string_view rowset_id = "test_read_rowset_6";
@@ -2959,7 +3070,9 @@ public:
                 {"c_largeint", FieldType::OLAP_FIELD_TYPE_LARGEINT, 16, false},
                 {"c_char", FieldType::OLAP_FIELD_TYPE_CHAR, 10, false},
                 {"c_datev2", FieldType::OLAP_FIELD_TYPE_DATEV2, 4, false},
-                {"c_datetimev2", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 8, false}};
+                {"c_datetimev2", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 8, false},
+                {"c_timestamptz", FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, 8, false},
+        };
 
         for (size_t i = 0; i < columns.size(); ++i) {
             TabletColumn column;
@@ -3107,6 +3220,51 @@ public:
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_EQ(bitmap->cardinality(), 1);
+        }
+
+        // Test TIMESTAMPTZ type (to cover TYPE_TIMESTAMPTZ case)
+        {
+            std::string_view rowset_id = "test_timestamptz_type";
+            int seg_id = 8;
+            std::vector<uint64_t> values = {20240201120000ULL, 20240201130000ULL,
+                                            20240201140000ULL};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 14, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            std::vector<std::pair<InvertedIndexQueryType, uint64_t>> test_cases = {
+                    {InvertedIndexQueryType::EQUAL_QUERY, 20240201130000ULL},
+                    {InvertedIndexQueryType::LESS_THAN_QUERY, 20240201130000ULL},
+                    {InvertedIndexQueryType::LESS_EQUAL_QUERY, 20240201130000ULL},
+                    {InvertedIndexQueryType::GREATER_THAN_QUERY, 20240201130000ULL},
+                    {InvertedIndexQueryType::GREATER_EQUAL_QUERY, 20240201130000ULL}};
+
+            for (auto& test_case : test_cases) {
+                std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+                auto status = bkd_reader->query(context, "c_timestamptz", &test_case.second,
+                                                test_case.first, bitmap);
+                EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
+
+                if (test_case.first == InvertedIndexQueryType::EQUAL_QUERY) {
+                    EXPECT_EQ(bitmap->cardinality(), 1)
+                            << "Should find exactly one document for value 42";
+                }
+            }
+
+            for (auto& test_case : test_cases) {
+                size_t count = 0;
+                auto status = bkd_reader->try_query(context, "c_timestamptz", &test_case.second,
+                                                    test_case.first, &count);
+                EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
+            }
         }
 
         // Test DOUBLE type
@@ -3369,6 +3527,31 @@ public:
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
+
+        // Test TIMESTAMPTZ type (to cover TYPE_TIMESTAMPTZ case)
+        {
+            std::string_view rowset_id = "test_timestamptz_type";
+            int seg_id = 8;
+            std::vector<uint64_t> values = {20240201120000ULL, 20240201130000ULL,
+                                            20240201140000ULL};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 14, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            uint64_t query_value = 20240201130000ULL;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_timestamptz", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
     }
 
     // Test unsupported data types to cover default case
@@ -3486,6 +3669,11 @@ TEST_F(InvertedIndexReaderTest, QueryCache) {
 // Searcher cache test
 TEST_F(InvertedIndexReaderTest, SearcherCache) {
     test_searcher_cache();
+}
+
+// Exercise the different combinations of query/searcher caches.
+TEST_F(InvertedIndexReaderTest, CacheCombinationMatrix) {
+    test_inverted_index_cache_matrix();
 }
 
 // Test string index with large document set (>512 docs)

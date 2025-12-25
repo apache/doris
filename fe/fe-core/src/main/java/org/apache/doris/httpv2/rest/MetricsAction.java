@@ -25,14 +25,14 @@ import org.apache.doris.metric.PrometheusMetricVisitor;
 import org.apache.doris.metric.SimpleCoreMetricVisitor;
 
 import com.google.common.base.Strings;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 //fehost:port/metrics
 //fehost:port/metrics?type=core

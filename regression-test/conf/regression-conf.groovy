@@ -233,6 +233,7 @@ extArrowFlightSqlHost = "127.0.0.1"
 extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
+extArrowFlightHttpPort= 8030
 
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
@@ -300,3 +301,23 @@ hudiEmrCatalog = ""
 icebergS3TablesCatalog=""
 icebergS3TablesCatalogGlueRest=""
 
+// The path of the cert configuration file for the testing framework 
+// is consistent with the path of the cert file for the cluster
+enableTLS=false
+tlsVerifyMode="strict"
+keyStorePath="/your/keystore.p12"
+keyStorePassword="yourPwd"
+keyStoreType="PKCS12"
+trustStorePath="/your/truststore.p12"
+trustStorePassword="yourPwd"
+trustStoreType="PKCS12"
+trustCert="/your/certificate.crt"
+trustCACert="/your/ca.crt"
+trustCAKey="/your/certificate.key"
+
+
+enableTestTvfAnonymous="true"
+anymousS3Uri="https://datasets-documentation.s3.eu-west-3.amazonaws.com/aapl_stock.csv"
+anymousS3Region="eu-west-3"
+anymousS3ExpectDataCount="8365"
+awsInstanceProfileRegion="us-east-1"

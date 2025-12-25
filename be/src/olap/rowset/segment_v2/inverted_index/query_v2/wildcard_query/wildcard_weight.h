@@ -29,18 +29,19 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 class WildcardWeight : public Weight {
 public:
     WildcardWeight(IndexQueryContextPtr context, std::wstring field, std::string pattern,
-                   bool enable_scoring)
+                   bool enable_scoring, bool nullable)
             : _context(std::move(context)),
               _field(std::move(field)),
               _pattern(std::move(pattern)),
-              _enable_scoring(enable_scoring) {}
+              _enable_scoring(enable_scoring),
+              _nullable(nullable) {}
 
     ~WildcardWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         std::string regex_pattern = wildcard_to_regex(_pattern);
         auto regexp_weight = std::make_shared<RegexpWeight>(
-                _context, std::move(_field), std::move(regex_pattern), _enable_scoring);
+                _context, std::move(_field), std::move(regex_pattern), _enable_scoring, _nullable);
         return regexp_weight->scorer(ctx, binding_key);
     }
 
@@ -60,6 +61,7 @@ private:
     std::wstring _field;
     std::string _pattern;
     bool _enable_scoring = false;
+    bool _nullable = true;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

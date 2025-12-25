@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.NumericLiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -38,8 +37,6 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
@@ -104,7 +101,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -300,7 +297,11 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitSlotReference(SlotReference slotReference, Statistics context) {
-        return context.findColumnStatistics(slotReference);
+        ColumnStatistic columnStatistic = context.findColumnStatistics(slotReference);
+        if (columnStatistic == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        return columnStatistic;
     }
 
     @Override
@@ -486,11 +487,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     @Override
-    public ColumnStatistic visitVirtualReference(VirtualSlotReference virtualSlotReference, Statistics context) {
-        return ColumnStatistic.UNKNOWN;
-    }
-
-    @Override
     public ColumnStatistic visitBoundFunction(BoundFunction boundFunction, Statistics context) {
         return ColumnStatistic.UNKNOWN;
     }
@@ -534,19 +530,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             maxNull = StatsMathUtil.maxNonNaN(maxNull, columnStatistic.numNulls);
         }
         return new ColumnStatisticBuilder(firstChild).setNumNulls(maxNull).setNdv(2).build();
-    }
-
-    @Override
-    public ColumnStatistic visitTimestampArithmetic(TimestampArithmetic arithmetic, Statistics context) {
-        Operator operator = arithmetic.getOp();
-        switch (operator) {
-            case ADD:
-                return dateAdd(arithmetic, context);
-            case SUBTRACT:
-                return dateSub(arithmetic, context);
-            default:
-                return arithmetic.left().accept(this, context);
-        }
     }
 
     @Override

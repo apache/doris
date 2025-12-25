@@ -27,7 +27,9 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
@@ -38,6 +40,7 @@ import java.util.Set;
  * MTMVPartitionInfo
  */
 public class MTMVPartitionInfo implements GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(MTMVPartitionInfo.class);
 
     public enum MTMVPartitionType {
         FOLLOW_BASE_TABLE,
@@ -196,7 +199,7 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
                 + "partitionType=" + partitionType
                 + ", pctInfos=" + pctInfos
                 + ", partitionCol='" + partitionCol + '\''
-                + ", expr='" + expr + '\''
+                + ", expr='" + getExprString() + '\''
                 + '}';
     }
 
@@ -210,8 +213,21 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
                     + "partitionType=" + partitionType
                     + ", pctInfos=" + pctInfos
                     + ", partitionCol='" + partitionCol + '\''
-                    + ", expr='" + expr + '\''
+                    + ", expr='" + getExprString() + '\''
                     + '}';
+        }
+    }
+
+    private String getExprString() {
+        if (expr == null) {
+            return null;
+        }
+        try {
+            return MTMVPartitionExprFactory.getExprService(expr).toSql(this);
+        } catch (AnalysisException e) {
+            // should not happen
+            LOG.warn("getExprString", e);
+            return null;
         }
     }
 

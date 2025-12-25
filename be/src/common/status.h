@@ -80,7 +80,8 @@ namespace ErrorCode {
     TStatusError(NOT_MASTER, true);                       \
     TStatusError(OBTAIN_LOCK_FAILED, false);              \
     TStatusError(SNAPSHOT_EXPIRED, false);                \
-    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
+    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);        \
+    TStatusError(FINISHED, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
     E(OK, 0, false);                                         \
@@ -521,7 +522,7 @@ public:
 
     void set_code(int code) { _code = code; }
 
-    bool ok() const { return _code == ErrorCode::OK; }
+    bool ok() const { return _code == ErrorCode::OK || _code == ErrorCode::FINISHED; }
 
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;

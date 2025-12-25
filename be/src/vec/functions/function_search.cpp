@@ -35,9 +35,11 @@
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query_builder.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/regexp_query/regexp_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_query.h"
@@ -185,6 +187,7 @@ Status FunctionSearch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<IndexIterator*> iterators, uint32_t num_rows,
+        const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
         InvertedIndexResultBitmap& bitmap_result) const {
     return Status::OK();
 }
@@ -423,7 +426,7 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
             op = query_v2::OperatorType::OP_NOT;
         }
 
-        query_v2::BooleanQuery::Builder builder(op);
+        auto builder = create_operator_boolean_query_builder(op);
         if (clause.__isset.children) {
             for (const auto& child_clause : clause.children) {
                 query_v2::QueryPtr child_query;
@@ -435,11 +438,11 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                 // - AND with empty bitmap → result is empty
                 // - OR with empty bitmap → empty bitmap is ignored by OR logic
                 // - NOT with empty bitmap → NOT(empty) = all rows (handled by BooleanQuery)
-                builder.add(child_query, std::move(child_binding_key));
+                builder->add(child_query, std::move(child_binding_key));
             }
         }
 
-        *out = builder.build();
+        *out = builder->build();
         return Status::OK();
     }
 
@@ -522,13 +525,13 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 return Status::OK();
             }
 
-            query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+            auto builder = create_operator_boolean_query_builder(query_v2::OperatorType::OP_OR);
             for (const auto& term_info : term_infos) {
                 std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
-                builder.add(make_term_query(term_wstr), binding.binding_key);
+                builder->add(make_term_query(term_wstr), binding.binding_key);
             }
 
-            *out = builder.build();
+            *out = builder->build();
             return Status::OK();
         }
 
@@ -566,19 +569,32 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 return Status::OK();
             }
 
-            if (term_infos.size() == 1) {
-                std::wstring term_wstr = StringHelper::to_wstring(term_infos[0].get_single_term());
-                *out = make_term_query(term_wstr);
-                return Status::OK();
+            std::vector<TermInfo> phrase_term_infos =
+                    QueryHelper::build_phrase_term_infos(term_infos);
+            if (phrase_term_infos.size() == 1) {
+                const auto& term_info = phrase_term_infos[0];
+                if (term_info.is_single_term()) {
+                    std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
+                    *out = std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr);
+                } else {
+                    auto builder =
+                            create_operator_boolean_query_builder(query_v2::OperatorType::OP_OR);
+                    for (const auto& term : term_info.get_multi_terms()) {
+                        std::wstring term_wstr = StringHelper::to_wstring(term);
+                        builder->add(make_term_query(term_wstr), binding.binding_key);
+                    }
+                    *out = builder->build();
+                }
+            } else {
+                if (QueryHelper::is_simple_phrase(phrase_term_infos)) {
+                    *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr,
+                                                                   phrase_term_infos);
+                } else {
+                    *out = std::make_shared<query_v2::MultiPhraseQuery>(context, field_wstr,
+                                                                        phrase_term_infos);
+                }
             }
 
-            std::vector<std::wstring> terms;
-            for (const auto& term_info : term_infos) {
-                terms.push_back(StringHelper::to_wstring(term_info.get_single_term()));
-            }
-            *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr, terms);
-            VLOG_DEBUG << "search: Built PhraseQuery for field=" << field_name << " with "
-                       << terms.size() << " terms";
             return Status::OK();
         }
         if (clause_type == "MATCH") {
@@ -623,12 +639,12 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 return Status::OK();
             }
 
-            query_v2::BooleanQuery::Builder builder(bool_type);
+            auto builder = create_operator_boolean_query_builder(bool_type);
             for (const auto& term_info : term_infos) {
                 std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
-                builder.add(make_term_query(term_wstr), binding.binding_key);
+                builder->add(make_term_query(term_wstr), binding.binding_key);
             }
-            *out = builder.build();
+            *out = builder->build();
             return Status::OK();
         }
 

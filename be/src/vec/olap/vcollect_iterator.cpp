@@ -93,6 +93,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
     } else {
         _topn_limit = 0;
+        DCHECK_EQ(_reader->_reader_context.filter_block_conjuncts.size(), 0);
     }
 }
 
@@ -259,9 +260,27 @@ Status VCollectIterator::_topn_next(Block* block) {
         return Status::Error<END_OF_FILE>("");
     }
 
-    // clear TEMP columns to avoid column align problem
-    block->erase_tmp_columns();
     auto clone_block = block->clone_empty();
+    /*
+    select id, "${tR2}",
+            l2_distance_approximate 
+        from ann_index_only_scan
+        where l2_distance_approximate < 10
+        order by id
+        limit 20;
+    where id is the orderby key column.
+    */
+    // Initialize virtual slot columns by schema (avoid runtime type checks):
+    // use _reader_context.vir_col_idx_to_type to construct real columns for those positions.
+    if (!_reader->_reader_context.vir_col_idx_to_type.empty()) {
+        const auto& idx_to_type = _reader->_reader_context.vir_col_idx_to_type;
+        for (const auto& kv : idx_to_type) {
+            size_t idx = kv.first;
+            if (idx < clone_block.columns()) {
+                clone_block.get_by_position(idx).column = kv.second->create_column();
+            }
+        }
+    }
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
 
     if (!_reader->_reader_context.read_orderby_key_columns) {
@@ -291,13 +310,11 @@ Status VCollectIterator::_topn_next(Block* block) {
         bool eof = false;
         while (read_rows < _topn_limit && !eof) {
             block->clear_column_data();
-            auto status = rs_split.rs_reader->next_block(block);
+            auto status = rs_split.rs_reader->next_batch(block);
             if (!status.ok()) {
                 if (status.is<END_OF_FILE>()) {
                     eof = true;
                     if (block->rows() == 0) {
-                        // clear TEMP columns to avoid column align problem in segment iterator
-                        block->erase_tmp_columns();
                         break;
                     }
                 } else {
@@ -308,8 +325,6 @@ Status VCollectIterator::_topn_next(Block* block) {
             // filter block
             RETURN_IF_ERROR(VExprContext::filter_block(
                     _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
-            // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
-            block->erase_tmp_columns();
 
             // update read rows
             read_rows += block->rows();
@@ -432,12 +447,6 @@ Status VCollectIterator::_topn_next(Block* block) {
                << " sorted_row_pos.size()=" << sorted_row_pos.size()
                << " mutable_block.rows()=" << mutable_block.rows();
     *block = mutable_block.to_block();
-    // append a column to indicate scanner filter_block is already done
-    auto filtered_datatype = std::make_shared<DataTypeUInt8>();
-    auto filtered_column = filtered_datatype->create_column_const(
-            block->rows(), Field::create_field<TYPE_BOOLEAN>(1));
-    block->insert(
-            {filtered_column, filtered_datatype, BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED});
 
     _topn_eof = true;
     return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>("");
@@ -456,7 +465,8 @@ VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader
 }
 
 Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
-    _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref();
+    _is_merge_iterator = _rs_reader->is_merge_iterator();
+    _get_data_by_ref = get_data_by_ref && _is_merge_iterator;
     if (!_get_data_by_ref) {
         _block = std::make_shared<Block>(_schema.create_block(
                 _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
@@ -478,7 +488,8 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
 // }
 // so first child load first row and other child row_pos = -1
 void VCollectIterator::Level0Iterator::init_for_union(bool get_data_by_ref) {
-    _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref();
+    _is_merge_iterator = _rs_reader->is_merge_iterator();
+    _get_data_by_ref = get_data_by_ref && _is_merge_iterator;
 }
 
 Status VCollectIterator::Level0Iterator::ensure_first_row_ref() {
@@ -538,6 +549,9 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
         _current++;
     } else {
         _ref.row_pos++;
+        if (_is_merge_iterator && _ref.row_pos < _block->rows()) {
+            _ref.is_same = _row_is_same[_ref.row_pos];
+        }
     }
 
     RETURN_IF_ERROR(refresh_current_row());
@@ -560,7 +574,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         if (_rs_reader == nullptr) {
             return Status::Error<END_OF_FILE>("");
         }
-        auto res = _rs_reader->next_block(block);
+        auto res = _rs_reader->next_batch(block);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
             return res;
         }
@@ -869,8 +883,6 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     while (res.is<END_OF_FILE>() && !_children.empty()) {
         _cur_child = std::move(*(_children.begin()));
         _children.pop_front();
-        // clear TEMP columns to avoid column align problem
-        block->erase_tmp_columns();
         res = _cur_child->next(block);
     }
 

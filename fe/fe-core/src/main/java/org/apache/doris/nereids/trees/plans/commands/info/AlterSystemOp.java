@@ -26,10 +26,11 @@ import java.util.Map;
 /**
  * AlterSystemOp
  */
-public abstract class AlterSystemOp {
+public abstract class AlterSystemOp extends AlterOp {
     protected AlterOpType opType;
 
     public AlterSystemOp(AlterOpType opType) {
+        super(opType);
         this.opType = opType;
     }
 

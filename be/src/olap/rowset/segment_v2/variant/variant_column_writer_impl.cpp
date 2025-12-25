@@ -31,9 +31,12 @@
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
+#include "olap/types.h"
 #include "util/simd/bits.h"
+#include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_variant.h"
@@ -88,7 +91,6 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     }
     opt->need_zone_map = tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opt->need_bloom_filter = column.is_bf_column();
-    opt->need_bitmap_index = column.has_bitmap_index();
     const auto& parent_index = tablet_schema->inverted_indexs(column.parent_unique_id());
 
     // init inverted index
@@ -124,7 +126,6 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opt->need_zone_map = false;                           \
         opt->need_bloom_filter = false;                       \
-        opt->need_bitmap_index = false;                       \
     }
 
     DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
@@ -369,6 +370,7 @@ VariantColumnWriterImpl::VariantColumnWriterImpl(const ColumnWriterOptions& opts
                                                  const TabletColumn* column) {
     _opts = opts;
     _tablet_column = column;
+    _null_column = vectorized::ColumnUInt8::create();
 }
 
 Status VariantColumnWriterImpl::init() {
@@ -378,8 +380,7 @@ Status VariantColumnWriterImpl::init() {
     if (_opts.rowset_ctx->write_type == DataWriteType::TYPE_DIRECT) {
         count = 0;
     }
-    auto col = vectorized::ColumnVariant::create(count);
-    _column = std::move(col);
+    _column = vectorized::ColumnVariant::create(count);
     return Status::OK();
 }
 
@@ -408,8 +409,8 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* 
     if (_tablet_column->is_nullable()) {
         // use outer null column as final null column
         root_column = vectorized::ColumnNullable::create(
-                root_column->get_ptr(), vectorized::ColumnUInt8::create(_null_column));
-        nullmap = _null_column.get_data().data();
+                root_column->get_ptr(), vectorized::ColumnUInt8::create(*_null_column));
+        nullmap = _null_column->get_data().data();
     } else {
         // Otherwise setting to all not null.
         root_column = vectorized::ColumnNullable::create(
@@ -458,6 +459,9 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
     };
     _subcolumns_indexes.resize(ptr->get_subcolumns().size());
     // convert sub column data from engine format to storage layer format
+    // NOTE: We only keep up to variant_max_subcolumns_count as extracted columns; others are externalized.
+    // uint32_t extracted = 0;
+    // uint32_t extract_limit = _tablet_column->variant_max_subcolumns_count();
     for (const auto& entry :
          vectorized::schema_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
         const auto& least_common_type = entry->data.get_least_common_type();
@@ -471,7 +475,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         }
         CHECK(entry->data.is_finalized());
 
-        // create subcolumn writer
+        // create subcolumn writer if under limit; otherwise externalize ColumnMetaPB via IndexedColumn
         int current_column_id = column_id++;
         TabletColumn tablet_column;
         int64_t none_null_value_size = entry->data.get_non_null_value_size();
@@ -497,6 +501,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         opts.compression_type = _opts.compression_type;
         opts.rowset_ctx = _opts.rowset_ctx;
         opts.file_writer = _opts.file_writer;
+        opts.encoding_preference = _opts.encoding_preference;
         std::unique_ptr<ColumnWriter> writer;
         vectorized::schema_util::inherit_column_attributes(*_tablet_column, tablet_column);
 
@@ -540,7 +545,7 @@ Status VariantColumnWriterImpl::_process_sparse_column(
 }
 
 Status VariantColumnWriterImpl::finalize() {
-    auto* ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
+    auto* ptr = _column.get();
     ptr->set_max_subcolumns_count(_tablet_column->variant_max_subcolumns_count());
     ptr->finalize(vectorized::ColumnVariant::FinalizeMode::WRITE_MODE);
     // convert each subcolumns to storage format and add data to sub columns writers buffer
@@ -600,8 +605,7 @@ Status VariantColumnWriterImpl::finalize() {
 }
 
 bool VariantColumnWriterImpl::is_finalized() const {
-    const auto* ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
-    return ptr->is_finalized() && _is_finalized;
+    return _column->is_finalized() && _is_finalized;
 }
 
 Status VariantColumnWriterImpl::append_data(const uint8_t** ptr, size_t num_rows) {
@@ -609,9 +613,8 @@ Status VariantColumnWriterImpl::append_data(const uint8_t** ptr, size_t num_rows
     const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
     const auto& src = *reinterpret_cast<const vectorized::ColumnVariant*>(column->column_data);
     RETURN_IF_ERROR(src.sanitize());
-    auto* dst_ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
     // TODO: if direct write we could avoid copy
-    dst_ptr->insert_range_from(src, column->row_pos, num_rows);
+    _column->insert_range_from(src, column->row_pos, num_rows);
     return Status::OK();
 }
 
@@ -672,15 +675,6 @@ Status VariantColumnWriterImpl::write_zone_map() {
     return Status::OK();
 }
 
-Status VariantColumnWriterImpl::write_bitmap_index() {
-    assert(is_finalized());
-    for (int i = 0; i < _subcolumn_writers.size(); ++i) {
-        if (_subcolumn_opts[i].need_bitmap_index) {
-            RETURN_IF_ERROR(_subcolumn_writers[i]->write_bitmap_index());
-        }
-    }
-    return Status::OK();
-}
 Status VariantColumnWriterImpl::write_inverted_index() {
     assert(is_finalized());
     for (int i = 0; i < _subcolumn_writers.size(); ++i) {
@@ -703,7 +697,7 @@ Status VariantColumnWriterImpl::write_bloom_filter_index() {
 Status VariantColumnWriterImpl::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                                 size_t num_rows) {
     if (null_map != nullptr) {
-        _null_column.insert_many_raw_data((const char*)null_map, num_rows);
+        _null_column->insert_many_raw_data((const char*)null_map, num_rows);
     }
     RETURN_IF_ERROR(append_data(ptr, num_rows));
     return Status::OK();
@@ -726,9 +720,8 @@ Status VariantSubcolumnWriter::init() {
 Status VariantSubcolumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
     const auto& src = *reinterpret_cast<const vectorized::ColumnVariant*>(column->column_data);
-    auto* dst_ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
     // TODO: if direct write we could avoid copy
-    dst_ptr->insert_range_from(src, column->row_pos, num_rows);
+    _column->insert_range_from(src, column->row_pos, num_rows);
     return Status::OK();
 }
 
@@ -737,12 +730,11 @@ uint64_t VariantSubcolumnWriter::estimate_buffer_size() {
 }
 
 bool VariantSubcolumnWriter::is_finalized() const {
-    const auto* ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
-    return ptr->is_finalized() && _is_finalized;
+    return _column->is_finalized() && _is_finalized;
 }
 
 Status VariantSubcolumnWriter::finalize() {
-    auto* ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
+    auto* ptr = _column.get();
     ptr->finalize();
 
     DCHECK(ptr->is_finalized());
@@ -816,9 +808,6 @@ Status VariantSubcolumnWriter::write_zone_map() {
     return Status::OK();
 }
 
-Status VariantSubcolumnWriter::write_bitmap_index() {
-    return Status::OK();
-}
 Status VariantSubcolumnWriter::write_inverted_index() {
     assert(is_finalized());
     if (_opts.need_inverted_index) {

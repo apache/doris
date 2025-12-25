@@ -55,7 +55,7 @@ public class HardwareInfoController {
 
     private static final Logger LOG = LogManager.getLogger(HardwareInfoController.class);
 
-    @RequestMapping(path = "/hardware_info/fe", method = RequestMethod.GET)
+    @RequestMapping(path = "/hardware_info/fe/", method = RequestMethod.GET)
     public Object index() {
         Map<String, Map<String, String>> map = new HashMap<>();
         appendVersionInfo(map);

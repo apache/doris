@@ -46,23 +46,17 @@ public class NullLiteral extends LiteralExpr {
 
     public NullLiteral() {
         type = Type.NULL;
+        this.nullable = true;
     }
 
     public static NullLiteral create(Type type) {
         NullLiteral l = new NullLiteral();
         l.type = type;
-        l.analysisDone();
         return l;
     }
 
     protected NullLiteral(NullLiteral other) {
         super(other);
-    }
-
-    @Override
-    protected void resetAnalysisState() {
-        super.resetAnalysisState();
-        type = Type.NULL;
     }
 
     @Override

@@ -39,7 +39,7 @@ message ColumnMessage {
     // is bloom filter column
     optional bool is_bf_column = 15 [default=false];    // ColumnPB.is_bf_column
     // is bitmap index column
-    optional bool has_bitmap_index = 16 [default=false]; // ColumnPB.has_bitmap_index
+    optional bool has_bitmap_index = 16 [default=false]; // deprecated
 }
 
 enum CompressKind {

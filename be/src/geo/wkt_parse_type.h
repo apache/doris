@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+#include <utility>
 #include <vector>
 
 // This file include
@@ -33,15 +35,17 @@ struct GeoCoordinateList {
 };
 
 struct GeoCoordinateListList {
-    ~GeoCoordinateListList() {
-        for (auto item : list) {
-            delete item;
-        }
-    }
     GeoCoordinateListList() = default;
-    GeoCoordinateListList(GeoCoordinateListList&& other) : list(std::move(other.list)) {}
-    void add(GeoCoordinateList* coordinates) { list.push_back(coordinates); }
-    std::vector<GeoCoordinateList*> list;
+    GeoCoordinateListList(GeoCoordinateListList&& other) = default;
+    GeoCoordinateListList& operator=(GeoCoordinateListList&& other) = default;
+    GeoCoordinateListList(const GeoCoordinateListList&) = delete;
+    GeoCoordinateListList& operator=(const GeoCoordinateListList&) = delete;
+
+    void add(std::unique_ptr<GeoCoordinateList>&& coordinates) {
+        list.emplace_back(std::move(coordinates));
+    }
+
+    std::vector<std::unique_ptr<GeoCoordinateList>> list;
 };
 
 } // namespace doris

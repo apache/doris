@@ -54,7 +54,10 @@ suite("test_paimon_incr_read", "p0,external,doris,external_docker,external_docke
             order_qt_scan_mode2 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'diff');"""
             order_qt_scan_mode3 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'delta');"""
             order_qt_scan_mode4 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'changelog');"""
-            
+
+            order_qt_snapshot_id_0_0_empty """select * from paimon_incr@incr('startSnapshotId'=0, 'endSnapshotId'=0)"""
+            order_qt_snapshot_id_0_1 """select * from paimon_incr@incr('startSnapshotId'=0, 'endSnapshotId'=1)"""
+            order_qt_snapshot_id_1_1_empty """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=1)"""
 
             // complex query
             qt_cte """with cte1 as (select * from paimon_incr@incr('startTimestamp'=0)) select name, age from cte1 order by age;"""
@@ -85,16 +88,16 @@ suite("test_paimon_incr_read", "p0,external,doris,external_docker,external_docke
                 exception "incrementalBetweenScanMode must be one of"
             }
             test {
-                sql """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=1)"""
-                exception "startSnapshotId must be less than endSnapshotId"
-            }
-            test {
                 sql """select * from paimon_incr@incr('startSnapshotId'=1)"""
                 exception "endSnapshotId is required when using snapshot-based incremental read"
             }
             test {
                 sql """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2) for version as of 1"""
                 exception "should not spec both snapshot and scan params"
+            }
+            test {
+                sql """select * from paimon_incr@incr('startSnapshotId'=-1)"""
+                exception "startSnapshotId must be greater than or equal to 0"
             }
         }
 

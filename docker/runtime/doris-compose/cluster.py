@@ -421,6 +421,14 @@ class Node(object):
             elif self.node_type() == Node.TYPE_BE:
                 envs["LLVM_PROFILE_FILE_PREFIX"] = outfile
 
+        user_envs = getattr(self.cluster, "env", [])
+        if user_envs:
+            for env in user_envs:
+                pos = env.find('=')
+                if pos == -1:
+                    raise Exception(f"env '{env}' error format, should be like 'name=value'")
+                envs[env[:pos]] = env[pos+1:]
+
         return envs
 
     def entrypoint(self):
@@ -488,7 +496,11 @@ class Node(object):
             "environment": self.docker_env(),
             "image": self.get_image(),
             "ulimits": {
-                "core": -1
+                "core": -1,
+                "nofile": {
+                    "soft": 655350,
+                    "hard": 655350,
+                }
             },
             "security_opt": ["seccomp:unconfined"],
             "volumes": volumes,
@@ -887,7 +899,7 @@ class Cluster(object):
     def __init__(self, name, subnet, image, is_cloud, is_root_user, fe_config,
                  be_config, ms_config, recycle_config, remote_master_fe,
                  local_network_ip, fe_follower, be_disks, be_cluster, reg_be,
-                 extra_hosts, coverage_dir, cloud_store_config,
+                 extra_hosts, env, coverage_dir, cloud_store_config,
                  sql_mode_node_mgr, be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk,
                  external_ms_cluster, instance_id, cluster_snapshot=""):
         self.name = name
@@ -906,6 +918,7 @@ class Cluster(object):
         self.be_cluster = be_cluster
         self.reg_be = reg_be
         self.extra_hosts = extra_hosts
+        self.env = env
         self.coverage_dir = coverage_dir
         self.cloud_store_config = cloud_store_config
         self.external_ms_cluster = external_ms_cluster
@@ -931,7 +944,7 @@ class Cluster(object):
     @staticmethod
     def new(name, image, is_cloud, is_root_user, fe_config, be_config,
             ms_config, recycle_config, remote_master_fe, local_network_ip,
-            fe_follower, be_disks, be_cluster, reg_be, extra_hosts,
+            fe_follower, be_disks, be_cluster, reg_be, extra_hosts, env,
             coverage_dir, cloud_store_config, sql_mode_node_mgr,
             be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk,
             external_ms_cluster, instance_id, cluster_snapshot=""):
@@ -946,7 +959,7 @@ class Cluster(object):
             cluster = Cluster(name, subnet, image, is_cloud, is_root_user,
                               fe_config, be_config, ms_config, recycle_config,
                               remote_master_fe, local_network_ip, fe_follower,
-                              be_disks, be_cluster, reg_be, extra_hosts,
+                              be_disks, be_cluster, reg_be, extra_hosts, env,
                               coverage_dir, cloud_store_config,
                               sql_mode_node_mgr, be_metaservice_endpoint,
                               be_cluster_id, tde_ak, tde_sk, external_ms_cluster,

@@ -37,25 +37,17 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     public PlaceHolderExpr() {
         type = Type.UNSUPPORTED;
+        this.nullable = false;
     }
 
     protected PlaceHolderExpr(LiteralExpr literal) {
         this.lExpr = literal;
         this.type = literal.getType();
+        this.nullable = false;
     }
 
     public LiteralExpr getLiteral() {
         return lExpr;
-    }
-
-    @Override
-    protected void analysisDone() {
-        if (lExpr != null && !lExpr.isAnalyzed) {
-            lExpr.analysisDone();
-        }
-        if (!isAnalyzed) {
-            super.analysisDone();
-        }
     }
 
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
@@ -125,21 +117,6 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     @Override
-    public String toDigestImpl() {
-        return "?";
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return false;
-    }
-
-    @Override
-    public boolean isNullable() {
-        return this.lExpr instanceof NullLiteral;
-    }
-
-    @Override
     public Expr clone() {
         // Should not clone, since it's a reference class
         return this;
@@ -160,13 +137,6 @@ public class PlaceHolderExpr extends LiteralExpr {
             return "?";
         }
         return "_placeholder_(" + this.lExpr.toSqlImpl(disableTableName, needExternalSql, tableType, table) + ")";
-    }
-
-    // @Override
-    public Expr reset() {
-        this.lExpr = null;
-        this.type = Type.UNSUPPORTED;
-        return this;
     }
 
     @Override

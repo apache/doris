@@ -94,7 +94,7 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
                               std::make_shared<typename PrimitiveTypeTraits<T>::DataType>());
     DataTypePtr data_type_array_numeric(std::make_shared<DataTypeArray>(nested));
     DataTypes data_types = {data_type_array_numeric};
-    auto agg_function = factory.get("group_array_intersect", data_types, false, -1);
+    auto agg_function = factory.get("group_array_intersect", data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -174,7 +174,7 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     DataTypePtr data_type_array_numeric(
             std::make_shared<DataTypeArray>(std::make_shared<DataTypeNullable>(nested)));
     DataTypes data_types = {data_type_array_numeric};
-    auto agg_function = factory.get("group_array_intersect", data_types, false, -1);
+    auto agg_function = factory.get("group_array_intersect", data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -272,7 +272,7 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     DataTypePtr data_type_array_string(
             std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()));
     DataTypes data_types = {data_type_array_string};
-    auto agg_function = factory.get("group_array_intersect", data_types, false, -1);
+    auto agg_function = factory.get("group_array_intersect", data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -341,7 +341,7 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     DataTypePtr data_type_array_string(
             std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()));
     DataTypes data_types = {data_type_array_string};
-    auto agg_function = factory.get("group_array_intersect", data_types, false, -1);
+    auto agg_function = factory.get("group_array_intersect", data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);

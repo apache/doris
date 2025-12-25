@@ -52,6 +52,7 @@ import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -77,7 +78,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -441,15 +442,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 partition.createRollupIndex(shadowIndex);
             }
         }
-
         for (long shadowIdxId : indexIdMap.keySet()) {
             MaterializedIndexMeta originalIndexMeta = tbl.getIndexMetaByIndexId(indexIdMap.get(shadowIdxId));
+            // it's ok to not use originalIndexMeta's sessionVariables,
+            // because the sync mv MaterializedIndexMeta cannot be schema changed
+            // (e.g. alter sync_mv modify sync_mv_column is not allowed)
             tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
                     indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN,
                     tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)), originalIndexMeta.getDefineStmt(),
-                    indexChange ? indexes : originalIndexMeta.getIndexes());
+                    indexChange ? indexes : originalIndexMeta.getIndexes(), null);
             MaterializedIndexMeta shadowIndexMeta = tbl.getIndexMetaByIndexId(shadowIdxId);
             shadowIndexMeta.setWhereClause(originalIndexMeta.getWhereClause());
         }
@@ -526,7 +529,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                     TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                     for (Column column : fullSchema) {
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
-                        destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
                         destSlotDesc.setIsNullable(column.isAllowNull());
 
@@ -542,7 +544,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                 Expr defineExpr = slot;
                                 if (!(srcType.isDecimalV2Type() && destType.isDecimalV2Type()
                                         || srcType.isStringLikeType() && destType.isStringLikeType())) {
-                                    defineExpr = new CastExpr(newColumn.getType(), defineExpr, null);
+                                    boolean nullable = Cast.castNullable(
+                                            destSlotDesc.getIsNullable(),
+                                            DataType.fromCatalogType(destSlotDesc.getType()),
+                                            DataType.fromCatalogType(newColumn.getType())
+                                    );
+                                    defineExpr = new CastExpr(newColumn.getType(), defineExpr, nullable);
                                 }
                                 defineExprs.put(column.getName(), defineExpr);
                             }
@@ -561,7 +568,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
                                     JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, objectPool,
-                                    null, expiration, vaultId);
+                                    null, expiration, vaultId, queryOptions, queryGlobals);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }

@@ -242,9 +242,12 @@ install(DIRECTORY
     ${BASE_DIR}/dict/icu/uax29
     DESTINATION ${OUTPUT_DIR}/dict/icu)
 
-
 install(DIRECTORY
     ${BASE_DIR}/dict/ik
+    DESTINATION ${OUTPUT_DIR}/dict)
+
+install(DIRECTORY
+    ${BASE_DIR}/dict/pinyin
     DESTINATION ${OUTPUT_DIR}/dict)
 
 # Check if functions are supported in this platform. All flags will generated

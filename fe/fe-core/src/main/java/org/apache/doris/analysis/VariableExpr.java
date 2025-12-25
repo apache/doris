@@ -50,6 +50,7 @@ public class VariableExpr extends Expr {
     public VariableExpr(String name, SetType setType) {
         this.name = name;
         this.setType = setType;
+        this.nullable = false;
     }
 
     protected VariableExpr(VariableExpr other) {
@@ -199,10 +200,5 @@ public class VariableExpr extends Expr {
         }
 
         return Objects.equals(literalExpr, ((VariableExpr) obj).getLiteralExpr());
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return false;
     }
 }

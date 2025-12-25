@@ -26,4 +26,6 @@ public interface Offset {
     boolean isEmpty();
 
     boolean isValidOffset();
+
+    String showRange();
 }

@@ -143,7 +143,10 @@ suite("materialized_view_switch") {
         where o_orderdate = '2023-12-10' order by 1, 2, 3, 4, 5;
     """
 
-    async_mv_rewrite_success(db, mv_name, query, "mv_name_1")
+    async_mv_rewrite_success(db, mv_name, query, "mv_name_1", [NOT_IN_RBO])
+    // because compare total tree, mv fitler can not push down to scan base table in RBO mv rewrite as CBO mv prewrite,
+    // row count would be bigger than before
+    async_mv_rewrite_success_without_check_chosen(db, mv_name, query, "mv_name_1", [TRY_IN_RBO, FORCE_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_1"""
 
     sql "SET enable_materialized_view_rewrite=false"
@@ -152,7 +155,10 @@ suite("materialized_view_switch") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_2"""
 
     sql "SET enable_materialized_view_rewrite=true"
-    async_mv_rewrite_success(db, mv_name, query, "mv_name_3")
+    async_mv_rewrite_success(db, mv_name, query, "mv_name_3", [NOT_IN_RBO])
+    // because compare total tree, mv fitler can not push down to scan base table in RBO mv rewrite as CBO mv prewrite,
+    // row count would be bigger than before
+    async_mv_rewrite_success_without_check_chosen(db, mv_name, query, "mv_name_3", [TRY_IN_RBO, FORCE_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_3"""
 
     // test when materialized_view_relation_mapping_max_count is 8
@@ -167,7 +173,11 @@ suite("materialized_view_switch") {
         inner join lineitem t2 on t1.L_ORDERKEY = t2.L_ORDERKEY;
     """
     order_qt_query1_0_before "${query1_0}"
-    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0", [NOT_IN_RBO])
+    // because compare total tree, mv fitler can not push down to scan base table in RBO mv rewrite as CBO mv prewrite,
+    // row count would be bigger than before
+    async_mv_rewrite_success_without_check_chosen(db, mv1_0, query1_0, "mv1_0", [TRY_IN_RBO, FORCE_IN_RBO])
+
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 

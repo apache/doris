@@ -74,7 +74,7 @@ public class DummyPlan implements Plan {
     }
 
     @Override
-    public String treeString(boolean printStates) {
+    public String treeString(boolean printStates, Object specialPlan) {
         return "";
     }
 

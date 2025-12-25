@@ -103,7 +103,7 @@ suite("one_key_range_part_test") {
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_fixed_range_date_part WHERE dt = from_unixtime(unix_timestamp('2023-05-20 12:00:00'));")
-        contains "14/14 (p_min,p_202301,p_202302,p_202303,p_202304,p_202305,p_202306,p_202307,p_202308,p_202309,p_202310,p_202311,p_202312,p_max)"
+        contains "1/14 (p_202305)"
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_fixed_range_date_part WHERE date(dt) = '2023-09-05';")
@@ -234,7 +234,7 @@ suite("one_key_range_part_test") {
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_special_fixed_range_date_part WHERE dt = from_unixtime(unix_timestamp('2023-11-20 12:00:00'));")
-        contains "10/10 (p_min,p_202301,p_202302,p_202304,p_202305,p_202306,p_202309,p_202310,p_202312,p_max)"
+        contains "1/10 (p_202310)"
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_special_fixed_range_date_part WHERE date(dt) = '2023-09-05';")

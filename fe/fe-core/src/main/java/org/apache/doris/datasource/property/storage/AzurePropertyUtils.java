@@ -25,6 +25,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class AzurePropertyUtils {
 
@@ -66,9 +67,15 @@ public class AzurePropertyUtils {
                 || path.startsWith("s3://"))) {
             throw new StoragePropertiesException("Unsupported Azure URI scheme: " + path);
         }
-
+        if (isOneLakeLocation(path)) {
+            return path;
+        }
         return convertToS3Style(path);
     }
+
+    private static final Pattern ONELAKE_PATTERN = Pattern.compile(
+            "abfs[s]?://([^@]+)@([^/]+)\\.dfs\\.fabric\\.microsoft\\.com(/.*)?", Pattern.CASE_INSENSITIVE);
+
 
     /**
      * Converts an Azure Blob Storage URI into a unified {@code s3://<container>/<path>} format.
@@ -180,5 +187,9 @@ public class AzurePropertyUtils {
                 .map(Map.Entry::getValue)
                 .findFirst()
                 .orElseThrow(() -> new StoragePropertiesException("Properties must contain 'uri' key"));
+    }
+
+    public static boolean isOneLakeLocation(String location) {
+        return ONELAKE_PATTERN.matcher(location).matches();
     }
 }

@@ -81,3 +81,31 @@
 8	abcd	ABCD
 9	aaabbbcccdddeeefff	AAABBBCCCDDDEEEFFF
 
+-- !sql_23 --
+1		0x
+2	a	0x61
+3	Z	0x5A
+4	abcdxy	0x616263647879
+5	abcdz	0x616263647A
+6	abc	0x616263
+7	ab	0x6162
+8	abcd	0x61626364
+9	aaabbbcccdddeeefff	0x616161626262636363646464656565666666
+
+-- !sql_24 --
+1		
+2	a	a
+3	Z	Z
+4	abcdxy	abcdxy
+5	abcdz	abcdz
+6	abc	abc
+7	ab	ab
+8	abcd	abcd
+9	aaabbbcccdddeeefff	aaabbbcccdddeeefff
+
+-- !sql_25 --
+61	5A	616263647879
+
+-- !sql_26 --
+0x6162	0x48656C6C6F2C20215E25	0x446F726973
+

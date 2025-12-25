@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
 import org.apache.doris.nereids.rules.expression.rules.NestedCaseWhenCondToLiteral;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
+import org.apache.doris.nereids.rules.expression.rules.PushIntoCaseWhenBranch;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
@@ -64,6 +65,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     NestedCaseWhenCondToLiteral.INSTANCE,
                     CaseWhenToIf.INSTANCE,
                     CaseWhenToCompoundPredicate.INSTANCE,
+                    PushIntoCaseWhenBranch.INSTANCE,
                     TopnToMax.INSTANCE,
                     NullSafeEqualToEqual.INSTANCE,
                     LikeToEqualRewrite.INSTANCE,
