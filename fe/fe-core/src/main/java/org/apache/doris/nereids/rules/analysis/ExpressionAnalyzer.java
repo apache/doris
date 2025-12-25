@@ -494,6 +494,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
         unboundFunction = preProcessUnboundFunction(unboundFunction, context);
 
+        if (StringUtils.isEmpty(unboundFunction.getDbName())
+                && "timestamp".equalsIgnoreCase(unboundFunction.getName())
+                && unboundFunction.arity() == 2
+                && unboundFunction.child(0).getDataType().isDateLikeType()) {
+            unboundFunction = new UnboundFunction(unboundFunction.getDbName(), "add_time",
+                    unboundFunction.isDistinct(), unboundFunction.children(), unboundFunction.isSkew(),
+                    unboundFunction.getFunctionIndexInSql(), unboundFunction.getIndexInSqlString());
+        }
+
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
         List<Object> arguments = constructUnboundFunctionArguments(unboundFunction);
