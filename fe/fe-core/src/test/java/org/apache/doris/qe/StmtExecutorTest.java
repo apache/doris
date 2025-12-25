@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DdlStmt;
@@ -58,6 +57,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import java_cup.runtime.Symbol;
+import lombok.extern.slf4j.Slf4j;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -72,11 +72,11 @@ import java.io.IOException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+
 
 @Slf4j
 public class StmtExecutorTest {
@@ -908,7 +908,7 @@ public class StmtExecutorTest {
 
 
 
-        @Test
+    @Test
     public void testSendStmtPrepareOKWithResultColumns() throws Exception {
         // Create mock ConnectContext and dependencies
         ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
@@ -977,17 +977,12 @@ public class StmtExecutorTest {
             ByteBuffer firstPacket = sentPackets.get(0);
             byte[] firstPacketBytes = firstPacket.array();
 
-            int stmtId = (firstPacketBytes[1] & 0xFF)
-                       | ((firstPacketBytes[2] & 0xFF) << 8)
-                       | ((firstPacketBytes[3] & 0xFF) << 16)
-                       | ((firstPacketBytes[4] & 0xFF) << 24);
-
             int numColumns = (firstPacketBytes[5] & 0xFF) | ((firstPacketBytes[6] & 0xFF) << 8);
-            Assert.assertEquals(3,numColumns);
+            Assert.assertEquals(3, numColumns);
 
-            int numParams = (firstPacketBytes[7] & 0xFF) | ((firstPacketBytes[8] & 0xFF) << 8);
         }
     }
+
     @Test
     public void testSendStmtPrepareOKWithLogicalPlanAdapterNullColLabels() throws Exception {
         // Create mock ConnectContext and dependencies
@@ -1047,17 +1042,12 @@ public class StmtExecutorTest {
             ByteBuffer firstPacket = sentPackets.get(0);
             byte[] firstPacketBytes = firstPacket.array();
 
-            int stmtId = (firstPacketBytes[1] & 0xFF)
-                       | ((firstPacketBytes[2] & 0xFF) << 8)
-                       | ((firstPacketBytes[3] & 0xFF) << 16)
-                       | ((firstPacketBytes[4] & 0xFF) << 24);
-            
             int numColumns = (firstPacketBytes[5] & 0xFF) | ((firstPacketBytes[6] & 0xFF) << 8);
-            Assert.assertEquals(3,numColumns);
-            
-            int numParams = (firstPacketBytes[7] & 0xFF) | ((firstPacketBytes[8] & 0xFF) << 8);
+            Assert.assertEquals(3, numColumns);
+
         }
     }
+
     @Test
     public void testSendStmtPrepareOKWithShowStmtAndNullMetadata() throws Exception {
         // Create mock ConnectContext and dependencies
@@ -1109,15 +1099,9 @@ public class StmtExecutorTest {
             byte[] firstPacketBytes = firstPacket.array();
 
 
-            int stmtId = (firstPacketBytes[1] & 0xFF)
-                | ((firstPacketBytes[2] & 0xFF) << 8)
-                | ((firstPacketBytes[3] & 0xFF) << 16)
-                | ((firstPacketBytes[4] & 0xFF) << 24);
-
             int numColumns = (firstPacketBytes[5] & 0xFF) | ((firstPacketBytes[6] & 0xFF) << 8);
-            Assert.assertEquals(0,numColumns);
-            
-            int numParams = (firstPacketBytes[7] & 0xFF) | ((firstPacketBytes[8] & 0xFF) << 8);
+            Assert.assertEquals(0, numColumns);
+
         }
     }
 }

@@ -2644,142 +2644,141 @@ public class StmtExecutor {
         return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
     }
 
-     public void sendStmtPrepareOK(int stmtId, List<String> labels) throws IOException {
-         Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
-         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
-         serializer.reset();
-         // 0x00 OK
-         serializer.writeInt1(0);
-         // statement_id
-         serializer.writeInt4(stmtId);
-         //num_columns: Refer to the 4.0 version code and MySQL metadata protocol,
-         // set numColumns to the actual value to fix the null metadata issue #59037
-         int numColumns = 0;
-         if (parsedStmt instanceof SelectStmt) {
-             List<String> colLabels = ((SelectStmt) parsedStmt).getColLabels();
-             numColumns = colLabels != null ? colLabels.size() : 0;
-         } else if (parsedStmt instanceof LogicalPlanAdapter) {
-             LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
-             List<String> colLabels = logicalPlanAdapter.getColLabels();
-             if (colLabels != null) {
-                 numColumns = colLabels.size();
-             } else {
-                 List<FieldInfo> fieldInfos = logicalPlanAdapter.getFieldInfos();
-                 numColumns = fieldInfos != null ? fieldInfos.size() : 0;
-                 if (numColumns == 0) {
-                     List<Expr> resultExprs = logicalPlanAdapter.getResultExprs();
-                     if (resultExprs != null) {
-                         numColumns = resultExprs.size();
-                     }
-                 }
-             }
-         } else if (parsedStmt instanceof ShowStmt) {
-             ShowResultSetMetaData metaData = ((ShowStmt) parsedStmt).getMetaData();
-             numColumns = metaData != null ? metaData.getColumnCount() : 0;
-         } else {
-             LOG.info("Processing unknown statement type: {}", parsedStmt.getClass().getName());
-         }
-         serializer.writeInt2(numColumns);
-         // num_params
-         int numParams = labels.size();
-         serializer.writeInt2(numParams);
-         // reserved_1
-         serializer.writeInt1(0);
-         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-         if (numParams > 0) {
-             // send field one by one
-             // TODO use real type instead of string, for JDBC client it's ok
-             // but for other client, type should be correct
-             // List<PrimitiveType> types = exprToStringType(labels);
-             List<String> colNames = labels;
-             for (int i = 0; i < colNames.size(); ++i) {
-                 serializer.reset();
-                 // serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
-                 serializer.writeField(colNames.get(i), Type.STRING);
-                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-             }
-             serializer.reset();
-             if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-                 MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-                 eofPacket.writeTo(serializer);
-             } else {
-                 MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
-                 okPacket.writeTo(serializer);
-             }
-             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-         }
+    public void sendStmtPrepareOK(int stmtId, List<String> labels) throws IOException {
+        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
+        serializer.reset();
+        // 0x00 OK
+        serializer.writeInt1(0);
+        // statement_id
+        serializer.writeInt4(stmtId);
+        // num_columns: Refer to the 4.0 version code and MySQL metadata protocol,
+        // set numColumns to the actual value to fix the null metadata issue #59037
+        int numColumns = 0;
+        if (parsedStmt instanceof SelectStmt) {
+            List<String> colLabels = ((SelectStmt) parsedStmt).getColLabels();
+            numColumns = colLabels != null ? colLabels.size() : 0;
+        } else if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
+            List<String> colLabels = logicalPlanAdapter.getColLabels();
+            if (colLabels != null) {
+                numColumns = colLabels.size();
+            } else {
+                List<FieldInfo> fieldInfos = logicalPlanAdapter.getFieldInfos();
+                numColumns = fieldInfos != null ? fieldInfos.size() : 0;
+                if (numColumns == 0) {
+                    List<Expr> resultExprs = logicalPlanAdapter.getResultExprs();
+                    if (resultExprs != null) {
+                        numColumns = resultExprs.size();
+                    }
+                }
+            }
+        } else if (parsedStmt instanceof ShowStmt) {
+            ShowResultSetMetaData metaData = ((ShowStmt) parsedStmt).getMetaData();
+            numColumns = metaData != null ? metaData.getColumnCount() : 0;
+        } else {
+            LOG.info("Processing unknown statement type: {}", parsedStmt.getClass().getName());
+        }
+        serializer.writeInt2(numColumns);
+        // num_params
+        int numParams = labels.size();
+        serializer.writeInt2(numParams);
+        // reserved_1
+        serializer.writeInt1(0);
+        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
 
-         if (numColumns > 0) {
-             List<String> resultColNames = new ArrayList<>();
-             List<Type> resultColTypes = new ArrayList<>();
+        if (numParams > 0) {
+            // send field one by one
+            // TODO use real type instead of string, for JDBC client it's ok
+            // but for other client, type should be correct
+            // List<PrimitiveType> types = exprToStringType(labels);
+            List<String> colNames = labels;
+            for (int i = 0; i < colNames.size(); ++i) {
+                serializer.reset();
+                // serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
+                serializer.writeField(colNames.get(i), Type.STRING);
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
+            serializer.reset();
+            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+                eofPacket.writeTo(serializer);
+            } else {
+                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
+                okPacket.writeTo(serializer);
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        }
 
-             if (parsedStmt instanceof SelectStmt) {
-                 List<String> colLabels = ((SelectStmt) parsedStmt).getColLabels();
-                 if (colLabels != null && !colLabels.isEmpty()) {
-                     resultColNames.addAll(colLabels);
-                 }
-                 List<Expr> resultExprs = ((SelectStmt) parsedStmt).getResultExprs();
-                 if (resultExprs != null && !resultExprs.isEmpty()) {
-                     for (Expr expr : resultExprs) {
-                         Type colType = Type.STRING;
-                         resultColTypes.add(colType);
-                     }
-                 }
-             } else if (parsedStmt instanceof LogicalPlanAdapter) {
-                 List<FieldInfo> fieldInfos = ((LogicalPlanAdapter) parsedStmt).getFieldInfos();
-                 if (fieldInfos != null && !fieldInfos.isEmpty()) {
-                     for (FieldInfo fieldInfo : fieldInfos) {
-                         String colName = fieldInfo.getName() != null ? fieldInfo.getName() : "col_" + resultColNames.size();
-                         resultColNames.add(colName);
-                         resultColTypes.add(Type.STRING);
-                     }
-                 }
-             } else if (parsedStmt instanceof ShowStmt) {
-                 ShowResultSetMetaData metaData = ((ShowStmt) parsedStmt).getMetaData();
-                 if (metaData != null) {
-                     List<Column> columns = metaData.getColumns();
-                     if (columns != null && !columns.isEmpty()) {
-                         for (Column column : columns) {
-                             String colName = column.getName() != null ? column.getName() : "col_" + resultColNames.size();
-                             resultColNames.add(colName);
-                             Type colType = Type.STRING;
-                             resultColTypes.add(colType);
-                         }
-                     }
-                 }
-             }
+        if (numColumns > 0) {
+            List<String> resultColNames = new ArrayList<>();
+            List<Type> resultColTypes = new ArrayList<>();
 
-             for (int i = 0; i < numColumns; ++i) {
-                 serializer.reset();
+            if (parsedStmt instanceof SelectStmt) {
+                List<String> colLabels = ((SelectStmt) parsedStmt).getColLabels();
+                if (colLabels != null && !colLabels.isEmpty()) {
+                    resultColNames.addAll(colLabels);
+                }
+                List<Expr> resultExprs = ((SelectStmt) parsedStmt).getResultExprs();
+                if (resultExprs != null && !resultExprs.isEmpty()) {
+                    resultExprs.forEach(expr -> resultColTypes.add(Type.STRING));
+                }
+            } else if (parsedStmt instanceof LogicalPlanAdapter) {
+                List<FieldInfo> fieldInfos = ((LogicalPlanAdapter) parsedStmt).getFieldInfos();
+                if (fieldInfos != null && !fieldInfos.isEmpty()) {
+                    for (FieldInfo fieldInfo : fieldInfos) {
+                        String colName = fieldInfo.getName() != null
+                                ? fieldInfo.getName() : "col_" + resultColNames.size();
+                        resultColNames.add(colName);
+                        resultColTypes.add(Type.STRING);
+                    }
+                }
+            } else if (parsedStmt instanceof ShowStmt) {
+                ShowResultSetMetaData metaData = ((ShowStmt) parsedStmt).getMetaData();
+                if (metaData != null) {
+                    List<Column> columns = metaData.getColumns();
+                    if (columns != null && !columns.isEmpty()) {
+                        for (Column column : columns) {
+                            String colName = column.getName() != null
+                                    ? column.getName() : "col_" + resultColNames.size();
+                            resultColNames.add(colName);
+                            resultColTypes.add(Type.STRING);
+                        }
+                    }
+                }
+            }
 
-                 String colName = "col_" + i;
-                 if (i < resultColNames.size()) {
-                     String tmpName = resultColNames.get(i);
-                     if (tmpName != null && !tmpName.isEmpty()) {
-                         colName = tmpName;
-                     }
-                 }
-                 Type colType = Type.STRING;
-                 if (i < resultColTypes.size() && resultColTypes.get(i) != null) {
-                     colType = resultColTypes.get(i);
-                 }
-                 serializer.writeField(colName, colType);
-                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-             }
+            for (int i = 0; i < numColumns; ++i) {
+                serializer.reset();
 
-             serializer.reset();
-             if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-                 MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-                 eofPacket.writeTo(serializer);
-             } else {
-                 MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
-                 okPacket.writeTo(serializer);
-             }
-             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-         }
+                String colName = "col_" + i;
+                if (i < resultColNames.size()) {
+                    String tmpName = resultColNames.get(i);
+                    if (tmpName != null && !tmpName.isEmpty()) {
+                        colName = tmpName;
+                    }
+                }
+                Type colType = Type.STRING;
+                if (i < resultColTypes.size() && resultColTypes.get(i) != null) {
+                    colType = resultColTypes.get(i);
+                }
+                serializer.writeField(colName, colType);
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
 
-         context.getMysqlChannel().flush();
-         context.getState().setNoop();
+            serializer.reset();
+            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+                eofPacket.writeTo(serializer);
+            } else {
+                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
+                okPacket.writeTo(serializer);
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        }
+
+        context.getMysqlChannel().flush();
+        context.getState().setNoop();
     }
 
     private void sendFields(List<String> colNames, List<Type> types) throws IOException {
