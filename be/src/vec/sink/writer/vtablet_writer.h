@@ -357,6 +357,7 @@ protected:
     std::string _name;
 
     std::shared_ptr<MemTracker> _node_channel_tracker;
+    int64_t _load_mem_limit = -1;
 
     TupleDescriptor* _tuple_desc = nullptr;
     NodeInfo _node_info;
