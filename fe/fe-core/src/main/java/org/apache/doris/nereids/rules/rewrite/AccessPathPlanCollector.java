@@ -45,7 +45,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 
 import com.google.common.collect.LinkedHashMultimap;
@@ -350,18 +349,5 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         for (Expression expression : plan.getExpressions()) {
             exprCollector.collect(expression);
         }
-    }
-
-    private boolean argumentsHasSameType(Expression function) {
-        DataType firstType = null;
-        for (Expression argument : function.getArguments()) {
-            DataType argumentType = argument.getDataType();
-            if (firstType == null) {
-                firstType = argumentType;
-            } else if (!firstType.equals(argumentType)) {
-                return false;
-            }
-        }
-        return true;
     }
 }
