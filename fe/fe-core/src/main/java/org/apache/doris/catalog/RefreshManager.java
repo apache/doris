@@ -26,9 +26,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -185,24 +183,7 @@ public class RefreshManager {
             db.get().unregisterTable(log.getTableName());
             db.get().resetMetaCacheNames();
         } else {
-            List<String> modifiedPartNames = log.getPartitionNames();
-            List<String> newPartNames = log.getNewPartitionNames();
-            if (catalog instanceof HMSExternalCatalog
-                    && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
-                    || (newPartNames != null && !newPartNames.isEmpty()))) {
-                // Partition-level cache invalidation, only for hive catalog
-                HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .getMetaStoreCache((HMSExternalCatalog) catalog);
-                cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
-                LOG.info("replay refresh partitions for table {}, "
-                                + "modified partitions count: {}, "
-                                + "new partitions count: {}",
-                        table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
-                        newPartNames == null ? 0 : newPartNames.size());
-            } else {
-                // Full table cache invalidation
-                refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
-            }
+            refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
         }
     }
 

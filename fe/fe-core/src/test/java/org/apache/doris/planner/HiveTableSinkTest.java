@@ -28,7 +28,6 @@ import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.qe.ConnectContext;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -49,13 +48,10 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-
 public class HiveTableSinkTest {
 
     @Test
     public void testBindDataSink() throws UserException {
-        ConnectContext ctx = new ConnectContext();
-        ctx.setThreadLocalInfo();
 
         new MockUp<ThriftHMSCachedClient>() {
             @Mock
@@ -127,11 +123,6 @@ public class HiveTableSinkTest {
 
     private void mockDifferLocationTable(String location) {
         new MockUp<HMSExternalTable>() {
-            @Mock
-            public boolean isPartitionedTable() {
-                return false;
-            }
-
             @Mock
             public Set<String> getPartitionColumnNames() {
                 return new HashSet<String>() {{
