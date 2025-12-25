@@ -18,11 +18,9 @@
 package org.apache.doris.cdcclient.source.reader;
 
 import org.apache.doris.cdcclient.common.Constants;
-import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
-import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
@@ -147,18 +145,6 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         return splits;
     }
 
-    /**
-     * 1. If the SplitRecords iterator has it, read the iterator directly. 2. If there is a stream
-     * reader, poll it. 3. If there is none, resubmit split. 4. If reload is true, need to reset
-     * streamSplitReader and submit split.
-     */
-    @Override
-    public RecordWithMeta read(FetchRecordRequest fetchRecord) throws Exception {
-        SplitReadResult readResult = readSplitRecords(fetchRecord);
-        return buildRecordResponse(fetchRecord, readResult);
-    }
-
-    /** read split records. */
     @Override
     public SplitReadResult readSplitRecords(JobBaseRecordRequest baseReq) throws Exception {
         Map<String, Object> offsetMeta = baseReq.getMeta();
@@ -234,61 +220,6 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     protected abstract Offset createNoStoppingOffset();
 
     protected abstract JdbcDataSourceDialect getDialect(JdbcSourceConfig sourceConfig);
-
-    /** build RecordWithMeta */
-    private RecordWithMeta buildRecordResponse(
-            FetchRecordRequest fetchRecord, SplitReadResult readResult) throws Exception {
-        RecordWithMeta recordResponse = new RecordWithMeta();
-        SourceSplit split = readResult.getSplit();
-        int count = 0;
-        try {
-            // Serialize records and add them to the response (collect from iterator)
-            Iterator<SourceRecord> iterator = readResult.getRecordIterator();
-            while (iterator != null && iterator.hasNext()) {
-                SourceRecord element = iterator.next();
-                List<String> serializedRecords =
-                        serializer.deserialize(fetchRecord.getConfig(), element);
-                if (!CollectionUtils.isEmpty(serializedRecords)) {
-                    recordResponse.getRecords().addAll(serializedRecords);
-                    count += serializedRecords.size();
-                    // update meta
-                    Map<String, String> lastMeta = createOffset(element.sourceOffset()).getOffset();
-                    if (isBinlogSplit(split)) {
-                        lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-                        recordResponse.setMeta(lastMeta);
-                    }
-                    if (count >= fetchRecord.getFetchSize()) {
-                        return recordResponse;
-                    }
-                }
-            }
-        } finally {
-            finishSplitRecords();
-        }
-
-        // Set meta information
-        if (isSnapshotSplit(split) && readResult.getSplitState() != null) {
-            Map<String, String> offsetRes =
-                    extractSnapshotOffset(split, readResult.getSplitState());
-            recordResponse.setMeta(offsetRes);
-            return recordResponse;
-        }
-        if (CollectionUtils.isEmpty(recordResponse.getRecords())) {
-            if (isBinlogSplit(split)) {
-                Map<String, String> offsetRes = extractBinlogOffset(readResult.getSplit());
-                recordResponse.setMeta(offsetRes);
-            } else {
-                SnapshotSplit snapshotSplit =
-                        objectMapper.convertValue(fetchRecord.getMeta(), SnapshotSplit.class);
-                Map<String, String> meta = new HashMap<>();
-                meta.put(SPLIT_ID, snapshotSplit.getSplitId());
-                // chunk no data
-                recordResponse.setMeta(meta);
-            }
-        }
-        commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
-        return recordResponse;
-    }
 
     protected Tuple2<SourceSplitBase, Boolean> createSourceSplit(
             Map<String, Object> offsetMeta, JobBaseConfig jobConfig) {
@@ -637,15 +568,20 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     protected abstract JdbcSourceConfig getSourceConfig(JobBaseConfig config);
 
     @Override
-    public Map<String, String> extractSnapshotOffset(SourceSplit split, Object splitState) {
-        Preconditions.checkNotNull(split, "split is null");
+    public Map<String, String> extractSnapshotStateOffset(Object splitState) {
         Preconditions.checkNotNull(splitState, "splitState is null");
-        SourceSplitState postgresSplitState = (SourceSplitState) splitState;
-        SourceSplitBase postgresSplit = (SourceSplitBase) split;
-        Offset highWatermark = postgresSplitState.asSnapshotSplitState().getHighWatermark();
+        SourceSplitState sourceSplitState = (SourceSplitState) splitState;
+        Offset highWatermark = sourceSplitState.asSnapshotSplitState().getHighWatermark();
         Map<String, String> offsetRes = new HashMap<>(highWatermark.getOffset());
-        offsetRes.put(SPLIT_ID, postgresSplit.splitId());
         return offsetRes;
+    }
+
+    @Override
+    public Map<String, String> extractBinlogStateOffset(Object splitState) {
+        Preconditions.checkNotNull(splitState, "splitState is null");
+        SourceSplitState sourceSplitState = (SourceSplitState) splitState;
+        Offset startingOffset = sourceSplitState.asStreamSplitState().getStartingOffset();
+        return new HashMap<>(startingOffset.getOffset());
     }
 
     @Override
@@ -654,7 +590,6 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         SourceSplitBase postgresSplit = (SourceSplitBase) split;
         Map<String, String> offsetRes =
                 new HashMap<>(postgresSplit.asStreamSplit().getStartingOffset().getOffset());
-        offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
         return offsetRes;
     }
 
@@ -690,8 +625,8 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
             JobBaseConfig config);
 
     @Override
-    public void close(Long jobId) {
-        LOG.info("Close source reader for job {}", jobId);
+    public void close(JobBaseConfig jobConfig) {
+        LOG.info("Close source reader for job {}", jobConfig.getJobId());
         closeSnapshotReader();
         closeBinlogReader();
         currentReader = null;
@@ -751,6 +686,10 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                         splitState.asStreamSplitState().setStartingOffset(position);
                     }
                 } else if (SourceRecordUtils.isDataChangeRecord(element)) {
+                    if (splitState.isStreamSplitState()) {
+                        Offset position = createOffset(element.sourceOffset());
+                        splitState.asStreamSplitState().setStartingOffset(position);
+                    }
                     nextRecord = element;
                     return true;
                 } else {

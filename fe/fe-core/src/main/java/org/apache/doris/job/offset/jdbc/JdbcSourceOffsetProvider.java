@@ -83,7 +83,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @SerializedName("bop")
     Map<String, String> binlogOffsetPersist;
 
-    boolean hasMoreData = true;
+    volatile boolean hasMoreData = true;
 
     public JdbcSourceOffsetProvider(Long jobId, DataSourceType sourceType, Map<String, String> sourceProperties) {
         this.jobId = jobId;
@@ -157,7 +157,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         if (split.snapshotSplit()) {
             SnapshotSplit snapshotSplit = (SnapshotSplit) split;
             String splitId = split.getSplitId();
-            remainingSplits.removeIf(v -> {
+            boolean remove = remainingSplits.removeIf(v -> {
                 if (v.getSplitId().equals(splitId)) {
                     snapshotSplit.setTableId(v.getTableId());
                     snapshotSplit.setSplitKey(v.getSplitKey());
@@ -167,9 +167,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 }
                 return false;
             });
-            finishedSplits.add(snapshotSplit);
-            chunkHighWatermarkMap.computeIfAbsent(snapshotSplit.getTableId(), k -> new HashMap<>())
-                    .put(snapshotSplit.getSplitId(), snapshotSplit.getHighWatermark());
+            if (remove) {
+                finishedSplits.add(snapshotSplit);
+                chunkHighWatermarkMap.computeIfAbsent(snapshotSplit.getTableId(), k -> new HashMap<>())
+                        .put(snapshotSplit.getSplitId(), snapshotSplit.getHighWatermark());
+            } else {
+                log.warn("Cannot find snapshot split {} in remainingSplits for job {}", splitId, getJobId());
+            }
         } else {
             BinlogSplit binlogSplit = (BinlogSplit) split;
             binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
@@ -192,7 +196,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             result = future.get();
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                log.error("Failed to get end offset from backend, {}", result.getStatus().getErrorMsgs(0));
+                log.warn("Failed to get end offset from backend, {}", result.getStatus().getErrorMsgs(0));
                 throw new JobException(
                         "Failed to get end offset from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
@@ -210,11 +214,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 }
                 endBinlogOffset = responseObj.getData();
             } catch (JsonProcessingException e) {
-                log.error("Failed to parse end offset response: {}", response, e);
+                log.warn("Failed to parse end offset response: {}", response, e);
                 throw new JobException(response);
             }
         } catch (ExecutionException | InterruptedException ex) {
-            log.error("Get end offset error: ", ex);
+            log.warn("Get end offset error: ", ex);
             throw new JobException(ex);
         }
     }
@@ -268,7 +272,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             result = future.get();
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                log.error("Failed to compare offset , {}", result.getStatus().getErrorMsgs(0));
+                log.warn("Failed to compare offset , {}", result.getStatus().getErrorMsgs(0));
                 throw new JobException(
                         "Failed to compare offset ," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
@@ -282,11 +286,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 );
                 return responseObj.getData() > 0;
             } catch (JsonProcessingException e) {
-                log.error("Failed to parse compare offset response: {}", response, e);
+                log.warn("Failed to parse compare offset response: {}", response, e);
                 throw new JobException("Failed to parse compare offset response: " + response);
             }
         } catch (ExecutionException | InterruptedException ex) {
-            log.error("Compare offset error: ", ex);
+            log.warn("Compare offset error: ", ex);
             throw new JobException(ex);
         }
     }
@@ -454,7 +458,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             result = future.get();
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                log.error("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
+                log.warn("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
                 throw new JobException(
                         "Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
@@ -469,11 +473,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 List<SnapshotSplit> splits = responseObj.getData();
                 return splits;
             } catch (JsonProcessingException e) {
-                log.error("Failed to parse split response: {}", response, e);
+                log.warn("Failed to parse split response: {}", response, e);
                 throw new JobException("Failed to parse split response: " + response);
             }
         } catch (ExecutionException | InterruptedException ex) {
-            log.error("Get splits error: ", ex);
+            log.warn("Get splits error: ", ex);
             throw new JobException(ex);
         }
     }
@@ -486,9 +490,26 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         return DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startMode);
     }
 
-    public void cleanMeta(Long jobId) {
+    public void cleanMeta(Long jobId) throws JobException {
         // clean meta table
         StreamingJobUtils.deleteJobMeta(jobId);
-        // todo: close cdc client source
+        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
+        InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
+                .setApi("/api/close")
+                .setParams(new Gson().toJson(requestParams)).build();
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        InternalService.PRequestCdcClientResult result = null;
+        try {
+            Future<PRequestCdcClientResult> future =
+                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
+            result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                log.warn("Failed to close job {} source {}", jobId, result.getStatus().getErrorMsgs(0));
+            }
+        } catch (ExecutionException | InterruptedException ex) {
+            log.warn("Close job error: ", ex);
+        }
     }
 }

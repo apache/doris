@@ -5,14 +5,7 @@ import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
-import io.debezium.connector.postgresql.connection.PostgresConnection;
-import io.debezium.jdbc.JdbcConnection;
-import io.debezium.relational.Column;
-import io.debezium.relational.TableId;
-import io.debezium.relational.history.TableChanges;
-import lombok.Data;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.cdc.connectors.base.config.JdbcSourceConfig;
@@ -36,13 +29,27 @@ import org.apache.flink.cdc.connectors.postgres.source.utils.CustomPostgresSchem
 import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresTypeUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.TableDiscoveryUtils;
 import org.apache.flink.table.types.DataType;
-import org.postgresql.Driver;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import java.time.Instant;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
+import io.debezium.connector.postgresql.SourceInfo;
+import io.debezium.connector.postgresql.connection.PostgresConnection;
+import io.debezium.jdbc.JdbcConnection;
+import io.debezium.relational.Column;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
+import io.debezium.time.Conversions;
+import lombok.Data;
+import org.postgresql.Driver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Data
 public class PostgresSourceReader extends JdbcIncrementalSourceReader {
@@ -129,10 +136,14 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
         configFactory.serverTimeZone(
                 ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());
-        configFactory.slotName("doris_cdc_" + jobId);
+        configFactory.slotName(getSlotName(jobId));
         configFactory.decodingPluginName("pgoutput");
         // configFactory.heartbeatInterval(Duration.ofMillis(Constants.POLL_SPLIT_RECORDS_TIMEOUTS));
         return configFactory.create(0);
+    }
+
+    private String getSlotName(Long jobId) {
+        return "doris_cdc_" + jobId;
     }
 
     @Override
@@ -193,13 +204,26 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         return PostgresTypeUtils.fromDbzColumn(splitColumn);
     }
 
+    /**
+     * Why not call dialect.displayCurrentOffset(sourceConfig) ? The underlying system calls
+     * `txid_current()` to advance the WAL log. Here, it's just a query; retrieving the LSN is
+     * sufficient because `PostgresOffset.compare` only compares the LSN.
+     */
     @Override
     public Map<String, String> getEndOffset(JobBaseConfig jobConfig) {
         PostgresSourceConfig sourceConfig = getSourceConfig(jobConfig);
         try {
             PostgresDialect dialect = new PostgresDialect(sourceConfig);
-            Offset currentOffset = dialect.displayCurrentOffset(sourceConfig);
-            return currentOffset.getOffset();
+            try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
+                PostgresConnection pgConnection = (PostgresConnection) jdbcConnection;
+                Long lsn = pgConnection.currentXLogLocation();
+                Map<String, String> offsetMap = new HashMap<>();
+                offsetMap.put(SourceInfo.LSN_KEY, lsn.toString());
+                offsetMap.put(
+                        SourceInfo.TIMESTAMP_USEC_KEY,
+                        String.valueOf(Conversions.toEpochMicros(Instant.MIN)));
+                return offsetMap;
+            }
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
@@ -272,6 +296,27 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     sourceSplit,
                     e.getMessage(),
                     e);
+        }
+    }
+
+    @Override
+    public void close(JobBaseConfig jobConfig) {
+        super.close(jobConfig);
+        // drop pg slot
+        try {
+            PostgresSourceConfig sourceConfig = getSourceConfig(jobConfig);
+            PostgresDialect dialect = new PostgresDialect(sourceConfig);
+            String slotName = getSlotName(jobConfig.getJobId());
+            LOG.info(
+                    "Dropping postgres replication slot {} for job {}",
+                    slotName,
+                    jobConfig.getJobId());
+            dialect.removeSlot(slotName);
+        } catch (Exception ex) {
+            LOG.warn(
+                    "Failed to drop postgres replication slot for job {}: {}",
+                    jobConfig.getJobId(),
+                    ex.getMessage());
         }
     }
 }

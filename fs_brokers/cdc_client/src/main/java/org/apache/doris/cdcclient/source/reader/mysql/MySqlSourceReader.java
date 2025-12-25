@@ -18,7 +18,6 @@
 package org.apache.doris.cdcclient.source.reader.mysql;
 
 import org.apache.doris.cdcclient.common.Constants;
-import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
@@ -27,7 +26,6 @@ import org.apache.doris.cdcclient.source.reader.SplitRecords;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
-import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
@@ -87,7 +85,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.sql.SQLException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -166,18 +163,6 @@ public class MySqlSourceReader implements SourceReader {
         return splits;
     }
 
-    /**
-     * 1. If the SplitRecords iterator has it, read the iterator directly. 2. If there is a
-     * binlogreader, poll it. 3. If there is none, resubmit split. 4. If reload is true, need to
-     * reset binlogSplitReader and submit split.
-     */
-    @Override
-    public RecordWithMeta read(FetchRecordRequest fetchRecord) throws Exception {
-        SplitReadResult readResult = readSplitRecords(fetchRecord);
-        return buildRecordResponse(fetchRecord, readResult);
-    }
-
-    /** read split records. */
     @Override
     public SplitReadResult readSplitRecords(JobBaseRecordRequest baseReq) throws Exception {
         Map<String, Object> offsetMeta = baseReq.getMeta();
@@ -235,61 +220,6 @@ public class MySqlSourceReader implements SourceReader {
         result.setSplitState(currentSplitState);
         result.setSplit(split);
         return result;
-    }
-
-    /** build RecordWithMeta */
-    private RecordWithMeta buildRecordResponse(
-            FetchRecordRequest fetchRecord, SplitReadResult readResult) throws Exception {
-        RecordWithMeta recordResponse = new RecordWithMeta();
-        SourceSplit split = readResult.getSplit();
-        int count = 0;
-        try {
-            // Serialize records and add them to the response (collect from iterator)
-            Iterator<SourceRecord> iterator = readResult.getRecordIterator();
-            while (iterator != null && iterator.hasNext()) {
-                SourceRecord element = iterator.next();
-                List<String> serializedRecords =
-                        serializer.deserialize(fetchRecord.getConfig(), element);
-                if (!CollectionUtils.isEmpty(serializedRecords)) {
-                    recordResponse.getRecords().addAll(serializedRecords);
-                    count += serializedRecords.size();
-                    // update meta
-                    Map<String, String> lastMeta =
-                            RecordUtils.getBinlogPosition(element).getOffset();
-                    if (isBinlogSplit(split)) {
-                        lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
-                        recordResponse.setMeta(lastMeta);
-                    }
-                    if (count >= fetchRecord.getFetchSize()) {
-                        return recordResponse;
-                    }
-                }
-            }
-        } finally {
-            finishSplitRecords();
-        }
-
-        // Set meta information
-        if (isSnapshotSplit(split) && readResult.getSplitState() != null) {
-            Map<String, String> offsetRes =
-                    extractSnapshotOffset(split, readResult.getSplitState());
-            recordResponse.setMeta(offsetRes);
-            return recordResponse;
-        }
-        if (CollectionUtils.isEmpty(recordResponse.getRecords())) {
-            if (isBinlogSplit(split)) {
-                Map<String, String> offsetRes = extractBinlogOffset(readResult.getSplit());
-                recordResponse.setMeta(offsetRes);
-            } else {
-                SnapshotSplit snapshotSplit =
-                        objectMapper.convertValue(fetchRecord.getMeta(), SnapshotSplit.class);
-                Map<String, String> meta = new HashMap<>();
-                meta.put(SPLIT_ID, snapshotSplit.getSplitId());
-                // chunk no data
-                recordResponse.setMeta(meta);
-            }
-        }
-        return recordResponse;
     }
 
     /**
@@ -510,7 +440,8 @@ public class MySqlSourceReader implements SourceReader {
         currentReader.submitSplit(split);
         currentSplitId = split.splitId();
         // make split record available
-        sourceRecords = pollUntilDataAvailable(currentReader, Constants.POLL_SPLIT_RECORDS_TIMEOUTS, 500);
+        sourceRecords =
+                pollUntilDataAvailable(currentReader, Constants.POLL_SPLIT_RECORDS_TIMEOUTS, 500);
         if (currentReader instanceof SnapshotSplitReader) {
             closeSnapshotReader();
         }
@@ -536,20 +467,21 @@ public class MySqlSourceReader implements SourceReader {
      * queue has data.
      */
     private SourceRecords pollUntilDataAvailable(
-            DebeziumReader<SourceRecords, MySqlSplit> reader, long maxWaitTimeMs, long pollIntervalMs)
+            DebeziumReader<SourceRecords, MySqlSplit> reader,
+            long maxWaitTimeMs,
+            long pollIntervalMs)
             throws InterruptedException {
         long startTime = System.currentTimeMillis();
         long elapsedTime = 0;
         int attemptCount = 0;
         LOG.info("Polling until data available");
         Iterator<SourceRecords> lastDataIt = null;
-        while (elapsedTime < 60000) {
+        while (elapsedTime < maxWaitTimeMs) {
             attemptCount++;
             lastDataIt = reader.pollSplitRecords();
             if (lastDataIt != null && lastDataIt.hasNext()) {
                 SourceRecords sourceRecords = lastDataIt.next();
                 if (sourceRecords != null && !sourceRecords.getSourceRecordList().isEmpty()) {
-                    System.out.println(sourceRecords.getSourceRecordList());
                     LOG.info(
                             "Data available after {} ms ({} attempts). {} Records received.",
                             elapsedTime,
@@ -561,7 +493,7 @@ public class MySqlSourceReader implements SourceReader {
             }
 
             // No records yet, continue polling
-            if (elapsedTime + pollIntervalMs < 60000) {
+            if (elapsedTime + pollIntervalMs < maxWaitTimeMs) {
                 Thread.sleep(pollIntervalMs);
                 elapsedTime = System.currentTimeMillis() - startTime;
             } else {
@@ -723,7 +655,14 @@ public class MySqlSourceReader implements SourceReader {
         jdbcProperteis.putAll(cu.getOriginalProperties());
         configFactory.jdbcProperties(jdbcProperteis);
 
-        configFactory.heartbeatInterval(Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
+        // Properties dbzProps = new Properties();
+        // dbzProps.setProperty(
+        //         MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
+        //         String.valueOf(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
+        // configFactory.debeziumProperties(dbzProps);
+        //
+        // configFactory.heartbeatInterval(
+        //         Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
         if (cdcConfig.containsKey(DataSourceConfigKeys.SPLIT_SIZE)) {
             configFactory.splitSize(
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
@@ -743,23 +682,28 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     @Override
-    public Map<String, String> extractSnapshotOffset(SourceSplit split, Object splitState) {
-        Preconditions.checkNotNull(split, "split is null");
+    public Map<String, String> extractSnapshotStateOffset(Object splitState) {
         Preconditions.checkNotNull(splitState, "splitState is null");
         MySqlSplitState mysqlSplitState = (MySqlSplitState) splitState;
-        MySqlSplit mysqlSplit = (MySqlSplit) split;
         BinlogOffset highWatermark = mysqlSplitState.asSnapshotSplitState().getHighWatermark();
         Map<String, String> offsetRes = new HashMap<>(highWatermark.getOffset());
-        offsetRes.put(SPLIT_ID, mysqlSplit.splitId());
         return offsetRes;
+    }
+
+    @Override
+    public Map<String, String> extractBinlogStateOffset(Object splitState) {
+        Preconditions.checkNotNull(splitState, "splitState is null");
+        MySqlSplitState mysqlSplitState = (MySqlSplitState) splitState;
+        BinlogOffset startingOffset = mysqlSplitState.asBinlogSplitState().getStartingOffset();
+        return new HashMap<>(startingOffset.getOffset());
     }
 
     @Override
     public Map<String, String> extractBinlogOffset(SourceSplit split) {
         Preconditions.checkNotNull(split, "split is null");
         MySqlSplit mysqlSplit = (MySqlSplit) split;
-        Map<String, String> offsetRes = new HashMap<>(mysqlSplit.asBinlogSplit().getStartingOffset().getOffset());
-        offsetRes.put(SPLIT_ID, BINLOG_SPLIT_ID);
+        Map<String, String> offsetRes =
+                new HashMap<>(mysqlSplit.asBinlogSplit().getStartingOffset().getOffset());
         return offsetRes;
     }
 
@@ -834,8 +778,8 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     @Override
-    public void close(Long jobId) {
-        LOG.info("Close source reader for job {}", jobId);
+    public void close(JobBaseConfig jobConfig) {
+        LOG.info("Close source reader for job {}", jobConfig.getJobId());
         closeSnapshotReader();
         closeBinlogReader();
         currentReader = null;
@@ -886,16 +830,20 @@ public class MySqlSourceReader implements SourceReader {
                         splitState.asSnapshotSplitState().setHighWatermark(watermark);
                     }
                 } else if (RecordUtils.isHeartbeatEvent(element)) {
-                    LOG.debug("Receive heartbeat event: {}", element);
+                    LOG.info("Receive heartbeat event: {}", element);
                     if (splitState.isBinlogSplitState()) {
                         BinlogOffset position = RecordUtils.getBinlogPosition(element);
                         splitState.asBinlogSplitState().setStartingOffset(position);
                     }
                 } else if (RecordUtils.isDataChangeRecord(element)) {
+                    if (splitState.isBinlogSplitState()) {
+                        BinlogOffset position = RecordUtils.getBinlogPosition(element);
+                        splitState.asBinlogSplitState().setStartingOffset(position);
+                    }
                     nextRecord = element;
                     return true;
                 } else {
-                    LOG.debug("Ignore event: {}", element);
+                    LOG.info("Ignore event: {}", element);
                 }
             }
             return false;

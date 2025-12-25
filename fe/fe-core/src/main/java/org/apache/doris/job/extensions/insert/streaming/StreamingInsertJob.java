@@ -1131,6 +1131,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * 2. Clean chunk info in meta table (jdbc)
      */
     public void cleanup() throws JobException {
+        log.info("cleanup streaming job {}", getJobId());
         // s3 tvf clean offset
         if (tvfType != null && Config.isCloudMode()) {
             Cloud.DeleteStreamingJobResponse resp = null;

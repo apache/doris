@@ -74,4 +74,12 @@ public class JdbcOffset implements Offset {
             return new Gson().toJson(showMap);
         }
     }
+
+    @Override
+    public String toString() {
+        return "JdbcOffset{"
+                + "split="
+                + split
+                + '}';
+    }
 }

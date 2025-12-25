@@ -125,9 +125,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             result = future.get();
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                log.error("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
+                log.error("Failed to send write records request, {}", result.getStatus().getErrorMsgs(0));
                 throw new JobException(
-                        "Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
+                        "Failed to send write records request," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
             }
             String response = result.getResponse();

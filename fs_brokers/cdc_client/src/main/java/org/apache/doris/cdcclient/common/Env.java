@@ -77,10 +77,7 @@ public class Env {
     }
 
     public void close(Long jobId) {
-        JobContext context = jobContexts.remove(jobId);
-        if (context != null) {
-            context.close();
-        }
+        jobContexts.remove(jobId);
     }
 
     private JobContext getOrCreateContext(
@@ -114,13 +111,6 @@ public class Env {
                                 jobId, dataSource, source));
             }
             return reader;
-        }
-
-        private void close() {
-            if (reader != null) {
-                reader.close(jobId);
-                reader = null;
-            }
         }
     }
 }
