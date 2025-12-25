@@ -31,6 +31,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Helper to load manifest content and populate the manifest cache.
@@ -43,14 +45,22 @@ public class IcebergManifestCacheLoader {
 
     public static ManifestCacheValue loadDataFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
             Table table) {
-        ManifestCacheKey key = buildKey(cache, manifest);
-        return cache.get(key, () -> loadDataFiles(manifest, table));
+        return loadDataFilesWithCache(cache, manifest, table, null);
+    }
+
+    public static ManifestCacheValue loadDataFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
+            Table table, Consumer<Boolean> cacheHitRecorder) {
+        return loadWithCache(cache, manifest, cacheHitRecorder, () -> loadDataFiles(manifest, table));
     }
 
     public static ManifestCacheValue loadDeleteFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
             Table table) {
-        ManifestCacheKey key = buildKey(cache, manifest);
-        return cache.get(key, () -> loadDeleteFiles(manifest, table));
+        return loadDeleteFilesWithCache(cache, manifest, table, null);
+    }
+
+    public static ManifestCacheValue loadDeleteFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
+            Table table, Consumer<Boolean> cacheHitRecorder) {
+        return loadWithCache(cache, manifest, cacheHitRecorder, () -> loadDeleteFiles(manifest, table));
     }
 
     private static ManifestCacheValue loadDataFiles(ManifestFile manifest, Table table) {
@@ -80,6 +90,25 @@ public class IcebergManifestCacheLoader {
             throw new CacheException("Failed to read delete manifest %s", e, manifest.path());
         }
         return ManifestCacheValue.forDeleteFiles(deleteFiles);
+    }
+
+    private static ManifestCacheValue loadWithCache(IcebergManifestCache cache, ManifestFile manifest,
+            Consumer<Boolean> cacheHitRecorder, Loader loader) {
+        ManifestCacheKey key = buildKey(cache, manifest);
+        Optional<ManifestCacheValue> cached = cache.peek(key);
+        boolean cacheHit = cached.isPresent();
+        if (cacheHitRecorder != null) {
+            cacheHitRecorder.accept(cacheHit);
+        }
+        if (cacheHit) {
+            return cached.get();
+        }
+        return cache.get(key, loader::load);
+    }
+
+    @FunctionalInterface
+    private interface Loader {
+        ManifestCacheValue load();
     }
 
     private static ManifestCacheKey buildKey(IcebergManifestCache cache, ManifestFile manifest) {

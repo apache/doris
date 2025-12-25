@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
@@ -130,6 +131,9 @@ public class IcebergScanNode extends FileQueryScanNode {
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
+    private long manifestCacheHits;
+    private long manifestCacheMisses;
+    private long manifestCacheFailures;
 
     // for test
     @VisibleForTesting
@@ -318,6 +322,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                         }
                 );
                 splitAssignment.finishSchedule();
+                recordManifestCacheProfile();
             } catch (Exception e) {
                 Optional<NotSupportedException> opt = checkNotSupportedException(e);
                 if (opt.isPresent()) {
@@ -381,6 +386,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         try {
             return planFileScanTaskWithManifestCache(scan);
         } catch (Exception e) {
+            manifestCacheFailures++;
             LOG.warn("Plan with manifest cache failed, fallback to original scan: " + e.getMessage(), e);
             long targetSplitSize = getRealFileSplitSize(0);
             return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
@@ -440,7 +446,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             // Load delete files from cache (or from storage if not cached)
             ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache, manifest,
-                    icebergTable);
+                    icebergTable, this::recordManifestCacheAccess);
             deleteFiles.addAll(value.getDeleteFiles());
         }
 
@@ -473,7 +479,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
                 // Load data files from cache (or from storage if not cached)
                 ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache, manifest,
-                        icebergTable);
+                        icebergTable, this::recordManifestCacheAccess);
 
                 // Process each data file in the manifest
                 for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {
@@ -560,6 +566,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 splits.add(createIcebergSplit(task));
             }
             selectedPartitionNum = partitionMapInfos.size();
+            recordManifestCacheProfile();
             return splits;
         }
 
@@ -578,6 +585,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 }
                 setPushDownCount(countFromSnapshot);
                 assignCountToSplits(splits, countFromSnapshot);
+                recordManifestCacheProfile();
                 return splits;
             } else {
                 fileScanTasks.forEach(taskGrp -> splits.add(createIcebergSplit(taskGrp)));
@@ -587,6 +595,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         selectedPartitionNum = partitionMapInfos.size();
+        recordManifestCacheProfile();
         return splits;
     }
 
@@ -705,6 +714,27 @@ public class IcebergScanNode extends FileQueryScanNode {
         return new ArrayList<>();
     }
 
+    private void recordManifestCacheAccess(boolean cacheHit) {
+        if (cacheHit) {
+            manifestCacheHits++;
+        } else {
+            manifestCacheMisses++;
+        }
+    }
+
+    private void recordManifestCacheProfile() {
+        if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
+            return;
+        }
+        SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        if (summaryProfile == null || summaryProfile.getExecutionSummary() == null) {
+            return;
+        }
+        summaryProfile.getExecutionSummary().addInfoString("Manifest Cache",
+                String.format("hits=%d, misses=%d, failures=%d",
+                        manifestCacheHits, manifestCacheMisses, manifestCacheFailures));
+    }
+
     @Override
     public TableIf getTargetTable() {
         return source.getTargetTable();
@@ -754,15 +784,23 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        if (pushdownIcebergPredicates.isEmpty()) {
-            return super.getNodeExplainString(prefix, detailLevel);
+        String base = super.getNodeExplainString(prefix, detailLevel);
+        StringBuilder builder = new StringBuilder(base);
+
+        if (detailLevel == TExplainLevel.VERBOSE && IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
+            builder.append(prefix).append("manifest cache: hits=").append(manifestCacheHits)
+                    .append(", misses=").append(manifestCacheMisses)
+                    .append(", failures=").append(manifestCacheFailures).append("\n");
         }
-        StringBuilder sb = new StringBuilder();
-        for (String predicate : pushdownIcebergPredicates) {
-            sb.append(prefix).append(prefix).append(predicate).append("\n");
+
+        if (!pushdownIcebergPredicates.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            for (String predicate : pushdownIcebergPredicates) {
+                sb.append(prefix).append(prefix).append(predicate).append("\n");
+            }
+            builder.append(String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb));
         }
-        return super.getNodeExplainString(prefix, detailLevel)
-                + String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb);
+        return builder.toString();
     }
 
     private void assignCountToSplits(List<Split> splits, long totalCount) {
