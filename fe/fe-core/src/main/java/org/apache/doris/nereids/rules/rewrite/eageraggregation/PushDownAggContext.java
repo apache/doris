@@ -50,6 +50,7 @@ public class PushDownAggContext {
     private final CascadesContext cascadesContext;
 
     private final boolean passThroughBigJoin;
+
     /**
      * constructor
      */
