@@ -34,6 +34,7 @@
 #include "common/object_pool.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "orc/sargs/SearchArgument.hh"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
