@@ -203,6 +203,19 @@ public class SummaryProfile {
         WORKLOAD_GROUP,
         CPU_SHARE,
         MEMORY_LIMIT,
+        ENABLE_MEMORY_OVERCOMMIT,
+        MAX_CONCURRENCY,
+        MAX_QUEUE_SIZE,
+        QUEUE_TIMEOUT,
+        CPU_HARD_LIMIT,
+        SCAN_THREAD_NUM,
+        MAX_REMOTE_SCAN_THREAD_NUM,
+        MIN_REMOTE_SCAN_THREAD_NUM,
+        MEMORY_LOW_WATERMARK,
+        MEMORY_HIGH_WATERMARK,
+        TAG,
+        READ_BYTES_PER_SECOND,
+        REMOTE_READ_BYTES_PER_SECOND,
         PARSE_SQL_TIME,
         PLAN_TIME,
         NEREIDS_GARBAGE_COLLECT_TIME,
@@ -335,6 +348,19 @@ public class SummaryProfile {
         .put(HMS_UPDATE_PARTITION_CNT, 2)
         .put(CPU_SHARE, 1)
         .put(MEMORY_LIMIT, 1)
+        .put(ENABLE_MEMORY_OVERCOMMIT, 1)
+        .put(MAX_CONCURRENCY, 1)
+        .put(MAX_QUEUE_SIZE, 1)
+        .put(QUEUE_TIMEOUT, 1)
+        .put(CPU_HARD_LIMIT, 1)
+        .put(SCAN_THREAD_NUM, 1)
+        .put(MAX_REMOTE_SCAN_THREAD_NUM, 1)
+        .put(MIN_REMOTE_SCAN_THREAD_NUM, 1)
+        .put(MEMORY_LOW_WATERMARK, 1)
+        .put(MEMORY_HIGH_WATERMARK, 1)
+        .put(TAG, 1)
+        .put(READ_BYTES_PER_SECOND, 1)
+        .put(REMOTE_READ_BYTES_PER_SECOND, 1)
         .build();
 
     @SerializedName(value = "summaryProfile")
@@ -465,6 +491,32 @@ public class SummaryProfile {
     private int cpuShare = 0;
     @SerializedName(value = "memoryLimit")
     private double memoryLimit = 0.0;
+    @SerializedName("enableMemoryOvercommit")
+    private boolean enableMemoryOvercommit = true;
+    @SerializedName("maxConcurrency")
+    private int maxConcurrency = Integer.MAX_VALUE;
+    @SerializedName("maxQueueSize")
+    private int maxQueueSize = 0;
+    @SerializedName("queueTimeout")
+    private int queueTimeout = 0;
+    @SerializedName("cpuHardLimit")
+    private int cpuHardLimit = -1;
+    @SerializedName("scanThreadNum")
+    private int scanThreadNum = -1;
+    @SerializedName("maxRemoteScanThreadNum")
+    private int maxRemoteScanThreadNum = -1;
+    @SerializedName("minRemoteScanThreadNum")
+    private int minRemoteScanThreadNum = -1;
+    @SerializedName("memoryLowWatermark")
+    private int memoryLowWatermark = 0;
+    @SerializedName("memoryHighWatermark")
+    private int memoryHighWatermark = 0;
+    @SerializedName("tag")
+    private String tag = "";
+    @SerializedName("readBytesPerSecond")
+    private long readBytesPerSecond = -1L;
+    @SerializedName("remoteReadBytesPerSecond")
+    private long remoteReadBytesPerSecond = -1L;
     // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
     // to FE)
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
@@ -612,7 +664,31 @@ public class SummaryProfile {
             RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
             RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
-        executionSummaryProfile.addInfoString(CPU_SHARE, RuntimeProfile.printCounter(cpuShare, TUnit.BYTES));
+        executionSummaryProfile.addInfoString(CPU_SHARE, RuntimeProfile.printCounter(cpuShare, TUnit.NONE));
+        executionSummaryProfile.addInfoString(CPU_HARD_LIMIT,
+            RuntimeProfile.printCounter(cpuHardLimit, TUnit.NONE));
+        executionSummaryProfile.addInfoString(MEMORY_LIMIT, memoryLimit + "%");
+        executionSummaryProfile.addInfoString(MEMORY_LOW_WATERMARK, memoryLowWatermark + "%");
+        executionSummaryProfile.addInfoString(MEMORY_HIGH_WATERMARK, memoryHighWatermark + "%");
+        executionSummaryProfile.addInfoString(ENABLE_MEMORY_OVERCOMMIT,
+            String.valueOf(enableMemoryOvercommit));
+        executionSummaryProfile.addInfoString(MAX_CONCURRENCY,
+            RuntimeProfile.printCounter(maxConcurrency, TUnit.NONE));
+        executionSummaryProfile.addInfoString(MAX_QUEUE_SIZE,
+            RuntimeProfile.printCounter(maxQueueSize, TUnit.NONE));
+        executionSummaryProfile.addInfoString(QUEUE_TIMEOUT,
+            RuntimeProfile.printCounter(queueTimeout, TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(SCAN_THREAD_NUM,
+            RuntimeProfile.printCounter(scanThreadNum, TUnit.NONE));
+        executionSummaryProfile.addInfoString(MAX_REMOTE_SCAN_THREAD_NUM,
+            RuntimeProfile.printCounter(maxRemoteScanThreadNum, TUnit.NONE));
+        executionSummaryProfile.addInfoString(MIN_REMOTE_SCAN_THREAD_NUM,
+            RuntimeProfile.printCounter(minRemoteScanThreadNum, TUnit.NONE));
+        executionSummaryProfile.addInfoString(TAG, tag);
+        executionSummaryProfile.addInfoString(READ_BYTES_PER_SECOND,
+            RuntimeProfile.printCounter(readBytesPerSecond, TUnit.BYTES_PER_SECOND));
+        executionSummaryProfile.addInfoString(REMOTE_READ_BYTES_PER_SECOND,
+            RuntimeProfile.printCounter(remoteReadBytesPerSecond, TUnit.BYTES_PER_SECOND));
         setTransactionSummary();
 
         if (Config.isCloudMode()) {
@@ -833,9 +909,64 @@ public class SummaryProfile {
         this.cpuShare = cpuShare;
     }
 
+
     public void setMemoryLimit(double memoryLimit) {
         this.memoryLimit = memoryLimit;
     }
+
+
+    public void setEnableMemoryOvercommit(boolean enableMemoryOvercommit) {
+        this.enableMemoryOvercommit = enableMemoryOvercommit;
+    }
+
+    public void setMaxConcurrency(int maxConcurrency) {
+        this.maxConcurrency = maxConcurrency;
+    }
+
+    public void setMaxQueueSize(int maxQueueSize) {
+        this.maxQueueSize = maxQueueSize;
+    }
+
+    public void setQueueTimeout(int queueTimeout) {
+        this.queueTimeout = queueTimeout;
+    }
+
+    public void setCpuHardLimit(int cpuHardLimit) {
+        this.cpuHardLimit = cpuHardLimit;
+    }
+
+    public void setScanThreadNum(int scanThreadNum) {
+        this.scanThreadNum = scanThreadNum;
+    }
+
+    public void setMaxRemoteScanThreadNum(int maxRemoteScanThreadNum) {
+        this.maxRemoteScanThreadNum = maxRemoteScanThreadNum;
+    }
+
+    public void setMinRemoteScanThreadNum(int minRemoteScanThreadNum) {
+        this.minRemoteScanThreadNum = minRemoteScanThreadNum;
+    }
+
+    public void setMemoryLowWatermark(int memoryLowWatermark) {
+        this.memoryLowWatermark = memoryLowWatermark;
+    }
+
+    public void setMemoryHighWatermark(int memoryHighWatermark) {
+        this.memoryHighWatermark = memoryHighWatermark;
+    }
+
+    public void setTag(String tag) {
+        this.tag = tag;
+    }
+
+    public void setReadBytesPerSecond(long readBytesPerSecond) {
+        this.readBytesPerSecond = readBytesPerSecond;
+    }
+
+    public void setRemoteReadBytesPerSecond(long remoteReadBytesPerSecond) {
+        this.remoteReadBytesPerSecond = remoteReadBytesPerSecond;
+    }
+
     public static class SummaryBuilder {
         private Map<String, String> map = Maps.newHashMap();
 

@@ -350,7 +350,6 @@ public class StmtExecutor {
                 SummaryProfile summary = getSummaryProfile();
                 summary.setCpuShare(wg.getMaxCpuPercent());
                 summary.setMemoryLimit(wg.getMaxMemoryPercent());
-                summary.setEnableMemoryOvercommit(Boolean.parseBoolean(wg.getProperties().getOrDefault(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "")));
                 summary.setCpuHardLimit(Integer.parseInt(wg.getProperties().getOrDefault(WorkloadGroup.CPU_HARD_LIMIT, "")));
                 summary.setMaxConcurrency(Integer.parseInt(wg.getProperties().getOrDefault(WorkloadGroup.MAX_CONCURRENCY, "")));
                 summary.setMaxQueueSize(Integer.parseInt(wg.getProperties().getOrDefault(WorkloadGroup.MAX_QUEUE_SIZE, "")));
