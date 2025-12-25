@@ -565,7 +565,7 @@ public class FileCacheAdmissionManager {
 
     private ScheduledExecutorService executorService;
 
-    long lastLoadedTime;
+    private long lastLoadedTime;
 
     public FileCacheAdmissionManager() {
         this.ruleManager = new ConcurrentRuleManager();
