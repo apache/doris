@@ -1,5 +1,3 @@
-# Fix PreparedStatement.getMetaData() returning null
-
 ## What problem does this PR solve?
 
 Issue Number: close #59037
