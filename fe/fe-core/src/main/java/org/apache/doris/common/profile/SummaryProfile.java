@@ -48,6 +48,8 @@ import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import static org.apache.doris.resource.workloadgroup.WorkloadGroup.*;
+
 /**
  * SummaryProfile is part of a query profile.
  * It contains the summary information of a query.
@@ -88,6 +90,7 @@ public class SummaryProfile {
     public static final String SINK_SET_PARTITION_VALUES_TIME = "Sink Set Partition Values Time";
     public static final String CPU_SHARE = "CPU Share";
     public static final String MEMORY_LIMIT = "Memory Limit";
+
     public static final String PLAN_TIME = "Plan Time";
     public static final String SCHEDULE_TIME = "Schedule Time";
     public static final String ASSIGN_FRAGMENT_TIME = "Fragment Assign Time";
@@ -348,7 +351,6 @@ public class SummaryProfile {
         .put(HMS_UPDATE_PARTITION_CNT, 2)
         .put(CPU_SHARE, 1)
         .put(MEMORY_LIMIT, 1)
-        .put(ENABLE_MEMORY_OVERCOMMIT, 1)
         .put(MAX_CONCURRENCY, 1)
         .put(MAX_QUEUE_SIZE, 1)
         .put(QUEUE_TIMEOUT, 1)
