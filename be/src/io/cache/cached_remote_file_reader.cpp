@@ -170,14 +170,12 @@ std::pair<std::string, int> get_peer_connection_info(const std::string& file_pat
             host = tablet_info->first;
             port = tablet_info->second;
         } else {
-            LOG_WARNING("get peer connection info not found")
-                    .tag("tablet_id", *tablet_id)
-                    .tag("file_path", file_path);
+            LOG_EVERY_N(WARNING, 100) << "get peer connection info not found"
+                    << ", tablet_id=" << *tablet_id << ", file_path=" << file_path;
         }
     } else {
-        LOG_WARNING("parse tablet id from path failed")
-                .tag("tablet_id", "null")
-                .tag("file_path", file_path);
+        LOG_EVERY_N(WARNING, 100) << "parse tablet id from path failed"
+                << "tablet_id=null, file_path=" << file_path;
     }
 
     DBUG_EXECUTE_IF("PeerFileCacheReader::_fetch_from_peer_cache_blocks", {
@@ -215,10 +213,8 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
     auto st = peer_reader.fetch_blocks(empty_blocks, empty_start, Slice(buffer.get(), size), &size,
                                        file_size, io_ctx);
     if (!st.ok()) {
-        LOG_WARNING("PeerFileCacheReader read from peer failed")
-                .tag("host", host)
-                .tag("port", port)
-                .tag("error", st.msg());
+        LOG_EVERY_N(WARNING, 100) << "PeerFileCacheReader read from peer failed")
+                << ", host=" << host << ", port=" << port << ", error=" << st.msg();
     }
     stats.from_peer_cache = true;
     return st;
