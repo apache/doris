@@ -381,7 +381,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         try {
             return planFileScanTaskWithManifestCache(scan);
         } catch (Exception e) {
-            LOG.warn("Plan with manifest cache failed, fallback to original scan: {}", e.getMessage());
+            LOG.warn("Plan with manifest cache failed, fallback to original scan: " + e.getMessage(), e);
             long targetSplitSize = getRealFileSplitSize(0);
             return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
         }
