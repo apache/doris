@@ -162,8 +162,12 @@ private:
                                vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
                                int& column_id);
     Status _process_doc_value_column(vectorized::ColumnVariant* ptr,
-                                        vectorized::OlapBlockDataConvertor* converter,
-                                        size_t num_rows, int& column_id);
+                                     vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
+                                     int& column_id);
+
+    Status _process_binary_column(vectorized::ColumnVariant* ptr,
+                                  vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
+                                  int& column_id);
     // prepare a column for finalize
     doris::vectorized::ColumnVariant::MutablePtr _column;
     doris::vectorized::ColumnUInt8::MutablePtr _null_column;
@@ -172,12 +176,9 @@ private:
     bool _is_finalized = false;
     // for root column
     std::unique_ptr<ColumnWriter> _root_writer;
-    // unified sparse writers (single or bucket mode)
-    UnifiedSparseColumnWriter _sparse_writer;
     std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
     std::vector<ColumnWriterOptions> _subcolumn_opts;
-    VariantDocSnapShotWriter _doc_snapshot_writer;
-
+    std::unique_ptr<VariantBinaryWriter> _binary_writer;
     // hold the references of subcolumns indexes
     std::vector<TabletIndexes> _subcolumns_indexes;
 

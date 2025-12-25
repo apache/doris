@@ -21,9 +21,9 @@ namespace doris::segment_v2 {
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "vec/columns/column_variant.h"
 
-class VariantDocSnapshotCompactIterator : public ColumnIterator {
+class VariantDocValueCompactIterator : public ColumnIterator {
 public:
-    VariantDocSnapshotCompactIterator(ColumnIteratorUPtr&& column_iterator)
+    VariantDocValueCompactIterator(ColumnIteratorUPtr&& column_iterator)
             : _doc_snapshot_iterator(std::move(column_iterator)) {}
 
     Status init(const ColumnIteratorOptions& opts) override {

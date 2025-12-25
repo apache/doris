@@ -17,9 +17,13 @@
 
 #pragma once
 
+#include <cstdint>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
+#include "vec/columns/column_variant.h"
 #include "vec/json/json_parser.h"
 
 namespace doris {
@@ -39,5 +43,11 @@ Status parse_variant_columns(vectorized::Block& block, const TabletSchema& table
 // Moved from `vec/common/schema_util.{h,cpp}`.
 Status parse_variant_columns(vectorized::Block& block, const std::vector<uint32_t>& variant_pos,
                              const std::vector<vectorized::ParseConfig>& configs);
+
+// Parse doc snapshot column (paths/values/offsets stored in ColumnVariant) into per-path subcolumns.
+// NOTE: Returned map keys are `std::string_view` pointing into the underlying doc snapshot paths
+// column, so the input `variant` must outlive the returned map.
+std::unordered_map<std::string_view, vectorized::ColumnVariant::Subcolumn>
+parse_doc_snapshot_to_subcolumns(const vectorized::ColumnVariant& variant);
 
 } // namespace doris::segment_v2::variant_util

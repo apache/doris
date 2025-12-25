@@ -33,13 +33,44 @@ struct VariantStatistics {
     std::map<std::string, uint32_t> sparse_column_non_null_size;
 
     // doc snapshot column non-null size for each bucket
-    std::unordered_map<uint32_t, std::set<std::string, std::less<>>> doc_value_column_paths;
+    std::map<std::string, uint32_t> doc_column_non_null_size;
 
     void to_pb(VariantStatisticsPB* stats) const {
         auto* sparse_map = stats->mutable_sparse_column_non_null_size();
         for (const auto& [path, value] : sparse_column_non_null_size) {
             (*sparse_map)[path] = value;
         }
+    }
+
+    bool has_doc_column_non_null_size() const { return !doc_column_non_null_size.empty(); }
+
+    bool has_sparse_column_non_null_size() const { return !sparse_column_non_null_size.empty(); }
+
+    bool existed_in_sparse_column(const std::string& relative_path) const {
+        return sparse_column_non_null_size.contains(relative_path);
+    }
+
+    bool existed_in_doc_column(const std::string& relative_path) const {
+        if (doc_column_non_null_size.contains(relative_path)) {
+            auto size = doc_column_non_null_size.at(relative_path);
+            LOG(INFO) << "existed in doc column, relative_path is:" << relative_path
+                      << " size is:" << size;
+            return true;
+        }
+        return false;
+    }
+
+    bool has_prefix_path(const std::string& dot_prefix) const {
+        auto find_sparse = sparse_column_non_null_size.lower_bound(dot_prefix);
+        if (find_sparse != sparse_column_non_null_size.end() &&
+            find_sparse->first.starts_with(dot_prefix)) {
+            return true;
+        }
+        auto find_doc = doc_column_non_null_size.lower_bound(dot_prefix);
+        if (find_doc != doc_column_non_null_size.end() && find_doc->first.starts_with(dot_prefix)) {
+            return true;
+        }
+        return false;
     }
 };
 #include "common/compile_check_end.h"

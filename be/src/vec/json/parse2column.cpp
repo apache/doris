@@ -36,6 +36,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/variant/variant_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_variant.h"
@@ -169,71 +170,100 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
             column_variant.get_doc_snapshot_data_paths_and_values();
     auto& doc_snapshot_data_offsets = column_variant.serialized_doc_value_column_offsets();
     std::unordered_set<std::string> subcolumn_set;
-    if (config.parse_to_subcolumns) {
+
+    auto flush_defaults = [](ColumnVariant::Subcolumn* subcolumn) {
+        const auto num_defaults = subcolumn->cur_num_of_defaults();
+        if (num_defaults > 0) {
+            subcolumn->insert_many_defaults(num_defaults);
+            subcolumn->reset_current_num_of_defaults();
+        }
+    };
+
+    auto get_or_create_subcolumn = [&](const PathInData& path, size_t index_hint,
+                                       const FieldInfo& field_info) -> ColumnVariant::Subcolumn* {
+        if (column_variant.get_subcolumn(path, index_hint) == nullptr) {
+            if (path.has_nested_part()) {
+                column_variant.add_nested_subcolumn(path, field_info, old_num_rows);
+            } else {
+                column_variant.add_sub_column(path, old_num_rows);
+            }
+        }
+        auto* subcolumn = column_variant.get_subcolumn(path, index_hint);
+        if (!subcolumn) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
+                                   path.get_path());
+        }
+        return subcolumn;
+    };
+
+    auto insert_into_subcolumn = [&](size_t i,
+                                     bool check_size_mismatch) -> ColumnVariant::Subcolumn* {
+        FieldInfo field_info;
+        schema_util::get_field_info(values[i], &field_info);
+        if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
+            return nullptr;
+        }
+        auto* subcolumn = get_or_create_subcolumn(paths[i], i, field_info);
+        flush_defaults(subcolumn);
+        if (check_size_mismatch && subcolumn->size() != old_num_rows) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "subcolumn {} size missmatched, may contains duplicated entry",
+                                   paths[i].get_path());
+        }
+        subcolumn->insert(std::move(values[i]), std::move(field_info));
+        return subcolumn;
+    };
+
+    auto insert_unique_path_or_throw = [&](const std::string& path) {
+        auto [it, inserted] = subcolumn_set.insert(path);
+        (void)it;
+        if (!inserted) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "may contains duplicated entry : {}", path);
+        }
+    };
+
+    switch (config.parse_to) {
+    case ParseConfig::ParseTo::OnlySubcolumns:
         for (size_t i = 0; i < paths.size(); ++i) {
-            FieldInfo field_info;
-            schema_util::get_field_info(values[i], &field_info);
-            if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
+            insert_into_subcolumn(i, true);
+        }
+        break;
+    case ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn:
+        for (size_t i = 0; i < paths.size(); ++i) {
+            auto* subcolumn = insert_into_subcolumn(i, true);
+            if (!subcolumn) {
                 continue;
             }
-            if (column_variant.get_subcolumn(paths[i], i) == nullptr) {
-                if (paths[i].has_nested_part()) {
-                    column_variant.add_nested_subcolumn(paths[i], field_info, old_num_rows);
-                } else {
-                    column_variant.add_sub_column(paths[i], old_num_rows);
-                }
-            }
-            auto* subcolumn = column_variant.get_subcolumn(paths[i], i);
-            if (!subcolumn) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
-                                       paths[i].get_path());
-            }
-            if (subcolumn->cur_num_of_defaults() > 0) {
-                subcolumn->insert_many_defaults(subcolumn->cur_num_of_defaults());
-                subcolumn->reset_current_num_of_defaults();
-            }
-            if (subcolumn->size() != old_num_rows) {
-                throw doris::Exception(
-                        ErrorCode::INVALID_ARGUMENT,
-                        "subcolumn {} size missmatched, may contains duplicated entry",
-                        paths[i].get_path());
-            }
-            subcolumn->insert(std::move(values[i]), std::move(field_info));
-            if (subcolumn_set.contains(paths[i].get_path())) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "may contains duplicated entry : {}", paths[i].get_path());
-            }
-            subcolumn_set.insert(paths[i].get_path());
-            if (!paths[i].empty() && config.parse_to_doc_snapshot) {
-                subcolumn->serialize_to_binary_column(doc_snapshot_data_paths, paths[i].get_path(),
+            const auto path = paths[i].get_path();
+            insert_unique_path_or_throw(path);
+            if (!paths[i].empty()) {
+                subcolumn->serialize_to_binary_column(doc_snapshot_data_paths, path,
                                                       doc_snapshot_data_values, old_num_rows);
             }
         }
-    } else {
-        CHECK(config.parse_to_doc_snapshot);
+        break;
+    case ParseConfig::ParseTo::OnlyDocValueColumn:
+        ColumnVariant::Subcolumn tmp_subcolumn(0, true);
         for (size_t i = 0; i < paths.size(); ++i) {
             FieldInfo field_info;
             schema_util::get_field_info(values[i], &field_info);
-            if (subcolumn_set.contains(paths[i].get_path())) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "may contains duplicated entry : {}", paths[i].get_path());
-            }
-            subcolumn_set.insert(paths[i].get_path());
+            const auto path = paths[i].get_path();
+            insert_unique_path_or_throw(path);
+            // only insert root path to subcolumns
             if (paths[i].empty()) {
-                auto* subcolumn = column_variant.get_subcolumn(paths[i], i);
+                auto* subcolumn = column_variant.get_subcolumn(paths[i]);
                 DCHECK(subcolumn != nullptr);
-                if (subcolumn->cur_num_of_defaults() > 0) {
-                    subcolumn->insert_many_defaults(subcolumn->cur_num_of_defaults());
-                    subcolumn->reset_current_num_of_defaults();
-                }
+                flush_defaults(subcolumn);
                 subcolumn->insert(std::move(values[i]), std::move(field_info));
                 continue;
             }
-            ColumnVariant::Subcolumn tmp_subcolumn(0, true);
             tmp_subcolumn.insert(std::move(values[i]), std::move(field_info));
-            tmp_subcolumn.serialize_to_binary_column(doc_snapshot_data_paths, paths[i].get_path(),
+            tmp_subcolumn.serialize_to_binary_column(doc_snapshot_data_paths, path,
                                                      doc_snapshot_data_values, 0);
+            tmp_subcolumn.pop_back(1);
         }
+        break;
     }
     doc_snapshot_data_offsets.push_back(doc_snapshot_data_paths->size());
     // /// Insert default values to missed subcolumns.
@@ -280,39 +310,19 @@ void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
 }
 
 // pasre the doc snapshot column to subcolumns
-void parse_binary_to_variant(ColumnVariant& column_variant) {
-    std::unordered_map<std::string_view, vectorized::ColumnVariant::Subcolumn> subcolumns;
-
-    auto [column_key, column_value] = column_variant.get_doc_snapshot_data_paths_and_values();
-    const auto& column_offsets = column_variant.serialized_doc_value_column_offsets();
-
-    size_t num_rows = column_offsets.size();
-
-    for (int64_t i = 0; i < num_rows; ++i) {
-        size_t start = column_offsets[i - 1];
-        size_t end = column_offsets[i];
-        for (size_t j = start; j < end; ++j) {
-            const auto& key = column_key->get_data_at(j);
-            if (auto it = subcolumns.find(std::string_view(key.data, key.size));
-                it != subcolumns.end()) {
-                if (it->second.size() != i) {
-                    it->second.insert_many_defaults(i - it->second.size());
-                }
-                it->second.deserialize_from_binary_column(column_value, j);
-            } else {
-                vectorized::ColumnVariant::Subcolumn subcolumn {0, true, false};
-                subcolumn.insert_many_defaults(i);
-                subcolumn.deserialize_from_binary_column(column_value, j);
-                subcolumns[std::string_view(key.data, key.size)] = std::move(subcolumn);
-            }
-        }
+void parse_binary_to_variant(ColumnVariant& column_variant, const ParseConfig& config) {
+    if (config.parse_to == ParseConfig::ParseTo::OnlySubcolumns) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "variant has doc value column, but parse_to is OnlySubcolumns");
     }
 
-    for (auto& [path, subcolumn] : subcolumns) {
-        if (subcolumn.size() != num_rows) {
-            subcolumn.insert_many_defaults(num_rows - subcolumn.size());
-        }
+    // no need to parse to subcolumns, just return
+    if (config.parse_to == ParseConfig::ParseTo::OnlyDocValueColumn) {
+        return;
     }
+
+    auto subcolumns =
+            doris::segment_v2::variant_util::parse_doc_snapshot_to_subcolumns(column_variant);
 
     for (auto& entry : subcolumns) {
         entry.second.finalize();

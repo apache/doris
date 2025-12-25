@@ -22,8 +22,8 @@
 #include "olap/rowset/segment_v2/column_meta_accessor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_reader_cache.h"
+#include "olap/rowset/segment_v2/variant/binary_column_extract_iterator.h"
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
-#include "olap/rowset/segment_v2/variant/sparse_column_extract_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_merge_iterator.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
@@ -46,7 +46,7 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
                              int variant_max_subcolumns_count = 3, bool is_key = false,
                              bool is_nullable = false, int variant_sparse_hash_shard_count = 0,
                              bool variant_enable_doc_mode = false,
-                             int64_t variant_doc_snapshot_min_rows = 0) {
+                             int64_t variant_doc_materialization_min_rows = 0) {
     column_pb->set_unique_id(col_unique_id);
     column_pb->set_name(column_name);
     column_pb->set_type(column_type);
@@ -57,8 +57,8 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
         column_pb->set_variant_max_sparse_column_statistics_size(10000);
         // 5 sparse hash shard
         column_pb->set_variant_sparse_hash_shard_count(variant_sparse_hash_shard_count);
-        column_pb->set_variant_enable_doc_snapshot_mode(variant_enable_doc_mode);
-        column_pb->set_variant_doc_snapshot_min_rows(variant_doc_snapshot_min_rows);
+        column_pb->set_variant_enable_doc_mode(variant_enable_doc_mode);
+        column_pb->set_variant_doc_materialization_min_rows(variant_doc_materialization_min_rows);
     }
 }
 
@@ -2675,7 +2675,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_doc_snapshot_mode) {
     construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 3, false, false,
                      variant_sparse_hash_shard_count,
                      /*variant_enable_doc_mode*/ true,
-                     /*variant_doc_snapshot_min_rows*/ 0);
+                     /*variant_doc_materialization_min_rows*/ 0);
     _tablet_schema = std::make_shared<TabletSchema>();
     _tablet_schema->init_from_pb(schema_pb);
 
@@ -2757,7 +2757,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_doc_snapshot_mode) {
         auto p = std::make_shared<vectorized::PathInData>();
         p->from_protobuf(m.column_path_info());
         auto rel = p->copy_pop_front().get_path();
-        if (rel.find(DOC_SNAPSHOT_COLUMN_PATH) != std::string::npos) {
+        if (rel.find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
             ++doc_snapshot_meta_cnt;
             // check_doc_value_column_meta_basic(m);
             // writer should set doc_value_column_non_null_size stats (may be empty for some buckets)
@@ -2849,7 +2849,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_doc_snapshot_mode) {
         EXPECT_EQ(key0_type->to_string(*key0_dst, row), "88");
     }
 
-    // 9. compaction-style reader: DOC_SNAPSHOT bucket column wrapped by VariantDocSnapshotCompactIterator
+    // 9. compaction-style reader: DOC_SNAPSHOT bucket column wrapped by VariantDocValueCompactIterator
     StorageReadOptions compaction_read_opts;
     compaction_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
     compaction_read_opts.stats = &stats;
@@ -2870,7 +2870,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_doc_snapshot_mode) {
     st = variant_column_reader->new_iterator(&it_doc_bucket, &doc_bucket, &compaction_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(assert_cast<VariantDocSnapshotCompactIterator*>(it_doc_bucket.get()) != nullptr);
+    EXPECT_TRUE(assert_cast<VariantDocValueCompactIterator*>(it_doc_bucket.get()) != nullptr);
     st = it_doc_bucket->init(column_iter_opts);
     EXPECT_TRUE(st.ok()) << st.msg();
 
@@ -2892,7 +2892,7 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_snapshot_path_iterator_doc_snapsh
     construct_column(schema_pb.add_column(), 1, "VARIANT", "v", /*variant_max_subcolumns_count*/ 0,
                      false, false, variant_sparse_hash_shard_count,
                      /*variant_enable_doc_mode*/ true,
-                     /*variant_doc_snapshot_min_rows*/ 0);
+                     /*variant_doc_materialization_min_rows*/ 0);
     _tablet_schema = std::make_shared<TabletSchema>();
     _tablet_schema->init_from_pb(schema_pb);
 
@@ -2936,8 +2936,7 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_snapshot_path_iterator_doc_snapsh
     VariantUtil::fill_string_column_with_test_data(column_string, 1000, &inserted);
     vectorized::ParseConfig config;
     config.enable_flatten_nested = false;
-    config.parse_to_subcolumns = false;
-    config.parse_to_doc_snapshot = true;
+    config.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
     vectorized::parse_json_to_variant(*column_object, *column_string, config);
 
     auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();

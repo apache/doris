@@ -55,7 +55,7 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
 // Base class for sparse column processors with common functionality
-class BaseSparseColumnProcessor : public ColumnIterator {
+class BaseBinaryColumnProcessor : public ColumnIterator {
 protected:
     const StorageReadOptions* _read_opts;
     BinaryColumnCacheSPtr _sparse_column_cache;
@@ -68,7 +68,7 @@ protected:
                                                      size_t num_rows) = 0;
 
 public:
-    BaseSparseColumnProcessor(BinaryColumnCacheSPtr sparse_column_cache,
+    BaseBinaryColumnProcessor(BinaryColumnCacheSPtr sparse_column_cache,
                               const StorageReadOptions* opts)
             : _read_opts(opts), _sparse_column_cache(std::move(sparse_column_cache)) {}
 
@@ -113,11 +113,11 @@ public:
 };
 
 // Implementation for path extraction processor
-class SparseColumnExtractIterator : public BaseSparseColumnProcessor {
+class SparseColumnExtractIterator : public BaseBinaryColumnProcessor {
 public:
     SparseColumnExtractIterator(std::string_view path, BinaryColumnCacheSPtr sparse_column_cache,
                                 const StorageReadOptions* opts)
-            : BaseSparseColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {}
+            : BaseBinaryColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {}
 
     // Batch processing using template method
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {

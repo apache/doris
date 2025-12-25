@@ -30,6 +30,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
+#include "olap/rowset/segment_v2/variant/binary_column_reader.h"
 #include "olap/rowset/segment_v2/variant/variant_external_meta_reader.h"
 #include "olap/rowset/segment_v2/variant/variant_statistics.h"
 #include "olap/tablet_schema.h"
@@ -52,40 +53,6 @@ class ColumnIterator;
 class InvertedIndexIterator;
 class InvertedIndexFileReader;
 class ColumnReaderCache;
-
-// Abstracts access to variant sparse column readers that may be in a single
-// column or bucketized across multiple columns.
-class UnifiedSparseColumnReader {
-public:
-    void set_single(std::shared_ptr<ColumnReader> reader) { _single = std::move(reader); }
-
-    void add_bucket(size_t index, std::shared_ptr<ColumnReader> reader) {
-        if (_buckets.size() <= index) {
-            _buckets.resize(index + 1);
-        }
-        _buckets[index] = std::move(reader);
-    }
-
-    bool has_buckets() const { return !_buckets.empty(); }
-    bool empty() const { return !has_buckets() && !_single; }
-    size_t num_buckets() const { return _buckets.size(); }
-
-    // Build an iterator that reads all sparse data. In bucket mode, it returns
-    // a combined iterator across all buckets; otherwise returns an iterator of the single reader.
-    Status new_sparse_iterator(ColumnIteratorUPtr* iter) const;
-
-    // Select a concrete reader and cache key for a given sparse subpath.
-    // In bucket mode this chooses a bucket using the same hashing as write path.
-    std::pair<std::shared_ptr<ColumnReader>, std::string> select_reader_and_cache_key(
-            const std::string& relative_path) const;
-
-    const std::shared_ptr<ColumnReader>& single() const { return _single; }
-    const std::vector<std::shared_ptr<ColumnReader>>& buckets() const { return _buckets; }
-
-private:
-    std::shared_ptr<ColumnReader> _single;
-    std::vector<std::shared_ptr<ColumnReader>> _buckets; // index aligned
-};
 
 /**
  * BinaryColumnCache provides a caching layer for sparse column data access.
@@ -199,7 +166,7 @@ struct BinaryColumnCache {
 using BinaryColumnCacheSPtr = std::shared_ptr<BinaryColumnCache>;
 
 // key is column path, value is the binary column cache
-// column path: SPARSE_COLUMN_PATH, DOC_SNAPSHOT_COLUMN_PATH
+// column path: SPARSE_COLUMN_PATH, DOC_VALUE_COLUMN_PATH
 using PathToBinaryColumnCache = std::unordered_map<std::string, BinaryColumnCacheSPtr>;
 using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
 
@@ -296,16 +263,16 @@ private:
     // Describe how a variant sub-path should be read. This is a logical plan only and
     // does not create any concrete ColumnIterator.
     enum class ReadKind {
-        ROOT_FLAT,            // root variant using `VariantRootColumnIterator`
-        HIERARCHICAL,         // hierarchical merge (root + subcolumns + sparse)
-        LEAF,                 // direct leaf reader
-        SPARSE_EXTRACT,       // extract single path from sparse column
-        SPARSE_MERGE,         // merge subcolumns into sparse column
-        DEFAULT_NESTED,       // fill nested subcolumn using sibling nested column
-        DEFAULT_FILL,         // default iterator when path not exist
-        DOC_SNAPSHOT,         // read from doc snapshot column when compaction read
-        DOC_SNAPSHOT_EXTRACT, // extract single path or hierarchical from doc snapshot column when read
-        DOC_SNAPSHOT_ALL,     // read all paths from doc snapshot column when read
+        ROOT_FLAT,      // root variant using `VariantRootColumnIterator`
+        HIERARCHICAL,   // hierarchical merge (root + subcolumns + sparse)
+        LEAF,           // direct leaf reader
+        SPARSE_EXTRACT, // extract single path from sparse column
+        SPARSE_MERGE,   // merge subcolumns into sparse column
+        DEFAULT_NESTED, // fill nested subcolumn using sibling nested column
+        DEFAULT_FILL,   // default iterator when path not exist
+        DOC_COMPACT,    // read from doc value column when compaction read
+        DOC_EXTRACT,    // extract single path from doc value column when read
+        DOC_ALL,        // read all paths from doc value column when read
     };
 
     struct ReadPlan {
@@ -319,14 +286,11 @@ private:
 
         // readers for LEAF / sparse cases
         std::shared_ptr<ColumnReader> leaf_column_reader;
-        std::shared_ptr<ColumnReader> sparse_column_reader;
+        std::shared_ptr<ColumnReader> binary_column_reader;
 
         // sparse extras
-        std::string sparse_cache_key;
+        std::string binary_cache_key;
         std::optional<uint32_t> bucket_index;
-
-        // read from doc snapshot column
-        std::vector<uint32_t> doc_snapshot_buckets;
     };
 
     // Build read plan for flat-leaf (compaction/checksum) mode. Only decides the
@@ -369,14 +333,12 @@ private:
             PathToBinaryColumnCache* binary_column_cache_ptr, const std::string& path,
             std::shared_ptr<ColumnReader> binary_column_reader);
 
-    std::vector<uint32_t> _pick_doc_value_column_buckets(const std::string& path);
-
     // Protect `_subcolumns_meta_info` and `_statistics` when loading external meta.
     // english only in comments
     mutable std::shared_mutex _subcolumns_meta_mutex;
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     // Sparse column readers (single or bucketized)
-    UnifiedSparseColumnReader _sparse_reader;
+    std::shared_ptr<BinaryColumnReader> _binary_column_reader;
     std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
     std::shared_ptr<TabletSchema> _tablet_schema;
@@ -390,8 +352,6 @@ private:
     io::FileReaderSPtr _segment_file_reader;
     uint64_t _num_rows {0};
     uint32_t _root_unique_id {0};
-
-    std::unordered_map<uint32_t, std::shared_ptr<ColumnReader>> _doc_value_column_readers;
 
     // call-once guard moved into VariantExternalMetaReader
 };

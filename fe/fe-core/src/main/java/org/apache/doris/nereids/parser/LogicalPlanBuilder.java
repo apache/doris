@@ -4929,13 +4929,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         int variantSparseHashShardCount = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantSparseHashShardCount();
 
-        boolean enableVariantDocSnapshotMode = ConnectContext.get() == null ? false :
-                ConnectContext.get().getSessionVariable().getDefaultVariantEnableDocSnapshotMode();
-        long variantDocSnapshotMinRows = ConnectContext.get() == null ? 0L :
-                ConnectContext.get().getSessionVariable().getDefaultVariantDocSnapshotMinRows();
-        int variantDocSnapshotShardCount = ConnectContext.get() == null ? 128 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantDocSnapshotShardCount();
+        boolean enableVariantDocMode = ConnectContext.get() == null ? false :
+                ConnectContext.get().getSessionVariable().getDefaultVariantEnableDocMode();
+        long variantDocMaterializationMinRows = ConnectContext.get() == null ? 0L :
+                ConnectContext.get().getSessionVariable().getDefaultVariantDocMaterializationMinRows();
+        int variantDocHashShardCount = ConnectContext.get() == null ? 128 :
+                ConnectContext.get().getSessionVariable().getDefaultVariantDocHashShardCount();
+
         try {
+            // validate properties: variant_enable_doc_mode cannot be set together with other properties
+            PropertyAnalyzer.validateVariantProperties(properties);
+
             variantMaxSubcolumnsCount = PropertyAnalyzer
                                         .analyzeVariantMaxSubcolumnsCount(properties, variantMaxSubcolumnsCount);
             enableTypedPathsToSparse = PropertyAnalyzer
@@ -4944,14 +4948,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                         properties, variantMaxSparseColumnStatisticsSize);
             variantSparseHashShardCount =
                     PropertyAnalyzer.analyzeVariantSparseHashShardCount(properties, variantSparseHashShardCount);
-            enableVariantDocSnapshotMode = PropertyAnalyzer
-                    .analyzeEnableVariantDocSnapshotMode(properties, enableVariantDocSnapshotMode);
-            variantDocSnapshotMinRows = PropertyAnalyzer
-                    .analyzeVariantDocSnapshotMinRows(properties, variantDocSnapshotMinRows);
-            variantDocSnapshotShardCount = PropertyAnalyzer
-                    .analyzeVariantDocSnapshotShardCount(properties, variantDocSnapshotShardCount);
+            enableVariantDocMode = PropertyAnalyzer
+                    .analyzeEnableVariantDocMode(properties, enableVariantDocMode);
+            variantDocMaterializationMinRows = PropertyAnalyzer
+                    .analyzeVariantDocMaterializationMinRows(properties, variantDocMaterializationMinRows);
+            variantDocHashShardCount = PropertyAnalyzer
+                    .analyzeVariantDocHashShardCount(properties, variantDocHashShardCount);
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new NotSupportedException(e.getMessage());
+        }
+
+        if (enableVariantDocMode) {
+            variantMaxSubcolumnsCount = 0;
+            enableTypedPathsToSparse = false;
+            variantMaxSparseColumnStatisticsSize = 0;
+            variantSparseHashShardCount = 0;
+        } else {
+            variantDocMaterializationMinRows = 0;
+            variantDocHashShardCount = 0;
         }
 
         if (!properties.isEmpty()) {
@@ -4960,28 +4974,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DOC_SNAPSHOT_MODE
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_SNAPSHOT_MIN_ROWS
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_SNAPSHOT_SHARD_COUNT);
-        }
-
-        if (enableVariantDocSnapshotMode) {
-            // if has fields, min rows is invalid
-            if (!fields.isEmpty()) {
-                variantDocSnapshotMinRows = 0;
-                enableTypedPathsToSparse = false;
-            }
-            if (variantMaxSubcolumnsCount > 0) {
-                variantMaxSubcolumnsCount = 0;
-            }
-        } else {
-            variantDocSnapshotMinRows = 0;
-            variantDocSnapshotShardCount = 0;
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DOC_MODE
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
         }
 
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
-                    enableVariantDocSnapshotMode, variantDocSnapshotMinRows, variantDocSnapshotShardCount);
+                    enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount);
     }
 
     @Override

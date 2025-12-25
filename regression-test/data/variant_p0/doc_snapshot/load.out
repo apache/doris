@@ -336,6 +336,6 @@ kaana
 2	{"b":11}
 
 -- !sql --
-{"__DORIS_VARIANT_DOC_SNAPSHOT__":"map"}
+{"__DORIS_VARIANT_DOC_VALUE__":"map"}
 \N
 

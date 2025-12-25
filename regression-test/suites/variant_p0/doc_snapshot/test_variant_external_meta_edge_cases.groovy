@@ -16,7 +16,7 @@
 // under the License.
 
 suite("variant_external_meta_doc_snapshot", "p0") {
-    sql """ set default_variant_enable_doc_snapshot_mode = true """
+    sql """ set default_variant_enable_doc_mode = true """
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]

@@ -51,7 +51,7 @@ struct ColumnWithTypeAndName;
 } // namespace doris
 
 const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
-const std::string DOC_SNAPSHOT_COLUMN_PATH = "__DORIS_VARIANT_DOC_SNAPSHOT__";
+const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
 namespace doris::vectorized::schema_util {
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;

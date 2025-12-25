@@ -18,9 +18,9 @@
 suite("predefine_insert_into_select_doc_snashot", "p0"){ 
 
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_snapshot_mode = true """
+    sql """ set default_variant_enable_doc_mode = true """
     def count = new Random().nextInt(5);
-    sql """ set default_variant_doc_snapshot_min_rows = ${count} """
+    sql """ set default_variant_doc_materialization_min_rows = ${count} """
 
     sql "DROP TABLE IF EXISTS fromTable"
     sql """CREATE TABLE fromTable (

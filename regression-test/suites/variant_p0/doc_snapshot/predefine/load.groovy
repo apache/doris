@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_variant_predefine_doc_snapshot", "p0"){
-    sql """ set default_variant_enable_doc_snapshot_mode = true """
+    sql """ set default_variant_enable_doc_mode = true """
     sql """DROP TABLE IF EXISTS test_predefine"""
     def count = new Random().nextInt(10);
     if (new Random().nextInt(100) < 50) {

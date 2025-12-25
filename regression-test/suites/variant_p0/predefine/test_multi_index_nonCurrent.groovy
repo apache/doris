@@ -20,7 +20,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_doc_snapshot_min_rows = 0 """
+    sql """ set default_variant_doc_materialization_min_rows = 0 """
 
     def queryAndCheck = { String sqlQuery, int expectedFilteredRows = -1, boolean checkFilterUsed = true ->
       def checkpoints_name = "segment_iterator.inverted_index.filtered_rows"

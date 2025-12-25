@@ -57,7 +57,7 @@ suite("test_compaction_variant") {
             """
         }
 
-        sql """ set default_variant_enable_doc_snapshot_mode = false; """
+        sql """ set default_variant_enable_doc_mode = false; """
 
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
         // def key_types = ["AGGREGATE"]

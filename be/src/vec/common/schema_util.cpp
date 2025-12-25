@@ -601,7 +601,7 @@ TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_
 
 TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_index) {
     TabletColumn res;
-    std::string name = variant.name_lower_case() + "." + DOC_SNAPSHOT_COLUMN_PATH + "." +
+    std::string name = variant.name_lower_case() + "." + DOC_VALUE_COLUMN_PATH + ".b" +
                        std::to_string(bucket_index);
     res.set_name(name);
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
@@ -1028,7 +1028,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
 
         if (column->variant_enable_doc_mode()) {
-            const int bucket_num = std::max(1, column->variant_doc_snapshot_shard_count());
+            const int bucket_num = std::max(1, column->variant_doc_hash_shard_count());
             for (int b = 0; b < bucket_num; ++b) {
                 TabletColumn doc_snapshot_bucket_column = create_doc_value_column(*column, b);
                 doc_snapshot_bucket_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);

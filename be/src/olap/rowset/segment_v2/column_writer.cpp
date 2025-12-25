@@ -295,7 +295,7 @@ Status ColumnWriter::create_variant_writer(const ColumnWriterOptions& opts,
                                            const TabletColumn* column, io::FileWriter* file_writer,
                                            std::unique_ptr<ColumnWriter>* writer) {
     if (column->is_extracted_column()) {
-        if (column->name().find(DOC_SNAPSHOT_COLUMN_PATH) != std::string::npos) {
+        if (column->name().find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
             *writer = std::make_unique<VariantCompactionDocSnapshotWriter>(
                     opts, column, std::unique_ptr<Field>(FieldFactory::create(*column)));
             return Status::OK();

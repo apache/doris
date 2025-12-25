@@ -170,10 +170,10 @@ public class VariantType extends ScalarType {
         sb.append("\"variant_enable_doc_mode\" = \"")
                                     .append(String.valueOf(enableVariantDocSnapshotMode)).append("\"");
         sb.append(",");
-        sb.append("\"variant_doc_snapshot_min_rows\" = \"")
+        sb.append("\"variant_doc_materialization_min_rows\" = \"")
                                     .append(String.valueOf(variantDocSnapshotMinRows)).append("\"");
         sb.append(",");
-        sb.append("\"variant_doc_snapshot_shard_count\" = \"")
+        sb.append("\"variant_doc_hash_shard_count\" = \"")
                                     .append(String.valueOf(variantDocSnapshotShardCount)).append("\"");
         sb.append(")>");
         return sb.toString();

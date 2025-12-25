@@ -656,9 +656,9 @@ public class Column implements GsonPostProcessable {
         tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
         tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
         tColumn.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
-        tColumn.setVariantEnableDocSnapshotMode(this.getVariantEnableDocSnapshotMode());
-        tColumn.setVariantDocSnapshotMinRows(this.getVariantDocSnapshotMinRows());
-        tColumn.setVariantDocSnapshotShardCount(this.getVariantDocSnapshotShardCount());
+        tColumn.setVariantEnableDocMode(this.getVariantEnableDocSnapshotMode());
+        tColumn.setVariantDocMaterializationMinRows(this.getVariantDocSnapshotMinRows());
+        tColumn.setVariantDocHashShardCount(this.getVariantDocSnapshotShardCount());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -883,9 +883,9 @@ public class Column implements GsonPostProcessable {
             builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
             builder.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
             builder.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
-            builder.setVariantEnableDocSnapshotMode(this.getVariantEnableDocSnapshotMode());
-            builder.setVariantDocSnapshotMinRows(this.getVariantDocSnapshotMinRows());
-            builder.setVariantDocSnapshotShardCount(this.getVariantDocSnapshotShardCount());
+            builder.setVariantEnableDocMode(this.getVariantEnableDocSnapshotMode());
+            builder.setVariantDocMaterializationMinRows(this.getVariantDocSnapshotMinRows());
+            builder.setVariantDocHashShardCount(this.getVariantDocSnapshotShardCount());
             // variant may contain predefined structured fields
             addChildren(builder);
         }

@@ -18,7 +18,7 @@
 // this test is used to test the nested in top array
 suite("nested_in_top_array", "p0"){
 
-    sql "set default_variant_enable_doc_snapshot_mode = false"
+    sql "set default_variant_enable_doc_mode = false"
     sql "set default_variant_max_subcolumns_count = 0"
     sql "set default_variant_sparse_hash_shard_count = 0"
     sql "set default_variant_enable_typed_paths_to_sparse = false"

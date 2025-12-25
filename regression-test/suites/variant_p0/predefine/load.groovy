@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_predefine_schema", "p0"){
-    sql """ set default_variant_enable_doc_snapshot_mode = false """
+    sql """ set default_variant_enable_doc_mode = false """
     sql """DROP TABLE IF EXISTS test_predefine"""
     def count = new Random().nextInt(10);
     if (new Random().nextInt(100) < 50) {

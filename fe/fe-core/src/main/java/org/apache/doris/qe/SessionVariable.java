@@ -904,11 +904,12 @@ public class SessionVariable implements Serializable, Writable {
                                                             "default_variant_max_sparse_column_statistics_size";
     public static final String DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = "default_variant_sparse_hash_shard_count";
 
-    public static final String DEFAULT_VARIANT_ENABLE_DOC_SNAPSHOT_MODE = "default_variant_enable_doc_snapshot_mode";
+    public static final String DEFAULT_VARIANT_ENABLE_DOC_MODE = "default_variant_enable_doc_mode";
 
-    public static final String DEFAULT_VARIANT_DOC_SNAPSHOT_MIN_ROWS = "default_variant_doc_snapshot_min_rows";
+    public static final String DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "default_variant_doc_materialization_min_rows";
 
-    public static final String DEFAULT_VARIANT_DOC_SNAPSHOT_SHARD_COUNT = "default_variant_doc_snapshot_shard_count";
+    public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
@@ -3188,26 +3189,26 @@ public class SessionVariable implements Serializable, Writable {
 
 
     @VariableMgr.VarAttr(
-            name = DEFAULT_VARIANT_ENABLE_DOC_SNAPSHOT_MODE,
+            name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
             needForward = true,
             fuzzy = true
     )
-    public boolean defaultVariantEnableDocSnapshotMode = false;
+    public boolean defaultVariantEnableDocMode = false;
 
 
     @VariableMgr.VarAttr(
-            name = DEFAULT_VARIANT_DOC_SNAPSHOT_MIN_ROWS,
+            name = DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
             needForward = true,
             fuzzy = true
     )
-    public long defaultVariantDocSnapshotMinRows = 0L;
+    public long defaultVariantDocMaterializationMinRows = 0L;
 
     @VariableMgr.VarAttr(
-            name = DEFAULT_VARIANT_DOC_SNAPSHOT_SHARD_COUNT,
+            name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
             needForward = true,
             fuzzy = true
     )
-    public int defaultVariantDocSnapshotShardCount = 128;
+    public int defaultVariantDocHashShardCount = 64;
 
     @VariableMgr.VarAttr(
             name = "use_v3_storage_format",
@@ -3256,10 +3257,18 @@ public class SessionVariable implements Serializable, Writable {
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
         this.useV3StorageFormat = random.nextBoolean();
-        this.defaultVariantEnableDocSnapshotMode = random.nextBoolean();
-        if (this.defaultVariantEnableDocSnapshotMode) {
-            boolean zeroOrOne = random.nextBoolean();
-            this.defaultVariantDocSnapshotMinRows = zeroOrOne ? 0 : random.nextInt(20);
+        this.defaultVariantEnableDocMode = random.nextBoolean();
+        this.defaultVariantDocHashShardCount = random.nextInt(5);
+        boolean zeroOrOne = random.nextBoolean();
+        this.defaultVariantDocMaterializationMinRows = zeroOrOne ? 0 : random.nextInt(20);
+        if (this.defaultVariantEnableDocMode) {
+            this.defaultVariantMaxSubcolumnsCount = 0;
+            this.defaultEnableTypedPathsToSparse = false;
+            this.defaultVariantMaxSparseColumnStatisticsSize = 0;
+            this.defaultVariantSparseHashShardCount = 0;
+        } else {
+            this.defaultVariantDocMaterializationMinRows = 0L;
+            this.defaultVariantDocHashShardCount = 0;
         }
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
@@ -5810,16 +5819,16 @@ public class SessionVariable implements Serializable, Writable {
         return defaultVariantSparseHashShardCount;
     }
 
-    public boolean getDefaultVariantEnableDocSnapshotMode() {
-        return defaultVariantEnableDocSnapshotMode;
+    public boolean getDefaultVariantEnableDocMode() {
+        return defaultVariantEnableDocMode;
     }
 
-    public long getDefaultVariantDocSnapshotMinRows() {
-        return defaultVariantDocSnapshotMinRows;
+    public long getDefaultVariantDocMaterializationMinRows() {
+        return defaultVariantDocMaterializationMinRows;
     }
 
-    public int getDefaultVariantDocSnapshotShardCount() {
-        return defaultVariantDocSnapshotShardCount;
+    public int getDefaultVariantDocHashShardCount() {
+        return defaultVariantDocHashShardCount;
     }
 
     public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {

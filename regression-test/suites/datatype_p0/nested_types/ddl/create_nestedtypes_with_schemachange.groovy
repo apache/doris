@@ -22,7 +22,7 @@ suite("create_nestedtypes_with_schemachange", "p0") {
         sql "set default_variant_enable_typed_paths_to_sparse = false"
         sql "set default_variant_max_sparse_column_statistics_size = 0"
         sql "set default_variant_sparse_hash_shard_count = 0"
-        sql "set default_variant_enable_doc_snapshot_mode = false"
+        sql "set default_variant_enable_doc_mode = false"
         sql "DROP TABLE IF EXISTS $testTablex"
         sql """ CREATE TABLE $testTablex (
                      col0 BIGINT NOT NULL,  col2 int NOT NULL, col3 array<int> NULL, col4 map<int, int> NULL, col5 struct<f1: int> NULL

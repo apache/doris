@@ -20,7 +20,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("predefine_type_multi_index_doc_snapshot", "p1"){
     
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_snapshot_mode = true """
+    sql """ set default_variant_enable_doc_mode = true """
     
     def load_json_data = {table_name, file_name ->
         // load the json data

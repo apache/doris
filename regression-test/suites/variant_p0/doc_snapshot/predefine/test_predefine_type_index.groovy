@@ -20,7 +20,7 @@ suite("variant_predefine_index_doc_snapshot", "p0"){
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_snapshot_mode = true """
+    sql """ set default_variant_enable_doc_mode = true """
 
     def tableName = "test_variant_predefine_index_type"
     sql "DROP TABLE IF EXISTS ${tableName}"

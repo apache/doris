@@ -16,7 +16,7 @@
 // under the License.
 
 suite("variant_hirachinal_doc_snapshot", "p0"){
-    sql """ set default_variant_enable_doc_snapshot_mode = true """
+    sql """ set default_variant_enable_doc_mode = true """
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -31,7 +31,7 @@ suite("variant_hirachinal_doc_snapshot", "p0"){
     def table_name = "var_rs"
     sql "DROP TABLE IF EXISTS ${table_name}"
 
-    sql "set default_variant_enable_doc_snapshot_mode = false"
+    sql "set default_variant_enable_doc_mode = false"
     sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,

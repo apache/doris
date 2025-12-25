@@ -668,14 +668,14 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_variant_sparse_hash_shard_count()) {
         _variant_sparse_hash_shard_count = column.variant_sparse_hash_shard_count();
     }
-    if (column.has_variant_enable_doc_snapshot_mode()) {
-        _variant_enable_doc_snapshot_mode = column.variant_enable_doc_mode();
+    if (column.has_variant_enable_doc_mode()) {
+        _variant_enable_doc_mode = column.variant_enable_doc_mode();
     }
-    if (column.has_variant_doc_snapshot_min_rows()) {
-        _variant_doc_snapshot_min_rows = column.variant_doc_snapshot_min_rows();
+    if (column.has_variant_doc_materialization_min_rows()) {
+        _variant_doc_materialization_min_rows = column.variant_doc_materialization_min_rows();
     }
-    if (column.has_variant_doc_snapshot_shard_count()) {
-        _variant_doc_snapshot_shard_count = column.variant_doc_snapshot_shard_count();
+    if (column.has_variant_doc_hash_shard_count()) {
+        _variant_doc_hash_shard_count = column.variant_doc_hash_shard_count();
     }
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
@@ -760,9 +760,9 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_max_sparse_column_statistics_size(
             _variant_max_sparse_column_statistics_size);
     column->set_variant_sparse_hash_shard_count(_variant_sparse_hash_shard_count);
-    column->set_variant_enable_doc_snapshot_mode(_variant_enable_doc_snapshot_mode);
-    column->set_variant_doc_snapshot_min_rows(_variant_doc_snapshot_min_rows);
-    column->set_variant_doc_snapshot_shard_count(_variant_doc_snapshot_shard_count);
+    column->set_variant_enable_doc_mode(_variant_enable_doc_mode);
+    column->set_variant_doc_materialization_min_rows(_variant_doc_materialization_min_rows);
+    column->set_variant_doc_hash_shard_count(_variant_doc_hash_shard_count);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {

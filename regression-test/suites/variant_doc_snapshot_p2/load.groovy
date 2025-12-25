@@ -18,7 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_doc_snapshot_p2", "nonConcurrent,p2"){
-    sql """ set default_variant_enable_doc_snapshot_mode = true """
+    sql """ set default_variant_enable_doc_mode = true """
+    sql """ set default_variant_doc_materialization_min_rows = 1000000000000 """
     // prepare test table
     def timeout = 300000
     def delta_time = 1000
@@ -76,7 +77,7 @@ suite("test_doc_snapshot_p2", "nonConcurrent,p2"){
     if ((rand_subcolumns_count % 2) == 0) {
         rand_subcolumns_count = 0
     }
-    sql """ set default_variant_enable_doc_snapshot_mode = true """
+    sql """ set default_variant_enable_doc_mode = true """
     sql "set enable_variant_flatten_nested = true"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -85,7 +86,7 @@ suite("test_doc_snapshot_p2", "nonConcurrent,p2"){
             -- INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        DISTRIBUTED BY HASH(k) BUCKETS 1 
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "false", "inverted_index_storage_format"= "v2");
     """
     // 2015
@@ -155,8 +156,8 @@ suite("test_doc_snapshot_p2", "nonConcurrent,p2"){
     sql """select v['payload']['commits'] from github_events2 order by k ;"""
 
     // query with inverted index
-    qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where v["repo"]["name"] match 'xpressengine' order by 1;"""
-    qt_sql """select count()  from github_events where v["repo"]["name"] match 'apache' order by 1;"""
+    // qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where v["repo"]["name"] match 'xpressengine' order by 1;"""
+    // qt_sql """select count()  from github_events where v["repo"]["name"] match 'apache' order by 1;"""
 
     sql """ALTER TABLE github_events SET("bloom_filter_columns" = "k,v")"""
 

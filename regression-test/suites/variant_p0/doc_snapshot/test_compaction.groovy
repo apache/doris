@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
 suite("compaction_variant_doc_snapshot", "p0") {
-     sql """ set default_variant_enable_doc_snapshot_mode = true; """
+     sql """ set default_variant_enable_doc_mode = true; """
     try {
         String backend_id;
         def backendId_to_backendIP = [:]

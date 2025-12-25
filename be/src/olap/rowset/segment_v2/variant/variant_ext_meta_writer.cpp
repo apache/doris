@@ -107,7 +107,7 @@ static void classify_columns(const SegmentFooterPB& footer, ColumnClassification
 
                 if (rel_path.find("__DORIS_VARIANT_SPARSE__") != std::string::npos) {
                     classification.pending_sparse[root_uid].emplace_back(col);
-                } else if (rel_path.find("__DORIS_VARIANT_DOC_SNAPSHOT__") != std::string::npos) {
+                } else if (rel_path.find("__DORIS_VARIANT_DOC_VALUE__") != std::string::npos) {
                     classification.pending_doc_snapshot[root_uid].emplace_back(col);
                 } else {
                     classification.pending_subcols[root_uid].emplace_back(rel_path, col);

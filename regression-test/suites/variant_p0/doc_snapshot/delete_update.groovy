@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("variant_delete_and_update_doc_snapshot", "p0"){
-    sql """ set default_variant_enable_doc_snapshot_mode = true """
+    sql """ set default_variant_enable_doc_mode = true """
     // MOR
     def table_name = "var_delete_update"
     sql "DROP TABLE IF EXISTS ${table_name}"
@@ -47,7 +47,7 @@ suite("variant_delete_and_update_doc_snapshot", "p0"){
 
     // MOW
     table_name = "var_delete_update_mow"
-    sql """ set default_variant_enable_doc_snapshot_mode = true """
+    sql """ set default_variant_enable_doc_mode = true """
     sql """ set default_variant_max_subcolumns_count = 3"""
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """

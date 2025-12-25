@@ -66,14 +66,19 @@ using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataIterator : public ColumnIterator {
 public:
-    // Currently two types of read, merge sparse columns with root columns, or read directly
-    enum class ReadType { MERGE_ROOT, READ_DIRECT };
+    // Currently three types of read, merge sparse columns with root columns, merge doc columns with root columns, or read directly
+    enum class ReadType {
+        MERGE_ROOT_SPARSE = 0,
+        MERGE_ROOT_DOC = 1,
+        READ_DIRECT = 2,
+    };
 
     static Status create(ColumnIteratorUPtr* reader, int32_t col_uid, vectorized::PathInData path,
                          const SubcolumnColumnMetaInfo::Node* target_node,
                          std::unique_ptr<SubstreamIterator>&& sparse_reader,
                          std::unique_ptr<SubstreamIterator>&& root_column_reader,
-                         ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
+                         ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
+                         ReadType read_type);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -92,10 +97,11 @@ public:
 private:
     SubstreamReaderTree _substream_reader;
     std::unique_ptr<SubstreamIterator> _root_reader;
-    std::unique_ptr<SubstreamIterator> _sparse_column_reader;
+    std::unique_ptr<SubstreamIterator> _binary_column_reader;
     size_t _rows_read = 0;
     vectorized::PathInData _path;
     OlapReaderStatistics* _stats = nullptr;
+    ReadType _read_type = ReadType::READ_DIRECT;
 
     HierarchicalDataIterator(const vectorized::PathInData& path) : _path(path) {}
 
@@ -156,12 +162,12 @@ private:
         }));
 
         // read sparse column
-        if (_sparse_column_reader) {
+        if (_binary_column_reader) {
             SCOPED_RAW_TIMER(&_stats->variant_scan_sparse_column_timer_ns);
-            int64_t curr_size = _sparse_column_reader->column->byte_size();
-            RETURN_IF_ERROR(read_func(*_sparse_column_reader, {}, nullptr));
+            int64_t curr_size = _binary_column_reader->column->byte_size();
+            RETURN_IF_ERROR(read_func(*_binary_column_reader, {}, nullptr));
             _stats->variant_scan_sparse_column_bytes +=
-                    _sparse_column_reader->column->byte_size() - curr_size;
+                    _binary_column_reader->column->byte_size() - curr_size;
         }
 
         MutableColumnPtr container;

@@ -634,7 +634,7 @@ public:
         return _max_subcolumns_count - current_subcolumns_count;
     }
 
-    void reconstruct_and_sort_doc_value_column();
+    void sort_doc_value_column();
 
     // doc snapshot mode: only root column, and doc snapshot column is not empty
     bool is_doc_snapshot_mode() const;

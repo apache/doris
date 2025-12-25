@@ -101,7 +101,7 @@ public:
 
     bool need_record_stats() const {
         return !empty() && !is_typed && !has_nested &&
-               path.find("__DORIS_VARIANT_DOC_SNAPSHOT__") == std::string::npos;
+               path.find("__DORIS_VARIANT_DOC_VALUE__") == std::string::npos;
     }
 
     bool operator<(const PathInData& rhs) const {

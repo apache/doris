@@ -38,6 +38,47 @@
 
 namespace doris::segment_v2::variant_util {
 
+std::unordered_map<std::string_view, vectorized::ColumnVariant::Subcolumn>
+parse_doc_snapshot_to_subcolumns(const vectorized::ColumnVariant& variant) {
+    std::unordered_map<std::string_view, vectorized::ColumnVariant::Subcolumn> subcolumns;
+
+    const auto [column_key, column_value] = variant.get_doc_snapshot_data_paths_and_values();
+    const auto& column_offsets = variant.serialized_doc_value_column_offsets();
+    const size_t num_rows = column_offsets.size();
+
+    DCHECK_EQ(num_rows, variant.size()) << "doc snapshot offsets size mismatch with variant rows";
+
+    // Best-effort reserve: at most number of kv pairs.
+    subcolumns.reserve(column_key->size());
+
+    for (size_t row = 0; row < num_rows; ++row) {
+        const size_t start = (row == 0) ? 0 : column_offsets[row - 1];
+        const size_t end = column_offsets[row];
+        for (size_t i = start; i < end; ++i) {
+            const auto& key = column_key->get_data_at(i);
+            const std::string_view path_sv(key.data, key.size);
+
+            auto [it, inserted] = subcolumns.try_emplace(
+                    path_sv, vectorized::ColumnVariant::Subcolumn {0, true, false});
+            auto& subcolumn = it->second;
+            if (inserted) {
+                subcolumn.insert_many_defaults(row);
+            } else if (subcolumn.size() != row) {
+                subcolumn.insert_many_defaults(row - subcolumn.size());
+            }
+            subcolumn.deserialize_from_binary_column(column_value, i);
+        }
+    }
+
+    for (auto& [path, subcolumn] : subcolumns) {
+        if (subcolumn.size() != num_rows) {
+            subcolumn.insert_many_defaults(num_rows - subcolumn.size());
+        }
+    }
+
+    return subcolumns;
+}
+
 namespace {
 
 Status _parse_variant_columns(vectorized::Block& block, const std::vector<uint32_t>& variant_pos,
@@ -56,7 +97,7 @@ Status _parse_variant_columns(vectorized::Block& block, const std::vector<uint32
         vectorized::MutableColumnPtr variant_column;
         if (var.is_doc_snapshot_mode()) {
             // doc snapshot mode, we need to parse the doc snapshot column
-            vectorized::parse_binary_to_variant(var);
+            vectorized::parse_binary_to_variant(var, configs[i]);
             continue;
         }
         if (!var.is_scalar_variant()) {
@@ -139,32 +180,26 @@ Status parse_variant_columns(vectorized::Block& block, const TabletSchema& table
     for (size_t i = 0; i < variant_column_pos.size(); ++i) {
         configs[i].enable_flatten_nested = tablet_schema.variant_flatten_nested();
         const auto& column = tablet_schema.column(variant_column_pos[i]);
-        if (column.is_variant_type()) {
-            // enable doc snapshot mode
-            if (column.variant_enable_doc_mode()) {
-                // if has schema template, no need to parse to doc snapshot, when writing data, we
-                // will parse to doc snapshot
-                if (column.get_sub_columns().empty()) {
-                    configs[i].parse_to_doc_snapshot = true;
-                } else {
-                    configs[i].parse_to_subcolumns = false;
-                }
-
-                // if min rows is greater than 0, no need to parse to subcolumns
-                // when compaction row size is greater than min rows, parse to subcolumns
-                if (column.variant_doc_snapshot_min_rows() > 0) {
-                    configs[i].parse_to_subcolumns = false;
-                } else {
-                    configs[i].parse_to_subcolumns = true;
-                }
-            } else {
-                // default: only parse to subcolumns
-                configs[i].parse_to_subcolumns = true;
-                configs[i].parse_to_doc_snapshot = false;
-            }
-        } else {
+        if (!column.is_variant_type()) {
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
+        }
+        // if doc mode is not enabled, no need to parse to doc value column
+        if (!column.variant_enable_doc_mode()) {
+            configs[i].parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
+            continue;
+        }
+
+        auto column_size = block.get_by_position(variant_column_pos[i]).column->size();
+
+        // if column size is greater than min rows, parse to both subcolumns and doc value column
+        if (column_size > column.variant_doc_materialization_min_rows()) {
+            configs[i].parse_to = vectorized::ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn;
+        }
+
+        // if column size is less than min rows, parse to only doc value column
+        else {
+            configs[i].parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
         }
     }
 

@@ -231,18 +231,20 @@ public:
 
     int32_t variant_sparse_hash_shard_count() const { return _variant_sparse_hash_shard_count; }
 
-    bool variant_enable_doc_mode() const { return _variant_enable_doc_snapshot_mode; }
+    bool variant_enable_doc_mode() const { return _variant_enable_doc_mode; }
 
-    int64_t variant_doc_snapshot_min_rows() const { return _variant_doc_snapshot_min_rows; }
-
-    int32_t variant_doc_snapshot_shard_count() const { return _variant_doc_snapshot_shard_count; }
-
-    void set_variant_doc_snapshot_min_rows(int64_t variant_doc_snapshot_min_rows) {
-        _variant_doc_snapshot_min_rows = variant_doc_snapshot_min_rows;
+    int64_t variant_doc_materialization_min_rows() const {
+        return _variant_doc_materialization_min_rows;
     }
 
-    void set_variant_doc_snapshot_shard_count(int32_t variant_doc_snapshot_shard_count) {
-        _variant_doc_snapshot_shard_count = variant_doc_snapshot_shard_count;
+    int32_t variant_doc_hash_shard_count() const { return _variant_doc_hash_shard_count; }
+
+    void set_variant_doc_materialization_min_rows(int64_t variant_doc_materialization_min_rows) {
+        _variant_doc_materialization_min_rows = variant_doc_materialization_min_rows;
+    }
+
+    void set_variant_doc_hash_shard_count(int32_t variant_doc_hash_shard_count) {
+        _variant_doc_hash_shard_count = variant_doc_hash_shard_count;
     }
 
     void set_variant_max_sparse_column_statistics_size(
@@ -254,8 +256,8 @@ public:
         _variant_sparse_hash_shard_count = variant_sparse_hash_shard_count;
     }
 
-    void set_variant_enable_doc_snapshot_mode(bool variant_enable_doc_mode) {
-        _variant_enable_doc_snapshot_mode = variant_enable_doc_mode;
+    void set_variant_enable_doc_mode(bool variant_enable_doc_mode) {
+        _variant_enable_doc_mode = variant_enable_doc_mode;
     }
 
     void set_variant_enable_typed_paths_to_sparse(bool variant_enable_typed_paths_to_sparse) {
@@ -313,11 +315,11 @@ private:
     // default to 0, no shard
     int32_t _variant_sparse_hash_shard_count = 0;
 
-    bool _variant_enable_doc_snapshot_mode = false;
+    bool _variant_enable_doc_mode = false;
 
-    int64_t _variant_doc_snapshot_min_rows = 0;
+    int64_t _variant_doc_materialization_min_rows = 0;
 
-    int32_t _variant_doc_snapshot_shard_count = 128;
+    int32_t _variant_doc_hash_shard_count = 128;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
