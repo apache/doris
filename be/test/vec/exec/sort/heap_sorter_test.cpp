@@ -84,8 +84,8 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
 
     sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
 
-    sorter = HeapSorter::create_unique(sort_exec_exprs, 6, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc);
+    sorter = HeapSorter::create_unique(sort_exec_exprs, &_state, 6, 0, &pool, is_asc_order,
+                                       nulls_first, *row_desc);
 
     sorter->init_profile(&_profile);
 

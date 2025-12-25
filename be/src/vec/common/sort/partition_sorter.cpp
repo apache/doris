@@ -45,7 +45,7 @@ PartitionSorter::PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit
                                  RuntimeState* state, RuntimeProfile* profile,
                                  bool has_global_limit, int64_t partition_inner_limit,
                                  TopNAlgorithm::type top_n_algorithm, SortCursorCmp* previous_row)
-        : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
+        : Sorter(vsort_exec_exprs, state, limit, offset, pool, is_asc_order, nulls_first),
           _state(MergeSorterState::create_unique(row_desc, offset)),
           _row_desc(row_desc),
           _partition_inner_limit(partition_inner_limit),

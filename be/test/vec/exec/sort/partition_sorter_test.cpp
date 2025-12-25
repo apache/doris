@@ -75,7 +75,7 @@ struct PartitionSorterTest : public testing::Test {
 
 TEST_F(PartitionSorterTest, test_partition_sorter_read_row_num) {
     sorter = PartitionSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order,
-                                            nulls_first, *row_desc, nullptr, nullptr, false, 20,
+                                            nulls_first, *row_desc, &_state, nullptr, false, 20,
                                             TopNAlgorithm::ROW_NUMBER, nullptr);
     sorter->init_profile(&_profile);
     {
@@ -121,7 +121,7 @@ TEST_F(PartitionSorterTest, test_partition_sorter_DENSE_RANK) {
     SortCursorCmp previous_row;
 
     sorter = PartitionSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order,
-                                            nulls_first, *row_desc, nullptr, nullptr, false, 20,
+                                            nulls_first, *row_desc, &_state, nullptr, false, 20,
                                             TopNAlgorithm::DENSE_RANK, &previous_row);
     sorter->init_profile(&_profile);
     {
@@ -160,7 +160,7 @@ TEST_F(PartitionSorterTest, test_partition_sorter_RANK) {
     SortCursorCmp previous_row;
 
     sorter = PartitionSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order,
-                                            nulls_first, *row_desc, nullptr, nullptr, false, 20,
+                                            nulls_first, *row_desc, &_state, nullptr, false, 20,
                                             TopNAlgorithm::RANK, &previous_row);
     sorter->init_profile(&_profile);
     {

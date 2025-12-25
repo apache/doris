@@ -609,8 +609,8 @@ TEST_F(ColumnVarbinaryTest, GetPermutationAscDescIgnoreLimit) {
     }
 
     IColumn::Permutation perm_asc;
-    col->get_permutation(/*reverse=*/false, /*limit=*/3, /*nan_hint=*/0,
-                         perm_asc); // limit ignored by impl
+    col->get_permutation_default(/*reverse=*/false, /*limit=*/3, /*nan_hint=*/0,
+                                 perm_asc); // limit ignored by impl
     ASSERT_EQ(perm_asc.size(), vals.size());
     // check ascending ordering
     for (size_t i = 1; i < perm_asc.size(); ++i) {
@@ -619,7 +619,8 @@ TEST_F(ColumnVarbinaryTest, GetPermutationAscDescIgnoreLimit) {
     }
 
     IColumn::Permutation perm_desc;
-    col->get_permutation(/*reverse=*/true, /*limit=*/vals.size(), /*nan_hint=*/0, perm_desc);
+    col->get_permutation_default(/*reverse=*/true, /*limit=*/vals.size(), /*nan_hint=*/0,
+                                 perm_desc);
     ASSERT_EQ(perm_desc.size(), vals.size());
     for (size_t i = 1; i < perm_desc.size(); ++i) {
         int c = col->compare_at(perm_desc[i - 1], perm_desc[i], *col, 0);

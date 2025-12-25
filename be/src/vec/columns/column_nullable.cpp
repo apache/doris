@@ -431,9 +431,9 @@ void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int
 }
 
 void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direction_hint,
-                                     Permutation& res) const {
+                                     HybridSorter& sorter, Permutation& res) const {
     /// Cannot pass limit because of unknown amount of NULLs.
-    get_nested_column().get_permutation(reverse, 0, null_direction_hint, res);
+    get_nested_column().get_permutation(reverse, 0, null_direction_hint, sorter, res);
 
     if ((null_direction_hint > 0) != reverse) {
         /// Shift all NULL values to the end.
