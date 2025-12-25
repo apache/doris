@@ -3789,14 +3789,14 @@ TEST(function_string_test, function_hamming_distance_test) {
                 {{std::string("abc"), std::string("abc")}, std::int64_t(0)},
                 {{std::string(""), std::string("")}, std::int64_t(0)},
                 {{std::string("hello"), std::string("hello")}, std::int64_t(0)},
-                
+
                 // Different strings - distance > 0
                 {{std::string("abc"), std::string("axc")}, std::int64_t(1)},
                 {{std::string("abc"), std::string("xyz")}, std::int64_t(3)},
                 {{std::string("hello"), std::string("hallo")}, std::int64_t(1)},
                 {{std::string("test"), std::string("text")}, std::int64_t(1)},
                 {{std::string("abcd"), std::string("abed")}, std::int64_t(1)},
-                
+
                 // NULL inputs
                 {{Null(), std::string("abc")}, Null()},
                 {{std::string("abc"), Null()}, Null()},
