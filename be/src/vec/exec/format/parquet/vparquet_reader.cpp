@@ -422,6 +422,63 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
 
+    // TODO(gabriel): we should try to clear too much structs which are used to represent conjuncts and predicates.
+    // visit_slot for lazy mat.
+    std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
+        if (expr->is_slot_ref()) {
+            VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
+            auto expr_name = slot_ref->expr_name();
+            predicate_columns.emplace(expr_name,
+                                      std::make_pair(slot_ref->column_id(), slot_ref->slot_id()));
+            if (slot_ref->column_id() == 0) {
+                _lazy_read_ctx.resize_first_column = false;
+            }
+            return;
+        }
+        for (auto& child : expr->children()) {
+            visit_slot(child.get());
+        }
+    };
+
+    for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
+        auto expr = conjunct->root();
+
+        if (expr->is_rf_wrapper()) {
+            // REF: src/runtime_filter/runtime_filter_consumer.cpp
+            VRuntimeFilterWrapper* runtime_filter = assert_cast<VRuntimeFilterWrapper*>(expr.get());
+
+            auto filter_impl = runtime_filter->get_impl();
+            visit_slot(filter_impl.get());
+
+            // only support push down for filter row group : MAX_FILTER, MAX_FILTER, MINMAX_FILTER,  IN_FILTER
+            if ((runtime_filter->node_type() == TExprNodeType::BINARY_PRED) &&
+                (runtime_filter->op() == TExprOpcode::GE ||
+                 runtime_filter->op() == TExprOpcode::LE)) {
+                expr = filter_impl;
+            } else if (runtime_filter->node_type() == TExprNodeType::IN_PRED &&
+                       runtime_filter->op() == TExprOpcode::FILTER_IN) {
+                VDirectInPredicate* direct_in_predicate =
+                        assert_cast<VDirectInPredicate*>(filter_impl.get());
+
+                int max_in_size =
+                        _state->query_options().__isset.max_pushdown_conditions_per_column
+                                ? _state->query_options().max_pushdown_conditions_per_column
+                                : 1024;
+                if (direct_in_predicate->get_set_func()->size() == 0 ||
+                    direct_in_predicate->get_set_func()->size() > max_in_size) {
+                    continue;
+                }
+
+                VExprSPtr new_in_slot = nullptr;
+                if (direct_in_predicate->get_slot_in_expr(new_in_slot)) {
+                    expr = new_in_slot;
+                }
+            }
+        } else if (VTopNPred* topn_pred = typeid_cast<VTopNPred*>(expr.get());
+                   topn_pred == nullptr) {
+            visit_slot(expr.get());
+        }
+    }
     if (!_lazy_read_ctx.slot_id_to_predicates.empty()) {
         auto and_pred = AndBlockColumnPredicate::create_unique();
         for (const auto& entry : _lazy_read_ctx.slot_id_to_predicates) {
@@ -431,13 +488,6 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
                 }
                 and_pred->add_column_predicate(
                         SingleColumnBlockPredicate::create_unique(pred->clone(pred->column_id())));
-                if (!pred->col_name().empty()) {
-                    predicate_columns.emplace(pred->col_name(),
-                                              std::make_pair(pred->column_id(), entry.first));
-                    if (pred->column_id() == 0) {
-                        _lazy_read_ctx.resize_first_column = false;
-                    }
-                }
             }
         }
         if (and_pred->num_of_column_predicate() > 0) {
