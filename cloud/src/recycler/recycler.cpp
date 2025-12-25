@@ -4703,34 +4703,39 @@ int InstanceRecycler::recycle_rowsets() {
         }
 
         auto* rowset_meta = rowset.mutable_rowset_meta();
-        int mark_ret = mark_rowset_as_recycled(txn_kv_.get(), instance_id_, k, rowset);
-        if (mark_ret == -1) {
-            LOG(WARNING) << "failed to mark rowset as recycled, instance_id=" << instance_id_
-                         << " tablet_id=" << rowset_meta->tablet_id() << " version=["
-                         << rowset_meta->start_version() << '-' << rowset_meta->end_version()
-                         << "]";
-            return -1;
-        } else if (mark_ret == 1) {
-            LOG(INFO) << "rowset already marked as recycled, recycler will delete data and kv at "
-                         "next turn, instance_id="
-                      << instance_id_ << " tablet_id=" << rowset_meta->tablet_id() << " version=["
-                      << rowset_meta->start_version() << '-' << rowset_meta->end_version() << "]";
-            return 0;
-        }
-
-        LOG(INFO) << "begin to abort txn or job for related rowset, instance_id=" << instance_id_
-                  << " tablet_id=" << rowset_meta->tablet_id() << " version=["
-                  << rowset_meta->start_version() << '-' << rowset_meta->end_version() << "]";
-
-        if (rowset_meta->end_version() != 1) {
-            int ret = abort_txn_or_job_for_recycle(rowset);
-
-            if (ret != 0) {
-                LOG(WARNING) << "failed to abort txn or job for related rowset, instance_id="
-                             << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
+        if (config::enable_mark_delete_rowset_before_recycle) {
+            int mark_ret = mark_rowset_as_recycled(txn_kv_.get(), instance_id_, k, rowset);
+            if (mark_ret == -1) {
+                LOG(WARNING) << "failed to mark rowset as recycled, instance_id=" << instance_id_
+                             << " tablet_id=" << rowset_meta->tablet_id() << " version=["
                              << rowset_meta->start_version() << '-' << rowset_meta->end_version()
                              << "]";
-                return ret;
+                return -1;
+            } else if (mark_ret == 1) {
+                LOG(INFO)
+                        << "rowset already marked as recycled, recycler will delete data and kv at "
+                           "next turn, instance_id="
+                        << instance_id_ << " tablet_id=" << rowset_meta->tablet_id() << " version=["
+                        << rowset_meta->start_version() << '-' << rowset_meta->end_version() << "]";
+                return 0;
+            }
+        }
+
+        if (config::enable_abort_txn_and_job_for_delete_rowset_before_recycle) {
+            LOG(INFO) << "begin to abort txn or job for related rowset, instance_id="
+                      << instance_id_ << " tablet_id=" << rowset_meta->tablet_id() << " version=["
+                      << rowset_meta->start_version() << '-' << rowset_meta->end_version() << "]";
+
+            if (rowset_meta->end_version() != 1) {
+                int ret = abort_txn_or_job_for_recycle(rowset);
+
+                if (ret != 0) {
+                    LOG(WARNING) << "failed to abort txn or job for related rowset, instance_id="
+                                 << instance_id_ << " tablet_id=" << rowset.tablet_id()
+                                 << " version=[" << rowset_meta->start_version() << '-'
+                                 << rowset_meta->end_version() << "]";
+                    return ret;
+                }
             }
         }
 
@@ -5425,30 +5430,35 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             return 0;
         }
 
-        int mark_ret = mark_rowset_as_recycled(txn_kv_.get(), instance_id_, k, rowset);
-        if (mark_ret == -1) {
-            LOG(WARNING) << "failed to mark rowset as recycled, instance_id=" << instance_id_
-                         << " tablet_id=" << rowset.tablet_id() << " version=["
-                         << rowset.start_version() << '-' << rowset.end_version() << "]";
-            return -1;
-        } else if (mark_ret == 1) {
-            LOG(INFO) << "rowset already marked as recycled, recycler will delete data and kv at "
-                         "next turn, instance_id="
-                      << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
-                      << rowset.start_version() << '-' << rowset.end_version() << "]";
-            return 0;
+        if (config::enable_mark_delete_rowset_before_recycle) {
+            int mark_ret = mark_rowset_as_recycled(txn_kv_.get(), instance_id_, k, rowset);
+            if (mark_ret == -1) {
+                LOG(WARNING) << "failed to mark rowset as recycled, instance_id=" << instance_id_
+                             << " tablet_id=" << rowset.tablet_id() << " version=["
+                             << rowset.start_version() << '-' << rowset.end_version() << "]";
+                return -1;
+            } else if (mark_ret == 1) {
+                LOG(INFO)
+                        << "rowset already marked as recycled, recycler will delete data and kv at "
+                           "next turn, instance_id="
+                        << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
+                        << rowset.start_version() << '-' << rowset.end_version() << "]";
+                return 0;
+            }
         }
 
-        LOG(INFO) << "begin to abort txn or job for related rowset, instance_id=" << instance_id_
-                  << " tablet_id=" << rowset.tablet_id() << " version=[" << rowset.start_version()
-                  << '-' << rowset.end_version() << "]";
+        if (config::enable_abort_txn_and_job_for_delete_rowset_before_recycle) {
+            LOG(INFO) << "begin to abort txn or job for related rowset, instance_id="
+                      << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
+                      << rowset.start_version() << '-' << rowset.end_version() << "]";
 
-        int ret = abort_txn_or_job_for_recycle(rowset);
-        if (ret != 0) {
-            LOG(WARNING) << "failed to abort txn or job for related rowset, instance_id="
-                         << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
-                         << rowset.start_version() << '-' << rowset.end_version() << "]";
-            return ret;
+            int ret = abort_txn_or_job_for_recycle(rowset);
+            if (ret != 0) {
+                LOG(WARNING) << "failed to abort txn or job for related rowset, instance_id="
+                             << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
+                             << rowset.start_version() << '-' << rowset.end_version() << "]";
+                return ret;
+            }
         }
 
         ++num_expired;
