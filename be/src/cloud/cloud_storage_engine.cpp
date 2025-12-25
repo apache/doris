@@ -238,10 +238,19 @@ Status CloudStorageEngine::open() {
     // check cluster id
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_all_root_path_cluster_id(), "fail to check cluster id");
 
-    return ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
-            .set_max_threads(config::sync_load_for_tablets_thread)
-            .set_min_threads(config::sync_load_for_tablets_thread)
-            .build(&_sync_load_for_tablets_thread_pool);
+    RETURN_NOT_OK_STATUS_WITH_WARN(ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
+                                           .set_max_threads(config::sync_load_for_tablets_thread)
+                                           .set_min_threads(config::sync_load_for_tablets_thread)
+                                           .build(&_sync_load_for_tablets_thread_pool),
+                                   "fail to build SyncLoadForTabletsThreadPool");
+
+    RETURN_NOT_OK_STATUS_WITH_WARN(ThreadPoolBuilder("WarmupCacheAsyncThreadPool")
+                                           .set_max_threads(config::warmup_cache_async_thread)
+                                           .set_min_threads(config::warmup_cache_async_thread)
+                                           .build(&_warmup_cache_async_thread_pool),
+                                   "fail to build WarmupCacheAsyncThreadPool");
+
+    return Status::OK();
 }
 
 void CloudStorageEngine::stop() {

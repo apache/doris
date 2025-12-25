@@ -47,6 +47,8 @@ bvar::LatencyRecorder g_file_cache_get_by_peer_server_latency(
         "file_cache_get_by_peer_server_latency");
 bvar::LatencyRecorder g_file_cache_get_by_peer_read_cache_file_latency(
         "file_cache_get_by_peer_read_cache_file_latency");
+bvar::LatencyRecorder g_cloud_internal_service_get_file_cache_meta_by_tablet_id_latency(
+        "cloud_internal_service_get_file_cache_meta_by_tablet_id_latency");
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
         : PInternalService(exec_env), _engine(engine) {}
@@ -95,13 +97,26 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         LOG_WARNING("try to access tablet file cache meta, but file cache not enabled");
         return;
     }
-    LOG(INFO) << "warm up get meta from this be, tablets num=" << request->tablet_ids().size();
+    auto begin_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch())
+                            .count();
+    std::ostringstream tablet_ids_stream;
+    int count = 0;
+    for (const auto& tablet_id : request->tablet_ids()) {
+        tablet_ids_stream << tablet_id << ", ";
+        count++;
+        if (count >= 10) {
+            break;
+        }
+    }
+    LOG(INFO) << "warm up get meta from this be, tablets num=" << request->tablet_ids().size()
+              << ", first 10 tablet_ids=[ " << tablet_ids_stream.str() << " ]";
     for (const auto& tablet_id : request->tablet_ids()) {
         auto res = _engine.tablet_mgr().get_tablet(tablet_id);
         if (!res.has_value()) {
             LOG(ERROR) << "failed to get tablet: " << tablet_id
                        << " err msg: " << res.error().msg();
-            return;
+            continue;
         }
         CloudTabletSPtr tablet = std::move(res.value());
         auto st = tablet->sync_rowsets();
@@ -166,7 +181,13 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
             }
         }
     }
-    VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
+    auto end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                          std::chrono::steady_clock::now().time_since_epoch())
+                          .count();
+    g_cloud_internal_service_get_file_cache_meta_by_tablet_id_latency << (end_ts - begin_ts);
+    LOG(INFO) << "get file cache meta by tablet ids = [ " << tablet_ids_stream.str() << " ] took "
+              << end_ts - begin_ts << " us";
+    VLOG_DEBUG << "get file cache meta by tablet id request=" << request->DebugString()
                << ", response=" << response->DebugString();
 }
 

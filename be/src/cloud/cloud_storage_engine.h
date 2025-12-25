@@ -152,6 +152,8 @@ public:
         return *_sync_load_for_tablets_thread_pool;
     }
 
+    ThreadPool& warmup_cache_async_thread_pool() const { return *_warmup_cache_async_thread_pool; }
+
     Status register_compaction_stop_token(CloudTabletSPtr tablet, int64_t initiator);
 
     Status unregister_compaction_stop_token(CloudTabletSPtr tablet, bool clear_ms);
@@ -204,6 +206,7 @@ private:
     std::unique_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
     std::unique_ptr<TabletHotspot> _tablet_hotspot;
     std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
+    std::unique_ptr<ThreadPool> _warmup_cache_async_thread_pool;
     std::unique_ptr<CloudSnapshotMgr> _cloud_snapshot_mgr;
 
     // FileSystem with latest shared storage info, new data will be written to this fs.
