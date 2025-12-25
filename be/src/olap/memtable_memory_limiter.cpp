@@ -147,6 +147,7 @@ void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_c
         }
         if (cancel_check && cancel_check()) {
             LOG(INFO) << "cancelled when waiting for memtable flush";
+            g_memtable_memory_limit_waiting_threads << -1;
             return;
         }
         first = false;
