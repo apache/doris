@@ -213,7 +213,9 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             for (Expression conj : join.getHashJoinConjuncts()) {
                 if (ctx.probeExpr.equals(conj.child(1))) {
                     // push to left child. right child is blocking operator, do not need topn-filter
-                    PushDownContext childPushDownContext = adjustProbeExprNullableThroughOuterJoin(join.left(), ctx);
+                    PushDownContext ctxOnLeftChild = ctx.withNewProbeExpression(conj.child(0));
+                    PushDownContext childPushDownContext = adjustProbeExprNullableThroughOuterJoin(join.left(),
+                            ctxOnLeftChild);
                     return join.left().accept(this, childPushDownContext);
                 }
             }
