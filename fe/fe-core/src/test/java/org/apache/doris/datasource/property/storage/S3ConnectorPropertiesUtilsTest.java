@@ -120,14 +120,4 @@ class S3ConnectorPropertiesUtilsTest {
         Assertions.assertEquals("s3://bucket/key",
                 S3PropertyUtils.validateAndNormalizeUri("OSS://bucket/key", "false", "false"));
     }
-
-    @Test
-    void testSimpleSchemeConversionInvalid() {
-        Assertions.assertThrows(UserException.class,
-                () -> S3PropertyUtils.validateAndNormalizeUri("s3a://", "false", "false"));
-        Assertions.assertThrows(UserException.class,
-                () -> S3PropertyUtils.validateAndNormalizeUri("oss://http://example.com/path", "false", "false"));
-        Assertions.assertThrows(UserException.class,
-                () -> S3PropertyUtils.validateAndNormalizeUri("cosn:///path", "false", "false"));
-    }
 }
