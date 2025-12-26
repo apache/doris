@@ -857,6 +857,16 @@ public class SearchDslParser {
         @JsonProperty("minimumShouldMatch")
         public Integer minimumShouldMatch;
 
+        /**
+         * Constructor for JSON deserialization
+         *
+         * @param type the clause type
+         * @param field the field name
+         * @param value the field value
+         * @param children the child nodes
+         * @param occur the occurrence type
+         * @param minimumShouldMatch the minimum should match value
+         */
         @JsonCreator
         public QsNode(@JsonProperty("type") QsClauseType type,
                 @JsonProperty("field") String field,
