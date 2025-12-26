@@ -51,6 +51,12 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
     public static final String ICEBERG_TABLE_META_CACHE_TTL_SECOND = "iceberg.table.meta.cache.ttl-second";
     public static final String ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND = "iceberg.snapshot.meta.cache.ttl-second";
+    public static final String ICEBERG_MANIFEST_CACHE_ENABLE = "iceberg.manifest.cache.enable";
+    public static final String ICEBERG_MANIFEST_CACHE_CAPACITY_MB = "iceberg.manifest.cache.capacity-mb";
+    public static final String ICEBERG_MANIFEST_CACHE_TTL_SECOND = "iceberg.manifest.cache.ttl-second";
+    public static final boolean DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE = true;
+    public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY_MB = 1024;
+    public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND = 48 * 60 * 60;
     protected String icebergCatalogType;
     protected Catalog catalog;
 
@@ -95,6 +101,29 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
                     "The parameter " + ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND + " is wrong, value is "
                     + partitionCacheTtlSecond);
         }
+
+        String manifestCacheEnable = catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null);
+        if (Objects.nonNull(manifestCacheEnable)
+                && !(manifestCacheEnable.equalsIgnoreCase("true") || manifestCacheEnable.equalsIgnoreCase("false"))) {
+            throw new DdlException(
+                    "The parameter " + ICEBERG_MANIFEST_CACHE_ENABLE + " is wrong, value is "
+                    + manifestCacheEnable);
+        }
+
+        String manifestCacheCapacity = catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY_MB, null);
+        if (Objects.nonNull(manifestCacheCapacity) && NumberUtils.toLong(manifestCacheCapacity, -1) <= 0) {
+            throw new DdlException(
+                    "The parameter " + ICEBERG_MANIFEST_CACHE_CAPACITY_MB + " is wrong, value is "
+                    + manifestCacheCapacity);
+        }
+
+        String manifestCacheTtlSecond = catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(manifestCacheTtlSecond)
+                && NumberUtils.toLong(manifestCacheTtlSecond, CACHE_NO_TTL) < CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                    "The parameter " + ICEBERG_MANIFEST_CACHE_TTL_SECOND + " is wrong, value is "
+                    + manifestCacheTtlSecond);
+        }
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
     }
 
@@ -104,6 +133,13 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         String tableMetaCacheTtl = updatedProps.getOrDefault(ICEBERG_TABLE_META_CACHE_TTL_SECOND, null);
         String snapshotMetaCacheTtl = updatedProps.getOrDefault(ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(tableMetaCacheTtl) || Objects.nonNull(snapshotMetaCacheTtl)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(this).init();
+        }
+        String manifestCacheEnable = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null);
+        String manifestCacheCapacity = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY_MB, null);
+        String manifestCacheTtl = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(manifestCacheEnable) || Objects.nonNull(manifestCacheCapacity)
+                || Objects.nonNull(manifestCacheTtl)) {
             Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(this).init();
         }
     }
