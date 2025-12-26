@@ -1325,7 +1325,7 @@ void single_column_predicate_test_func(const segment_v2::BloomFilter* bf,
                                        bool expect_match) {
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(new ComparisonPredicateBase<T, PT>(col_idx, check_value));
-    SingleColumnBlockPredicate single_column_block_pred(pred);
+    SingleColumnBlockPredicate single_column_block_pred(pred.get());
 
     bool matched = single_column_block_pred.evaluate_and(bf);
     EXPECT_EQ(matched, expect_match);
