@@ -91,6 +91,12 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has_visible_ts_ms()) {
         out->set_visible_ts_ms(in.visible_ts_ms());
     }
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -182,6 +188,12 @@ static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out
     if (in.has_visible_ts_ms()) {
         out->set_visible_ts_ms(in.visible_ts_ms());
     }
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in,
@@ -255,6 +267,12 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
     if (in.has_visible_ts_ms()) {
         out->set_visible_ts_ms(in.visible_ts_ms());
     }
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
@@ -315,6 +333,12 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
     out->set_source_tablet_id(in.source_tablet_id());
     if (in.has_visible_ts_ms()) {
         out->set_visible_ts_ms(in.visible_ts_ms());
+    }
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
     }
 }
 

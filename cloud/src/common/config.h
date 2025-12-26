@@ -251,6 +251,10 @@ CONF_mBool(enable_load_txn_status_check, "true");
 
 CONF_mBool(enable_tablet_job_check, "true");
 
+CONF_mBool(enable_recycle_delete_rowset_key_check, "true");
+CONF_mBool(enable_mark_delete_rowset_before_recycle, "true");
+CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "true");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation,

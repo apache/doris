@@ -142,6 +142,9 @@ message RowsetMetaPB {
     repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
 
     optional int64 visible_ts_ms = 1010;
+    
+    optional bool is_recycled = 1011; // for recycler mark rowset as recycled
+    optional string job_id = 1012;
 }
 
 message SchemaDictKeyList {
@@ -237,6 +240,9 @@ message RowsetMetaCloudPB {
     repeated InvertedIndexFileInfo inverted_index_file_info = 107;
 
     optional int64 visible_ts_ms = 109;
+
+    optional bool is_recycled = 110;
+    optional string job_id = 111;
 }
 
 message SegmentStatisticsPB {

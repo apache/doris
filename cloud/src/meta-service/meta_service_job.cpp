@@ -1058,6 +1058,14 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         return;
     }
 
+    if (rs_meta.has_is_recycled() && rs_meta.is_recycled()) {
+        SS << "rowset has already been marked as recycled, tablet_id=" << tablet_id
+           << " txn_id=" << rs_meta.txn_id() << " rowset_id=" << rs_meta.rowset_id_v2();
+        msg = ss.str();
+        code = MetaServiceCode::TXN_ALREADY_ABORTED;
+        return;
+    }
+
     txn->remove(tmp_rowset_key);
     INSTANCE_LOG(INFO) << "remove tmp rowset meta, tablet_id=" << tablet_id
                        << " tmp_rowset_key=" << hex(tmp_rowset_key);
@@ -1471,6 +1479,16 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             msg = ss.str();
             return;
         }
+
+        if (tmp_rowset_meta.has_is_recycled() && tmp_rowset_meta.is_recycled()) {
+            SS << "rowset has already been marked as recycled, tablet_id=" << new_tablet_id
+               << " txn_id=" << tmp_rowset_meta.txn_id()
+               << " rowset_id=" << tmp_rowset_meta.rowset_id_v2();
+            msg = ss.str();
+            code = MetaServiceCode::TXN_ALREADY_ABORTED;
+            return;
+        }
+
         using namespace std::chrono;
         auto rowset_visible_time =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -1524,32 +1542,13 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     need_commit = true;
 }
 
-void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* controller,
-                                        const FinishTabletJobRequest* request,
-                                        FinishTabletJobResponse* response,
-                                        ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(finish_tablet_job, get, put, del);
-    std::string cloud_unique_id = request->cloud_unique_id();
-    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        SS << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
-        msg = ss.str();
-        LOG(INFO) << msg;
-        return;
-    }
-    RPC_RATE_LIMIT(finish_tablet_job)
-    if (!request->has_job() ||
-        (request->job().compaction().empty() && !request->job().has_schema_change())) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "no valid job specified";
-        return;
-    }
-
+void _finish_tablet_job(const FinishTabletJobRequest* request, FinishTabletJobResponse* response,
+                        std::string& instance_id, std::unique_ptr<Transaction>& txn, TxnKv* txn_kv,
+                        DeleteBitmapLockWhiteList* delete_bitmap_lock_white_list,
+                        MetaServiceCode& code, std::string& msg, std::stringstream& ss) {
     for (int retry = 0; retry <= 1; retry++) {
         bool need_commit = false;
-        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        TxnErrorCode err = txn_kv->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::CREATE>(err);
             msg = "failed to create txn";
@@ -1599,7 +1598,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
         FinishTabletJobRequest_Action action = request->action();
 
         std::string use_version =
-                delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
+                delete_bitmap_lock_white_list->get_delete_bitmap_lock_version(instance_id);
         LOG(INFO) << "finish_tablet_job instance_id=" << instance_id
                   << " use_version=" << use_version;
         if (!request->job().compaction().empty()) {
@@ -1644,6 +1643,32 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
         }
         break;
     }
+}
+
+void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* controller,
+                                        const FinishTabletJobRequest* request,
+                                        FinishTabletJobResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(finish_tablet_job, get, put, del);
+    std::string cloud_unique_id = request->cloud_unique_id();
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        SS << "cannot find instance_id with cloud_unique_id="
+           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
+        msg = ss.str();
+        LOG(INFO) << msg;
+        return;
+    }
+    RPC_RATE_LIMIT(finish_tablet_job)
+    if (!request->has_job() ||
+        (request->job().compaction().empty() && !request->job().has_schema_change())) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "no valid job specified";
+        return;
+    }
+    _finish_tablet_job(request, response, instance_id, txn, txn_kv_.get(),
+                       delete_bitmap_lock_white_list_.get(), code, msg, ss);
 }
 
 #undef SS

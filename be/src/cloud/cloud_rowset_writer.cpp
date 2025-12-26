@@ -60,10 +60,8 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
         DCHECK_NE(_context.newest_write_timestamp, -1);
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
-    auto schema = _context.tablet_schema->need_record_variant_extended_schema()
-                          ? _context.tablet_schema
-                          : _context.tablet_schema->copy_without_variant_extracted_columns();
-    _rowset_meta->set_tablet_schema(schema);
+    _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    _rowset_meta->set_job_id(_context.job_id);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     return Status::OK();
