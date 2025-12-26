@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("create_and_insert_select_test") {
+suite("create_and_insert_select_test", "rec_cte") {
 
     String db = context.config.getDbNameByFile(context.file)
     def prefix_str = "create_and_insert_select_"
