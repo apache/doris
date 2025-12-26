@@ -1,13 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SPARK_HOME=/opt/bitnami/spark
+SPARK_HOME=/opt/spark
 CONF_DIR="${SPARK_HOME}/conf"
 JARS_DIR="${SPARK_HOME}/jars"
 CACHE_DIR=/opt/hudi-cache
-HUDI_BUNDLE_JAR="${CACHE_DIR}/hudi-spark3.4-bundle_2.12-${HUDI_BUNDLE_VERSION}.jar"
+HUDI_BUNDLE_JAR="${CACHE_DIR}/hudi-spark3.5-bundle_2.12-${HUDI_BUNDLE_VERSION}.jar"
 
 mkdir -p "${CONF_DIR}" "${CACHE_DIR}"
+
+# Wait for Hive Metastore to be ready
+echo "Waiting for Hive Metastore to be ready..."
+METASTORE_HOST=$(echo "${HIVE_METASTORE_URIS}" | sed 's|thrift://||' | cut -d: -f1)
+METASTORE_PORT=$(echo "${HIVE_METASTORE_URIS}" | sed 's|thrift://||' | cut -d: -f2)
+MAX_RETRIES=120
+RETRY_COUNT=0
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if command -v nc >/dev/null 2>&1; then
+    if nc -z "${METASTORE_HOST}" "${METASTORE_PORT}" 2>/dev/null; then
+      echo "Hive Metastore is ready at ${METASTORE_HOST}:${METASTORE_PORT}"
+      break
+    fi
+  elif command -v timeout >/dev/null 2>&1; then
+    if timeout 1 bash -c "cat < /dev/null > /dev/tcp/${METASTORE_HOST}/${METASTORE_PORT}" 2>/dev/null; then
+      echo "Hive Metastore is ready at ${METASTORE_HOST}:${METASTORE_PORT}"
+      break
+    fi
+  else
+    # Fallback: just wait a bit and assume it's ready
+    if [ $RETRY_COUNT -eq 0 ]; then
+      echo "Warning: nc or timeout command not available, skipping metastore readiness check"
+      sleep 10
+      break
+    fi
+  fi
+  
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $((RETRY_COUNT % 10)) -eq 0 ]; then
+    echo "Waiting for Hive Metastore... (${RETRY_COUNT}/${MAX_RETRIES})"
+  fi
+  sleep 2
+done
+
+if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+  echo "Error: Hive Metastore did not become ready within $((MAX_RETRIES * 2)) seconds"
+  exit 1
+fi
 
 # Write core-site for MinIO (S3A)
 cat >"${CONF_DIR}/core-site.xml" <<EOF
@@ -69,118 +108,116 @@ if [[ ! -f "${HUDI_BUNDLE_JAR}" ]]; then
     exit 1
   fi
 fi
-ln -sf "${HUDI_BUNDLE_JAR}" "${JARS_DIR}/hudi-spark3.4-bundle_2.12-${HUDI_BUNDLE_VERSION}.jar"
+ln -sf "${HUDI_BUNDLE_JAR}" "${JARS_DIR}/hudi-spark3.5-bundle_2.12-${HUDI_BUNDLE_VERSION}.jar"
 
-# Prepare Spark SQL to create demo tables
-cat >/tmp/hudi_init.sql <<SQL
-SET hoodie.datasource.write.hive_style_partitioning = true;
-SET hoodie.upsert.shuffle.parallelism = 2;
-SET hoodie.insert.shuffle.parallelism = 2;
+# Download Hadoop Common JAR (required dependency for hadoop-aws)
+HADOOP_COMMON_JAR="${CACHE_DIR}/hadoop-common-${HADOOP_COMMON_VERSION}.jar"
+if [[ ! -f "${HADOOP_COMMON_JAR}" ]]; then
+  echo "Downloading hadoop-common JAR ${HADOOP_COMMON_VERSION} ..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -sSfL "${HADOOP_COMMON_URL}" -o "${HADOOP_COMMON_JAR}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "${HADOOP_COMMON_JAR}" "${HADOOP_COMMON_URL}"
+  else
+    echo "Neither curl nor wget is available in hudi-spark container." >&2
+    exit 1
+  fi
+fi
 
-CREATE DATABASE IF NOT EXISTS regression_hudi;
-USE regression_hudi;
+# Download Hadoop AWS S3A filesystem JARs (required for S3A support)
+HADOOP_AWS_JAR="${CACHE_DIR}/hadoop-aws-${HADOOP_AWS_VERSION}.jar"
+if [[ ! -f "${HADOOP_AWS_JAR}" ]]; then
+  echo "Downloading hadoop-aws JAR ${HADOOP_AWS_VERSION} ..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -sSfL "${HADOOP_AWS_URL}" -o "${HADOOP_AWS_JAR}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "${HADOOP_AWS_JAR}" "${HADOOP_AWS_URL}"
+  else
+    echo "Neither curl nor wget is available in hudi-spark container." >&2
+    exit 1
+  fi
+fi
 
-CREATE TABLE IF NOT EXISTS user_activity_log_cow_partition (
-  user_id BIGINT,
-  event_time BIGINT,
-  action STRING,
-  dt STRING
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'user_id',
-  preCombineField = 'event_time',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms',
-  hoodie.datasource.hive_sync.support_timestamp = 'true'
-)
-PARTITIONED BY (dt)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/user_activity_log_cow_partition';
+# Download AWS Java SDK Bundle (required for S3A support)
+AWS_SDK_BUNDLE_JAR="${CACHE_DIR}/aws-java-sdk-bundle-${AWS_SDK_BUNDLE_VERSION}.jar"
+if [[ ! -f "${AWS_SDK_BUNDLE_JAR}" ]]; then
+  echo "Downloading aws-java-sdk-bundle JAR ${AWS_SDK_BUNDLE_VERSION} ..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -sSfL "${AWS_SDK_BUNDLE_URL}" -o "${AWS_SDK_BUNDLE_JAR}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "${AWS_SDK_BUNDLE_JAR}" "${AWS_SDK_BUNDLE_URL}"
+  else
+    echo "Neither curl nor wget is available in hudi-spark container." >&2
+    exit 1
+  fi
+fi
 
-CREATE TABLE IF NOT EXISTS user_activity_log_cow_non_partition (
-  user_id BIGINT,
-  event_time BIGINT,
-  action STRING
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'user_id',
-  preCombineField = 'event_time',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms',
-  hoodie.datasource.hive_sync.support_timestamp = 'true'
-)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/user_activity_log_cow_non_partition';
+# Download PostgreSQL JDBC driver (required for Hive Metastore connection)
+POSTGRESQL_JDBC_JAR="${CACHE_DIR}/postgresql-${POSTGRESQL_JDBC_VERSION}.jar"
+if [[ ! -f "${POSTGRESQL_JDBC_JAR}" ]]; then
+  echo "Downloading PostgreSQL JDBC driver ${POSTGRESQL_JDBC_VERSION} ..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -sSfL "${POSTGRESQL_JDBC_URL}" -o "${POSTGRESQL_JDBC_JAR}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "${POSTGRESQL_JDBC_JAR}" "${POSTGRESQL_JDBC_URL}"
+  else
+    echo "Neither curl nor wget is available in hudi-spark container." >&2
+    exit 1
+  fi
+fi
 
-CREATE TABLE IF NOT EXISTS user_activity_log_mor_partition (
-  user_id BIGINT,
-  event_time BIGINT,
-  action STRING,
-  dt STRING
-) USING hudi
-TBLPROPERTIES (
-  type = 'mor',
-  primaryKey = 'user_id',
-  preCombineField = 'event_time',
-  hoodie.compact.inline = 'true',
-  hoodie.compact.inline.max.delta.commits = '1',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms',
-  hoodie.datasource.hive_sync.support_timestamp = 'true'
-)
-PARTITIONED BY (dt)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/user_activity_log_mor_partition';
+# Link Hadoop and S3A JARs and PostgreSQL JDBC driver to Spark jars directory
+ln -sf "${HADOOP_COMMON_JAR}" "${JARS_DIR}/hadoop-common-${HADOOP_COMMON_VERSION}.jar"
+ln -sf "${HADOOP_AWS_JAR}" "${JARS_DIR}/hadoop-aws-${HADOOP_AWS_VERSION}.jar"
+ln -sf "${AWS_SDK_BUNDLE_JAR}" "${JARS_DIR}/aws-java-sdk-bundle-${AWS_SDK_BUNDLE_VERSION}.jar"
+ln -sf "${POSTGRESQL_JDBC_JAR}" "${JARS_DIR}/postgresql-${POSTGRESQL_JDBC_VERSION}.jar"
 
-CREATE TABLE IF NOT EXISTS user_activity_log_mor_non_partition (
-  user_id BIGINT,
-  event_time BIGINT,
-  action STRING
-) USING hudi
-TBLPROPERTIES (
-  type = 'mor',
-  primaryKey = 'user_id',
-  preCombineField = 'event_time',
-  hoodie.compact.inline = 'true',
-  hoodie.compact.inline.max.delta.commits = '1',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms',
-  hoodie.datasource.hive_sync.support_timestamp = 'true'
-)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/user_activity_log_mor_non_partition';
+# Process SQL files with environment variable substitution and execute them
+# Similar to iceberg's approach: group SQL files together to reduce client creation overhead
+SCRIPTS_DIR="/opt/hudi-scripts/create_preinstalled_scripts/hudi"
+TEMP_SQL_DIR="/tmp/hudi_sql"
 
-INSERT OVERWRITE TABLE user_activity_log_cow_partition VALUES
-  (1, 1710000000000, 'login', '2024-03-01'),
-  (2, 1710000001000, 'click', '2024-03-01'),
-  (3, 1710000002000, 'logout', '2024-03-02');
+if [[ -d "${SCRIPTS_DIR}" ]]; then
+  mkdir -p "${TEMP_SQL_DIR}"
+  
+  # Process each SQL file: substitute environment variables and combine them
+  echo "Processing Hudi SQL scripts..."
+  for sql_file in $(find "${SCRIPTS_DIR}" -name '*.sql' | sort); do
+    echo "Processing ${sql_file}..."
+    # Use sed to replace environment variables in SQL files
+    # Replace ${HIVE_METASTORE_URIS} and ${HUDI_BUCKET} with actual values
+    sed "s|\${HIVE_METASTORE_URIS}|${HIVE_METASTORE_URIS}|g; s|\${HUDI_BUCKET}|${HUDI_BUCKET}|g" "${sql_file}" >> "${TEMP_SQL_DIR}/hudi_total.sql"
+    echo "" >> "${TEMP_SQL_DIR}/hudi_total.sql"
+  done
+  
+  # Run Spark SQL to execute all SQL scripts
+  echo "Executing Hudi SQL scripts..."
+  START_TIME=$(date +%s)
+  ${SPARK_HOME}/bin/spark-sql \
+    --master local[*] \
+    --name hudi-init \
+    --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
+    --conf spark.sql.catalogImplementation=hive \
+    --conf spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension \
+    --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.hudi.catalog.HoodieCatalog \
+    -f "${TEMP_SQL_DIR}/hudi_total.sql"
+  END_TIME=$(date +%s)
+  EXECUTION_TIME=$((END_TIME - START_TIME))
+  echo "Hudi SQL scripts executed in ${EXECUTION_TIME} seconds"
+  
+  # Clean up temporary SQL file
+  rm -f "${TEMP_SQL_DIR}/hudi_total.sql"
+else
+  echo "Warning: SQL scripts directory ${SCRIPTS_DIR} not found, skipping table initialization."
+fi
 
-INSERT OVERWRITE TABLE user_activity_log_cow_non_partition VALUES
-  (1, 1710000000000, 'login'),
-  (2, 1710000001000, 'click'),
-  (3, 1710000002000, 'logout');
-
-INSERT OVERWRITE TABLE user_activity_log_mor_partition VALUES
-  (1, 1710000000000, 'login', '2024-03-01'),
-  (2, 1710000001000, 'click', '2024-03-01'),
-  (3, 1710000002000, 'logout', '2024-03-02');
-
-INSERT OVERWRITE TABLE user_activity_log_mor_non_partition VALUES
-  (1, 1710000000000, 'login'),
-  (2, 1710000001000, 'click'),
-  (3, 1710000002000, 'logout');
-SQL
-
-# Run Spark SQL to build tables
-${SPARK_HOME}/bin/spark-sql \
-  --master local[*] \
-  --name hudi-init \
-  --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
-  --conf spark.sql.catalogImplementation=hive \
-  --conf spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension \
-  --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.hudi.catalog.HoodieCatalog \
-  -f /tmp/hudi_init.sql
+# Create success marker file to indicate initialization is complete
+# This file is used by docker healthcheck to verify container is ready
+touch /opt/hudi-scripts/SUCCESS
 
 echo "Hudi demo data initialized."
+echo "Initialization completed successfully."
+
+# Keep container running for healthcheck and potential future use
+# Similar to iceberg's approach: tail -f /dev/null
+tail -f /dev/null

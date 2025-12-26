@@ -464,10 +464,12 @@ start_iceberg() {
 
 start_hudi() {
     HUDI_DIR=${ROOT}/docker-compose/hudi
-    cp "${HUDI_DIR}"/hudi.yaml.tpl "${HUDI_DIR}"/hudi.yaml
-    cp "${HUDI_DIR}"/hudi.env.tpl "${HUDI_DIR}"/hudi.env
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${HUDI_DIR}"/hudi.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${HUDI_DIR}"/hudi.env
+    export CONTAINER_UID=${CONTAINER_UID}
+    envsubst <"${HUDI_DIR}"/hudi.env.tpl >"${HUDI_DIR}"/hudi.env
+    set -a
+    . "${HUDI_DIR}"/hudi.env
+    set +a
+    envsubst <"${HUDI_DIR}"/hudi.yaml.tpl >"${HUDI_DIR}"/hudi.yaml
     sudo chmod +x "${HUDI_DIR}"/scripts/init.sh
     sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env down --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
