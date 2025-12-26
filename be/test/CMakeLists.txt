@@ -61,6 +61,7 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
 )
 
+
 message(STATUS "Disable the metrics collection for orc")
 add_compile_definitions(ENABLE_METRICS=0)
 
@@ -109,7 +110,7 @@ add_subdirectory(olap/vector_search)
 
 add_executable(doris_be_test ${UT_FILES})
 
-target_link_libraries(doris_be_test ${TEST_LINK_LIBS} 
+target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
     -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
 set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
 target_compile_options(doris_be_test PRIVATE -include gtest/gtest.h -Wno-shadow -Wno-shadow-field)
