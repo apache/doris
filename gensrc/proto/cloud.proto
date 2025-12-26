@@ -506,6 +506,7 @@ message TxnInfoPB {
     // TODO: There are more fields TBD
     optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
     optional bool versioned_read = 20;  // whether to read versioned keys
+    optional bool defer_deleting_pending_delete_bitmaps = 21;
 }
 
 // For check txn conflict and txn timeout
