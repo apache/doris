@@ -105,6 +105,12 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     auto* slice_locations = out->mutable_packed_slice_locations();
     slice_locations->clear();
     slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -177,6 +183,12 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     auto* slice_locations = out->mutable_packed_slice_locations();
     slice_locations->clear();
     slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in) {
@@ -259,6 +271,12 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     auto* slice_locations = out->mutable_packed_slice_locations();
     slice_locations->clear();
     slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
@@ -330,6 +348,12 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     auto* slice_locations = out->mutable_packed_slice_locations();
     slice_locations->clear();
     slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 TabletSchemaCloudPB doris_tablet_schema_to_cloud(const TabletSchemaPB& in) {
