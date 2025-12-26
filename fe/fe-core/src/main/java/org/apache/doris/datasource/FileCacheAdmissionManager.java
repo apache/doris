@@ -147,7 +147,7 @@ public class FileCacheAdmissionManager {
                 @JsonProperty("created_time") long createdTime,
                 @JsonProperty("updated_time") long updatedTime) {
             this.id = id;
-            this.userIdentity = userIdentity;
+            this.userIdentity = userIdentity != null ? userIdentity : "";
             this.catalog = catalog != null ? catalog : "";
             this.database = database != null ? database : "";
             this.table = table != null ? table : "";
