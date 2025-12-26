@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
@@ -64,6 +65,7 @@ import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -321,5 +323,17 @@ public class TypeCoercionUtilsTest {
         Assertions.assertThrows(AnalysisException.class, () -> TypeCoercionUtils.getNumResultType(MapType.SYSTEM_DEFAULT));
         Assertions.assertThrows(AnalysisException.class, () -> TypeCoercionUtils.getNumResultType(StructType.SYSTEM_DEFAULT));
         Assertions.assertThrows(AnalysisException.class, () -> TypeCoercionUtils.getNumResultType(QuantileStateType.INSTANCE));
+    }
+
+    @Test
+    public void testProcessEquealToStringCoercoin() {
+        GlobalVariable.enableNewTypeCoercionBehavior = false;
+        EqualTo equalTo = new EqualTo(
+                new SlotReference("c1", StringType.INSTANCE),
+                new IntegerLiteral(3)
+        );
+        EqualTo expression = (EqualTo) TypeCoercionUtils.processComparisonPredicate(equalTo);
+        Assertions.assertEquals(StringType.INSTANCE, expression.left().getDataType());
+        Assertions.assertEquals(StringType.INSTANCE, expression.right().getDataType());
     }
 }
