@@ -81,6 +81,7 @@ class StructInfoMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        connectContext.getSessionVariable().materializedViewRewriteDurationThresholdMs = 1000000;
 
         dropMvByNereids("drop materialized view if exists mv1");
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
@@ -102,6 +103,9 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
+        // because refresh struct info by targetBitSet when getValidQueryStructInfos, this would cause
+        // query struct info version increase twice. so need increase the memo version manually.
+        c1.getMemo().incrementAndGetRefreshVersion();
         root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         tableMaps = root.getStructInfoMap().getTableMaps();
@@ -172,6 +176,9 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
+        // because refresh struct info by targetBitSet when getValidQueryStructInfos, this would cause
+        // query struct info version increase twice. so need increase the memo version manually.
+        c1.getMemo().incrementAndGetRefreshVersion();
         root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         tableMaps = root.getStructInfoMap().getTableMaps();
@@ -229,6 +236,9 @@ class StructInfoMapTest extends SqlTestBase {
                 .preMvRewrite()
                 .optimize();
         Group root = c1.getMemo().getRoot();
+        // because refresh struct info by targetBitSet when getValidQueryStructInfos, this would cause
+        // query struct info version increase twice. so need increase the memo version manually.
+        c1.getMemo().incrementAndGetRefreshVersion();
         root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         StructInfoMap structInfoMap = root.getStructInfoMap();

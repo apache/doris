@@ -158,23 +158,29 @@ public class StructInfoMap {
                 groupExpressionMap.put(leaf, Pair.of(groupExpression, new LinkedList<>()));
                 continue;
             }
+            // this is used for filter group expression whose children's table map all not in targetBitSet
+            BitSet filteredTableMaps = new BitSet();
+            // groupExpression self could be pruned
             for (Group child : groupExpression.children()) {
+                // group in expression should all be reserved
                 StructInfoMap childStructInfoMap = child.getStructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
                     childStructInfoMap.refresh(child, cascadesContext, targetBitSet, refreshedGroup, forceRefresh);
                     childStructInfoMap.setRefreshVersion(memoVersion);
                 }
-                Set<BitSet> filteredTableMaps = new HashSet<>();
+                Set<BitSet> groupTableSet = new HashSet<>();
                 for (BitSet tableMaps : child.getStructInfoMap().getTableMaps()) {
-                    // filter the tableSet that used intersects with targetBitSet
-                    if (!targetBitSet.isEmpty() && !tableMaps.intersects(targetBitSet)) {
-                        continue;
-                    }
-                    filteredTableMaps.add(tableMaps);
+                    groupTableSet.add(tableMaps);
+                    filteredTableMaps.or(tableMaps);
                 }
                 if (!filteredTableMaps.isEmpty()) {
-                    childrenTableMap.add(filteredTableMaps);
+                    childrenTableMap.add(groupTableSet);
                 }
+            }
+            // filter the tableSet that used intersects with targetBitSet, make sure the at least constructed
+            if (!structInfoMap.getTableMaps().isEmpty() && !targetBitSet.isEmpty()
+                    && !filteredTableMaps.isEmpty() && !filteredTableMaps.intersects(targetBitSet)) {
+                continue;
             }
             if (childrenTableMap.isEmpty()) {
                 continue;
