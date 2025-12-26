@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_writer.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index/faiss_ann_index.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
@@ -58,6 +59,9 @@ AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
     it = index_properties.find("metric_type");
     DCHECK(it != index_properties.end());
     _metric_type = string_to_metric(it->second);
+    it = index_properties.find(AnnIndexColumnWriter::DIM);
+    DCHECK(it != index_properties.end());
+    _dim = std::stoi(it->second);
 }
 
 Status AnnIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
@@ -80,6 +84,7 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
             }
             _vector_index = std::make_unique<FaissVectorIndex>();
             _vector_index->set_metric(_metric_type);
+            _vector_index->set_type(_index_type);
             RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
         } catch (CLuceneError& err) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -120,9 +125,20 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
             stats->engine_search_ns.update(index_search_result.engine_search_ns);
             stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
             stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
+        } else if (_index_type == AnnIndexType::IVF) {
+            IVFSearchParameters ivf_search_params;
+            ivf_search_params.roaring = param->roaring;
+            ivf_search_params.rows_of_segment = param->rows_of_segment;
+            ivf_search_params.nprobe = param->_user_params.ivf_nprobe;
+            RETURN_IF_ERROR(_vector_index->ann_topn_search(query_vec, limit, ivf_search_params,
+                                                           index_search_result));
+            // Accumulate detailed engine timings
+            stats->engine_search_ns.update(index_search_result.engine_search_ns);
+            stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
+            stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
         } else {
-            throw Status::NotSupported("Unsupported index type: {}",
-                                       ann_index_type_to_string(_index_type));
+            throw Exception(Status::NotSupported("Unsupported index type: {}",
+                                                 ann_index_type_to_string(_index_type)));
         }
 
         DCHECK(index_search_result.roaring != nullptr);
@@ -169,9 +185,13 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
             hnsw_param->check_relative_distance = custom_params.hnsw_check_relative_distance;
             hnsw_param->bounded_queue = custom_params.hnsw_bounded_queue;
             search_param = std::move(hnsw_param);
+        } else if (_index_type == AnnIndexType::IVF) {
+            auto ivf_param = std::make_unique<segment_v2::IVFSearchParameters>();
+            ivf_param->nprobe = custom_params.ivf_nprobe;
+            search_param = std::move(ivf_param);
         } else {
-            throw Status::NotSupported("Unsupported index type: {}",
-                                       ann_index_type_to_string(_index_type));
+            throw Exception(Status::NotSupported("Unsupported index type: {}",
+                                                 ann_index_type_to_string(_index_type)));
         }
 
         search_param->is_le_or_lt = params.is_le_or_lt;
@@ -223,6 +243,10 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
             static_cast<int64_t>(search_costs_ms));
 
     return Status::OK();
+}
+
+size_t AnnIndexReader::get_dimension() const {
+    return _dim;
 }
 
 } // namespace doris::segment_v2

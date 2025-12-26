@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_broker_load_with_where", "load_p0") {
+suite("test_broker_load_with_where", "load_p0,external") {
     // define a sql table
     def testTable = "tbl_test_broker_load_with_where"
     
@@ -44,7 +44,7 @@ suite("test_broker_load_with_where", "load_p0") {
         
         // insert 1 row to check whether the table is ok
         def result2 = sql """ INSERT INTO ${testTable} VALUES
-                        (1,2023-09-01,1,1,1)
+                        (1,"2023-09-01",1,1,1)
                         """
         assertTrue(result2.size() == 1)
         assertTrue(result2[0].size() == 1)
@@ -59,9 +59,10 @@ suite("test_broker_load_with_where", "load_p0") {
                             COLUMNS TERMINATED BY ","
                             FORMAT as "${format}"
                         )
-                        with BROKER "${brokerName}" (
+                        with HDFS (
                         "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        "password"="${hdfsPasswd}",
+                        "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}")
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
@@ -86,9 +87,10 @@ suite("test_broker_load_with_where", "load_p0") {
                                     or k4 in (1, 2)
                                 ) 
                         )
-                        with BROKER "${brokerName}" (
+                        with HDFS (
                         "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        "password"="${hdfsPasswd}",
+                        "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}")
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
@@ -101,12 +103,13 @@ suite("test_broker_load_with_where", "load_p0") {
     def check_load_result = {checklabel, testTablex ->
         def max_try_milli_secs = 10000
         while(max_try_milli_secs) {
-            result = sql "show load where label = '${checklabel}'"
+            def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
                 //sql "sync"
                 qt_select "select * from ${testTablex} order by k1"
                 break
             } else {
+                logger.info("${result}")
                 sleep(1000) // wait 1 second every time
                 max_try_milli_secs -= 1000
                 if(max_try_milli_secs <= 0) {

@@ -449,9 +449,14 @@ TEST_F(DataTypeStructTest, writeColumnToOrc) {
     struct_column->insert(Field::create_field<TYPE_STRUCT>(test_data));
 
     vectorized::Arena arena;
+    TimezoneUtils::load_timezones_to_cache();
+    DataTypeSerDe::FormatOptions format_options;
+    cctz::time_zone tz;
+    TimezoneUtils::find_cctz_time_zone("UTC", tz);
+    format_options.timezone = &tz;
 
-    Status status =
-            serde->write_column_to_orc("UTC", *struct_column, nullptr, &structBatch, 0, 1, arena);
+    Status status = serde->write_column_to_orc("UTC", *struct_column, nullptr, &structBatch, 0, 1,
+                                               arena, format_options);
 
     EXPECT_EQ(status, Status::OK()) << "Failed to write column to orc: " << status;
     EXPECT_EQ(structBatch.numElements, 1);
@@ -475,7 +480,7 @@ TEST_F(DataTypeStructTest, formString) {
     auto res_to_string = st->to_string(*struct_column, 0);
     std::cout << "res_to_string: " << res_to_string << std::endl
               << "expect: {100, asd}" << std::endl;
-    EXPECT_EQ(res_to_string, "{100, asd}");
+    EXPECT_EQ(res_to_string, "{\"1\":100, \"2\":\"asd\"}");
     StringRef buffer(res_to_string.data(), res_to_string.size());
     auto status = st->from_string(buffer, res_column.get());
     EXPECT_EQ(status, Status::OK()) << "Failed to from_string: " << status;

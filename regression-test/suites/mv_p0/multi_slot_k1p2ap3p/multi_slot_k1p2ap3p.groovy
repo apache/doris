@@ -46,13 +46,9 @@ suite ("multi_slot_k1p2ap3p") {
 
     sql "analyze table d_table with sync;"
     sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
-    sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
 
     mv_rewrite_success_without_check_chosen("select k1+1,abs(k2+2)+k3+3 from d_table order by k1+1;", "k1p2ap3p")
     qt_select_mv "select k1+1,abs(k2+2)+k3+3 from d_table order by k1+1;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success_without_check_chosen("select k1+1,abs(k2+2)+k3+3 from d_table order by k1+1;", "k1p2ap3p")
 }

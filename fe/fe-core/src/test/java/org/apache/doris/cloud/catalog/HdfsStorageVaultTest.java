@@ -28,7 +28,7 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;

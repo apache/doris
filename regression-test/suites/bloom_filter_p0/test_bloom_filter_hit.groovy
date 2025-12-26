@@ -109,7 +109,7 @@ suite("test_bloom_filter_hit") {
 
         check { profileString, exception ->
             log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  15.0K  (15000)"))
+            validateBloomFilterFiltered(profileString)
         }
     }
 
@@ -129,6 +129,7 @@ suite("test_bloom_filter_hit") {
             "bloom_filter_columns" = "ip_v6, ip_v4"
         );
     """
+    sql "set enable_insert_strict = false;"
     sql """
             insert into test_ip_bf values
                     (1, '::', '::'),

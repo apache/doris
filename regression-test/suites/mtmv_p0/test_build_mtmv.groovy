@@ -146,21 +146,6 @@ suite("test_build_mtmv") {
         log.info(e.getMessage())
     }
 
-    // not allow create mv use view
-    try {
-        sql """
-            CREATE MATERIALIZED VIEW ${mvNameRenamed}
-            BUILD DEFERRED REFRESH COMPLETE ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1')
-            AS
-            SELECT * from ${viewName};
-        """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """

@@ -26,16 +26,18 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 import com.google.common.collect.ImmutableList;
@@ -53,28 +55,18 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
      * Context
      */
     public static class Context {
-        private PhysicalCatalogRelation scan;
+        private PhysicalRelation scan;
         private List<Slot> lazySlots;
         private SlotReference rowIdSlot;
 
-        public Context(PhysicalCatalogRelation scan, SlotReference rowIdSlot, List<Slot> lazySlots) {
-            this.scan = scan;
-            this.lazySlots = lazySlots;
-            this.rowIdSlot = rowIdSlot;
-        }
-
-        private Context(PhysicalCatalogRelation scan, List<Slot> lazySlots, SlotReference rowIdSlot) {
+        public Context(PhysicalRelation scan, SlotReference rowIdSlot, List<Slot> lazySlots) {
             this.scan = scan;
             this.lazySlots = lazySlots;
             this.rowIdSlot = rowIdSlot;
         }
 
         public Context withLazySlots(List<Slot> otherLazySlots) {
-            return new Context(this.scan, otherLazySlots, this.rowIdSlot);
-        }
-
-        public void forceRowIdNullable() {
-            rowIdSlot = rowIdSlot.withNullable(true);
+            return new Context(this.scan, this.rowIdSlot, otherLazySlots);
         }
 
         public void updateRowIdSlot(SlotReference rowIdSlot) {
@@ -122,6 +114,18 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     public Plan visitPhysicalFileScan(PhysicalFileScan scan, Context context) {
         if (scan.getOutput().containsAll(context.lazySlots)) {
             PhysicalLazyMaterializeFileScan lazyScan = new PhysicalLazyMaterializeFileScan(scan,
+                    context.rowIdSlot, context.lazySlots);
+            return lazyScan;
+        } else {
+            // should not hit here
+            throw new RuntimeException("Lazy materialize fault");
+        }
+    }
+
+    @Override
+    public Plan visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, Context context) {
+        if (tvfRelation.getOutput().containsAll(context.lazySlots)) {
+            PhysicalLazyMaterializeTVFScan lazyScan = new PhysicalLazyMaterializeTVFScan(tvfRelation,
                     context.rowIdSlot, context.lazySlots);
             return lazyScan;
         } else {

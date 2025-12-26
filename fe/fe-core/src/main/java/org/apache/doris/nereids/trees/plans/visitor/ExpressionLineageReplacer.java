@@ -67,7 +67,9 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
 
     @Override
     public Expression visitGroupPlan(GroupPlan groupPlan, ExpressionReplaceContext context) {
-        LOG.error("ExpressionLineageReplacer should not meet groupPlan, plan is {}", groupPlan.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ExpressionLineageReplacer should not meet groupPlan, plan is {}", groupPlan.toString());
+        }
         return null;
     }
 
@@ -82,6 +84,13 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         public Expression visitNamedExpression(NamedExpression namedExpression,
                 Map<ExprId, Expression> exprIdExpressionMap) {
             Expression childExpr = exprIdExpressionMap.get(namedExpression.getExprId());
+            // avoid loop when non_nullable(o_orderkey#0) AS `o_orderkey`#0 after join eliminate when
+            // inner join
+            if (childExpr != null && !childExpr.children().isEmpty()
+                    && childExpr.child(0) instanceof NamedExpression
+                    && ((NamedExpression) childExpr.child(0)).getExprId().equals(namedExpression.getExprId())) {
+                return namedExpression;
+            }
             if (childExpr != null) {
                 // remove alias
                 return visit(childExpr, exprIdExpressionMap);

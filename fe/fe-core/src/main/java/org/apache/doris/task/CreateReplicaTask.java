@@ -43,7 +43,7 @@ import org.apache.doris.thrift.TTabletSchema;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -362,7 +362,6 @@ public class CreateReplicaTask extends AgentTask {
                 }
             }
             tSchema.setIndexes(tIndexes);
-            storageFormat = TStorageFormat.V2;
         }
 
         if (bfColumns != null) {

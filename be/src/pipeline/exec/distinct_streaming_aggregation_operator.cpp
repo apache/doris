@@ -47,7 +47,7 @@ static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
         {.min_ht_mem = 0, .streaming_ht_min_reduction = 0.0},
         // Expand into L3 cache if we look like we're getting some reduction.
         // At present, The L2 cache is generally 1024k or more
-        {.min_ht_mem = 1024 * 1024, .streaming_ht_min_reduction = 0.0},
+        {.min_ht_mem = 256 * 1024, .streaming_ht_min_reduction = 1.1},
         // Expand into main memory if we're getting a significant reduction.
         // The L3 cache is generally 16MB or more
         {.min_ht_mem = 16 * 1024 * 1024, .streaming_ht_min_reduction = 2.0},
@@ -184,6 +184,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
                     in_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
+            key_columns[i]->assume_mutable()->replace_float_special_values();
             result_idxs[i] = result_column_id;
         }
     }

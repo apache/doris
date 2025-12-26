@@ -116,14 +116,4 @@ suite("test_query_json_array", "query") {
     qt_sql_string2 """
         select json_array(json_parse('{"key1": "value", "key2": [1, "I am a string", 3]}'));
     """
-
-    test {
-        sql "select json_array(map('a', 'b', 'c', 'd'));"
-        exception "Can not find the compatibility function signature: to_json(MAP<VARCHAR(1),VARCHAR(1)>)"
-    }
-
-    test {
-        sql "select json_array(now());"
-        exception "Can not find the compatibility function signature"
-    }
 }

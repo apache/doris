@@ -39,6 +39,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -129,6 +130,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -172,7 +174,8 @@ public:
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_index(&param));
+        param.analyzer_ctx = analyzer_ctx;
+        RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {
             auto result_bitmap = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -416,90 +419,23 @@ private:
                                             right_nested_null_map, array_null_map);
         } else if (is_number(right_type->get_primitive_type()) &&
                    is_number(left_element_type->get_primitive_type())) {
-            switch (left_element_type->get_primitive_type()) {
-            case TYPE_BOOLEAN:
-                return_column = _execute_number_expanded<ColumnUInt8>(
+            auto call = [&](const auto& type) -> bool {
+                using DispatchType = std::decay_t<decltype(type)>;
+                return_column = _execute_number<typename DispatchType::ColumnType,
+                                                typename DispatchType::ColumnType>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-                break;
-            case TYPE_TINYINT:
-                return_column = _execute_number_expanded<ColumnInt8>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_SMALLINT:
-                return_column = _execute_number_expanded<ColumnInt16>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_INT:
-                return_column = _execute_number_expanded<ColumnInt32>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_BIGINT:
-                return_column = _execute_number_expanded<ColumnInt64>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_LARGEINT:
-                return_column = _execute_number_expanded<ColumnInt128>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_FLOAT:
-                return_column = _execute_number_expanded<ColumnFloat32>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DOUBLE:
-                return_column = _execute_number_expanded<ColumnFloat64>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DECIMAL32:
-                return_column = _execute_number_expanded<ColumnDecimal32>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DECIMAL64:
-                return_column = _execute_number_expanded<ColumnDecimal64>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DECIMAL128I:
-                return_column = _execute_number_expanded<ColumnDecimal128V3>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DECIMALV2:
-                return_column = _execute_number_expanded<ColumnDecimal128V2>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DECIMAL256:
-                return_column = _execute_number_expanded<ColumnDecimal256>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            default:
-                break;
+                return true;
+            };
+            if (!dispatch_switch_number(right_type->get_primitive_type(), call)) {
+                return Status::InternalError(get_name() + " not support right type " +
+                                             right_type->get_name());
             }
-        } else if ((is_date_or_datetime(right_type->get_primitive_type()) ||
-                    is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
+        } else if ((is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
                     right_type->get_primitive_type() == TYPE_TIMEV2) &&
-                   (is_date_or_datetime(left_element_type->get_primitive_type()) ||
-                    is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
+                   (is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
                     left_element_type->get_primitive_type() == TYPE_TIMEV2)) {
-            if (left_element_type->get_primitive_type() == TYPE_DATE) {
-                return_column = _execute_number_expanded<ColumnDate>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_DATETIME) {
-                return_column = _execute_number_expanded<ColumnDateTime>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_DATEV2) {
+            if (left_element_type->get_primitive_type() == TYPE_DATEV2) {
                 return_column = _execute_number_expanded<ColumnDateV2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);

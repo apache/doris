@@ -88,6 +88,7 @@ private:
 
     MOCK_DEFINE(friend class BM25SimilarityTest;)
     MOCK_DEFINE(friend class CollectionStatisticsTest;)
+    MOCK_DEFINE(friend class BooleanQueryTest;)
 };
 using CollectionStatisticsPtr = std::shared_ptr<CollectionStatistics>;
 

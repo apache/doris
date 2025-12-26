@@ -27,11 +27,13 @@
 #include <utility>
 
 #include "absl/strings/substitute.h"
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/table_connector.h"
 #include "jni.h"
 #include "runtime/descriptors.h"
+#include "runtime/plugin/cloud_plugin_downloader.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "runtime/user_function_cache.h"
@@ -68,23 +70,51 @@ JdbcConnector::~JdbcConnector() {
 
 Status JdbcConnector::close(Status /*unused*/) {
     SCOPED_RAW_TIMER(&_jdbc_statistic._connector_close_timer);
-    _closed = true;
-    if (!_is_open) {
+    if (_closed) {
         return Status::OK();
     }
-    if (_is_in_transaction) {
-        RETURN_IF_ERROR(abort_trans());
+    if (!_is_open) {
+        _closed = true;
+        return Status::OK();
     }
+
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    Status status = JniUtil::GetJNIEnv(&env);
+    if (!status.ok() || env == nullptr) {
+        LOG(WARNING) << "Failed to get JNIEnv in close(): " << status.to_string();
+        _closed = true;
+        return status;
+    }
+
+    // Try to abort transaction and call Java close(), but don't block cleanup
+    if (_is_in_transaction) {
+        Status abort_status = abort_trans();
+        if (!abort_status.ok()) {
+            LOG(WARNING) << "Failed to abort transaction: " << abort_status.to_string();
+        }
+    }
+
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
-    RETURN_ERROR_IF_EXC(env);
-    env->DeleteGlobalRef(_executor_factory_clazz);
-    RETURN_ERROR_IF_EXC(env);
-    env->DeleteGlobalRef(_executor_clazz);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    env->DeleteGlobalRef(_executor_obj);
-    RETURN_ERROR_IF_EXC(env);
+    if (env->ExceptionCheck()) {
+        LOG(WARNING) << "Java close() failed: " << JniUtil::GetJniExceptionMsg(env).to_string();
+        env->ExceptionClear();
+    }
+
+    // Always delete Global References to allow Java GC
+    if (_executor_factory_clazz != nullptr) {
+        env->DeleteGlobalRef(_executor_factory_clazz);
+        _executor_factory_clazz = nullptr;
+    }
+    if (_executor_clazz != nullptr) {
+        env->DeleteGlobalRef(_executor_clazz);
+        _executor_clazz = nullptr;
+    }
+    if (_executor_obj != nullptr) {
+        env->DeleteGlobalRef(_executor_obj);
+        _executor_obj = nullptr;
+    }
+
+    _closed = true;
     return Status::OK();
 }
 
@@ -127,7 +157,8 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
     JniLocalFrame jni_frame;
     {
-        std::string driver_path = _get_real_url(_conn_param.driver_path);
+        std::string driver_path;
+        RETURN_IF_ERROR(_get_real_url(_conn_param.driver_path, &driver_path));
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
@@ -201,12 +232,7 @@ Status JdbcConnector::query() {
         return Status::InternalError("Query before open of JdbcConnector.");
     }
     // check materialize num equal
-    int materialize_num = 0;
-    for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
-        if (_tuple_desc->slots()[i]->is_materialized()) {
-            materialize_num++;
-        }
-    }
+    auto materialize_num = _tuple_desc->slots().size();
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
@@ -420,30 +446,27 @@ Status JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colum
 
     for (int i = 0; i < column_size; ++i) {
         auto* slot = _tuple_desc->slots()[i];
-        if (slot->is_materialized()) {
-            auto type = slot->type();
-            // Record if column is nullable
-            columns_nullable << (slot->is_nullable() ? "true" : "false") << ",";
-            // Check column type and replace accordingly
-            std::string replace_type = "not_replace";
-            if (type->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
-                replace_type = "bitmap";
-            } else if (type->get_primitive_type() == PrimitiveType::TYPE_HLL) {
-                replace_type = "hll";
-            } else if (type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
-                replace_type = "jsonb";
-            }
-            columns_replace_string << replace_type << ",";
-            if (replace_type != "not_replace") {
-                block->get_by_position(i).column = std::make_shared<DataTypeString>()
-                                                           ->create_column()
-                                                           ->convert_to_full_column_if_const();
-                block->get_by_position(i).type = std::make_shared<DataTypeString>();
-                if (slot->is_nullable()) {
-                    block->get_by_position(i).column =
-                            make_nullable(block->get_by_position(i).column);
-                    block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
-                }
+        auto type = slot->type();
+        // Record if column is nullable
+        columns_nullable << (slot->is_nullable() ? "true" : "false") << ",";
+        // Check column type and replace accordingly
+        std::string replace_type = "not_replace";
+        if (type->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
+            replace_type = "bitmap";
+        } else if (type->get_primitive_type() == PrimitiveType::TYPE_HLL) {
+            replace_type = "hll";
+        } else if (type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
+            replace_type = "jsonb";
+        }
+        columns_replace_string << replace_type << ",";
+        if (replace_type != "not_replace") {
+            block->get_by_position(i).column = std::make_shared<DataTypeString>()
+                                                       ->create_column()
+                                                       ->convert_to_full_column_if_const();
+            block->get_by_position(i).type = std::make_shared<DataTypeString>();
+            if (slot->is_nullable()) {
+                block->get_by_position(i).column = make_nullable(block->get_by_position(i).column);
+                block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
             }
         }
         // Record required fields and column types
@@ -470,10 +493,6 @@ Status JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colum
 Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t column_size) {
     for (size_t column_index = 0; column_index < column_size; ++column_index) {
         auto* slot_desc = _tuple_desc->slots()[column_index];
-        // because the fe planner filter the non_materialize column
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         jint num_rows = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
                                                      _executor_block_rows_id);
 
@@ -642,16 +661,17 @@ Status JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type tab
     return Status::OK();
 }
 
-std::string JdbcConnector::_get_real_url(const std::string& url) {
+Status JdbcConnector::_get_real_url(const std::string& url, std::string* result_url) {
     if (url.find(":/") == std::string::npos) {
-        return _check_and_return_default_driver_url(url);
+        return _check_and_return_default_driver_url(url, result_url);
     }
-    return url;
+    *result_url = url;
+    return Status::OK();
 }
 
-std::string JdbcConnector::_check_and_return_default_driver_url(const std::string& url) {
+Status JdbcConnector::_check_and_return_default_driver_url(const std::string& url,
+                                                           std::string* result_url) {
     const char* doris_home = std::getenv("DORIS_HOME");
-
     std::string default_url = std::string(doris_home) + "/plugins/jdbc_drivers";
     std::string default_old_url = std::string(doris_home) + "/jdbc_drivers";
 
@@ -660,15 +680,33 @@ std::string JdbcConnector::_check_and_return_default_driver_url(const std::strin
         // Because in 2.1.8, we change the default value of `jdbc_drivers_dir`
         // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
         // so we need to check the old default dir for compatibility.
-        std::filesystem::path file = default_url + "/" + url;
-        if (std::filesystem::exists(file)) {
-            return "file://" + default_url + "/" + url;
-        } else {
-            return "file://" + default_old_url + "/" + url;
+        std::string target_path = default_url + "/" + url;
+        if (std::filesystem::exists(target_path)) {
+            // File exists in new default directory
+            *result_url = "file://" + target_path;
+            return Status::OK();
+        } else if (config::is_cloud_mode()) {
+            // Cloud mode: try to download from cloud to new default directory
+            std::string downloaded_path;
+            Status status = CloudPluginDownloader::download_from_cloud(
+                    CloudPluginDownloader::PluginType::JDBC_DRIVERS, url, target_path,
+                    &downloaded_path);
+            if (status.ok() && !downloaded_path.empty()) {
+                *result_url = "file://" + downloaded_path;
+                return Status::OK();
+            }
+            // Download failed, log warning but continue to fallback
+            LOG(WARNING) << "Failed to download JDBC driver from cloud: " << status.to_string()
+                         << ", fallback to old directory";
         }
+
+        // Fallback to old default directory for compatibility
+        *result_url = "file://" + default_old_url + "/" + url;
     } else {
-        return "file://" + config::jdbc_drivers_dir + "/" + url;
+        // User specified custom directory - use directly
+        *result_url = "file://" + config::jdbc_drivers_dir + "/" + url;
     }
+    return Status::OK();
 }
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

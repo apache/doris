@@ -176,10 +176,10 @@ private:
             for (size_t row = 0; row < offsets.size(); ++row) {
                 auto off = offsets[row - 1];
                 auto len = offsets[row] - off;
-                auto pos = len ? len - 1 : 0;
-                for (; pos > 0; --pos) {
-                    if (null_map_col_data[pos + off - 1]) {
-                        null_map_col_data[pos + off] = 1;
+                auto nested_pos = len ? len - 1 : 0;
+                for (; nested_pos > 0; --nested_pos) {
+                    if (null_map_col_data[nested_pos + off - 1]) {
+                        null_map_col_data[nested_pos + off] = 1;
                     }
                 }
             }

@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_decimal.h"
 
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 
 #include <limits>
@@ -75,8 +76,10 @@ size_t ColumnDecimal<T>::get_max_row_byte_size() const {
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnDecimal<T>::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
+        // Used in hash_map_context.h, this address is allocated via Arena,
+        // but passed through StringRef, so using const_cast is acceptable.
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
@@ -88,7 +91,7 @@ size_t ColumnDecimal<T>::serialize_impl(char* pos, const size_t row) const {
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
+void ColumnDecimal<T>::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i < num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
@@ -100,6 +103,50 @@ template <PrimitiveType T>
 size_t ColumnDecimal<T>::deserialize_impl(const char* pos) {
     data.push_back(unaligned_load<value_type>(pos));
     return sizeof(value_type);
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::serialize_with_nullable(StringRef* keys, size_t num_rows,
+                                               const bool has_null,
+                                               const uint8_t* __restrict null_map) const {
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            keys[i].size += sizeof(UInt8);
+            if (null_map[i]) {
+                // is null
+                *dest = true;
+                continue;
+            }
+            // not null
+            *dest = false;
+            keys[i].size += serialize_impl(dest + sizeof(UInt8), i);
+        }
+    } else {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            *dest = false;
+            keys[i].size += serialize_impl(dest + sizeof(UInt8), i) + sizeof(UInt8);
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                                 PaddedPODArray<UInt8>& null_map) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        UInt8 is_null = *reinterpret_cast<const UInt8*>(keys[i].data);
+        null_map.push_back(is_null);
+        keys[i].data += sizeof(UInt8);
+        keys[i].size -= sizeof(UInt8);
+        if (is_null) {
+            insert_default();
+            continue;
+        }
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
+    }
 }
 
 template <PrimitiveType T>
@@ -158,6 +205,40 @@ void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primi
             for (size_t i = 0; i < s; i++) {
                 if (null_data[i] == 0) decimalv2_do_crc(i, hashes[i]);
             }
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                           const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hashes[i] = HashUtil::crc32c_fixed(data[i], hashes[i]);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hashes[i] = HashUtil::crc32c_fixed(data[i], hashes[i]);
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                            const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hash = HashUtil::crc32c_fixed(data[i], hash);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hash = HashUtil::crc32c_fixed(data[i], hash);
         }
     }
 }

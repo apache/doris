@@ -38,6 +38,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -463,7 +464,11 @@ public class Group {
             str.append("    ").append(physicalExpression).append("\n");
         }
         str.append("  enforcers:\n");
-        for (GroupExpression enforcer : enforcers.keySet()) {
+        List<GroupExpression> enforcerList = enforcers.keySet().stream()
+                .sorted(java.util.Comparator.comparing(e1 -> e1.getId().asInt()))
+                .collect(Collectors.toList());
+
+        for (GroupExpression enforcer : enforcerList) {
             str.append("    ").append(enforcer).append("\n");
         }
         if (!chosenEnforcerIdList.isEmpty()) {
@@ -481,12 +486,13 @@ public class Group {
         str.append(getStatistics() == null ? "" : getStatistics().detail("    "));
 
         str.append("  lowest Plan(cost, properties, plan, childrenRequires)");
+        DecimalFormat format = new DecimalFormat("#,###.##");
         for (Map.Entry<PhysicalProperties, Pair<Cost, GroupExpression>> entry : lowestCostPlans.entrySet()) {
             PhysicalProperties prop = entry.getKey();
             Pair<Cost, GroupExpression> costGroupExpressionPair = entry.getValue();
             Cost cost = costGroupExpressionPair.first;
             GroupExpression child = costGroupExpressionPair.second;
-            str.append("\n\n    ").append(cost.getValue()).append(" ").append(prop)
+            str.append("\n\n    ").append(format.format(cost.getValue())).append(" ").append(prop)
                 .append("\n     ").append(child).append("\n     ")
                 .append(child.getInputPropertiesListOrEmpty(prop));
         }

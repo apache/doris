@@ -33,6 +33,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -46,7 +48,7 @@ import com.google.common.base.Objects;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -453,6 +455,18 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return false;
     }
 
+    /**
+     * Get sorted partition ranges for binary search filtering.
+     * Subclasses can override this method to provide sorted partition ranges
+     * for efficient partition pruning.
+     *
+     * @param scan the catalog relation
+     * @return sorted partition ranges, or empty if not supported
+     */
+    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
+        return Optional.empty();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -506,25 +520,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return tableAttributes;
     }
 
-    /**
-     * Build the name mapping for this table.
-     * If "use_meta_cache" is true, the "nameMapping" should already be created in constructor.
-     * But if "use_meta_cache" is false, we can not create "nameMapping" in constructor because the catalog and db
-     * object may be null at that time.
-     * So we need to check and build the name mapping here, for both "use_meta_cache" true or false.
-     *
-     * @return
-     */
     public NameMapping getOrBuildNameMapping() {
-        if (nameMapping != null) {
-            return nameMapping;
-        }
-        synchronized (this) {
-            if (nameMapping != null) {
-                return nameMapping;
-            }
-            nameMapping = new NameMapping(catalog.getId(), dbName, name, db.getRemoteName(), getRemoteName());
-            return nameMapping;
-        }
+        return nameMapping;
     }
 }

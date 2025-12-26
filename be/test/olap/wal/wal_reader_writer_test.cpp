@@ -64,8 +64,10 @@ void covert_block_to_pb(
         segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::SNAPPY) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    Status st = block.serialize(BeExecVersionManager::get_newest_version(), pblock,
-                                &uncompressed_bytes, &compressed_bytes, compression_type);
+    int64_t compressed_time = 0;
+    Status st =
+            block.serialize(BeExecVersionManager::get_newest_version(), pblock, &uncompressed_bytes,
+                            &compressed_bytes, &compressed_time, compression_type);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, pblock->column_values().size());
@@ -132,7 +134,9 @@ TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
             break;
         }
         vectorized::Block block;
-        EXPECT_TRUE(block.deserialize(pblock).ok());
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        EXPECT_TRUE(block.deserialize(pblock, &uncompress_size, &uncompressed_time).ok());
         EXPECT_EQ(block_rows, block.rows());
     }
     static_cast<void>(wal_reader.finalize());

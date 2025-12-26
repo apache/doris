@@ -28,11 +28,6 @@ namespace doris {
  */
 struct JavaNativeMethods {
     /**
-     * Resize string column and return the new column address.
-     */
-    static jlong resizeStringColumn(JNIEnv* env, jclass clazz, jlong columnAddr, jint length);
-
-    /**
      * Allocate memory, which will be tracked by memory tracker.
      */
     static jlong memoryMalloc(JNIEnv* env, jclass clazz, jlong bytes);
@@ -41,6 +36,12 @@ struct JavaNativeMethods {
      * Free memory, which will be tracked by memory tracker.
      */
     static void memoryFree(JNIEnv* env, jclass clazz, jlong address);
+
+    // Batch allocate multiple blocks; sizes is an int[]; returns long[] of addresses.
+    static jlongArray memoryMallocBatch(JNIEnv* env, jclass clazz, jintArray sizes);
+
+    // Batch free multiple addresses; addrs is a long[]
+    static void memoryFreeBatch(JNIEnv* env, jclass clazz, jlongArray addrs);
 };
 
 } // namespace doris

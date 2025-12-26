@@ -19,6 +19,7 @@
 
 #include <parallel_hashmap/phmap.h> // IWYU pragma: export
 
+#include "common/compare.h"
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
 
@@ -44,11 +45,11 @@ public:
     friend bool operator==(const Allocator_&, const Allocator_&) { return true; }
 };
 
-template <typename K, typename V, typename Hash = phmap::Hash<K>, typename Eq = phmap::EqualTo<K>,
+template <typename K, typename V, typename Hash = phmap::Hash<K>, typename Eq = doris::EqualTo<K>,
           typename Alloc = Allocator_<phmap::Pair<const K, V>>>
 using flat_hash_map = phmap::flat_hash_map<K, V, Hash, Eq, Alloc>;
 
-template <typename K, typename Hash = phmap::Hash<K>, typename Eq = phmap::EqualTo<K>,
+template <typename K, typename Hash = phmap::Hash<K>, typename Eq = doris::EqualTo<K>,
           typename Alloc = Allocator_<K>>
 using flat_hash_set = phmap::flat_hash_set<K, Hash, Eq, Alloc>;
 

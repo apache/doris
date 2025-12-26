@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
@@ -49,6 +50,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -91,13 +93,13 @@ public class RuntimeProfile {
     private transient ReentrantReadWriteLock infoStringsLock = new ReentrantReadWriteLock();
 
     @SerializedName(value = "counterMap")
-    private Map<String, Counter> counterMap = Maps.newConcurrentMap();
+    private ConcurrentMap<String, Counter> counterMap = Maps.newConcurrentMap();
     @SerializedName(value = "childCounterMap")
-    private Map<String, TreeSet<String>> childCounterMap = Maps.newConcurrentMap();
+    private ConcurrentMap<String, TreeSet<String>> childCounterMap = Maps.newConcurrentMap();
     // protect TreeSet in ChildCounterMap
     private transient ReentrantReadWriteLock counterLock = new ReentrantReadWriteLock();
     @SerializedName(value = "childMap")
-    private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
+    private ConcurrentMap<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
     @SerializedName(value = "childList")
     private LinkedList<Pair<RuntimeProfile, Boolean>> childList = Lists.newLinkedList();
     private transient ReentrantReadWriteLock childLock = new ReentrantReadWriteLock();
@@ -205,7 +207,6 @@ public class RuntimeProfile {
     public Map<String, TreeSet<String>> getChildCounterMap() {
         return childCounterMap;
     }
-
 
 
     public Counter addCounter(String name, TUnit type, String parentCounterName) {
@@ -405,14 +406,15 @@ public class RuntimeProfile {
     // 2. Info Strings
     // 3. Counters
     // 4. Children
-    public void prettyPrint(StringBuilder builder, String prefix) {
+    public void prettyPrint(SafeStringBuilder builder, String prefix) {
         // 1. profile name
-        builder.append(prefix).append(name).append(":");
-
-        builder.append("\n");
+        builder.append(prefix).append(name).append(":").append("\n");
 
         // plan node info
         printPlanNodeInfo(prefix + "   ", builder);
+        if (builder.isTruncated()) {
+            return;
+        }
 
         // 2. info String
         infoStringsLock.readLock().lock();
@@ -430,6 +432,9 @@ public class RuntimeProfile {
         } finally {
             infoStringsLock.readLock().unlock();
         }
+        if (builder.isTruncated()) {
+            return;
+        }
 
         // 3. counters
         try {
@@ -437,12 +442,18 @@ public class RuntimeProfile {
         } catch (Exception e) {
             builder.append("print child counters error: ").append(e.getMessage());
         }
+        if (builder.isTruncated()) {
+            return;
+        }
 
 
         // 4. children
         childLock.readLock().lock();
         try {
             for (int i = 0; i < childList.size(); i++) {
+                if (builder.isTruncated()) {
+                    return;
+                }
                 Pair<RuntimeProfile, Boolean> pair = childList.get(i);
                 boolean indent = pair.second;
                 RuntimeProfile profile = pair.first;
@@ -453,7 +464,7 @@ public class RuntimeProfile {
         }
     }
 
-    private void printPlanNodeInfo(String prefix, StringBuilder builder) {
+    private void printPlanNodeInfo(String prefix, SafeStringBuilder builder) {
         if (planNodeInfos.isEmpty()) {
             return;
         }
@@ -480,7 +491,7 @@ public class RuntimeProfile {
     }
 
     public String toString() {
-        StringBuilder builder = new StringBuilder();
+        SafeStringBuilder builder = new SafeStringBuilder();
         prettyPrint(builder, "");
         return builder.toString();
     }
@@ -580,7 +591,7 @@ public class RuntimeProfile {
         }
     }
 
-    private void printChildCounters(String prefix, String counterName, StringBuilder builder) {
+    private void printChildCounters(String prefix, String counterName, SafeStringBuilder builder) {
         Set<String> childCounterSet = childCounterMap.get(counterName);
         if (childCounterSet == null) {
             return;
@@ -589,6 +600,9 @@ public class RuntimeProfile {
         counterLock.readLock().lock();
         try {
             for (String childCounterName : childCounterSet) {
+                if (builder.isTruncated()) {
+                    return;
+                }
                 Counter counter = this.counterMap.get(childCounterName);
                 if (counter != null) {
                     builder.append(prefix).append("   - ").append(childCounterName).append(": ")
@@ -948,15 +962,6 @@ public class RuntimeProfile {
         }
         // Add stats for current node
         itemsFromParent.add(profile.toTPlanNodeRuntimeStatsItem());
-
-        if (LOG.isDebugEnabled()) {
-            List<TPlanNodeRuntimeStatsItem> currentItem = new ArrayList<TPlanNodeRuntimeStatsItem>();
-            currentItem.add(profile.toTPlanNodeRuntimeStatsItem());
-            LOG.debug("Current node {}({}) hbo items\n{},\nparent\n{}",
-                    profile.getName(), profile.nodeid,
-                    DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(currentItem),
-                    DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(itemsFromParent));
-        }
 
         return itemsFromParent;
     }

@@ -467,11 +467,6 @@ TEST_F(ColumnArrayTest, GetNameTest) {
     }
 }
 
-// test get_ratio_of_default_rows
-TEST_F(ColumnArrayTest, GetRatioOfDefaultRowsTest) {
-    assert_get_ratio_of_default_rows(array_columns, serdes);
-}
-
 //TEST_F(ColumnArrayTest, SerDeVecTest) {
 //    // get_max_row_byte_size is not support in column_array
 //    EXPECT_ANY_THROW(ser_deser_vec(array_columns, array_types));

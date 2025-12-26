@@ -21,7 +21,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[cs_item_sk]
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk)) otherCondition=((d3.d_date > days_add(d_date, INTERVAL 5 DAY))) build RFs:RF3 d_date_sk->[cs_ship_date_sk]
+----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk)) otherCondition=((d3.d_date > days_add(d_date, 5))) build RFs:RF3 d_date_sk->[cs_ship_date_sk]
 ------------------------------------------PhysicalProject
 --------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF2 cd_demo_sk->[cs_bill_cdemo_sk]
 ----------------------------------------------PhysicalProject
@@ -35,20 +35,24 @@ PhysicalResultSink
 ----------------------------------------------------------PhysicalOlapScan[household_demographics]
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------filter((d1.d_year = 2002))
-------------------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF5
+------------------------------------------------------PhysicalOlapScan[date_dim(d1)] apply RFs: RF5
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((customer_demographics.cd_marital_status = 'W'))
 --------------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------PhysicalOlapScan[date_dim(d3)]
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[item]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim(d2)]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[warehouse]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[catalog_returns]
+
+
+
+ group expression count exceeds memo_max_group_expression_size(15000)
 

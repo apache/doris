@@ -91,7 +91,7 @@ public:
     const char* get_data() const { return data; }
 
     /// @return A mutable pointer to the beginning of the referenced data.
-    char* mutable_data() { return const_cast<char*>(data); }
+    char* mutable_data() { return data; }
 
     /// @return The length (in bytes) of the referenced data.
     size_t get_size() const { return size; }
@@ -311,7 +311,7 @@ inline int Slice::compare(const Slice& b) const {
 }
 
 // A move-only type which manage the lifecycle of externally allocated data.
-// Unlike std::unique_ptr<uint8_t[]>, OwnedSlice remembers the size of data so that clients can access
+// Unlike DorisUniqueBufferPtr<uint8_t>, OwnedSlice remembers the size of data so that clients can access
 // the underlying buffer as a Slice.
 //
 // Usage example:

@@ -105,7 +105,7 @@ suite("test_sort_operator", "query,p0,arrow_flight_sql") {
         FROM
             `dim_day` t0
             INNER JOIN `dim_org_ful` t1 ON `t0`.`day_date` BETWEEN `t1`.`start_dt`
-            AND `t1`.`end_dt` - 1.0
+            AND `t1`.`end_dt` - interval 1.0 day
         WHERE
             `t0`.`day_date` BETWEEN '2021-01-01 00:00:00'
             AND '2023-08-07'

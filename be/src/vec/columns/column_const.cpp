@@ -26,10 +26,7 @@
 #include <cstddef>
 #include <utility>
 
-#include "runtime/raw_value.h"
-#include "util/hash_util.hpp"
 #include "vec/columns/columns_common.h"
-#include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -37,32 +34,29 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_) {
-    /// Squash Const of Const.
-    while (const ColumnConst* const_data = typeid_cast<const ColumnConst*>(data.get())) {
-        data = const_data->get_data_column_ptr();
+ColumnPtr squash_const(const ColumnPtr& col) {
+    ColumnPtr res = col;
+    while (const auto* c = typeid_cast<const ColumnConst*>(res.get())) {
+        res = c->get_data_column_ptr();
     }
-
-    if (data->size() != 1) {
-        throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.",
-                data->size());
-    }
+    return res;
 }
 
-ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_empty)
-        : data(data_), s(s_) {
-    /// Squash Const of Const.
-    while (const auto* const_data = typeid_cast<const ColumnConst*>(data.get())) {
-        data = const_data->get_data_column_ptr();
-    }
-
-    if (!(data->empty() && create_with_empty)) {
+ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_empty,
+                         bool need_squash)
+        : data(need_squash ? squash_const(data_) : data_), s(s_) {
+    if (data->empty() != create_with_empty) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Incorrect size of nested column in constructor of ColumnConst: {}, "
                                "create_with_empty: {}.",
                                data->size(), create_with_empty);
+    }
+
+    if (data->size() != 1 && !create_with_empty) {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.",
+                data->size());
     }
 }
 
@@ -114,11 +108,15 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     }
 }
 
+void ColumnConst::replace_float_special_values() {
+    data->replace_float_special_values();
+}
+
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
                                                                 size_t row_num) noexcept {
     std::pair<ColumnPtr, size_t> result;
     if (is_column_const(column)) {
-        result.first = static_cast<const ColumnConst&>(column).get_data_column_ptr();
+        result.first = assert_cast<const ColumnConst&>(column).get_data_column_ptr();
         result.second = 0;
     } else {
         result.first = column.get_ptr();
@@ -130,7 +128,7 @@ std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& c
 std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept {
     if (is_column_const(*ptr)) {
         return std::make_pair(
-                std::cref(static_cast<const ColumnConst&>(*ptr).get_data_column_ptr()), true);
+                std::cref(assert_cast<const ColumnConst&>(*ptr).get_data_column_ptr()), true);
     }
     return std::make_pair(std::cref(ptr), false);
 }
@@ -142,7 +140,7 @@ void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_co
                     [&](size_t const_index) -> bool { return col_const[const_index]; })) {
         // only need to avoid expanding when all parameters are const
         for (auto index : parameters) {
-            columns[index] = static_cast<const ColumnConst&>(
+            columns[index] = assert_cast<const ColumnConst&>(
                                      *block.get_by_position(arg_indexes[index]).column)
                                      .get_data_column_ptr();
         }
@@ -150,7 +148,7 @@ void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_co
         // no need to avoid expanding for this rare situation
         for (auto index : parameters) {
             if (col_const[index]) {
-                columns[index] = static_cast<const ColumnConst&>(
+                columns[index] = assert_cast<const ColumnConst&>(
                                          *block.get_by_position(arg_indexes[index]).column)
                                          .convert_to_full_column();
             } else {

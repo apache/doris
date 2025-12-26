@@ -70,7 +70,7 @@ public class ShowProcessListCommand extends ShowCommand {
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         boolean isShowFullSql = isFull;
-        boolean isShowAllFe = ConnectContext.get().getSessionVariable().getShowAllFeConnection();
+        boolean isShowAllFe = ConnectContext.get().getSessionVariable().isFetchAllFeForSystemTable();
 
         List<List<String>> rowSet = Lists.newArrayList();
         List<ConnectContext.ThreadInfo> threadInfos = ctx.getConnectScheduler()

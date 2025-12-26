@@ -47,7 +47,7 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
     @Test
     public void testRollUpRange() throws AnalysisException {
         FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
-                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")));
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")), true);
         new Expectations() {
             {
                 mtmvPartitionUtil.getPartitionColumnType((MTMVRelatedTableIf) any, (String) any);
@@ -86,7 +86,7 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
         relatedPartitionDescs.put(desc20200102, Sets.newHashSet("name2"));
         relatedPartitionDescs.put(desc20200201, Sets.newHashSet("name3"));
         Map<PartitionKeyDesc, Set<String>> res = generator.rollUpRange(relatedPartitionDescs,
-                mtmvPartitionInfo);
+                mtmvPartitionInfo, null);
 
         PartitionKeyDesc expectDesc202001 = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue("2020-01-01")),
@@ -102,7 +102,7 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
     @Test
     public void testRollUpList() throws AnalysisException {
         FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
-                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")));
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")), true);
         new Expectations() {
             {
                 mtmvPartitionUtil.getPartitionColumnType((MTMVRelatedTableIf) any, (String) any);

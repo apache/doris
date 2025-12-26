@@ -83,11 +83,11 @@ suite("test_ai_functions") {
     // Test for normal call
     // test the default resource
     try {
-        sql """set query_timeout=2;"""
+        sql """set query_timeout=1;"""
         sql """set default_ai_resource='${resourceName}';"""
         test {
             sql """${sentiment_query}"""
-            exception "timeout when waiting for send fragments rpc, query timeout:2"
+            exception "timeout"
         }
     } finally {
         sql """UNSET VARIABLE query_timeout;"""
@@ -97,10 +97,10 @@ suite("test_ai_functions") {
     def test_query_timeout_exception = { sql_text ->
         try {
             sql """set query_timeout=1;"""
-            test {
-                sql """${sql_text}"""
-                exception "timeout"
-            }
+            sql """${sql_text}"""
+            assertTrue(false)
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("timeout") || e.getMessage().contains("requested URL returned error"))
         } finally {
             sql """UNSET VARIABLE query_timeout;"""
         }

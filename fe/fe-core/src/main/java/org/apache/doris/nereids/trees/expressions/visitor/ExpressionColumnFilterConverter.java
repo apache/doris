@@ -107,7 +107,8 @@ public class ExpressionColumnFilterConverter
         List<Expr> literals = predicate.getOptions().stream()
                 .map(expr -> ((Expr) ((Literal) expr).toLegacyLiteral()))
                 .collect(Collectors.toList());
-        param.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, ""), literals, false));
+        param.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, ""),
+                literals, false, false, true));
         setOrUpdateFilter(((Slot) predicate.getCompareExpr()).getName());
         return null;
     }

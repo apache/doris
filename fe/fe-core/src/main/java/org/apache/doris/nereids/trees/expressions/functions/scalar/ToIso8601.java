@@ -23,9 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
 
@@ -41,11 +39,8 @@ public class ToIso8601 extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(StringType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).args(DateType.INSTANCE)
-            );
+            FunctionSignature.ret(StringType.INSTANCE).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(StringType.INSTANCE).args(DateV2Type.INSTANCE));
 
     /**
      * constructor with 1 argument.

@@ -30,6 +30,7 @@
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/exprs/virtual_slot_ref.h"
 #include "vector_search_utils.h"
 
@@ -119,17 +120,10 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     ASSERT_TRUE(st.ok()) << fmt::format("st: {}, expr {}", st.to_string(),
                                         predicate->get_order_by_expr_ctx()->root()->debug_string());
 
-    const ColumnConst* const_column =
-            assert_cast<const ColumnConst*>(predicate->_query_array.get());
-    const ColumnArray* column_array =
-            assert_cast<const ColumnArray*>(const_column->get_data_column_ptr().get());
-    const ColumnNullable* column_nullable =
-            assert_cast<const ColumnNullable*>(column_array->get_data_ptr().get());
-    const ColumnFloat32* cf32 =
-            assert_cast<const ColumnFloat32*>(column_nullable->get_nested_column_ptr().get());
-
-    const float* query_value = cf32->get_data().data();
-    const size_t query_value_size = cf32->get_data().size();
+    const vectorized::ColumnFloat32* query_column =
+            assert_cast<const vectorized::ColumnFloat32*>(predicate->_query_array.get());
+    const float* query_value = query_column->get_data().data();
+    const size_t query_value_size = predicate->_query_array->size();
     ASSERT_EQ(query_value_size, 8);
     std::vector<float> query_value_f32;
     for (size_t i = 0; i < query_value_size; ++i) {
@@ -152,6 +146,16 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
 
     std::cout << "query_vector: " << fmt::format("[{}]", fmt::join(*query_vector, ","))
               << std::endl;
+
+    // Attach a valid ANN reader to the mock iterator so runtime can fetch reader and check dim
+    {
+        std::map<std::string, std::string> properties;
+        properties["index_type"] = "hnsw";
+        properties["metric_type"] = "l2_distance";
+        properties["dim"] = "8"; // match the query vector dimension
+        auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
+        _ann_index_iterator->_ann_reader = pair.second;
+    }
 
     EXPECT_CALL(*_ann_index_iterator, read_from_index(testing::_))
             .Times(1)

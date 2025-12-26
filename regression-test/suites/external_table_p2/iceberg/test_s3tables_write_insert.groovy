@@ -18,6 +18,11 @@ import java.util.concurrent.ThreadLocalRandom
 // under the License.
 
 suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+    // disable this test by default, glue + s3table is recommended
+    def run_test = false;
+    if (!run_test) {
+        return;
+    }
     def format_compressions = ["parquet_zstd", "orc_zlib"]
 
     def q01 = { String format_compression, String catalog_name ->
@@ -25,7 +30,7 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
         def format = parts[0]
         def compression = parts[1]
         def all_types_table = "iceberg_all_types_${format_compression}_master_"+ ThreadLocalRandom.current().nextInt(1000)
-        def all_types_partition_table = "iceberg_all_types_par_${format_compression}_master"
+        def all_types_partition_table = "iceberg_all_types_par_${format_compression}_master_1"
         sql """ DROP TABLE IF EXISTS `${all_types_table}`; """
         sql """
         CREATE TABLE `${all_types_table}`(

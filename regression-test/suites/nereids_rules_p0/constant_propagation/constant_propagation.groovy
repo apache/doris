@@ -34,6 +34,7 @@ suite('constant_propagation') {
         SET ignore_shape_nodes='PhysicalDistribute';
         SET runtime_filter_type=2;
         set disable_join_reorder=true;
+        SET experimental_enable_virtual_slot_for_cse=true;
         """
 
     sql 'drop table if exists t1 force'

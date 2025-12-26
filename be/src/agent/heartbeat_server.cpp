@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
@@ -297,6 +298,12 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         config::enable_use_cloud_unique_id_from_fe) {
         auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
         LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
+    }
+
+    if (master_info.__isset.cloud_cluster_info &&
+        master_info.cloud_cluster_info.__isset.isStandby) {
+        auto* cloud_cluster_info = static_cast<CloudClusterInfo*>(_cluster_info);
+        cloud_cluster_info->set_is_in_standby(master_info.cloud_cluster_info.isStandby);
     }
 
     if (master_info.__isset.tablet_report_inactive_duration_ms) {

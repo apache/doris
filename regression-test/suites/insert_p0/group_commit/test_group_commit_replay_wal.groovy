@@ -100,7 +100,23 @@ suite("test_group_commit_replay_wal", "nonConcurrent") {
             sleep(100)
         }
 
+        // replay wal fail
+        GetDebugPoint().enableDebugPointForAllBEs("WalTable::_handle_stream_load.fail")
         GetDebugPoint().clearDebugPointsForAllFEs()
+        getRowCount(4)
+
+        int expectedRowCount = 8
+        for (int i = 0; i < 30; i++) {
+            def result = sql "select count(*) from ${tableName}"
+            logger.info("table: ${tableName}, rowCount: ${result}, i: ${i}")
+            if (result[0][0] == expectedRowCount) {
+                break
+            }
+            sleep(1000)
+            if (i >= 4) {
+                GetDebugPoint().disableDebugPointForAllBEs("WalTable::_handle_stream_load.fail")
+            }
+        }
         getRowCount(8)
         // check wal count is 0
     } catch (Exception e) {

@@ -388,13 +388,29 @@ suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg")
         """
         sql """ drop view if exists $dorisViewName """
         sql """
-            CREATE VIEW $dorisViewName as select `ID` AS `ID`, `c_user` AS `c_user`, 
-            `c_time` AS `c_time`, `m_user` AS `m_user`, `m_time` AS `m_time`, 
-            `app_id` AS `app_id`, `t_id` AS `t_id`, `w_t_s` AS `w_t_s`, 
-            `rf_id` AS `rf_id`, `e_info` AS `e_info`, `f_id` AS `org_id`, `id_code` AS `id_code`,
-            ROUND( CAST ( get_json_string ( `e_info`, '\$.weight' ) AS DECIMAL ( 10, 2 )), 2 ) AS `weight`,
-            get_json_string ( `e_info`, '\$.remark' ) AS `remark`,to_date( `w_t_s` ) AS `dt_str`   
-            from $dorisExTable1 
+            CREATE VIEW $dorisViewName as
+            select `ID` AS `ID`,
+                `c_user` AS `c_user`,
+                `c_time` AS `c_time`,
+                `m_user` AS `m_user`,
+                `m_time` AS `m_time`,
+                `app_id` AS `app_id`,
+                `t_id` AS `t_id`,
+                `w_t_s` AS `w_t_s`,
+                `rf_id` AS `rf_id`,
+                `e_info` AS `e_info`,
+                `f_id` AS `org_id`,
+                `id_code` AS `id_code`,
+                ROUND(
+                    CAST (
+                        get_json_string (`e_info`, '\$.weight') AS DECIMAL (10, 2)
+                    ),
+                    2
+                ) AS `weight`,
+                get_json_string (`e_info`, '\$.remark') AS `remark`,
+                to_date(`w_t_s`) AS `dt_str`
+            from $dorisExTable1
+            where `w_t_s` <= '9999-12-31 23:59:59'
         """
         sql """
             insert into $dorisInTable1 

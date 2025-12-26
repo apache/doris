@@ -34,6 +34,7 @@
 #include "cloud/config.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
+#include "olap/delta_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
@@ -370,6 +371,13 @@ void IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int6
     }
 }
 
+void IndexStream::get_all_write_tablet_ids(std::vector<int64_t>* tablet_ids) {
+    std::lock_guard lock_guard(_lock);
+    for (const auto& [tablet_id, _] : _tablet_streams_map) {
+        tablet_ids->push_back(tablet_id);
+    }
+}
+
 void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
                         std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
     std::lock_guard lock_guard(_lock);
@@ -463,7 +471,7 @@ Status LoadStream::init(const POpenLoadStreamRequest* request) {
     return Status::OK();
 }
 
-void LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
+bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                        std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
     std::lock_guard<bthread::Mutex> lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
@@ -482,7 +490,7 @@ void LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
 
     if (_close_load_cnt < _total_streams) {
         // do not return commit info if there is remaining streams.
-        return;
+        return false;
     }
 
     for (auto& [_, index_stream] : _index_streams_map) {
@@ -490,6 +498,7 @@ void LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
     }
     LOG(INFO) << "close load " << *this << ", success_tablet_num=" << success_tablet_ids->size()
               << ", failed_tablet_num=" << failed_tablets->size();
+    return true;
 }
 
 void LoadStream::_report_result(StreamId stream, const Status& status,
@@ -556,6 +565,40 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
     auto wst = _write_stream(stream, buf);
     if (!wst.ok()) {
         LOG(WARNING) << " report result failed with " << wst << ", " << *this;
+    }
+}
+
+void LoadStream::_report_tablet_load_info(StreamId stream, int64_t index_id) {
+    std::vector<int64_t> write_tablet_ids;
+    auto it = _index_streams_map.find(index_id);
+    if (it != _index_streams_map.end()) {
+        it->second->get_all_write_tablet_ids(&write_tablet_ids);
+    }
+
+    if (!write_tablet_ids.empty()) {
+        butil::IOBuf buf;
+        PLoadStreamResponse response;
+        auto* tablet_load_infos = response.mutable_tablet_load_rowset_num_infos();
+        _collect_tablet_load_info_from_tablets(write_tablet_ids, tablet_load_infos);
+        buf.append(response.SerializeAsString());
+        auto wst = _write_stream(stream, buf);
+        if (!wst.ok()) {
+            LOG(WARNING) << "report tablet load info failed with " << wst << ", " << *this;
+        }
+    }
+}
+
+void LoadStream::_collect_tablet_load_info_from_tablets(
+        const std::vector<int64_t>& tablet_ids,
+        google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_load_infos) {
+    for (auto tablet_id : tablet_ids) {
+        BaseTabletSPtr tablet;
+        if (auto res = ExecEnv::get_tablet(tablet_id); res.has_value()) {
+            tablet = std::move(res).value();
+        } else {
+            continue;
+        }
+        BaseDeltaWriter::collect_tablet_load_rowset_num_info(tablet.get(), tablet_load_infos);
     }
 }
 
@@ -674,15 +717,33 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         auto st = _append_data(hdr, data);
         if (!st.ok()) {
             _report_failure(id, st, hdr);
+        } else {
+            _report_tablet_load_info(id, hdr.index_id());
         }
     } break;
     case PStreamHeader::CLOSE_LOAD: {
         std::vector<int64_t> success_tablet_ids;
         FailedTablets failed_tablets;
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
-        close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
+        bool all_closed =
+                close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
         _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true);
-        brpc::StreamClose(id);
+        std::lock_guard<bthread::Mutex> lock_guard(_lock);
+        // if incremental stream, we need to wait for all non-incremental streams to be closed
+        // before closing incremental streams. We need a fencing mechanism to avoid use after closing
+        // across different be.
+        if (hdr.has_num_incremental_streams() && hdr.num_incremental_streams() > 0) {
+            _closing_stream_ids.push_back(id);
+        } else {
+            brpc::StreamClose(id);
+        }
+
+        if (all_closed) {
+            for (auto& closing_id : _closing_stream_ids) {
+                brpc::StreamClose(closing_id);
+            }
+            _closing_stream_ids.clear();
+        }
     } break;
     case PStreamHeader::GET_SCHEMA: {
         _report_schema(id, hdr);

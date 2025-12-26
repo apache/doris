@@ -34,8 +34,9 @@ struct AggregateFunctiontest : public testing::Test {
         execute_more(block, expected_column);
     }
 
-    void create_agg(const std::string& name, bool result_nullable, DataTypes args_type) {
-        agg_fn = create_agg_fn(pool, name, args_type, result_nullable);
+    void create_agg(const std::string& name, bool result_nullable, DataTypes args_type,
+                    DataTypePtr result_type) {
+        agg_fn = create_agg_fn(pool, name, args_type, result_type, result_nullable);
     }
 
 private:
@@ -89,7 +90,7 @@ private:
                 EXPECT_EQ(e.code(), ErrorCode::FATAL_ERROR);
                 EXPECT_THAT(
                         e.to_string().c_str(),
-                        ::testing::EndsWith("only LLM aggregate functions implement this method"));
+                        ::testing::HasSubstr("only LLM aggregate functions implement this method"));
             }
         }
 

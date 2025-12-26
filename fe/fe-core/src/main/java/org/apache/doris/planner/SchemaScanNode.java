@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
@@ -28,7 +29,6 @@ import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -38,7 +38,6 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaScanNode;
 import org.apache.doris.thrift.TUserIdentity;
 
-import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,7 +65,7 @@ public class SchemaScanNode extends ScanNode {
      */
     public SchemaScanNode(PlanNodeId id, TupleDescriptor desc,
             String schemaCatalog, String schemaDb, String schemaTable, List<Expr> frontendConjuncts) {
-        super(id, desc, "SCAN SCHEMA", StatisticalType.SCHEMA_SCAN_NODE);
+        super(id, desc, "SCAN SCHEMA");
         this.tableName = desc.getTable().getName();
         this.schemaCatalog = schemaCatalog;
         this.schemaDb = schemaDb;
@@ -91,12 +90,6 @@ public class SchemaScanNode extends ScanNode {
     }
 
     @Override
-    protected String debugString() {
-        MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
-        return helper.addValue(super.debugString()).toString();
-    }
-
-    @Override
     public void finalizeForNereids() throws UserException {
         if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
                 && tableName.equalsIgnoreCase("tables")) {
@@ -109,18 +102,25 @@ public class SchemaScanNode extends ScanNode {
     }
 
     private void setFeAddrList(TPlanNode msg) {
-        if (SchemaTable.isShouldFetchAllFe(tableName)) {
-            List<TNetworkAddress> feAddrList = new ArrayList();
-            if (ConnectContext.get().getSessionVariable().showAllFeConnection) {
+        List<TNetworkAddress> feAddrList = new ArrayList();
+        TableIf tableIf = desc.getTable();
+        // may be ExternalInfoSchemaTable
+        if (!(tableIf instanceof SchemaTable)) {
+            feAddrList.add(new TNetworkAddress(frontendIP, frontendPort));
+        } else {
+            SchemaTable table = (SchemaTable) tableIf;
+            if (table.shouldFetchAllFe()) {
                 List<Frontend> feList = Env.getCurrentEnv().getFrontends(null);
                 for (Frontend fe : feList) {
-                    feAddrList.add(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+                    if (fe.isAlive()) {
+                        feAddrList.add(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+                    }
                 }
             } else {
                 feAddrList.add(new TNetworkAddress(frontendIP, frontendPort));
             }
-            msg.schema_scan_node.setFeAddrList(feAddrList);
         }
+        msg.schema_scan_node.setFeAddrList(feAddrList);
     }
 
     @Override

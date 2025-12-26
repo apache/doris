@@ -125,6 +125,12 @@ public:
                                 uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
+
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
@@ -191,9 +197,10 @@ public:
                          IColumn::Permutation& res) const override;
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
-    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
-    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    void deserialize(StringRef* keys, const size_t num_rows) override;
+    void serialize(StringRef* keys, size_t num_rows) const override;
     size_t get_max_row_byte_size() const override;
+    void replace_float_special_values() override;
     template <bool positive>
     struct less;
 };

@@ -48,7 +48,9 @@ suite("test_cast_datetime") {
 //currently, if we rewrite expr to CAST(mydatetime AS DATE) < date '2019-06-01', BE returns 0 tuple. 
     qt_1 "select count(1) from casttbl where CAST(CAST(mydatetime AS DATE) AS DATETIME) < date '2019-06-01';"
 
+    sql "set enable_insert_strict = false"
     sql "insert into casttbl values(2, '', '', '', ''), (3, '2020', '2020', '2020', '2020')"
+    sql "set enable_insert_strict = true"
     qt_2 "select * from casttbl"
     qt_3 "select a, '' = mydate, '' = mydatev2, '' = mydatetime, '' = mydatetimev2 from casttbl"
 
@@ -71,14 +73,6 @@ suite("test_cast_datetime") {
         "date_add('10-30',1)",
         "date_add('10-30 10:10:10',1)",
         "date_add('2020-01 00:00:00', 1)",
-        "MICROSECOND('invalid_time')",
-        "MICROSECOND('12.34.56.123456')",
-        "MICROSECOND('12:34:56')",
-        "MICROSECOND('12:34:56.1234')",
-        "MICROSECOND('12345')",
-        "MICROSECOND('12:34:56.1')",
-        "MICROSECOND('12:34:56.01')",
-        "MICROSECOND('12:34:56.abcdef')",
         "MICROSECOND('NaN')",
         "MonthName('abcd-ef-gh')",
         "DATE('2023-02-28 24:00:00')",

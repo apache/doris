@@ -43,6 +43,10 @@ class CalcDeleteBitmapToken;
 class SegmentCacheHandle;
 class RowIdConversion;
 struct PartialUpdateInfo;
+class PartialUpdateReadPlan;
+struct CaptureRowsetOps;
+struct CaptureRowsetResult;
+struct TabletReadSource;
 class FixedReadPlan;
 
 struct TabletWithVersion {
@@ -108,12 +112,9 @@ public:
     virtual Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(RowsetWriterContext& context,
                                                                        bool vertical) = 0;
 
-    virtual Status capture_consistent_rowsets_unlocked(
-            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const = 0;
-
     virtual Status capture_rs_readers(const Version& spec_version,
                                       std::vector<RowSetSplits>* rs_splits,
-                                      bool skip_missing_version) = 0;
+                                      const CaptureRowsetOps& opts) = 0;
 
     virtual size_t tablet_footprint() = 0;
 
@@ -138,8 +139,9 @@ public:
     Versions get_missed_versions(int64_t spec_version) const;
     Versions get_missed_versions_unlocked(int64_t spec_version) const;
 
-    void generate_tablet_meta_copy(TabletMeta& new_tablet_meta) const;
-    void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta) const;
+    void generate_tablet_meta_copy(TabletMeta& new_tablet_meta, bool cloud_get_rowset_meta) const;
+    void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
+                                            bool cloud_get_rowset_meta) const;
 
     virtual int64_t max_version_unlocked() const { return _tablet_meta->max_version().second; }
 
@@ -174,14 +176,13 @@ public:
     // for rowset 6-7. Also, if a compaction happens between commit_txn and
     // publish_txn, we should remove compaction input rowsets' delete_bitmap
     // and build newly generated rowset's delete_bitmap
-    static Status calc_delete_bitmap(
-            const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
-            const std::vector<segment_v2::SegmentSharedPtr>& segments,
-            const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
-            int64_t version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr,
-            DeleteBitmapPtr tablet_delete_bitmap = nullptr,
-            std::function<void(segment_v2::SegmentSharedPtr, Status)> callback =
-                    [](segment_v2::SegmentSharedPtr, Status) {});
+    static Status calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+                                     const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                                     const std::vector<RowsetSharedPtr>& specified_rowsets,
+                                     DeleteBitmapPtr delete_bitmap, int64_t version,
+                                     CalcDeleteBitmapToken* token,
+                                     RowsetWriter* rowset_writer = nullptr,
+                                     DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 
     Status calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                       const segment_v2::SegmentSharedPtr& seg,
@@ -297,6 +298,11 @@ public:
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {
         std::shared_lock rlock(_meta_lock);
+        traverse_rowsets_unlocked(visitor, include_stale);
+    }
+
+    void traverse_rowsets_unlocked(std::function<void(const RowsetSharedPtr&)> visitor,
+                                   bool include_stale = false) const {
         for (auto& [v, rs] : _rs_version_map) {
             visitor(rs);
         }
@@ -322,6 +328,21 @@ public:
         return Status::OK();
     }
 
+    void prefill_dbm_agg_cache(const RowsetSharedPtr& rowset, int64_t version);
+    void prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& output_rowset);
+
+    [[nodiscard]] Result<CaptureRowsetResult> capture_consistent_rowsets_unlocked(
+            const Version& version_range, const CaptureRowsetOps& options) const;
+
+    [[nodiscard]] virtual Result<std::vector<Version>> capture_consistent_versions_unlocked(
+            const Version& version_range, const CaptureRowsetOps& options) const;
+
+    [[nodiscard]] Result<std::vector<RowSetSplits>> capture_rs_readers_unlocked(
+            const Version& version_range, const CaptureRowsetOps& options) const;
+
+    [[nodiscard]] Result<TabletReadSource> capture_read_source(const Version& version_range,
+                                                               const CaptureRowsetOps& options);
+
 protected:
     // Find the missed versions until the spec_version.
     //
@@ -339,10 +360,9 @@ protected:
                                        const RowsetIdUnorderedSet& pre,
                                        RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
 
-    Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
-                                                std::vector<RowsetSharedPtr>* rowsets) const;
-
     Status sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
+
+    Result<CaptureRowsetResult> _remote_capture_rowsets(const Version& version_range) const;
 
     mutable std::shared_mutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;
@@ -380,6 +400,41 @@ public:
     std::mutex sample_info_lock;
     std::vector<CompactionSampleInfo> sample_infos;
     Status last_compaction_status = Status::OK();
+};
+
+struct CaptureRowsetOps {
+    bool skip_missing_versions = false;
+    bool quiet = false;
+    bool include_stale_rowsets = true;
+    bool enable_fetch_rowsets_from_peers = false;
+
+    // ======== only take effect in cloud mode ========
+
+    // Enable preference for cached/warmed-up rowsets when building version paths.
+    // When enabled, the capture process will prioritize already cached rowsets
+    // to avoid cold data reads and improve query performance.
+    bool enable_prefer_cached_rowset {false};
+
+    // Query freshness tolerance in milliseconds.
+    // Defines the time window for considering data as "fresh enough".
+    // Rowsets that became visible within this time range can be skipped if not warmed up,
+    // but older rowsets (before current_time - query_freshness_tolerance_ms) that are
+    // not warmed up will trigger fallback to normal capture.
+    // Set to -1 to disable freshness tolerance checking.
+    int64_t query_freshness_tolerance_ms {-1};
+};
+
+struct CaptureRowsetResult {
+    std::vector<RowsetSharedPtr> rowsets;
+    std::shared_ptr<DeleteBitmap> delete_bitmap;
+};
+
+struct TabletReadSource {
+    std::vector<RowSetSplits> rs_splits;
+    std::vector<RowsetMetaSharedPtr> delete_predicates;
+    std::shared_ptr<DeleteBitmap> delete_bitmap;
+    // Fill delete predicates with `rs_splits`
+    void fill_delete_predicates();
 };
 
 } /* namespace doris */

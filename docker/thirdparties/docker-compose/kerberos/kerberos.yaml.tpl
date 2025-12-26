@@ -32,6 +32,7 @@ services:
       - ./conf/kerberos1/my.cnf:/etc/my.cnf
       - ./conf/kerberos1/kdc.conf:/var/kerberos/krb5kdc/kdc.conf
       - ./conf/kerberos1/krb5.conf:/etc/krb5.conf
+      - ./paimon_data:/tmp/paimon_data
     hostname: hadoop-master
     entrypoint: /usr/local/entrypoint-hive-master.sh 1
     healthcheck:
@@ -59,6 +60,7 @@ services:
       - ./conf/kerberos2/my.cnf:/etc/my.cnf
       - ./conf/kerberos2/kdc.conf:/var/kerberos/krb5kdc/kdc.conf
       - ./conf/kerberos2/krb5.conf:/etc/krb5.conf
+      - ./paimon_data:/tmp/paimon_data
     entrypoint: /usr/local/entrypoint-hive-master.sh 2
     healthcheck:
       test: ["CMD", "ls", "/tmp/SUCCESS"]

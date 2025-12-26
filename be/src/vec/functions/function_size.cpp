@@ -62,11 +62,11 @@ public:
         auto& dst_data = dst_column->get_data();
 
         if (left_const && map_column) {
-            for (size_t i = 0; i < map_column->size(); i++) {
+            for (size_t i = 0; i < input_rows_count; i++) {
                 dst_data[i] = map_column->size_at(0);
             }
         } else if (left_const && array_column) {
-            for (size_t i = 0; i < array_column->size(); i++) {
+            for (size_t i = 0; i < input_rows_count; i++) {
                 dst_data[i] = array_column->size_at(0);
             }
         } else if (map_column) {

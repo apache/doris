@@ -200,7 +200,6 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT),
                 true,
                 logicalProperties,
-                RequireProperties.of(PhysicalProperties.ANY),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -223,7 +222,6 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                RequireProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.REQUIRE)),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -248,7 +246,6 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                RequireProperties.of(PhysicalProperties.GATHER),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);

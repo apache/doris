@@ -41,7 +41,8 @@ suite("test_str_to_date") {
     sql """ INSERT INTO test_str_to_date_db VALUES(7,'无效日期', 'yyyy-MM-dd');"""
 
     qt_select1 """
-        select id, s1, s2, STR_TO_DATE(s1, s2) from test_str_to_date_db order by id;
+        select id, s1, s2, STR_TO_DATE(s1, s2) from test_str_to_date_db 
+        where id < 7 order by id;
     """
 
     qt_const_test1 """
@@ -56,9 +57,9 @@ suite("test_str_to_date") {
     qt_const_test4 """
         SELECT STR_TO_DATE(null, null);
     """
-    qt_const_test5 """
-        SELECT STR_TO_DATE('无效日期', 'yyyy-MM-dd');
-    """
+    qt_const_test5 "select STR_TO_DATE('无效日期', 'yyyy-MM-dd')"
+    qt_const_test6 "SELECT STR_TO_DATE('09:30:17', '%h:%i:%s');"
+    testFoldConst("SELECT STR_TO_DATE('09:30:17', '%h:%i:%s');")
 
     qt_short_1 " select STR_TO_DATE('2023', '%Y') "
     qt_short_2 " select STR_TO_DATE(null, '%Y') "
@@ -76,10 +77,6 @@ suite("test_str_to_date") {
     check_fold_consistency "STR_TO_DATE(null, 'yyyy-MM-dd')"
     check_fold_consistency "STR_TO_DATE('2019-12-01', null)"
     check_fold_consistency "STR_TO_DATE(null, null)"
-    check_fold_consistency "STR_TO_DATE('无效日期', 'yyyy-MM-dd')"
-
-
-    qt_select_all_space """
-        SELECT STR_TO_DATE('  ', '%Y-%m-%d %H:%i:%s');
-    """
+    check_fold_consistency "STR_TO_DATE('  ', '%Y-%m-%d %H:%i:%s')"
+    check_fold_consistency "str_to_date('2022-09-18 00:00:59','%Y-%m-%d %H:%M:%S')"
 }

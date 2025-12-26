@@ -54,7 +54,8 @@ public class CloudReplica extends Replica {
     // In the future, a replica may be mapped to multiple BEs in a cluster,
     // so this value is be list
     @SerializedName(value = "bes")
-    private Map<String, List<Long>> primaryClusterToBackends = new ConcurrentHashMap<String, List<Long>>();
+    private ConcurrentHashMap<String, List<Long>> primaryClusterToBackends
+            = new ConcurrentHashMap<String, List<Long>>();
     @SerializedName(value = "dbId")
     private long dbId = -1;
     @SerializedName(value = "tableId")
@@ -101,7 +102,7 @@ public class CloudReplica extends Replica {
     public long getColocatedBeId(String clusterId) throws ComputeGroupException {
         CloudSystemInfoService infoService = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
         List<Backend> bes = infoService.getBackendsByClusterId(clusterId).stream()
-                .filter(be -> !be.isQueryDisabled()).collect(Collectors.toList());
+                .filter(be -> be.isQueryAvailable()).collect(Collectors.toList());
         String clusterName = infoService.getClusterNameByClusterId(clusterId);
         if (bes.isEmpty()) {
             LOG.warn("failed to get available be, cluster: {}-{}", clusterName, clusterId);
@@ -215,7 +216,8 @@ public class CloudReplica extends Replica {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             // TODO(wb) rethinking whether should update err status.
-            cluster = context.getCloudCluster();
+            cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getPhysicalCluster(context.getCloudCluster());
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get compute group by context {}", cluster);
@@ -341,7 +343,7 @@ public class CloudReplica extends Replica {
         }
 
         // use primaryClusterToBackends, if find be normal
-        Backend be = getPrimaryBackend(clusterId);
+        Backend be = getPrimaryBackend(clusterId, false);
         if (be != null && be.isQueryAvailable()) {
             return be.getId();
         }
@@ -369,12 +371,24 @@ public class CloudReplica extends Replica {
         return pickBeId;
     }
 
-    public Backend getPrimaryBackend(String clusterId) {
+    public Backend getPrimaryBackend(String clusterId, boolean setIfAbsent) {
         long beId = getClusterPrimaryBackendId(clusterId);
         if (beId != -1L) {
             return Env.getCurrentSystemInfo().getBackend(beId);
         } else {
-            return null;
+            // Load event warmup requires knowing the mapping relationship
+            // between the downstream be and tablet of the shadow index
+            if (setIfAbsent) {
+                try {
+                    beId = getBackendIdImpl(clusterId);
+                    updateClusterToPrimaryBe(clusterId, beId);
+                    return Env.getCurrentSystemInfo().getBackend(beId);
+                } catch (ComputeGroupException e) {
+                    return null;
+                }
+            } else {
+                return null;
+            }
         }
     }
 
@@ -406,11 +420,7 @@ public class CloudReplica extends Replica {
         List<Backend> availableBes = new ArrayList<>();
         List<Backend> decommissionAvailBes = new ArrayList<>();
         for (Backend be : clusterBes) {
-            long lastUpdateMs = be.getLastUpdateMs();
-            long missTimeMs = Math.abs(lastUpdateMs - System.currentTimeMillis());
-            // be core or restart must in heartbeat_interval_second
-            if ((be.isAlive() || missTimeMs <= Config.heartbeat_interval_second * 1000L)
-                    && !be.isSmoothUpgradeSrc()) {
+            if (be.isQueryAvailable() && !be.isSmoothUpgradeSrc()) {
                 if (be.isDecommissioned()) {
                     decommissionAvailBes.add(be);
                 } else {
@@ -442,8 +452,9 @@ public class CloudReplica extends Replica {
             index = getIndexByBeNum(hashCode.asLong() + idx, availableBes.size());
         }
         long pickedBeId = availableBes.get((int) index).getId();
-        LOG.info("picked beId {}, replicaId {}, partitionId {}, beNum {}, replicaIdx {}, picked Index {}, hashVal {}",
-                pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
+        LOG.info("picked clusterName {} beId {}, replicaId {}, partitionId {}, beNum {}, "
+                + "replicaIdx {}, picked Index {}, hashVal {}",
+                clusterName, pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
                 hashCode == null ? -1 : hashCode.asLong());
 
         return pickedBeId;
@@ -598,5 +609,21 @@ public class CloudReplica extends Replica {
             secondaryClusterToBackends.remove(clusterId);
             return;
         }
+    }
+
+    public List<Backend> getAllPrimaryBes() {
+        List<Backend> result = new ArrayList<Backend>();
+        primaryClusterToBackends.keySet().forEach(clusterId -> {
+            List<Long> backendIds = primaryClusterToBackends.get(clusterId);
+            if (backendIds == null || backendIds.isEmpty()) {
+                return;
+            }
+            Long beId = backendIds.get(0);
+            if (beId != -1) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                result.add(backend);
+            }
+        });
+        return result;
     }
 }

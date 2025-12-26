@@ -44,7 +44,7 @@ public class SequenceCount extends NotNullableAggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .varArgs(StringType.INSTANCE, DateV2Type.INSTANCE, BooleanType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
-                    .varArgs(StringType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, BooleanType.INSTANCE)
+                    .varArgs(StringType.INSTANCE, DateTimeV2Type.WILDCARD, BooleanType.INSTANCE)
     );
 
     /**

@@ -79,5 +79,10 @@ suite("test_jsonb_predict_is_null", "p0") {
 
     qt_select_drop "alter table jb_pred DROP COLUMN j"
 
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='jb_pred' ORDER BY createtime DESC LIMIT 1 """
+        time 600
+    }
+
     qt_select "select * from jb_pred order by id"
 }

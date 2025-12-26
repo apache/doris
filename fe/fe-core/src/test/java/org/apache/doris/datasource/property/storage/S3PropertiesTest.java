@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 
@@ -26,7 +27,9 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.services.sts.StsClient;
@@ -58,8 +61,7 @@ public class S3PropertiesTest {
         origProps.put("s3.secret_key", "myS3SecretKey");
         origProps.put("s3.region", "us-west-1");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: https://cos.example.com", () -> StorageProperties.createAll(origProps));
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
         origProps = new HashMap<>();
         origProps.put("s3.endpoint", "s3-fips.dualstack.us-east-2.amazonaws.com");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
@@ -119,7 +121,6 @@ public class S3PropertiesTest {
 
     @Test
     public void testToNativeS3Configuration() throws UserException {
-        origProps.put("s3.endpoint", "https://cos.example.com");
         origProps.put("s3.access_key", "myS3AccessKey");
         origProps.put("s3.secret_key", "myS3SecretKey");
         origProps.put("s3.region", "us-west-1");
@@ -128,13 +129,9 @@ public class S3PropertiesTest {
         origProps.put("s3.connection.maximum", "88");
         origProps.put("s3.connection.timeout", "6000");
         origProps.put("test_non_storage_param", "6000");
-
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: https://cos.example.com", () -> {
-                    StorageProperties.createAll(origProps).get(1);
-                });
         origProps.put("s3.endpoint", "s3.us-west-1.amazonaws.com");
-        S3Properties s3Properties = (S3Properties) StorageProperties.createAll(origProps).get(0);
+        S3Properties s3Properties = (S3Properties) StorageProperties.createAll(origProps).get(1);
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createAll(origProps).get(0).getClass());
         Map<String, String> s3Props = s3Properties.getBackendConfigProperties();
         Map<String, String> s3Config = s3Properties.getMatchedProperties();
         Assertions.assertTrue(!s3Config.containsKey("test_non_storage_param"));
@@ -199,14 +196,13 @@ public class S3PropertiesTest {
         Assertions.assertEquals("us-west-2", s3Properties.getRegion());
         Assertions.assertEquals("myCOSAccessKey", s3Properties.getAccessKey());
         Assertions.assertEquals("myCOSSecretKey", s3Properties.getSecretKey());
-        Assertions.assertEquals("s3.us-west-2.amazonaws.com", s3Properties.getEndpoint());
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", s3Properties.getEndpoint());
         Map<String, String> s3EndpointProps = new HashMap<>();
         s3EndpointProps.put("oss.access_key", "myCOSAccessKey");
         s3EndpointProps.put("oss.secret_key", "myCOSSecretKey");
         s3EndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
-        // not support
-        ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createPrimary(s3EndpointProps));
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Endpoint is not set. Please specify it explicitly.", () -> StorageProperties.createPrimary(s3EndpointProps));
     }
 
     @Test
@@ -227,9 +223,10 @@ public class S3PropertiesTest {
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_ROLE_ARN"));
     }
 
+
     @Test
     public void testGetAwsCredentialsProviderWithIamRoleAndExternalId(@Mocked StsClientBuilder mockBuilder,
-            @Mocked StsClient mockStsClient, @Mocked InstanceProfileCredentialsProvider mockInstanceCreds) {
+                                                                      @Mocked StsClient mockStsClient) {
 
         new Expectations() {
             {
@@ -239,8 +236,6 @@ public class S3PropertiesTest {
                 result = mockBuilder;
                 mockBuilder.build();
                 result = mockStsClient;
-                InstanceProfileCredentialsProvider.create();
-                result = mockInstanceCreds;
             }
         };
 
@@ -252,6 +247,36 @@ public class S3PropertiesTest {
         AwsCredentialsProvider provider = s3Props.getAwsCredentialsProvider();
         Assertions.assertNotNull(provider);
         Assertions.assertTrue(provider instanceof StsAssumeRoleCredentialsProvider);
+        origProps.put("s3.credentials_provider_type", "instance_profile");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        provider = s3Props.getAwsCredentialsProvider();
+        Assertions.assertEquals(StsAssumeRoleCredentialsProvider.class.getName(), provider.getClass().getName());
+        Assertions.assertEquals(InstanceProfileCredentialsProvider.class.getName(), s3Props.getHadoopStorageConfig().get("fs.s3a.assumed.role.credentials.provider"));
+        origProps.remove("s3.external_id");
+        origProps.remove("s3.role_arn");
+        origProps.remove("s3.credentials_provider_type");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        provider = s3Props.getAwsCredentialsProvider();
+        Assertions.assertNotNull(provider);
+        Assertions.assertTrue(provider instanceof AwsCredentialsProviderChain);
+        origProps.put("s3.credentials_provider_type", "instance_profile");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        provider = s3Props.getAwsCredentialsProvider();
+        Assertions.assertNotNull(provider);
+        Assertions.assertTrue(provider instanceof InstanceProfileCredentialsProvider);
+        Assertions.assertEquals(InstanceProfileCredentialsProvider.class.getName(), s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
+        origProps.put("s3.credentials_provider_type", "static");
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Unsupported AWS credentials provider mode: static", () -> StorageProperties.createPrimary(origProps));
+        origProps.put("s3.credentials_provider_type", "anonymous");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals(AnonymousCredentialsProvider.class.getName(), s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
+        origProps.remove("s3.credentials_provider_type");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        provider = s3Props.getAwsCredentialsProvider();
+        Assertions.assertNotNull(provider);
+        Assertions.assertTrue(provider instanceof AwsCredentialsProviderChain);
+        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider,software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider,software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider,software.amazon.awssdk.auth.credentials.ContainerCredentialsProvider,software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider,software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider", s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
+
     }
 
     @Test
@@ -316,21 +341,25 @@ public class S3PropertiesTest {
         String invalidEndpoint1 = "s3.amazonaws.com";
         origProps.put("s3.endpoint", invalidEndpoint1);
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: s3.amazonaws.com", () -> StorageProperties.createPrimary(origProps));
-
+                "Region is not set. If you are using a standard endpoint, the region will be detected automatically. Otherwise, please specify it explicitly.", () -> StorageProperties.createPrimary(origProps));
+        origProps.put("s3.region", "us-west-2");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
         // Fails because it contains 'amazonaws.com' but doesn't match the strict S3 endpoint pattern (invalid subdomain).
         String invalidEndpoint2 = "my-s3-service.amazonaws.com";
         origProps.put("s3.endpoint", invalidEndpoint2);
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: my-s3-service.amazonaws.com",
-                () -> StorageProperties.createPrimary(origProps));
-
-        // Fails because it contains 'amazonaws.com' but doesn't match the strict S3 endpoint pattern (invalid TLD).
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
         String invalidEndpoint3 = "http://s3.us-west-2.amazonaws.com.cn";
         origProps.put("s3.endpoint", invalidEndpoint3);
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: http://s3.us-west-2.amazonaws.com.cn",
-                () -> StorageProperties.createPrimary(origProps));
+        StorageProperties storageProperties = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("http://s3.us-west-2.amazonaws.com.cn", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint"));
+        origProps.remove("s3.endpoint");
+        storageProperties = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint"));
+        origProps.put("s3.endpoint", "s3.us-west-2.supervise.com");
+        origProps.put("s3.region", "us-west-2");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }
 
     @Test
@@ -409,5 +438,36 @@ public class S3PropertiesTest {
         Assertions.assertEquals("https://s3.ap-east-1.amazonaws.com", s3Properties.endpoint);
         Assertions.assertEquals("aaa", s3Properties.accessKey);
         Assertions.assertEquals("bbb", s3Properties.secretKey);
+    }
+
+    @Test
+    public void testS3PropertiesAwsAnonymousCredentialsProvider() {
+        Config.aws_credentials_provider_version = "v1";
+        Map<String, String> props = Maps.newHashMap();
+        props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
+        AwsCredentialsProvider provider = s3Properties.getAwsCredentialsProvider();
+        Assertions.assertEquals(AnonymousCredentialsProvider.class, provider.getClass());
+        Config.aws_credentials_provider_version = "v2";
+        provider = s3Properties.getAwsCredentialsProvider();
+        Assertions.assertEquals(AwsCredentialsProviderChain.class, provider.getClass());
+        Config.aws_credentials_provider_version = "v2";
+    }
+
+    @Test
+    public void testS3DisableHadoopCache() throws UserException {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3a.impl.disable.cache"));
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3n.impl.disable.cache"));
+        props.put("fs.s3a.impl.disable.cache", "true");
+        props.put("fs.s3.impl.disable.cache", "false");
+        props.put("fs.s3n.impl.disable.cache", "null");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3a.impl.disable.cache"));
+        Assertions.assertEquals("false", s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
+        Assertions.assertEquals("false", s3Properties.hadoopStorageConfig.get("fs.s3n.impl.disable.cache"));
     }
 }

@@ -371,8 +371,6 @@ public:
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
-    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
-
     size_t get_max_row_byte_size() const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
@@ -428,6 +426,12 @@ public:
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
+
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override {
@@ -522,9 +526,14 @@ public:
 
     void erase(size_t start, size_t length) override;
 
-    void serialize_vec(StringRef* keys, const size_t num_rows) const override;
+    void deserialize(StringRef* keys, const size_t num_rows) override;
+    void serialize(StringRef* keys, const size_t num_rows) const override;
     size_t serialize_impl(char* pos, size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
+    void serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                 const uint8_t* __restrict null_map) const override;
+    void deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                   PaddedPODArray<UInt8>& null_map) override;
 };
 
 using ColumnString = ColumnStr<UInt32>;

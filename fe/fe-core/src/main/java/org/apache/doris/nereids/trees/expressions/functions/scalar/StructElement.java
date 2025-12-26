@@ -20,13 +20,17 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
@@ -38,7 +42,7 @@ import java.util.List;
  * ScalarFunction 'struct_element'.
  */
 public class StructElement extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNullable {
+        implements ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral, PreferPushDownProject {
 
     /**
      * constructor with 0 or more arguments.
@@ -54,7 +58,8 @@ public class StructElement extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child(0).getDataType() instanceof StructType)) {
+        if (!(child(0).getDataType() instanceof StructType
+                || child(0).getDataType() instanceof NullType)) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), this.getArguments());
         }
         if (!(child(1) instanceof StringLikeLiteral || child(1) instanceof IntegerLikeLiteral)) {
@@ -79,6 +84,11 @@ public class StructElement extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
+        if (child(0).getDataType() instanceof NullType) {
+            return ImmutableList.of(
+                    FunctionSignature.ret(NullType.INSTANCE).args(NullType.INSTANCE, child(1).getDataType())
+            );
+        }
         StructType structArgType = (StructType) child(0).getDataType();
         DataType retType;
         if (child(1) instanceof IntegerLikeLiteral) {
@@ -90,10 +100,11 @@ public class StructElement extends ScalarFunction
             }
         } else if (child(1) instanceof StringLikeLiteral) {
             String name = ((StringLikeLiteral) child(1)).getStringValue();
-            if (!structArgType.getNameToFields().containsKey(name)) {
+            StructField field = structArgType.getField(name);
+            if (field == null) {
                 throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
             } else {
-                retType = structArgType.getNameToFields().get(name).getDataType();
+                retType = field.getDataType();
             }
         } else {
             throw new AnalysisException("struct_element only allows"

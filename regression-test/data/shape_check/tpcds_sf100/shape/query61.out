@@ -8,12 +8,12 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecGather]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF10 ss_item_sk->[i_item_sk]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF10 ss_item_sk->[i_item_sk]
 ------------------PhysicalProject
 --------------------filter((item.i_category = 'Jewelry'))
 ----------------------PhysicalOlapScan[item] apply RFs: RF10
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF9 c_current_addr_sk->[ca_address_sk]
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF9 c_current_addr_sk->[ca_address_sk]
 ----------------------PhysicalProject
 ------------------------filter((customer_address.ca_gmt_offset = -7.00))
 --------------------------PhysicalOlapScan[customer_address] apply RFs: RF9
@@ -42,12 +42,12 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecGather]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF4 ss_item_sk->[i_item_sk]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF4 ss_item_sk->[i_item_sk]
 ------------------PhysicalProject
 --------------------filter((item.i_category = 'Jewelry'))
 ----------------------PhysicalOlapScan[item] apply RFs: RF4
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF3 c_current_addr_sk->[ca_address_sk]
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF3 c_current_addr_sk->[ca_address_sk]
 ----------------------PhysicalProject
 ------------------------filter((customer_address.ca_gmt_offset = -7.00))
 --------------------------PhysicalOlapScan[customer_address] apply RFs: RF3

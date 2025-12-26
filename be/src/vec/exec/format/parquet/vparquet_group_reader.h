@@ -60,6 +60,10 @@ class OffsetIndex;
 class RowGroup;
 } // namespace tparquet
 
+namespace doris::segment_v2 {
+class RowIdColumnIteratorV2;
+}
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
@@ -148,12 +152,14 @@ public:
 
     RowGroupReader(io::FileReaderSPtr file_reader, const std::vector<std::string>& read_columns,
                    const int32_t row_group_id, const tparquet::RowGroup& row_group,
-                   cctz::time_zone* ctz, io::IOContext* io_ctx,
+                   const cctz::time_zone* ctz, io::IOContext* io_ctx,
                    const PositionDeleteContext& position_delete_ctx,
-                   const LazyReadContext& lazy_read_ctx, RuntimeState* state);
+                   const LazyReadContext& lazy_read_ctx, RuntimeState* state,
+                   const std::set<uint64_t>& column_ids,
+                   const std::set<uint64_t>& filter_column_ids);
 
     ~RowGroupReader();
-    Status init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
+    Status init(const FieldDescriptor& schema, RowRanges& row_ranges,
                 std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
                 const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
                 const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -164,17 +170,23 @@ public:
     int64_t predicate_filter_time() const { return _predicate_filter_time; }
     int64_t dict_filter_rewrite_time() const { return _dict_filter_rewrite_time; }
 
-    ParquetColumnReader::Statistics statistics();
+    ParquetColumnReader::ColumnStatistics merged_column_statistics();
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
     int64_t get_remaining_rows() { return _remaining_rows; }
 
     void set_row_id_column_iterator(
-            const std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int>& iterator_pair) {
+            const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>&
+                    iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
 
     void set_current_row_group_idx(RowGroupIndex row_group_idx) {
         _current_row_group_idx = row_group_idx;
+    }
+
+    void set_col_name_to_block_idx(
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        _col_name_to_block_idx = col_name_to_block_idx;
     }
 
 protected:
@@ -185,14 +197,16 @@ protected:
     }
 
 private:
-    void _merge_read_ranges(std::vector<RowRange>& row_ranges);
     Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
                              bool* modify_row_ids);
+
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,
                              size_t batch_size, size_t* read_rows, bool* batch_eof,
                              FilterMap& filter_map);
+
     Status _do_lazy_read(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
-    Status _rebuild_filter_map(FilterMap& filter_map, std::unique_ptr<uint8_t[]>& filter_map_data,
+    Status _rebuild_filter_map(FilterMap& filter_map,
+                               DorisUniqueBufferPtr<uint8_t>& filter_map_data,
                                size_t pre_read_rows) const;
     Status _fill_partition_columns(
             Block* block, size_t rows,
@@ -224,11 +238,11 @@ private:
     const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
     int64_t _remaining_rows;
-    cctz::time_zone* _ctz = nullptr;
+    const cctz::time_zone* _ctz = nullptr;
     io::IOContext* _io_ctx = nullptr;
     PositionDeleteContext _position_delete_ctx;
     // merge the row ranges generated from page index and position delete.
-    std::vector<RowRange> _read_ranges;
+    RowRanges _read_ranges;
 
     const LazyReadContext& _lazy_read_ctx;
     int64_t _lazy_read_filtered_rows = 0;
@@ -248,12 +262,16 @@ private:
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     RuntimeState* _state = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
+    const std::set<uint64_t>& _column_ids;
+    const std::set<uint64_t>& _filter_column_ids;
     bool _is_row_group_filtered = false;
 
     RowGroupIndex _current_row_group_idx {0, 0, 0};
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
-                                                                                           -1};
+    std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
+            _row_id_column_iterator_pair = {nullptr, -1};
     std::vector<rowid_t> _current_batch_row_ids;
+
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 };
 #include "common/compile_check_end.h"
 

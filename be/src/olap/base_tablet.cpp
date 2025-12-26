@@ -18,6 +18,7 @@
 #include "olap/base_tablet.h"
 
 #include <bthread/mutex.h>
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
@@ -44,11 +45,11 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/tablet_fwd.h"
 #include "olap/txn_manager.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
-#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
@@ -131,11 +132,14 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     // Before doris 1.2 version, rowset metas don't have tablet schema.
     // And when upgrade to doris 1.2 version,
     // all rowset metas will be set the tablet schmea from tablet meta.
-    if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
+    if (_tablet_meta->all_rs_metas().empty() ||
+        !_tablet_meta->all_rs_metas().begin()->second->tablet_schema()) {
         _max_version_schema = _tablet_meta->tablet_schema();
     } else {
-        _max_version_schema =
-                tablet_schema_with_merged_max_schema_version(_tablet_meta->all_rs_metas());
+        std::vector<RowsetMetaSharedPtr> rowset_metas(_tablet_meta->all_rs_metas().size());
+        std::transform(_tablet_meta->all_rs_metas().begin(), _tablet_meta->all_rs_metas().end(),
+                       rowset_metas.begin(), [](const auto& it) { return it.second; });
+        _max_version_schema = tablet_schema_with_merged_max_schema_version(rowset_metas);
     }
     DCHECK(_max_version_schema);
     g_total_tablet_num << 1;
@@ -149,8 +153,7 @@ BaseTablet::~BaseTablet() {
 TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
     RowsetMetaSharedPtr max_schema_version_rs = *std::max_element(
-            rowset_metas.begin(), rowset_metas.end(),
-            [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
+            rowset_metas.begin(), rowset_metas.end(), [](const auto& a, const auto& b) -> bool {
                 return !a->tablet_schema()
                                ? true
                                : (!b->tablet_schema()
@@ -182,10 +185,9 @@ void BaseTablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema
 uint32_t BaseTablet::get_real_compaction_score() const {
     std::shared_lock l(_meta_lock);
     const auto& rs_metas = _tablet_meta->all_rs_metas();
-    return std::accumulate(rs_metas.begin(), rs_metas.end(), 0,
-                           [](uint32_t score, const RowsetMetaSharedPtr& rs_meta) {
-                               return score + rs_meta->get_compaction_score();
-                           });
+    return std::accumulate(rs_metas.begin(), rs_metas.end(), 0, [](uint32_t score, const auto& it) {
+        return score + it.second->get_compaction_score();
+    });
 }
 
 Status BaseTablet::capture_rs_readers_unlocked(const Versions& version_path,
@@ -291,8 +293,8 @@ Versions BaseTablet::get_missed_versions(int64_t spec_version) const {
     Versions existing_versions;
     {
         std::shared_lock rdlock(_meta_lock);
-        for (const auto& rs : _tablet_meta->all_rs_metas()) {
-            existing_versions.emplace_back(rs->version());
+        for (const auto& [ver, _] : _tablet_meta->all_rs_metas()) {
+            existing_versions.emplace_back(ver);
         }
     }
     return calc_missed_versions(spec_version, std::move(existing_versions));
@@ -302,8 +304,8 @@ Versions BaseTablet::get_missed_versions_unlocked(int64_t spec_version) const {
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
 
     Versions existing_versions;
-    for (const auto& rs : _tablet_meta->all_rs_metas()) {
-        existing_versions.emplace_back(rs->version());
+    for (const auto& [ver, _] : _tablet_meta->all_rs_metas()) {
+        existing_versions.emplace_back(ver);
     }
     return calc_missed_versions(spec_version, std::move(existing_versions));
 }
@@ -331,21 +333,19 @@ bool BaseTablet::_reconstruct_version_tracker_if_necessary() {
 // should use this method to get a copy of current tablet meta
 // there are some rowset meta in local meta store and in in-memory tablet meta
 // but not in tablet meta in local meta store
-void BaseTablet::generate_tablet_meta_copy(TabletMeta& new_tablet_meta) const {
-    TabletMetaPB tablet_meta_pb;
-    {
-        std::shared_lock rdlock(_meta_lock);
-        _tablet_meta->to_meta_pb(&tablet_meta_pb);
-    }
-    generate_tablet_meta_copy_unlocked(new_tablet_meta);
+void BaseTablet::generate_tablet_meta_copy(TabletMeta& new_tablet_meta,
+                                           bool cloud_get_rowset_meta) const {
+    std::shared_lock rdlock(_meta_lock);
+    generate_tablet_meta_copy_unlocked(new_tablet_meta, cloud_get_rowset_meta);
 }
 
 // this is a unlocked version of generate_tablet_meta_copy()
 // some method already hold the _meta_lock before calling this,
 // such as EngineCloneTask::_finish_clone -> tablet->revise_tablet_meta
-void BaseTablet::generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta) const {
+void BaseTablet::generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
+                                                    bool cloud_get_rowset_meta) const {
     TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    _tablet_meta->to_meta_pb(&tablet_meta_pb, cloud_get_rowset_meta);
     new_tablet_meta.init_from_pb(tablet_meta_pb);
 }
 
@@ -496,7 +496,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
                 return s;
             }
-            if (s.ok() && tablet_delete_bitmap->contains_agg_without_cache(
+            if (s.ok() && tablet_delete_bitmap->contains_agg_with_cache_if_eligible(
                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
@@ -526,13 +526,12 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
 // user can get all delete bitmaps from that token.
 // if `token` is nullptr, the calculation will run in local, and user can get the result
 // delete bitmap from `delete_bitmap` directly.
-Status BaseTablet::calc_delete_bitmap(
-        const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
-        const std::vector<segment_v2::SegmentSharedPtr>& segments,
-        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
-        int64_t end_version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
-        DeleteBitmapPtr tablet_delete_bitmap,
-        std::function<void(segment_v2::SegmentSharedPtr, Status)> callback) {
+Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
+                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
+                                      CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
+                                      DeleteBitmapPtr tablet_delete_bitmap) {
     if (specified_rowsets.empty() || segments.empty()) {
         return Status::OK();
     }
@@ -542,8 +541,7 @@ Status BaseTablet::calc_delete_bitmap(
         const auto& seg = segment;
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet, rowset, seg, specified_rowsets, end_version,
-                                          delete_bitmap, rowset_writer, tablet_delete_bitmap,
-                                          callback));
+                                          delete_bitmap, rowset_writer, tablet_delete_bitmap));
         } else {
             RETURN_IF_ERROR(tablet->calc_segment_delete_bitmap(
                     rowset, segment, specified_rowsets, delete_bitmap, end_version, rowset_writer,
@@ -584,14 +582,6 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                rowset_schema->sequence_col_idx()) != including_cids.cend());
         }
     }
-
-    DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.sleep", {
-        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
-        auto sleep = dp->param<int64_t>("sleep", 10);
-        if (target_tablet_id == tablet_id()) {
-            std::this_thread::sleep_for(std::chrono::seconds(sleep));
-        }
-    });
 
     if (rowset_schema->num_variant_columns() > 0) {
         // During partial updates, the extracted columns of a variant should not be included in the rowset schema.
@@ -942,11 +932,10 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
 
 const signed char* BaseTablet::get_delete_sign_column_data(const vectorized::Block& block,
                                                            size_t rows_at_least) {
-    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr) {
+    if (int pos = block.get_position_by_name(DELETE_SIGN); pos != -1) {
+        const vectorized::ColumnWithTypeAndName& delete_sign_column = block.get_by_position(pos);
         const auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+                assert_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
         if (delete_sign_col.size() >= rows_at_least) {
             return delete_sign_col.get_data().data();
         }
@@ -1343,37 +1332,6 @@ void BaseTablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
     }
 }
 
-Status BaseTablet::_capture_consistent_rowsets_unlocked(
-        const std::vector<Version>& version_path, std::vector<RowsetSharedPtr>* rowsets) const {
-    DCHECK(rowsets != nullptr);
-    rowsets->reserve(version_path.size());
-    for (const auto& version : version_path) {
-        bool is_find = false;
-        do {
-            auto it = _rs_version_map.find(version);
-            if (it != _rs_version_map.end()) {
-                is_find = true;
-                rowsets->push_back(it->second);
-                break;
-            }
-
-            auto it_expired = _stale_rs_version_map.find(version);
-            if (it_expired != _stale_rs_version_map.end()) {
-                is_find = true;
-                rowsets->push_back(it_expired->second);
-                break;
-            }
-        } while (false);
-
-        if (!is_find) {
-            return Status::Error<CAPTURE_ROWSET_ERROR>(
-                    "fail to find Rowset for version. tablet={}, version={}", tablet_id(),
-                    version.to_string());
-        }
-    }
-    return Status::OK();
-}
-
 Status BaseTablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap,
                                                    int64_t max_version, int64_t txn_id,
                                                    const RowsetIdUnorderedSet& rowset_ids,
@@ -1542,6 +1500,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
                     "BaseTablet::update_delete_bitmap.block");
             if (block_dp) {
                 auto wait_token = block_dp->param<std::string>("wait_token", "");
+                LOG(INFO) << "BaseTablet::update_delete_bitmap.enable_spin_wait, wait_token: "
+                          << wait_token << ", token: " << token;
                 if (wait_token != token) {
                     break;
                 }
@@ -2065,7 +2025,7 @@ Status BaseTablet::calc_file_crc(uint32_t* crc_value, int64_t start_version, int
             return st;
         }
         // crc_value is calculated based on the crc_value of each rowset.
-        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const char*>(&rs_crc_value),
+        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const uint8_t*>(&rs_crc_value),
                                     sizeof(rs_crc_value));
         *file_count += rs_file_count;
     }
@@ -2142,12 +2102,47 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
     }
 }
 
+void TabletReadSource::fill_delete_predicates() {
+    DCHECK_EQ(delete_predicates.size(), 0);
+    auto delete_pred_view =
+            rs_splits | std::views::transform([](auto&& split) {
+                return split.rs_reader->rowset()->rowset_meta();
+            }) |
+            std::views::filter([](const auto& rs_meta) { return rs_meta->has_delete_predicate(); });
+    delete_predicates = {delete_pred_view.begin(), delete_pred_view.end()};
+}
+
 int32_t BaseTablet::max_version_config() {
     int32_t max_version = tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
                                   ? std::max(config::time_series_max_tablet_version_num,
                                              config::max_tablet_version_num)
                                   : config::max_tablet_version_num;
     return max_version;
+}
+
+void BaseTablet::prefill_dbm_agg_cache(const RowsetSharedPtr& rowset, int64_t version) {
+    for (std::size_t i = 0; i < rowset->num_segments(); i++) {
+        tablet_meta()->delete_bitmap().get_agg({rowset->rowset_id(), i, version});
+    }
+}
+
+void BaseTablet::prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& output_rowset) {
+    if (keys_type() == KeysType::UNIQUE_KEYS && enable_unique_key_merge_on_write() &&
+        (config::enable_prefill_output_dbm_agg_cache_after_compaction ||
+         config::enable_prefill_all_dbm_agg_cache_after_compaction)) {
+        int64_t cur_max_version {-1};
+        {
+            std::shared_lock rlock(get_header_lock());
+            cur_max_version = max_version_unlocked();
+        }
+        if (config::enable_prefill_all_dbm_agg_cache_after_compaction) {
+            traverse_rowsets(
+                    [&](const RowsetSharedPtr& rs) { prefill_dbm_agg_cache(rs, cur_max_version); },
+                    false);
+        } else if (config::enable_prefill_output_dbm_agg_cache_after_compaction) {
+            prefill_dbm_agg_cache(output_rowset, cur_max_version);
+        }
+    }
 }
 
 } // namespace doris

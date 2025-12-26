@@ -20,7 +20,7 @@ suite("test_jdbc_catalog_push_cast", "p0,external,mysql,external_docker,external
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
 

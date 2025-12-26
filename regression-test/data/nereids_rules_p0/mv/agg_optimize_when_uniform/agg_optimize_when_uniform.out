@@ -10,7 +10,7 @@
 
 -- !shape2_0_after --
 PhysicalResultSink
---hashAgg[DISTINCT_LOCAL]
+--hashAgg[DISTINCT_GLOBAL]
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------filter((mv2_0.o_orderkey = 1) and (mv2_0.o_orderstatus = 'o'))

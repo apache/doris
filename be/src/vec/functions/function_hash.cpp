@@ -26,6 +26,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
@@ -40,9 +41,18 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 constexpr uint64_t emtpy_value = 0xe28dbde7fe22e41c;
 
-template <PrimitiveType ReturnType>
+template <PrimitiveType ReturnType, bool is_mmh64_v2 = false>
 struct MurmurHash3Impl {
-    static constexpr auto name = ReturnType == TYPE_INT ? "murmur_hash3_32" : "murmur_hash3_64";
+    static constexpr auto get_name() {
+        if constexpr (ReturnType == TYPE_INT) {
+            return "murmur_hash3_32";
+        } else if constexpr (is_mmh64_v2) {
+            return "murmur_hash3_64_v2";
+        } else {
+            return "murmur_hash3_64";
+        }
+    }
+    static constexpr auto name = get_name();
 
     static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
@@ -86,9 +96,9 @@ struct MurmurHash3Impl {
                             reinterpret_cast<const char*>(&data[current_offset]),
                             offsets[i] - current_offset, col_to_data[i]);
                 } else {
-                    murmur_hash3_x64_64(reinterpret_cast<const char*>(&data[current_offset]),
-                                        offsets[i] - current_offset, col_to_data[i],
-                                        col_to_data.data() + i);
+                    col_to_data[i] = HashUtil::murmur_hash3_64<is_mmh64_v2>(
+                            reinterpret_cast<const char*>(&data[current_offset]),
+                            offsets[i] - current_offset, col_to_data[i]);
                 }
                 current_offset = offsets[i];
             }
@@ -100,8 +110,8 @@ struct MurmurHash3Impl {
                     col_to_data[i] =
                             HashUtil::murmur_hash3_32(value.data(), value.size(), col_to_data[i]);
                 } else {
-                    murmur_hash3_x64_64(value.data(), value.size(), col_to_data[i],
-                                        col_to_data.data() + i);
+                    col_to_data[i] = HashUtil::murmur_hash3_64<is_mmh64_v2>(
+                            value.data(), value.size(), col_to_data[i]);
                 }
             }
         } else {
@@ -117,6 +127,22 @@ using FunctionMurmurHash3_32 =
         FunctionVariadicArgumentsBase<DataTypeInt32, MurmurHash3Impl<TYPE_INT>>;
 using FunctionMurmurHash3_64 =
         FunctionVariadicArgumentsBase<DataTypeInt64, MurmurHash3Impl<TYPE_BIGINT>>;
+using FunctionMurmurHash3_64_V2 =
+        FunctionVariadicArgumentsBase<DataTypeInt64, MurmurHash3Impl<TYPE_BIGINT, true>>;
+
+#ifdef BE_TEST
+const char* murmur_hash3_get_name_type_int_for_test() {
+    return MurmurHash3Impl<TYPE_INT>::get_name();
+}
+
+const char* murmur_hash3_get_name_type_bigint_for_test() {
+    return MurmurHash3Impl<TYPE_BIGINT>::get_name();
+}
+
+const char* murmur_hash3_get_name_type_bigint_v2_for_test() {
+    return MurmurHash3Impl<TYPE_BIGINT, true>::get_name();
+}
+#endif
 
 template <PrimitiveType ReturnType>
 struct XxHashImpl {
@@ -177,6 +203,17 @@ struct XxHashImpl {
                             HashUtil::xxHash64WithSeed(value.data(), value.size(), col_to_data[i]);
                 }
             }
+        } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(column)) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto data_ref = vb_col->get_data_at(i);
+                if constexpr (ReturnType == TYPE_INT) {
+                    col_to_data[i] = HashUtil::xxHash32WithSeed(data_ref.data, data_ref.size,
+                                                                col_to_data[i]);
+                } else {
+                    col_to_data[i] = HashUtil::xxHash64WithSeed(data_ref.data, data_ref.size,
+                                                                col_to_data[i]);
+                }
+            }
         } else {
             DCHECK(false);
             return Status::NotSupported("Illegal column {} of argument of function {}",
@@ -192,7 +229,9 @@ using FunctionXxHash_64 = FunctionVariadicArgumentsBase<DataTypeInt64, XxHashImp
 void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMurmurHash3_32>();
     factory.register_function<FunctionMurmurHash3_64>();
+    factory.register_function<FunctionMurmurHash3_64_V2>();
     factory.register_function<FunctionXxHash_32>();
     factory.register_function<FunctionXxHash_64>();
+    factory.register_alias("xxhash_64", "xxhash3_64");
 }
 } // namespace doris::vectorized

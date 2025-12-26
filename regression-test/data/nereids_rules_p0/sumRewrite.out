@@ -3,7 +3,7 @@
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) + 2)) AS `sum(id + 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) + 2)) AS `partial_sum((cast(id as BIGINT) + 2))`)]
-------PhysicalProject[(cast(id as BIGINT) + 2) AS `(cast(id as BIGINT) + 2)`]
+------PhysicalProject[sr.id]
 --------PhysicalOlapScan[sr]
 
 -- !sum_add_const_result --
@@ -13,7 +13,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) + 2)) AS `result`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) + 2)) AS `partial_sum((cast(id as BIGINT) + 2))`)]
-------PhysicalProject[(cast(id as BIGINT) + 2) AS `(cast(id as BIGINT) + 2)`]
+------PhysicalProject[sr.id]
 --------PhysicalOlapScan[sr]
 
 -- !sum_add_const_alias_result --
@@ -23,7 +23,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) + 2)) AS `sum(id + 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) + 2)) AS `partial_sum((cast(id as BIGINT) + 2))`)]
-------PhysicalProject[(cast(id as BIGINT) + 2) AS `(cast(id as BIGINT) + 2)`]
+------PhysicalProject[sr.id]
 --------filter(( not id IS NULL))
 ----------PhysicalOlapScan[sr]
 
@@ -34,7 +34,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(sr.not_null_id), outputExpr=(sr.not_null_id, sum((cast(id as BIGINT) + 2)) AS `sum(id + 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(sr.not_null_id), outputExpr=(partial_sum((cast(id as BIGINT) + 2)) AS `partial_sum((cast(id as BIGINT) + 2))`, sr.not_null_id)]
-------PhysicalProject[(cast(id as BIGINT) + 2) AS `(cast(id as BIGINT) + 2)`, sr.not_null_id]
+------PhysicalProject[sr.id, sr.not_null_id]
 --------PhysicalOlapScan[sr]
 
 -- !sum_add_const_group_by_result --
@@ -49,7 +49,7 @@ PhysicalResultSink
 --filter((sum(id + 2) > 5))
 ----hashAgg[GLOBAL, groupByExpr=(sr.not_null_id), outputExpr=(sr.not_null_id, sum((cast(id as BIGINT) + 2)) AS `sum(id + 2)`)]
 ------hashAgg[LOCAL, groupByExpr=(sr.not_null_id), outputExpr=(partial_sum((cast(id as BIGINT) + 2)) AS `partial_sum((cast(id as BIGINT) + 2))`, sr.not_null_id)]
---------PhysicalProject[(cast(id as BIGINT) + 2) AS `(cast(id as BIGINT) + 2)`, sr.not_null_id]
+--------PhysicalProject[sr.id, sr.not_null_id]
 ----------PhysicalOlapScan[sr]
 
 -- !sum_add_const_having_result --
@@ -63,7 +63,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) - 2)) AS `sum(id - 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) - 2)) AS `partial_sum((cast(id as BIGINT) - 2))`)]
-------PhysicalProject[(cast(id as BIGINT) - 2) AS `(cast(id as BIGINT) - 2)`]
+------PhysicalProject[sr.id]
 --------PhysicalOlapScan[sr]
 
 -- !sum_sub_const_result --
@@ -73,7 +73,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) - 2)) AS `result`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) - 2)) AS `partial_sum((cast(id as BIGINT) - 2))`)]
-------PhysicalProject[(cast(id as BIGINT) - 2) AS `(cast(id as BIGINT) - 2)`]
+------PhysicalProject[sr.id]
 --------PhysicalOlapScan[sr]
 
 -- !sum_sub_const_alias_result --
@@ -83,7 +83,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) - 2)) AS `sum(id - 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) - 2)) AS `partial_sum((cast(id as BIGINT) - 2))`)]
-------PhysicalProject[(cast(id as BIGINT) - 2) AS `(cast(id as BIGINT) - 2)`]
+------PhysicalProject[sr.id]
 --------filter(( not id IS NULL))
 ----------PhysicalOlapScan[sr]
 
@@ -94,7 +94,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(sr.not_null_id), outputExpr=(sr.not_null_id, sum((cast(id as BIGINT) - 2)) AS `sum(id - 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(sr.not_null_id), outputExpr=(partial_sum((cast(id as BIGINT) - 2)) AS `partial_sum((cast(id as BIGINT) - 2))`, sr.not_null_id)]
-------PhysicalProject[(cast(id as BIGINT) - 2) AS `(cast(id as BIGINT) - 2)`, sr.not_null_id]
+------PhysicalProject[sr.id, sr.not_null_id]
 --------PhysicalOlapScan[sr]
 
 -- !sum_sub_const_group_by_result --
@@ -109,7 +109,7 @@ PhysicalResultSink
 --filter((sum(id - 2) > 0))
 ----hashAgg[GLOBAL, groupByExpr=(sr.not_null_id), outputExpr=(sr.not_null_id, sum((cast(id as BIGINT) - 2)) AS `sum(id - 2)`)]
 ------hashAgg[LOCAL, groupByExpr=(sr.not_null_id), outputExpr=(partial_sum((cast(id as BIGINT) - 2)) AS `partial_sum((cast(id as BIGINT) - 2))`, sr.not_null_id)]
---------PhysicalProject[(cast(id as BIGINT) - 2) AS `(cast(id as BIGINT) - 2)`, sr.not_null_id]
+--------PhysicalProject[sr.id, sr.not_null_id]
 ----------PhysicalOlapScan[sr]
 
 -- !sum_sub_const_having_result --
@@ -122,9 +122,7 @@ PhysicalResultSink
 -- !sum_add_const_empty_table_shape --
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) + 2)) AS `sum(id + 2)`)]
-----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) + 2)) AS `partial_sum((cast(id as BIGINT) + 2))`)]
-------PhysicalProject[(cast(id as BIGINT) + 2) AS `(cast(id as BIGINT) + 2)`, sr.id]
---------PhysicalEmptyRelation
+----PhysicalEmptyRelation
 
 -- !sum_add_const_empty_table_result --
 \N
@@ -138,9 +136,7 @@ PhysicalResultSink
 -- !sum_sub_const_empty_table_shape --
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) - 2)) AS `sum(id - 2)`)]
-----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) - 2)) AS `partial_sum((cast(id as BIGINT) - 2))`)]
-------PhysicalProject[(cast(id as BIGINT) - 2) AS `(cast(id as BIGINT) - 2)`, sr.id]
---------PhysicalEmptyRelation
+----PhysicalEmptyRelation
 
 -- !sum_sub_const_empty_table_result --
 \N
@@ -155,7 +151,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(f_id as DOUBLE) + 2.0)) AS `sum(f_id + 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(f_id as DOUBLE) + 2.0)) AS `partial_sum((cast(f_id as DOUBLE) + 2.0))`)]
-------PhysicalProject[(cast(f_id as DOUBLE) + 2.0) AS `(cast(f_id as DOUBLE) + 2.0)`]
+------PhysicalProject[sr.f_id]
 --------PhysicalOlapScan[sr]
 
 -- !float_sum_add_const_result --
@@ -165,7 +161,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(f_id as DOUBLE) + 2.0)) AS `result`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(f_id as DOUBLE) + 2.0)) AS `partial_sum((cast(f_id as DOUBLE) + 2.0))`)]
-------PhysicalProject[(cast(f_id as DOUBLE) + 2.0) AS `(cast(f_id as DOUBLE) + 2.0)`]
+------PhysicalProject[sr.f_id]
 --------PhysicalOlapScan[sr]
 
 -- !float_sum_add_const_alias_result --
@@ -175,7 +171,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(f_id as DOUBLE) + 2.0)) AS `sum(f_id + 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(f_id as DOUBLE) + 2.0)) AS `partial_sum((cast(f_id as DOUBLE) + 2.0))`)]
-------PhysicalProject[(cast(f_id as DOUBLE) + 2.0) AS `(cast(f_id as DOUBLE) + 2.0)`]
+------PhysicalProject[sr.f_id]
 --------filter(( not f_id IS NULL))
 ----------PhysicalOlapScan[sr]
 
@@ -186,11 +182,11 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(sr.not_null_id), outputExpr=(sr.not_null_id, sum((cast(f_id as DOUBLE) + 2.0)) AS `sum(f_id + 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(sr.not_null_id), outputExpr=(partial_sum((cast(f_id as DOUBLE) + 2.0)) AS `partial_sum((cast(f_id as DOUBLE) + 2.0))`, sr.not_null_id)]
-------PhysicalProject[(cast(f_id as DOUBLE) + 2.0) AS `(cast(f_id as DOUBLE) + 2.0)`, sr.not_null_id]
+------PhysicalProject[sr.f_id, sr.not_null_id]
 --------PhysicalOlapScan[sr]
 
 -- !float_sum_add_const_group_by_result --
-10	24.0
+10	24
 6	7.300000071525574
 7	11.70000004768372
 8	16.09999990463257
@@ -201,11 +197,11 @@ PhysicalResultSink
 --filter((sum(f_id + 2) > 5.0))
 ----hashAgg[GLOBAL, groupByExpr=(sr.not_null_id), outputExpr=(sr.not_null_id, sum((cast(f_id as DOUBLE) + 2.0)) AS `sum(f_id + 2)`)]
 ------hashAgg[LOCAL, groupByExpr=(sr.not_null_id), outputExpr=(partial_sum((cast(f_id as DOUBLE) + 2.0)) AS `partial_sum((cast(f_id as DOUBLE) + 2.0))`, sr.not_null_id)]
---------PhysicalProject[(cast(f_id as DOUBLE) + 2.0) AS `(cast(f_id as DOUBLE) + 2.0)`, sr.not_null_id]
+--------PhysicalProject[sr.f_id, sr.not_null_id]
 ----------PhysicalOlapScan[sr]
 
 -- !float_sum_add_const_having_result --
-10	24.0
+10	24
 6	7.300000071525574
 7	11.70000004768372
 8	16.09999990463257
@@ -215,7 +211,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(f_id as DOUBLE) - 2.0)) AS `sum(f_id - 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(f_id as DOUBLE) - 2.0)) AS `partial_sum((cast(f_id as DOUBLE) - 2.0))`)]
-------PhysicalProject[(cast(f_id as DOUBLE) - 2.0) AS `(cast(f_id as DOUBLE) - 2.0)`]
+------PhysicalProject[sr.f_id]
 --------PhysicalOlapScan[sr]
 
 -- !float_sum_sub_const_result --
@@ -225,7 +221,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(f_id as DOUBLE) - 2.0)) AS `result`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(f_id as DOUBLE) - 2.0)) AS `partial_sum((cast(f_id as DOUBLE) - 2.0))`)]
-------PhysicalProject[(cast(f_id as DOUBLE) - 2.0) AS `(cast(f_id as DOUBLE) - 2.0)`]
+------PhysicalProject[sr.f_id]
 --------PhysicalOlapScan[sr]
 
 -- !float_sum_sub_const_alias_result --
@@ -235,7 +231,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(f_id as DOUBLE) - 2.0)) AS `sum(f_id - 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(f_id as DOUBLE) - 2.0)) AS `partial_sum((cast(f_id as DOUBLE) - 2.0))`)]
-------PhysicalProject[(cast(f_id as DOUBLE) - 2.0) AS `(cast(f_id as DOUBLE) - 2.0)`]
+------PhysicalProject[sr.f_id]
 --------filter(( not f_id IS NULL))
 ----------PhysicalOlapScan[sr]
 
@@ -246,11 +242,11 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(sr.not_null_id), outputExpr=(sr.not_null_id, sum((cast(f_id as DOUBLE) - 2.0)) AS `sum(f_id - 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(sr.not_null_id), outputExpr=(partial_sum((cast(f_id as DOUBLE) - 2.0)) AS `partial_sum((cast(f_id as DOUBLE) - 2.0))`, sr.not_null_id)]
-------PhysicalProject[(cast(f_id as DOUBLE) - 2.0) AS `(cast(f_id as DOUBLE) - 2.0)`, sr.not_null_id]
+------PhysicalProject[sr.f_id, sr.not_null_id]
 --------PhysicalOlapScan[sr]
 
 -- !float_sum_sub_const_group_by_result --
-10	16.0
+10	16
 6	-0.6999999284744263
 7	3.700000047683716
 8	8.099999904632568
@@ -261,11 +257,11 @@ PhysicalResultSink
 --filter((sum(f_id - 2) > 0.0))
 ----hashAgg[GLOBAL, groupByExpr=(sr.not_null_id), outputExpr=(sr.not_null_id, sum((cast(f_id as DOUBLE) - 2.0)) AS `sum(f_id - 2)`)]
 ------hashAgg[LOCAL, groupByExpr=(sr.not_null_id), outputExpr=(partial_sum((cast(f_id as DOUBLE) - 2.0)) AS `partial_sum((cast(f_id as DOUBLE) - 2.0))`, sr.not_null_id)]
---------PhysicalProject[(cast(f_id as DOUBLE) - 2.0) AS `(cast(f_id as DOUBLE) - 2.0)`, sr.not_null_id]
+--------PhysicalProject[sr.f_id, sr.not_null_id]
 ----------PhysicalOlapScan[sr]
 
 -- !float_sum_sub_const_having_result --
-10	16.0
+10	16
 7	3.700000047683716
 8	8.099999904632568
 9	12.5
@@ -291,13 +287,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------NestedLoopJoin[CROSS_JOIN]
 --------PhysicalProject[sum(DISTINCT id) AS `sum(distinct id)`]
 ----------hashAgg[DISTINCT_GLOBAL, groupByExpr=(), outputExpr=(sum(id) AS `sum(DISTINCT id)`)]
-------------hashAgg[DISTINCT_LOCAL, groupByExpr=(), outputExpr=(partial_sum(id) AS `sum(DISTINCT id)`)]
+------------hashAgg[DISTINCT_LOCAL, groupByExpr=(), outputExpr=(partial_sum(id) AS `partial_sum(id)`)]
 --------------hashAgg[GLOBAL, groupByExpr=(.id), outputExpr=(.id)]
 ----------------hashAgg[LOCAL, groupByExpr=(.id), outputExpr=(.id)]
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------PhysicalProject[sum(DISTINCT (cast(id as BIGINT) + 1)) AS `sum(distinct id + 1)`]
 ----------hashAgg[DISTINCT_GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) + 1)) AS `sum(DISTINCT (cast(id as BIGINT) + 1))`)]
-------------hashAgg[DISTINCT_LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) + 1)) AS `sum(DISTINCT (cast(id as BIGINT) + 1))`)]
+------------hashAgg[DISTINCT_LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) + 1)) AS `partial_sum((cast(id as BIGINT) + 1))`)]
 --------------hashAgg[GLOBAL, groupByExpr=(.(cast(id as BIGINT) + 1)), outputExpr=(.(cast(id as BIGINT) + 1))]
 ----------------hashAgg[LOCAL, groupByExpr=(.(cast(id as BIGINT) + 1)), outputExpr=(.(cast(id as BIGINT) + 1))]
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )
@@ -319,13 +315,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------NestedLoopJoin[CROSS_JOIN]
 --------PhysicalProject[sum(DISTINCT not_null_id) AS `sum(distinct not_null_id)`]
 ----------hashAgg[DISTINCT_GLOBAL, groupByExpr=(), outputExpr=(sum(not_null_id) AS `sum(DISTINCT not_null_id)`)]
-------------hashAgg[DISTINCT_LOCAL, groupByExpr=(), outputExpr=(partial_sum(not_null_id) AS `sum(DISTINCT not_null_id)`)]
+------------hashAgg[DISTINCT_LOCAL, groupByExpr=(), outputExpr=(partial_sum(not_null_id) AS `partial_sum(not_null_id)`)]
 --------------hashAgg[GLOBAL, groupByExpr=(.not_null_id), outputExpr=(.not_null_id)]
 ----------------hashAgg[LOCAL, groupByExpr=(.not_null_id), outputExpr=(.not_null_id)]
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------PhysicalProject[sum(DISTINCT (cast(not_null_id as BIGINT) + 1)) AS `sum(distinct not_null_id + 1)`]
 ----------hashAgg[DISTINCT_GLOBAL, groupByExpr=(), outputExpr=(sum((cast(not_null_id as BIGINT) + 1)) AS `sum(DISTINCT (cast(not_null_id as BIGINT) + 1))`)]
-------------hashAgg[DISTINCT_LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(not_null_id as BIGINT) + 1)) AS `sum(DISTINCT (cast(not_null_id as BIGINT) + 1))`)]
+------------hashAgg[DISTINCT_LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(not_null_id as BIGINT) + 1)) AS `partial_sum((cast(not_null_id as BIGINT) + 1))`)]
 --------------hashAgg[GLOBAL, groupByExpr=(.(cast(not_null_id as BIGINT) + 1)), outputExpr=(.(cast(not_null_id as BIGINT) + 1))]
 ----------------hashAgg[LOCAL, groupByExpr=(.(cast(not_null_id as BIGINT) + 1)), outputExpr=(.(cast(not_null_id as BIGINT) + 1))]
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )

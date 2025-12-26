@@ -31,18 +31,23 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -57,6 +62,7 @@ import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -146,16 +152,28 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected void parseFile() throws AnalysisException {
+        long startAt = System.currentTimeMillis();
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
+            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
+                    && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
+                ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
+                String endpoint = storageProperties.getEndpoint();
+                S3Util.validateAndTestEndpoint(endpoint);
+            }
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
+        } finally {
+            SummaryProfile profile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+            if (profile != null) {
+                profile.addExternalTvfInitTime(System.currentTimeMillis() - startAt);
+            }
         }
     }
 
-    //The keys in properties map need to be lowercase.
+    // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
         Map<String, String> mergedProperties = Maps.newHashMap();
         if (properties.containsKey("resource")) {
@@ -175,6 +193,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
+
+        // Parse enable_mapping_varbinary property
+        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
+                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
+        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
+
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties
@@ -187,7 +211,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         pathPartitionKeys = Optional.ofNullable(
-                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
+                        getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
                 .map(str -> Arrays.stream(str.split(","))
                         .map(String::trim)
                         .collect(Collectors.toList()))
@@ -234,7 +258,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         columns = Lists.newArrayList();
         Backend be = getBackend();
         if (be == null) {
-            throw new AnalysisException("No Alive backends");
+            String computeGroupHints = "";
+            if (Config.isCloudMode()) {
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
+            }
+            throw new AnalysisException("No Alive backends" + computeGroupHints);
         }
 
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_WAL) {
@@ -324,7 +353,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
      * @return column type and the number of parsed PTypeNodes
      */
     private Pair<Type, Integer> getColumnType(List<PTypeNode> typeNodes, int start) {
-        PScalarType columnType = typeNodes.get(start).getScalarType();
+        PTypeNode typeNode = typeNodes.get(start);
+        PScalarType columnType = typeNode.getScalarType();
         TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(columnType.getType());
         Type type;
         int parsedNodes;
@@ -356,6 +386,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
+        } else if (tPrimitiveType == TPrimitiveType.VARIANT) {
+            // Preserve VARIANT-specific properties from PTypeNode, especially variant_max_subcolumns_count.
+            int maxSubcolumns = typeNode.getVariantMaxSubcolumnsCount();
+            // Currently no predefined fields are carried in PTypeNode for VARIANT, so use empty list and default
+            // values for other properties.
+            type = new VariantType(new ArrayList<>(), maxSubcolumns,
+                    /*enableTypedPathsToSparse*/ false,
+                    /*variantMaxSparseColumnStatisticsSize*/ 10000,
+                    /*variantSparseHashShardCount*/ 0);
+            parsedNodes = 1;
         } else {
             type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
                     columnType.getLen(), columnType.getPrecision(), columnType.getScale());
@@ -403,6 +443,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
+        // table function fetch schema, whether to enable mapping varbinary
+        fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
 
         if (getTFileType() == TFileType.FILE_STREAM) {
             fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
@@ -410,7 +452,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         if (getTFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(storageProperties.getBackendConfigProperties());
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(
+                    storageProperties.getBackendConfigProperties());
             String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);

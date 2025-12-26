@@ -17,18 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.AddBackendClause;
-import org.apache.doris.analysis.AddFollowerClause;
-import org.apache.doris.analysis.AddObserverClause;
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.DecommissionBackendClause;
-import org.apache.doris.analysis.DropBackendClause;
-import org.apache.doris.analysis.DropFollowerClause;
-import org.apache.doris.analysis.DropObserverClause;
-import org.apache.doris.analysis.ModifyBackendClause;
-import org.apache.doris.analysis.ModifyBackendHostNameClause;
-import org.apache.doris.analysis.ModifyBrokerClause;
-import org.apache.doris.analysis.ModifyFrontendHostNameClause;
 import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -54,14 +42,18 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddObserverOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropAllBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendHostNameOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBrokerOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendHostNameOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyNodeHostNameOp;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -151,37 +143,36 @@ public class SystemHandler extends AlterHandler {
 
     @Override
     // add synchronized to avoid process 2 or more stmts at same time
-    public synchronized void process(String rawSql, List<AlterClause> alterClauses,
-            Database dummyDb,
-            OlapTable dummyTbl) throws UserException {
-        Preconditions.checkArgument(alterClauses.size() == 1);
-        AlterClause alterClause = alterClauses.get(0);
+    public synchronized void process(String rawSql, List<AlterOp> alterOps, Database dummyDb,
+                                     OlapTable dummyTbl) throws UserException {
+        Preconditions.checkArgument(alterOps.size() == 1);
+        AlterOp alterOp = alterOps.get(0);
 
-        if (alterClause instanceof AddBackendClause) {
+        if (alterOp instanceof AddBackendOp) {
             // add backend
-            AddBackendClause addBackendClause = (AddBackendClause) alterClause;
-            Env.getCurrentSystemInfo().addBackends(addBackendClause.getHostInfos(), addBackendClause.getTagMap());
-        } else if (alterClause instanceof DropBackendClause) {
+            AddBackendOp addBackendOp = (AddBackendOp) alterOp;
+            Env.getCurrentSystemInfo().addBackends(addBackendOp.getHostInfos(), addBackendOp.getTagMap());
+        } else if (alterOp instanceof DropBackendOp) {
             // drop backend
-            DropBackendClause dropBackendClause = (DropBackendClause) alterClause;
-            if (!dropBackendClause.isForce()) {
+            DropBackendOp dropBackendOp = (DropBackendOp) alterOp;
+            if (!dropBackendOp.isForce()) {
                 throw new DdlException("It is highly NOT RECOMMENDED to use DROP BACKEND stmt."
                         + "It is not safe to directly drop a backend. "
                         + "All data on this backend will be discarded permanently. "
                         + "If you insist, use DROPP instead of DROP");
             }
-            if (dropBackendClause.getHostInfos().isEmpty()) {
+            if (dropBackendOp.getHostInfos().isEmpty()) {
                 // drop by id
-                Env.getCurrentSystemInfo().dropBackendsByIds(dropBackendClause.getIds());
+                Env.getCurrentSystemInfo().dropBackendsByIds(dropBackendOp.getIds());
             } else {
                 // drop by host
-                Env.getCurrentSystemInfo().dropBackends(dropBackendClause.getHostInfos());
+                Env.getCurrentSystemInfo().dropBackends(dropBackendOp.getHostInfos());
             }
-        } else if (alterClause instanceof DecommissionBackendClause) {
+        } else if (alterOp instanceof DecommissionBackendOp) {
             // decommission
-            DecommissionBackendClause decommissionBackendClause = (DecommissionBackendClause) alterClause;
+            DecommissionBackendOp decommissionBackendOp = (DecommissionBackendOp) alterOp;
             // check request
-            List<Backend> decommissionBackends = checkDecommission(decommissionBackendClause);
+            List<Backend> decommissionBackends = checkDecommission(decommissionBackendOp);
 
             // set backend's state as 'decommissioned'
             // for decommission operation, here is no decommission job. the system handler will check
@@ -190,34 +181,34 @@ public class SystemHandler extends AlterHandler {
                 Env.getCurrentSystemInfo().decommissionBackend(backend);
             }
 
-        } else if (alterClause instanceof AddObserverClause) {
-            AddObserverClause clause = (AddObserverClause) alterClause;
-            Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
-                    clause.getPort());
-        } else if (alterClause instanceof DropObserverClause) {
-            DropObserverClause clause = (DropObserverClause) alterClause;
-            Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
-                    clause.getPort());
-        } else if (alterClause instanceof AddFollowerClause) {
-            AddFollowerClause clause = (AddFollowerClause) alterClause;
-            Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, clause.getHost(),
-                    clause.getPort());
-        } else if (alterClause instanceof DropFollowerClause) {
-            DropFollowerClause clause = (DropFollowerClause) alterClause;
-            Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, clause.getHost(),
-                    clause.getPort());
-        } else if (alterClause instanceof ModifyBrokerClause) {
-            ModifyBrokerClause clause = (ModifyBrokerClause) alterClause;
-            Env.getCurrentEnv().getBrokerMgr().execute(clause);
-        } else if (alterClause instanceof ModifyBackendClause) {
-            Env.getCurrentSystemInfo().modifyBackends(((ModifyBackendClause) alterClause));
-        } else if (alterClause instanceof ModifyFrontendHostNameClause) {
-            ModifyFrontendHostNameClause clause = (ModifyFrontendHostNameClause) alterClause;
-            Env.getCurrentEnv().modifyFrontendHostName(clause.getHost(), clause.getPort(), clause.getNewHost());
-        } else if (alterClause instanceof ModifyBackendHostNameClause) {
-            Env.getCurrentSystemInfo().modifyBackendHost((ModifyBackendHostNameClause) alterClause);
+        } else if (alterOp instanceof AddObserverOp) {
+            AddObserverOp op = (AddObserverOp) alterOp;
+            Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, op.getHost(),
+                    op.getPort());
+        } else if (alterOp instanceof DropObserverOp) {
+            DropObserverOp op = (DropObserverOp) alterOp;
+            Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, op.getHost(),
+                    op.getPort());
+        } else if (alterOp instanceof AddFollowerOp) {
+            AddFollowerOp op = (AddFollowerOp) alterOp;
+            Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, op.getHost(),
+                    op.getPort());
+        } else if (alterOp instanceof DropFollowerOp) {
+            DropFollowerOp op = (DropFollowerOp) alterOp;
+            Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, op.getHost(),
+                    op.getPort());
+        } else if (alterOp instanceof ModifyBrokerOp) {
+            ModifyBrokerOp modifyBrokerOp = (ModifyBrokerOp) alterOp;
+            Env.getCurrentEnv().getBrokerMgr().execute(modifyBrokerOp);
+        } else if (alterOp instanceof ModifyBackendOp) {
+            Env.getCurrentSystemInfo().modifyBackends(((ModifyBackendOp) alterOp));
+        } else if (alterOp instanceof ModifyFrontendHostNameOp) {
+            ModifyFrontendHostNameOp op = (ModifyFrontendHostNameOp) alterOp;
+            Env.getCurrentEnv().modifyFrontendHostName(op.getHost(), op.getPort(), op.getNewHost());
+        } else if (alterOp instanceof ModifyBackendHostNameOp) {
+            Env.getCurrentSystemInfo().modifyBackendHost((ModifyBackendHostNameOp) alterOp);
         } else {
-            Preconditions.checkState(false, alterClause.getClass());
+            Preconditions.checkState(false, alterOp.getClass());
         }
     }
 
@@ -287,9 +278,9 @@ public class SystemHandler extends AlterHandler {
                 ModifyBackendOp op = (ModifyBackendOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentSystemInfo().modifyBackends(op);
             } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME)) {
-                ModifyFrontendOrBackendHostNameOp op =
-                        (ModifyFrontendOrBackendHostNameOp) alterSystemCommand.getAlterSystemOp();
-                if (op.getModifyOpType().equals(ModifyFrontendOrBackendHostNameOp.ModifyOpType.Frontend)) {
+                ModifyNodeHostNameOp op =
+                        (ModifyNodeHostNameOp) alterSystemCommand.getAlterSystemOp();
+                if (op.getModifyOpType().equals(ModifyNodeHostNameOp.ModifyOpType.Frontend)) {
                     Env.getCurrentEnv().modifyFrontendHostName(op.getHost(), op.getPort(), op.getNewHost());
                 } else {
                     Env.getCurrentSystemInfo().modifyBackendHostName(op.getHost(), op.getPort(), op.getNewHost());
@@ -444,12 +435,12 @@ public class SystemHandler extends AlterHandler {
         return sampleTablets.isEmpty() && leakyTablets.values().stream().allMatch(ts -> ts < skipLeakyTs);
     }
 
-    private List<Backend> checkDecommission(DecommissionBackendClause decommissionBackendClause)
+    private List<Backend> checkDecommission(DecommissionBackendOp decommissionBackendOp)
             throws DdlException {
-        if (decommissionBackendClause.getHostInfos().isEmpty()) {
-            return checkDecommissionByIds(decommissionBackendClause.getIds());
+        if (decommissionBackendOp.getHostInfos().isEmpty()) {
+            return checkDecommissionByIds(decommissionBackendOp.getIds());
         }
-        return checkDecommission(decommissionBackendClause.getHostInfos());
+        return checkDecommission(decommissionBackendOp.getHostInfos());
     }
 
     private List<Backend> checkDecommissionForNereids(DecommissionBackendOp decommissionBackendOp)

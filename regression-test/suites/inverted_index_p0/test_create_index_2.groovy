@@ -22,22 +22,10 @@ suite("test_create_index_2", "inverted_index"){
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(10000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
 
     def indexTbName1 = "test_create_index_2"
+
+    sql "set enable_add_index_for_new_data = true"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
     // case 1: create table with index
@@ -120,9 +108,9 @@ suite("test_create_index_2", "inverted_index"){
     
     // drop index
     sql "drop index name_idx_1 on ${indexTbName1}"
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    wait_for_last_build_index_finish(indexTbName1, timeout)
     sql "drop index name_idx_2 on ${indexTbName1}"
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    wait_for_last_build_index_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 0)
 
@@ -130,7 +118,7 @@ suite("test_create_index_2", "inverted_index"){
     sql """
         create index name_idx on ${indexTbName1}(name) using inverted properties("parser" = "english") comment 'name index';
     """
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    wait_for_last_schema_change_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result[0][2], "name_idx")
@@ -168,7 +156,11 @@ suite("test_create_index_2", "inverted_index"){
     sql """
         create index name_idx_2 on ${indexTbName1}(name) using ngram_bf properties("gram_size"="3", "bf_size"="256") comment 'name index';
     """
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+
+    if (isCloudMode()) {
+        sql "build index on ${indexTbName1}"
+    }
+    wait_for_last_schema_change_finish(indexTbName1, timeout)
 
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)

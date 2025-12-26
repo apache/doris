@@ -295,6 +295,16 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT EXP(-709.782712893384)") // Near underflow boundary
     testFoldConst("SELECT EXP(1959859681)") // Result overflow become infinity
 
+//Factorial function cases
+    testFoldConst("SELECT FACTORIAL(5)") // common case
+    testFoldConst("SELECT FACTORIAL(0)") // boundary value 0
+    testFoldConst("SELECT FACTORIAL(1)") // boundary value 1
+    testFoldConst("SELECT FACTORIAL(20)") // boundary value 20
+    testFoldConst("SELECT FACTORIAL(-1)") // invalid input (negative)
+    testFoldConst("SELECT FACTORIAL(21)") // invalid input (overflow)
+    testFoldConst("SELECT FACTORIAL(NULL)") // NULL handling
+    testFoldConst("SELECT FACTORIAL(CAST(5 AS BIGINT))")
+
 //Floor function cases
     testFoldConst("SELECT FLOOR(3.7) AS floor_case_1")
     testFoldConst("SELECT FLOOR(-3.7) AS floor_case_2")
@@ -321,6 +331,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT MOD(10.5, -3.2) AS fmod_case_3") //fmod(10.5 % -3.2)
     testFoldConst("SELECT MOD(10.5, 0) AS fmod_case_exception") //undefined (returns NULL or error)
     testFoldConst("SELECT fmod(10.5, 3), fmod(-10.5, 3), fmod(10.5, -3)")
+    testFoldConst("SELECT fmod(10.5, 0) AS fmod_case_1") //fmod(10.5 % 0)
     testFoldConst("SELECT MOD(NULL, 3)") // NULL dividend
     testFoldConst("SELECT MOD(10, NULL)") // NULL divisor
     testFoldConst("SELECT MOD(0, 3)") // Zero dividend
@@ -475,6 +486,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT RADIANS(90) AS radians_case_2") //radians(90) = π/2
     testFoldConst("SELECT RADIANS(45) AS radians_case_3") //radians(45)
     testFoldConst("SELECT radians(0), radians(180), radians(360), radians(45)")
+    testFoldConst("SELECT RADIANS(1e308)")
 
 //Round function cases
     testFoldConst("SELECT ROUND(3.4) AS round_case_1")

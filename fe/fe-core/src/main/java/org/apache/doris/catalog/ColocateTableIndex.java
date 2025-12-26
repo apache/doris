@@ -57,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 /**
@@ -163,7 +164,7 @@ public class ColocateTableIndex implements Writable {
     private Multimap<GroupId, Long> group2Tables = ArrayListMultimap.create();
     // table_id -> group_id
     @SerializedName(value = "table2Group")
-    private Map<Long, GroupId> table2Group = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, GroupId> table2Group = Maps.newConcurrentMap();
     // group id -> group schema
     @SerializedName(value = "group2Schema")
     private Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();

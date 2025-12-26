@@ -76,8 +76,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         if (file_field.data_type->get_primitive_type() != TYPE_MAP) [[unlikely]] {
             return SCHEMA_ERROR;
         }
-        MOCK_REMOVE(DCHECK(file_field.children.size() == 1));
-        MOCK_REMOVE(DCHECK(file_field.children[0].children.size() == 2));
+        MOCK_REMOVE(DCHECK(file_field.children.size() == 2));
         std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
 
         {
@@ -85,8 +84,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
                     assert_cast<const DataTypeMap*>(remove_nullable(table_data_type).get())
                             ->get_key_type());
 
-            RETURN_IF_ERROR(
-                    by_parquet_name(key_type, file_field.children[0].children[0], key_node));
+            RETURN_IF_ERROR(by_parquet_name(key_type, file_field.children[0], key_node));
         }
 
         std::shared_ptr<TableSchemaChangeHelper::Node> value_node = nullptr;
@@ -95,8 +93,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
                     assert_cast<const DataTypeMap*>(remove_nullable(table_data_type).get())
                             ->get_value_type());
 
-            RETURN_IF_ERROR(
-                    by_parquet_name(value_type, file_field.children[0].children[1], value_node));
+            RETURN_IF_ERROR(by_parquet_name(value_type, file_field.children[1], value_node));
         }
         node = std::make_shared<TableSchemaChangeHelper::MapNode>(key_node, value_node);
         break;
@@ -430,19 +427,17 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
         MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.key_field.field_ptr != nullptr));
         MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.value_field.field_ptr != nullptr));
 
-        MOCK_REMOVE(DCHECK(parquet_field.children.size() == 1));
-        MOCK_REMOVE(DCHECK(parquet_field.children[0].children.size() == 2));
+        MOCK_REMOVE(DCHECK(parquet_field.children.size() == 2));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
         std::shared_ptr<TableSchemaChangeHelper::Node> value_node = nullptr;
 
         RETURN_IF_ERROR(by_parquet_field_id(*table_schema.nestedField.map_field.key_field.field_ptr,
-                                            parquet_field.children[0].children[0], key_node,
-                                            exist_field_id));
+                                            parquet_field.children[0], key_node, exist_field_id));
 
-        RETURN_IF_ERROR(by_parquet_field_id(
-                *table_schema.nestedField.map_field.value_field.field_ptr,
-                parquet_field.children[0].children[1], value_node, exist_field_id));
+        RETURN_IF_ERROR(
+                by_parquet_field_id(*table_schema.nestedField.map_field.value_field.field_ptr,
+                                    parquet_field.children[1], value_node, exist_field_id));
 
         node = std::make_shared<TableSchemaChangeHelper::MapNode>(key_node, value_node);
         break;
@@ -627,17 +622,16 @@ std::string TableSchemaChangeHelper::debug(const std::shared_ptr<Node>& root, si
         ans += prefix + "ScalarNode\n";
     } else if (auto struct_node = std::dynamic_pointer_cast<StructNode>(root)) {
         ans += prefix + "StructNode\n";
-        for (const auto& [table_col_name, value] : struct_node->get_childrens()) {
-            const auto& [child_node, file_col_name, exist] = value;
+        for (const auto& [table_col_name, value] : struct_node->get_children()) {
             ans += indent(level + 1) + table_col_name;
-            if (exist) {
-                ans += " (file: " + file_col_name + ")";
+            if (value.exists) {
+                ans += " (file: " + value.column_name + ")";
             } else {
                 ans += " (not exists)";
             }
             ans += "\n";
-            if (child_node) {
-                ans += debug(child_node, level + 2);
+            if (value.node) {
+                ans += debug(value.node, level + 2);
             }
         }
     } else if (auto array_node = std::dynamic_pointer_cast<ArrayNode>(root)) {

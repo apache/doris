@@ -141,9 +141,14 @@ public:
             _task = task_ref.to_string();
 
             std::string resource_name = resource_name_ref.to_string();
-            const std::map<std::string, TAIResource>& ai_resources = _ctx->get_ai_resources();
-            auto it = ai_resources.find(resource_name);
-            if (it == ai_resources.end()) {
+            const std::shared_ptr<std::map<std::string, TAIResource>>& ai_resources =
+                    _ctx->get_ai_resources();
+            if (!ai_resources) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "AI resources metadata missing in QueryContext");
+            }
+            auto it = ai_resources->find(resource_name);
+            if (it == ai_resources->end()) {
                 throw Exception(ErrorCode::NOT_FOUND, "AI resource not found: " + resource_name);
             }
             _ai_config = it->second;
@@ -247,6 +252,8 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
+    bool is_blockable() const override { return true; }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         data(place).prepare(
@@ -257,6 +264,23 @@ public:
 
         data(place).add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                 .get_data_at(row_num));
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena& arena) const override {
+        if (!data(place).inited) {
+            data(place).prepare(
+                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                            .get_data_at(0),
+                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2])
+                            .get_data_at(0));
+        }
+
+        const auto& data_column =
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+        for (size_t i = 0; i < batch_size; ++i) {
+            data(place).add(data_column.get_data_at(i));
+        }
     }
 
     void reset(AggregateDataPtr place) const override { data(place).reset(); }

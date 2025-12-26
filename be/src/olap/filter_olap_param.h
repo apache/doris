@@ -25,7 +25,8 @@ template <typename T>
 struct FilterOlapParam {
     FilterOlapParam(std::string column_name, T filter, int runtime_filter_id,
                     std::shared_ptr<RuntimeProfile::Counter> filtered_counter,
-                    std::shared_ptr<RuntimeProfile::Counter> input_counter)
+                    std::shared_ptr<RuntimeProfile::Counter> input_counter,
+                    std::shared_ptr<RuntimeProfile::Counter> always_true_counter)
             : column_name(std::move(column_name)),
               filter(std::move(filter)),
               runtime_filter_id(runtime_filter_id) {
@@ -37,6 +38,9 @@ struct FilterOlapParam {
         if (input_counter != nullptr) {
             input_rows_counter = input_counter;
         }
+        if (always_true_counter != nullptr) {
+            always_true_rows_counter = always_true_counter;
+        }
     }
 
     std::string column_name;
@@ -45,6 +49,8 @@ struct FilterOlapParam {
     std::shared_ptr<RuntimeProfile::Counter> filtered_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
     std::shared_ptr<RuntimeProfile::Counter> input_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    std::shared_ptr<RuntimeProfile::Counter> always_true_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 };
 

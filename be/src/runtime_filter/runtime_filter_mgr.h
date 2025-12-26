@@ -21,6 +21,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 
 #include <cstdint>
 #include <map>
@@ -71,6 +72,7 @@ struct GlobalMergeContext {
     std::vector<TRuntimeFilterTargetParamsV2> targetv2_info;
     std::unordered_set<UniqueId> arrive_id;
     std::vector<PNetworkAddress> source_addrs;
+    std::atomic<bool> done = false;
 };
 
 // owned by RuntimeState
@@ -99,6 +101,8 @@ public:
     bool set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
     Status get_merge_addr(TNetworkAddress* addr);
     Status sync_filter_size(const PSyncFilterSizeRequest* request);
+
+    std::string debug_string();
 
 private:
     /**
@@ -144,11 +148,18 @@ public:
     Status send_filter_size(std::shared_ptr<QueryContext> query_ctx,
                             const PSendFilterSizeRequest* request);
 
+    std::string debug_string();
+
+    void release_undone_filters(QueryContext* query_ctx);
+
 private:
     Status _init_with_desc(std::shared_ptr<QueryContext> query_ctx,
                            const TRuntimeFilterDesc* runtime_filter_desc,
                            const std::vector<TRuntimeFilterTargetParamsV2>&& target_info,
                            const int producer_size);
+
+    Status _send_rf_to_target(GlobalMergeContext& cnt_val, std::weak_ptr<QueryContext> ctx,
+                              int64_t merge_time, PUniqueId query_id, int execution_timeout);
 
     // protect _filter_map
     std::shared_mutex _filter_map_mutex;

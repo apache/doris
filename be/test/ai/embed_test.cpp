@@ -186,6 +186,17 @@ TEST(EMBED_TEST, local_adapter_parse_embedding_response) {
     ASSERT_EQ(results[0].size(), 3);
     ASSERT_FLOAT_EQ(results[0][0], 0.1F);
     ASSERT_FLOAT_EQ(results[0][2], 0.3F);
+
+    std::string resp3 = R"({
+        "embeddings": [[0.6, 0.7]]
+    })";
+    results.clear();
+    st = adapter.parse_embedding_response(resp3, results);
+    ASSERT_TRUE(st.ok()) << "Format 3 failed: " << st.to_string();
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0].size(), 2);
+    ASSERT_FLOAT_EQ(results[0][0], 0.6F);
+    ASSERT_FLOAT_EQ(results[0][1], 0.7F);
 }
 
 TEST(EMBED_TEST, openai_adapter_embedding_request) {
@@ -539,7 +550,7 @@ TEST(EMBED_TEST, voyageai_adapter_parse_error_test) {
     std::vector<std::vector<float>> results;
     Status st = adapter.parse_embedding_response(resp, results);
     ASSERT_FALSE(st.ok());
-    EXPECT_THAT(st.to_string(), testing::StartsWith("[INTERNAL_ERROR]Failed to parse  response"));
+    ASSERT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Failed to parse  response"));
 
     // `data` is not an array
     resp = R"({
@@ -555,7 +566,7 @@ TEST(EMBED_TEST, voyageai_adapter_parse_error_test) {
     })";
     st = adapter.parse_embedding_response(resp, results);
     ASSERT_FALSE(st.ok());
-    EXPECT_THAT(st.to_string(), testing::StartsWith("[INTERNAL_ERROR]Invalid  response format"));
+    ASSERT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 
     // member `embedding` is missing
     resp = R"({
@@ -573,7 +584,7 @@ TEST(EMBED_TEST, voyageai_adapter_parse_error_test) {
     })";
     st = adapter.parse_embedding_response(resp, results);
     ASSERT_FALSE(st.ok());
-    EXPECT_THAT(st.to_string(), testing::StartsWith("[INTERNAL_ERROR]Invalid  response format"));
+    ASSERT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
 TEST(EMBED_TEST, deepseek_adapter_embedding_request) {

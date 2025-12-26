@@ -184,15 +184,11 @@ TEST_F(ColumnDictionaryTest, insert_default) {
 }
 */
 TEST_F(ColumnDictionaryTest, clear) {
-    auto target_column = column_dict_char->clone();
-    auto* col_vec_src = assert_cast<ColumnDictI32*>(column_dict_char.get());
-    auto* col_vec_target = assert_cast<ColumnDictI32*>(target_column.get());
-    EXPECT_EQ(target_column->size(), column_dict_char->size());
-    EXPECT_EQ(col_vec_target->get_data().size(), col_vec_src->get_data().size());
+    auto target_column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+    target_column->insert_many_dict_data(dict_array.data(), dict_array.size());
 
     target_column->clear();
     EXPECT_EQ(target_column->size(), 0);
-    EXPECT_EQ(col_vec_target->get_data().size(), 0);
 }
 TEST_F(ColumnDictionaryTest, byte_size) {
     EXPECT_EQ(column_dict_char->byte_size(), column_dict_char->size() * 4);
@@ -201,7 +197,9 @@ TEST_F(ColumnDictionaryTest, allocated_bytes) {
     EXPECT_EQ(column_dict_char->allocated_bytes(), column_dict_char->size() * 4);
 }
 TEST_F(ColumnDictionaryTest, has_enough_capacity) {
-    EXPECT_THROW(column_dict_char->has_enough_capacity(ColumnDictI32()), Exception);
+    EXPECT_THROW(column_dict_char->has_enough_capacity(
+                         ColumnDictI32(FieldType::OLAP_FIELD_TYPE_VARCHAR)),
+                 Exception);
 }
 TEST_F(ColumnDictionaryTest, pop_back) {
     EXPECT_THROW(column_dict_char->pop_back(9), Exception);
@@ -243,6 +241,9 @@ TEST_F(ColumnDictionaryTest, filter) {
     IColumn::Filter filt;
     EXPECT_THROW(column_dict_char->filter(filt, 10), Exception);
     EXPECT_THROW(column_dict_char->filter(filt), Exception);
+}
+TEST_F(ColumnDictionaryTest, clone) {
+    EXPECT_THROW(column_dict_char->clone(), Exception);
 }
 TEST_F(ColumnDictionaryTest, permute) {
     IColumn::Permutation perm;

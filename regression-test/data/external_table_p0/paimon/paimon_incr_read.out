@@ -32,6 +32,13 @@
 
 -- !scan_mode4 --
 
+-- !snapshot_id_0_0_empty --
+
+-- !snapshot_id_0_1 --
+1	Alice	30
+
+-- !snapshot_id_1_1_empty --
+
 -- !cte --
 Bob	25
 Charlie	28
@@ -72,6 +79,13 @@ Alice	30
 2	Bob	25
 
 -- !scan_mode4 --
+
+-- !snapshot_id_0_0_empty --
+
+-- !snapshot_id_0_1 --
+1	Alice	30
+
+-- !snapshot_id_1_1_empty --
 
 -- !cte --
 Bob	25

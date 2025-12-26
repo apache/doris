@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -188,10 +189,14 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
     }
 
     protected List<AssignedJob> fillUpSingleEmptyInstance(DistributedPlanWorkerManager workerManager) {
+        long catalogId = Env.getCurrentInternalCatalog().getId();
+        if (scanNodes != null && scanNodes.size() > 0) {
+            catalogId = scanNodes.get(0).getCatalogId();
+        }
         return ImmutableList.of(
                 assignWorkerAndDataSources(0,
                         statementContext.getConnectContext().nextInstanceId(),
-                        workerManager.randomAvailableWorker(),
+                        workerManager.randomAvailableWorker(catalogId),
                         DefaultScanSource.empty())
         );
     }

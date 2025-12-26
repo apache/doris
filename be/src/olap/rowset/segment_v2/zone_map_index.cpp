@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <limits>
 #include <type_traits>
 
 #include "olap/olap_common.h"
@@ -58,15 +59,44 @@ void TypedZoneMapIndexWriter<Type>::add_values(const void* values, size_t count)
         _page_zone_map.has_not_null = true;
     }
     using ValType = PrimitiveTypeTraits<Type>::StorageFieldType;
-    const ValType* vals = reinterpret_cast<const ValType*>(values);
-    auto [min, max] = std::minmax_element(vals, vals + count);
-    if (unaligned_load<ValType>(min) < unaligned_load<ValType>(_page_zone_map.min_value)) {
-        _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value,
-                                                 reinterpret_cast<const void*>(min));
-    }
-    if (unaligned_load<ValType>(max) > unaligned_load<ValType>(_page_zone_map.max_value)) {
-        _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value,
-                                                 reinterpret_cast<const void*>(max));
+    const auto* vals = reinterpret_cast<const ValType*>(values);
+    if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
+        ValType min = std::numeric_limits<ValType>::max();
+        ValType max = std::numeric_limits<ValType>::lowest();
+        for (size_t i = 0; i < count; ++i) {
+            if (std::isnan(vals[i])) {
+                _page_zone_map.has_nan = true;
+            } else if (vals[i] == std::numeric_limits<ValType>::infinity()) {
+                _page_zone_map.has_positive_inf = true;
+            } else if (vals[i] == -std::numeric_limits<ValType>::infinity()) {
+                _page_zone_map.has_negative_inf = true;
+            } else {
+                if (vals[i] < min) {
+                    min = vals[i];
+                }
+                if (vals[i] > max) {
+                    max = vals[i];
+                }
+            }
+        }
+        if (min < unaligned_load<ValType>(_page_zone_map.min_value)) {
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value,
+                                                     reinterpret_cast<const void*>(&min));
+        }
+        if (max > unaligned_load<ValType>(_page_zone_map.max_value)) {
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value,
+                                                     reinterpret_cast<const void*>(&max));
+        }
+    } else {
+        auto [min, max] = std::minmax_element(vals, vals + count);
+        if (unaligned_load<ValType>(min) < unaligned_load<ValType>(_page_zone_map.min_value)) {
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value,
+                                                     reinterpret_cast<const void*>(min));
+        }
+        if (unaligned_load<ValType>(max) > unaligned_load<ValType>(_page_zone_map.max_value)) {
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value,
+                                                     reinterpret_cast<const void*>(max));
+        }
     }
 }
 
@@ -77,7 +107,7 @@ void TypedZoneMapIndexWriter<Type>::moidfy_index_before_flush(
 }
 
 template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::reset_page_zone_map() {
+void TypedZoneMapIndexWriter<Type>::invalid_page_zone_map() {
     _page_zone_map.pass_all = true;
 }
 
@@ -97,6 +127,15 @@ Status TypedZoneMapIndexWriter<Type>::flush() {
     }
     if (_page_zone_map.has_not_null) {
         _segment_zone_map.has_not_null = true;
+    }
+    if (_page_zone_map.has_positive_inf) {
+        _segment_zone_map.has_positive_inf = true;
+    }
+    if (_page_zone_map.has_negative_inf) {
+        _segment_zone_map.has_negative_inf = true;
+    }
+    if (_page_zone_map.has_nan) {
+        _segment_zone_map.has_nan = true;
     }
 
     ZoneMapPB zone_map_pb;
@@ -128,7 +167,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(type_info, false);
+    options.encoding = EncodingInfo::get_default_encoding(type_info->type(), {}, false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
     IndexedColumnWriter writer(options, type_info, file_writer);
@@ -201,6 +240,7 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_DATETIME)             \
     M(TYPE_DATEV2)               \
     M(TYPE_DATETIMEV2)           \
+    M(TYPE_TIMESTAMPTZ)          \
     M(TYPE_IPV4)                 \
     M(TYPE_IPV6)                 \
     M(TYPE_VARCHAR)              \

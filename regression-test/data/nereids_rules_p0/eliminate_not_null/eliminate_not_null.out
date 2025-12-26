@@ -21,7 +21,7 @@ PhysicalResultSink
 
 -- !eliminate_not_null_aggregate --
 PhysicalResultSink
---hashAgg[LOCAL]
+--hashAgg[GLOBAL]
 ----filter((t.score > 0))
 ------PhysicalOlapScan[t]
 

@@ -59,9 +59,7 @@ void PipelineTracerContext::_update(std::function<void(QueryTracesMap&)>&& handl
     while (true) {
         auto new_map = std::make_shared<QueryTracesMap>(*map_ptr);
         handler(*new_map);
-        if (std::atomic_compare_exchange_strong_explicit(&_data, &map_ptr, new_map,
-                                                         std::memory_order_relaxed,
-                                                         std::memory_order_relaxed)) {
+        if (_data.compare_exchange_strong(map_ptr, new_map)) {
             break;
         }
     }

@@ -21,10 +21,13 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -42,8 +45,8 @@ import java.util.regex.Pattern;
 public abstract class StringLikeLiteral extends Literal implements ComparableLiteral {
     public static final int CHINESE_CHAR_BYTE_LENGTH = 4;
     public static final String toDateStrictRegex
-            // <date> ::= (<year> "-" <month1> "-" <day1>) | (<year> <month2> <day2>)
-            = "((?:(?<year1>\\d{2}|\\d{4})-(?<month1>\\d{1,2})-(?<date1>\\d{1,2})"
+            // <date> ::= (<year> ("-" | "/") <month1> ("-" | "/") <day1>) | (<year> <month2> <day2>)
+            = "((?:(?<year1>\\d{2}|\\d{4})[-/](?<month1>\\d{1,2})[-/](?<date1>\\d{1,2})"
             + "|(?<year2>\\d{2}|\\d{4})(?<month2>\\d{2})(?<date2>\\d{2}))"
             + "(?:[T ]"
             // <time> ::= <hour1> (":" <minute1> (":" <second1> <fraction>?)?)?
@@ -60,7 +63,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             + "(?:\\s*(?<tz1>[+-]\\d{1,2}(?::?(?:00|30|45))?|(?i)([A-Za-z]+\\S*)))?)";
     public static final String toDateUnStrictRegex
             = "^\\s*((?<year>\\d{2}|\\d{4})[^a-zA-Z\\d](?<month>\\d{1,2})[^a-zA-Z\\d](?<date>\\d{1,2}))"
-            + "(?:[ T]"
+            + "(?:[ T:]"
             + "(?<hour>\\d{1,2})[^a-zA-Z\\d](?<minute>\\d{1,2})[^a-zA-Z\\d](?<"
             + "second>\\d{1,2})(?<fraction>\\.\\d*)?"
             + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"
@@ -143,6 +146,12 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             DateTimeV2Literal datetime = (DateTimeV2Literal) expression;
             return new DateTimeLiteral((DateTimeType) targetType, datetime.year, datetime.month, datetime.day,
                     datetime.hour, datetime.minute, datetime.second, datetime.microSecond);
+        } else if (targetType.isTimeStampTzType()) {
+            DateTimeV2Literal expression = castToDateTime(DateTimeV2Type.MAX, strictCast, true);
+            expression = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(expression,
+                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone), new StringLiteral("UTC")));
+            return new TimestampTzLiteral((TimeStampTzType) targetType, expression.year, expression.month,
+                    expression.day, expression.hour, expression.minute, expression.second, expression.microSecond);
         } else if (targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast, true);
         } else if (targetType.isFloatType()) {
@@ -257,7 +266,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         throw new CastException(String.format("%s can't cast to decimal in strict mode.", value));
     }
 
-    protected Expression castToDateTime(DataType targetType, boolean strictCast, boolean isDatetime) {
+    protected DateTimeV2Literal castToDateTime(DataType targetType, boolean strictCast, boolean isDatetime) {
         Matcher strictMatcher = dateStrictPattern.matcher(value);
         String year;
         String month;

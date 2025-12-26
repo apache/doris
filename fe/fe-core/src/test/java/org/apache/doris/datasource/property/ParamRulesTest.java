@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property;
 
-import  org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
@@ -114,5 +114,78 @@ public class ParamRulesTest {
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> rules.validate("Config Error"));
         Assertions.assertEquals("Config Error: Missing value", e.getMessage());
+    }
+
+    @Test
+    void testRequireTogether() {
+        ParamRules rules = new ParamRules()
+                .requireTogether(new String[]{"accessKey", ""}, "Both accessKey and secretKey are required together");
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> rules.validate());
+        Assertions.assertEquals("Both accessKey and secretKey are required together", e.getMessage());
+        ParamRules rightRule = new ParamRules()
+                .requireTogether(new String[]{"accessKey", "secretKey"}, "Both accessKey and secretKey are required together");
+        Assertions.assertDoesNotThrow(() -> rightRule.validate());
+    }
+
+    @Test
+    void testAtLeastOne() {
+        ParamRules rules = new ParamRules()
+                .requireAtLeastOne(new String[]{""}, "At least one of accessKey and iamrole is required");
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> rules.validate());
+        Assertions.assertEquals("At least one of accessKey and iamrole is required", e.getMessage());
+        ParamRules rightRule1 = new ParamRules()
+                .requireAtLeastOne(new String[]{"accessKey", "iamrole"}, "At least one of accessKey and iamrole is required");
+        Assertions.assertDoesNotThrow(() -> rightRule1.validate());
+        ParamRules rightRule2 = new ParamRules()
+                .requireAtLeastOne(new String[]{"accessKey", ""}, "At least one of accessKey and iamrole is required");
+        Assertions.assertDoesNotThrow(() -> rightRule2.validate());
+        ParamRules rightRule3 = new ParamRules()
+                .requireAtLeastOne(
+                        new String[]{"", "iamrole"}, "At least one of accessKey and iamrole is required"
+                );
+        Assertions.assertDoesNotThrow(() -> rightRule3.validate());
+    }
+
+    @Test
+    void testComplexLambdaValidation() {
+        String username = "alice";
+        String password = "";
+        String email = "alice@example.com";
+        int age = 17;
+        int maxAge = 100;
+
+        ParamRules rules = new ParamRules();
+
+        // Add multiple lambda rules
+        rules.check(() -> username == null || username.isEmpty(), "Username must not be empty")
+                .check(() -> password == null || password.length() < 6, "Password must be at least 6 characters")
+                .check(() -> !email.contains("@"), "Email must be valid")
+                .check(() -> age < 18 || age > maxAge, "Age must be between 18 and 100")
+                .check(() -> username.equals(email), "Username and email cannot be the same");
+        // Validate with prefix message
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> rules.validate("Validation Failed"));
+        // Check that the error message is prefixed
+        assert ex.getMessage().startsWith("Validation Failed: ");
+    }
+
+    @Test
+    void testComplexLambdaValidationSuccess() {
+        String username = "alice";
+        String password = "password123";
+        String email = "alice@example.com";
+        int age = 25;
+        int maxAge = 100;
+        ParamRules rules = new ParamRules();
+        // Should pass without exception
+        Assertions.assertDoesNotThrow(() -> {
+            rules.check(() -> username == null || username.isEmpty(), "Username must not be empty")
+                    .check(() -> password == null || password.length() < 6, "Password must be at least 6 characters")
+                    .check(() -> !email.contains("@"), "Email must be valid")
+                    .check(() -> age < 18 || age > maxAge, "Age must be between 18 and 100")
+                    .check(() -> username.equals(email), "Username and email cannot be the same");
+        });
     }
 }

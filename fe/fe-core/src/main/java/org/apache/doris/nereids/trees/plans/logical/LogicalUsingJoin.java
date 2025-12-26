@@ -38,6 +38,7 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * select col1 from t1 join t2 using(col1);
@@ -146,5 +147,20 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
             args.add(hint.getExplainString());
         }
         return Utils.toSqlStringSkipNull("UsingJoin[" + id.asInt() + "]", args.toArray());
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(left().toDigest());
+        sb.append(" ").append(joinType).append(" ");
+        sb.append(right().toDigest());
+        sb.append(" USING (");
+        sb.append(
+                usingSlots.stream().map(Expression::toDigest)
+                        .collect(Collectors.joining(", "))
+        );
+        sb.append(")");
+        return sb.toString();
     }
 }

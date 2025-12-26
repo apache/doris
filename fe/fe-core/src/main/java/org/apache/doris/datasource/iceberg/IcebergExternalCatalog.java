@@ -17,20 +17,27 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.catalog.Catalog;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -42,6 +49,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String ICEBERG_DLF = "dlf";
     public static final String ICEBERG_S3_TABLES = "s3tables";
     public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
+    public static final String ICEBERG_TABLE_META_CACHE_TTL_SECOND = "iceberg.table.meta.cache.ttl-second";
+    public static final String ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND = "iceberg.snapshot.meta.cache.ttl-second";
     protected String icebergCatalogType;
     protected Catalog catalog;
 
@@ -54,18 +63,48 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     // Create catalog based on catalog type
     protected void initCatalog() {
         try {
-            msProperties = (AbstractIcebergProperties) MetastoreProperties
-                    .create(getProperties());
-            this.catalog = msProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
-                    .getStoragePropertiesMap().values()));
+            msProperties = (AbstractIcebergProperties) catalogProperty.getMetastoreProperties();
+            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty
+                    .getOrderedStoragePropertiesList());
 
             this.icebergCatalogType = msProperties.getIcebergCatalogType();
-        } catch (UserException e) {
-            throw new RuntimeException("Failed to initialize Iceberg catalog: " + e.getMessage(), e);
         } catch (ClassCastException e) {
             throw new RuntimeException("Invalid properties for Iceberg catalog: " + getProperties(), e);
         } catch (Exception e) {
             throw new RuntimeException("Unexpected error while initializing Iceberg catalog: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void checkProperties() throws DdlException {
+        super.checkProperties();
+        // check iceberg.table.meta.cache.ttl-second parameter
+        String tableMetaCacheTtlSecond = catalogProperty.getOrDefault(ICEBERG_TABLE_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(tableMetaCacheTtlSecond) && NumberUtils.toInt(tableMetaCacheTtlSecond, CACHE_NO_TTL)
+                < CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                    "The parameter " + ICEBERG_TABLE_META_CACHE_TTL_SECOND + " is wrong, value is "
+                    + tableMetaCacheTtlSecond);
+        }
+
+        // check iceberg.snapshot.meta.cache.ttl-second parameter
+        String partitionCacheTtlSecond = catalogProperty.getOrDefault(ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(partitionCacheTtlSecond) && NumberUtils.toInt(partitionCacheTtlSecond, CACHE_NO_TTL)
+                < CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                    "The parameter " + ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND + " is wrong, value is "
+                    + partitionCacheTtlSecond);
+        }
+        catalogProperty.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
+    }
+
+    @Override
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        super.notifyPropertiesUpdated(updatedProps);
+        String tableMetaCacheTtl = updatedProps.getOrDefault(ICEBERG_TABLE_META_CACHE_TTL_SECOND, null);
+        String snapshotMetaCacheTtl = updatedProps.getOrDefault(ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(tableMetaCacheTtl) || Objects.nonNull(snapshotMetaCacheTtl)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(this).init();
         }
     }
 
@@ -141,5 +180,51 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public boolean viewExists(String dbName, String viewName) {
         return metadataOps.viewExists(dbName, viewName);
+    }
+
+    /**
+     * Add partition field to Iceberg table for partition evolution
+     */
+    public void addPartitionField(IcebergExternalTable table, AddPartitionFieldOp op) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UserException("Add partition field operation is not supported for catalog: " + getName());
+        }
+        ((IcebergMetadataOps) metadataOps).addPartitionField(table, op);
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
+                                table.getDbName(), table.getName()));
+    }
+
+    /**
+     * Drop partition field from Iceberg table for partition evolution
+     */
+    public void dropPartitionField(IcebergExternalTable table, DropPartitionFieldOp op) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UserException("Drop partition field operation is not supported for catalog: " + getName());
+        }
+        ((IcebergMetadataOps) metadataOps).dropPartitionField(table, op);
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
+                                table.getDbName(), table.getName()));
+    }
+
+    /**
+     * Replace partition field in Iceberg table for partition evolution
+     */
+    public void replacePartitionField(IcebergExternalTable table,
+            ReplacePartitionFieldOp op) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UserException("Replace partition field operation is not supported for catalog: " + getName());
+        }
+        ((IcebergMetadataOps) metadataOps).replacePartitionField(table, op);
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
+                                table.getDbName(), table.getName()));
     }
 }

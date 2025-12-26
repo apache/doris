@@ -58,7 +58,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import lombok.val;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -202,11 +201,15 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_USE_FOR_REWRITE =
             "use_for_rewrite";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
+
+    public static final String ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES =
+            "async_mv.query_rewrite.consistency_relaxed_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
     public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
     public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
+    public static final String PROPERTIES_PARTITION_RETENTION_COUNT = "partition.retention_count";
     public static final String PROPERTIES_STORAGE_VAULT_NAME = "storage_vault_name";
     public static final String PROPERTIES_STORAGE_VAULT_ID = "storage_vault_id";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
@@ -259,6 +262,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
             "variant_max_sparse_column_statistics_size";
+    // number of buckets when using bucketized sparse serialization
+    public static final String PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT = "variant_sparse_hash_shard_count";
 
     public enum RewriteType {
         PUT,      // always put property
@@ -613,6 +618,23 @@ public class PropertyAnalyzer {
             }
         }
         return ttlSeconds;
+    }
+
+    public static int analyzePartitionRetentionCount(Map<String, String> properties) throws AnalysisException {
+        int retentionCount = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            String val = properties.get(PROPERTIES_PARTITION_RETENTION_COUNT);
+            properties.remove(PROPERTIES_PARTITION_RETENTION_COUNT);
+            try {
+                retentionCount = Integer.parseInt(val);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("partition.retention_count format error");
+            }
+            if (retentionCount <= 0) {
+                throw new AnalysisException("partition.retention_count should be > 0");
+            }
+        }
+        return retentionCount;
     }
 
     public static int analyzeSchemaVersion(Map<String, String> properties) throws AnalysisException {
@@ -1055,16 +1077,7 @@ public class PropertyAnalyzer {
         return goalSizeMbytes;
     }
 
-    // analyzeCompressionType will parse the compression type from properties
-    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
-        String compressionType = "";
-        if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
-            compressionType = properties.get(PROPERTIES_COMPRESSION);
-            properties.remove(PROPERTIES_COMPRESSION);
-        } else {
-            return TCompressionType.LZ4F;
-        }
-
+    public static TCompressionType stringToCompressionType(String compressionType) throws AnalysisException {
         if (compressionType.equalsIgnoreCase("no_compression")) {
             return TCompressionType.NO_COMPRESSION;
         } else if (compressionType.equalsIgnoreCase("lz4")) {
@@ -1079,11 +1092,34 @@ public class PropertyAnalyzer {
             return TCompressionType.ZSTD;
         } else if (compressionType.equalsIgnoreCase("snappy")) {
             return TCompressionType.SNAPPY;
+        } else if (compressionType.equalsIgnoreCase("default_compression")
+                && !Config.default_compression_type.equalsIgnoreCase("default_compression")) {
+            return TCompressionType.valueOf(Config.default_compression_type);
         } else if (compressionType.equalsIgnoreCase("default_compression")) {
             return TCompressionType.LZ4F;
         } else {
             throw new AnalysisException("unknown compression type: " + compressionType);
         }
+    }
+
+    // analyzeCompressionType will parse the compression type from properties
+    public static TCompressionType getCompressionTypeFromProperties(Map<String, String> properties)
+            throws AnalysisException {
+        String compressionType = "";
+        if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
+            compressionType = properties.get(PROPERTIES_COMPRESSION);
+        } else {
+            return stringToCompressionType(Config.default_compression_type);
+        }
+
+        return stringToCompressionType(compressionType);
+    }
+
+    // analyzeCompressionType will parse the compression type from properties
+    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
+        TCompressionType compressionType = getCompressionTypeFromProperties(properties);
+        properties.remove(PROPERTIES_COMPRESSION);
+        return compressionType;
     }
 
     public static long alignTo4K(long size) {
@@ -1159,11 +1195,14 @@ public class PropertyAnalyzer {
             return TStorageFormat.V2;
         }
 
-        if (storageFormat.equalsIgnoreCase("v1")) {
+        if (storageFormat.equalsIgnoreCase("V1")) {
             throw new AnalysisException("Storage format V1 has been deprecated since version 0.14, "
                     + "please use V2 instead");
-        } else if (storageFormat.equalsIgnoreCase("v2")) {
+        } else if (storageFormat.equalsIgnoreCase("V2")) {
             return TStorageFormat.V2;
+        } else if (storageFormat.equalsIgnoreCase("V3")) {
+            // V3 (V2 + external column meta feature)
+            return TStorageFormat.V3;
         } else if (storageFormat.equalsIgnoreCase("default")) {
             return TStorageFormat.V2;
         } else {
@@ -1180,10 +1219,10 @@ public class PropertyAnalyzer {
         } else {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
-            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
-                return TInvertedIndexFileStorageFormat.V3;
-            } else {
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
+            } else {
+                return TInvertedIndexFileStorageFormat.V3;
             }
         }
 
@@ -1196,10 +1235,10 @@ public class PropertyAnalyzer {
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
-            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
-                return TInvertedIndexFileStorageFormat.V3;
-            } else {
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
+            } else {
+                return TInvertedIndexFileStorageFormat.V3;
             }
         } else {
             throw new AnalysisException("unknown inverted index storage format: " + invertedIndexFileStorageFormat);
@@ -1898,18 +1937,40 @@ public class PropertyAnalyzer {
         return maxSparseColumnStatisticsSize;
     }
 
+    public static int analyzeVariantSparseHashShardCount(Map<String, String> properties, int defaultValue)
+                                                                                throws AnalysisException {
+        int bucketNum = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT)) {
+            String bucketNumStr = properties.get(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
+            try {
+                bucketNum = Integer.parseInt(bucketNumStr);
+                if (bucketNum < 1 || bucketNum > 1024) {
+                    throw new AnalysisException("variant_sparse_hash_shard_count must between 1 and 1024 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("variant_sparse_hash_shard_count format error:" + e.getMessage());
+            }
+
+            properties.remove(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
+        }
+        return bucketNum;
+    }
+
     public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {
         String name;
+        //if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
+        //    name = Config.doris_tde_algorithm;
+        //} else if (!PLAINTEXT.equals(Config.doris_tde_algorithm)) {
+        //    throw new AnalysisException("Cannot create a table on encrypted FE,"
+        //            + " please set Config.doris_tde_algorithm to PLAINTEXT");
+        //} else {
+        //    name = properties.remove(PROPERTIES_TDE_ALGORITHM);
+        //}
+        //
         if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
-            if (Config.doris_tde_algorithm.isEmpty()) {
-                return TEncryptionAlgorithm.PLAINTEXT;
-            }
             name = Config.doris_tde_algorithm;
-        } else if (!PLAINTEXT.equals(Config.doris_tde_algorithm)) {
-            throw new AnalysisException("Cannot create a table on encrypted FE,"
-                    + " please set Config.doris_tde_algorithm to PLAINTEXT");
         } else {
-            name = properties.remove(PROPERTIES_TDE_ALGORITHM);
+            throw new AnalysisException("Do not support tde_algorithm property currently");
         }
 
         if (AES256.equalsIgnoreCase(name)) {

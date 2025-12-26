@@ -65,13 +65,16 @@ suite("test_from_millisecond_microsecond") {
         from_unixtime(21474836470),     from_second(21474836470);
     """ 
 
-    qt_select4 """
+    test {
+        sql """
         select 
         t,
         from_second(t), 
         second_timestamp(from_second(t))
         from millimicro order by id;
-    """ 
+        """
+        exception "out of range"
+    }
     qt_select5 """
         select 
         t,
@@ -105,13 +108,16 @@ suite("test_from_millisecond_microsecond") {
         FROM_UNIXTIME(21474836470),from_second(21474836470);
     """ 
 
-    qt_select10 """
-        select 
-        t,
-        from_second(t), 
-        second_timestamp(from_second(t))
-        from millimicro order by id;
-    """ 
+    test {
+        sql """
+            select 
+            t,
+            from_second(t), 
+            second_timestamp(from_second(t))
+            from millimicro order by id;
+        """
+        exception "out of range"
+    }
     qt_select11 """
         select 
         t,
@@ -180,13 +186,16 @@ suite("test_from_millisecond_microsecond") {
         from_unixtime(21474836470),     from_second(21474836470);
     """ 
 
-    qt_select4 """
+    test {
+        sql """
         select 
         t,
         from_second(t), 
         second_timestamp(from_second(t))
         from millimicro order by id;
-    """ 
+        """
+        exception "out of range"
+    }
     qt_select5 """
         select 
         t,
@@ -219,13 +228,16 @@ suite("test_from_millisecond_microsecond") {
         FROM_UNIXTIME(21474836470),from_second(21474836470);
     """ 
 
-    qt_select10 """
-        select 
-        t,
-        from_second(t), 
-        second_timestamp(from_second(t))
-        from millimicro order by id;
-    """ 
+    test {
+        sql """
+            select 
+            t,
+            from_second(t), 
+            second_timestamp(from_second(t))
+            from millimicro order by id;
+        """
+        exception "out of range"
+    }
     qt_select11 """
         select 
         t,
@@ -313,10 +325,15 @@ suite("test_from_millisecond_microsecond") {
     """ 
 
     sql " set time_zone='Asia/Shanghai' "
-    qt_sql " select from_second(-1) "
+    test {
+        sql " select from_second(-1) "
+        exception "out of range"
+    }
     qt_sql " select from_microsecond(253402271999999999) "
-    qt_sql " select from_microsecond(253402272000000000) "
-
+    test {
+        sql " select from_microsecond(253402272000000000) "
+        exception "out of range"
+    }
 
     qt_sql_all_constent """
         select microseconds_add('2010-11-30 23:50:50', 2) , microseconds_sub('2010-11-30 23:50:50', 2) , milliseconds_add('2010-11-30 23:50:50', 2) , milliseconds_sub('2010-11-30 23:50:50', 2);

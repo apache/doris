@@ -75,6 +75,7 @@ public class AuditStreamLoader {
         conn.addRequestProperty("redirect-policy", "random-be");
         conn.addRequestProperty("column_separator", AuditLoader.AUDIT_TABLE_COL_SEPARATOR_STR);
         conn.addRequestProperty("line_delimiter", AuditLoader.AUDIT_TABLE_LINE_DELIMITER_STR);
+        conn.addRequestProperty("skip_record_to_audit_log_table", "true");
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -53,7 +54,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                         .then(topN -> {
                             LogicalJoin<Plan, Plan> join = topN.child();
                             Plan newJoin = pushLimitThroughJoin(topN, join);
-                            if (newJoin == null || topN.child().children().equals(newJoin.children())) {
+                            if (newJoin == null) {
                                 return null;
                             }
                             return topN.withChildren(newJoin);
@@ -80,7 +81,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                             }
 
                             Plan newJoin = pushLimitThroughJoin(topN, join);
-                            if (newJoin == null || join.children().equals(newJoin.children())) {
+                            if (newJoin == null) {
                                 return null;
                             }
                             return topN.withChildren(project.withChildren(newJoin));
@@ -93,6 +94,9 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toList());
         switch (join.getJoinType()) {
             case LEFT_OUTER_JOIN:
+                if (join.left() instanceof TopN) {
+                    return null;
+                }
                 if (join.left().getOutputSet().containsAll(orderbySlots)) {
                     return join.withChildren(
                             topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left()),
@@ -100,6 +104,9 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 }
                 return null;
             case RIGHT_OUTER_JOIN:
+                if (join.right() instanceof TopN) {
+                    return null;
+                }
                 if (join.right().getOutputSet().containsAll(orderbySlots)) {
                     return join.withChildren(
                             join.left(),
@@ -108,10 +115,16 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 return null;
             case CROSS_JOIN:
                 if (join.left().getOutputSet().containsAll(orderbySlots)) {
+                    if (join.left() instanceof TopN) {
+                        return null;
+                    }
                     return join.withChildren(
                             topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left()),
                             join.right());
                 } else if (join.right().getOutputSet().containsAll(orderbySlots)) {
+                    if (join.right() instanceof TopN) {
+                        return null;
+                    }
                     return join.withChildren(
                             join.left(),
                             topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.right()));

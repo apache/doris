@@ -722,6 +722,12 @@ public class CacheHotspotManager extends MasterDaemon {
         Long warmUpTotalFileCache = 0L;
         LOG.info("Start warm up job {}, cluster {}, total cache size: {}",
                 jobId, dstClusterName, totalFileCache);
+        List<Backend> backends = getBackendsFromCluster(dstClusterName);
+        LOG.info("Got {} backends for cluster {}", backends.size(), dstClusterName);
+        Map<Long, Set<Long>> beToTabletIds = new HashMap<>();
+        for (Backend backend : backends) {
+            beToTabletIds.put(backend.getId(), getTabletIdsFromBe(backend.getId()));
+        }
         for (Triple<String, String, String> tableTriple : tables) {
             if (warmUpTotalFileCache > totalFileCache) {
                 LOG.info("Warm up size {} exceeds total cache size {}, breaking loop",
@@ -732,8 +738,7 @@ public class CacheHotspotManager extends MasterDaemon {
             List<Partition> partitions = getPartitionsFromTriple(tableTriple);
             LOG.info("Got {} partitions for table {}.{}.{}", partitions.size(),
                     tableTriple.getLeft(), tableTriple.getMiddle(), tableTriple.getRight());
-            List<Backend> backends = getBackendsFromCluster(dstClusterName);
-            LOG.info("Got {} backends for cluster {}", backends.size(), dstClusterName);
+
             List<Partition> warmUpPartitions = new ArrayList<>();
             for (Partition partition : partitions) {
                 Long partitionSize = partition.getDataSize(true);
@@ -755,7 +760,7 @@ public class CacheHotspotManager extends MasterDaemon {
             LOG.info("Got {} tablets for table {}.{}.{}", tablets.size(),
                     tableTriple.getLeft(), tableTriple.getMiddle(), tableTriple.getRight());
             for (Backend backend : backends) {
-                Set<Long> beTabletIds = getTabletIdsFromBe(backend.getId());
+                Set<Long> beTabletIds = beToTabletIds.get(backend.getId());
                 List<Tablet> warmUpTablets = new ArrayList<>();
                 for (Tablet tablet : tablets) {
                     if (beTabletIds.contains(tablet.getId())) {

@@ -548,6 +548,11 @@ public:
 
     void pop_back() { this->c_end -= this->byte_size(1); }
 
+    void pop_back(size_t n) {
+        DCHECK_GE(this->size(), n);
+        this->c_end -= this->byte_size(n);
+    }
+
     /// Do not insert into the array a piece of itself. Because with the resize, the iterators on themselves can be invalidated.
     template <typename It1, typename It2, typename... TAllocatorParams>
     void insert_prepare(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
@@ -748,25 +753,22 @@ public:
 
     void assign(const PODArray& from) { assign(from.begin(), from.end()); }
 
-    void erase(const_iterator first, const_iterator last) {
-        auto first_no_const = const_cast<iterator>(first);
-        auto last_no_const = const_cast<iterator>(last);
-
+    void erase(iterator first, iterator last) {
         size_t items_to_move = end() - last;
 
         while (items_to_move != 0) {
-            *first_no_const = *last_no_const;
+            *first = *last;
 
-            ++first_no_const;
-            ++last_no_const;
+            ++first;
+            ++last;
 
             --items_to_move;
         }
 
-        this->c_end = reinterpret_cast<char*>(first_no_const);
+        this->c_end = reinterpret_cast<char*>(first);
     }
 
-    void erase(const_iterator pos) { this->erase(pos, pos + 1); }
+    void erase(iterator pos) { this->erase(pos, pos + 1); }
 
     bool operator==(const PODArray& rhs) const {
         if (this->size() != rhs.size()) {

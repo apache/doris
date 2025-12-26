@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -44,6 +45,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -57,7 +59,7 @@ public class SqlBlockRuleMgr implements Writable {
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "nameToSqlBlockRuleMap")
-    private Map<String, SqlBlockRule> nameToSqlBlockRuleMap = Maps.newConcurrentMap();
+    private ConcurrentMap<String, SqlBlockRule> nameToSqlBlockRuleMap = Maps.newConcurrentMap();
 
     private void writeLock() {
         lock.writeLock().lock();
@@ -77,7 +79,7 @@ public class SqlBlockRuleMgr implements Writable {
     /**
      * Get SqlBlockRule by rulename.
      **/
-    public List<SqlBlockRule> getSqlBlockRule(String ruleName) throws AnalysisException {
+    public List<SqlBlockRule> getSqlBlockRule(String ruleName) {
         if (StringUtils.isNotEmpty(ruleName)) {
             if (nameToSqlBlockRuleMap.containsKey(ruleName)) {
                 SqlBlockRule sqlBlockRule = nameToSqlBlockRuleMap.get(ruleName);
@@ -240,14 +242,21 @@ public class SqlBlockRuleMgr implements Writable {
 
     private void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
         if (rule.getEnable()) {
-            if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
-                    && rule.getSqlHash().equals(sqlHash)) {
-                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
-            } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
-                    && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
-                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+            long startAt = System.currentTimeMillis();
+            try {
+                if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
+                        && rule.getSqlHash().equals(sqlHash)) {
+                    MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                    rule.getBlockCount().increase(1L);
+                    throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
+                } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
+                        && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
+                    MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                    rule.getBlockCount().increase(1L);
+                    throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+                }
+            } finally {
+                rule.getTryBlockHistogram().update(System.currentTimeMillis() - startAt);
             }
         }
     }
@@ -302,6 +311,11 @@ public class SqlBlockRuleMgr implements Writable {
                 }
             }
         }
+    }
+
+    @VisibleForTesting
+    public Map<String, SqlBlockRule> getNameToSqlBlockRuleMap() {
+        return nameToSqlBlockRuleMap;
     }
 
     @Override

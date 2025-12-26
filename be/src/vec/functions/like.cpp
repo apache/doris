@@ -212,15 +212,15 @@ Status LikeSearchState::clone(LikeSearchState& cloned) {
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_allpass_fn(LikeSearchState* state, const ColumnString& vals,
+Status FunctionLikeBase::constant_allpass_fn(const LikeSearchState* state, const ColumnString& vals,
                                              const StringRef& pattern,
                                              ColumnUInt8::Container& result) {
     memset(result.data(), 1, vals.size());
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_allpass_fn_scalar(LikeSearchState* state, const StringRef& val,
-                                                    const StringRef& pattern,
+Status FunctionLikeBase::constant_allpass_fn_scalar(const LikeSearchState* state,
+                                                    const StringRef& val, const StringRef& pattern,
                                                     unsigned char* result) {
     *result = 1;
     return Status::OK();
@@ -235,8 +235,8 @@ Status FunctionLikeBase::vector_allpass_fn(const ColumnString& vals,
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_starts_with_fn(LikeSearchState* state, const ColumnString& val,
-                                                 const StringRef& pattern,
+Status FunctionLikeBase::constant_starts_with_fn(const LikeSearchState* state,
+                                                 const ColumnString& val, const StringRef& pattern,
                                                  ColumnUInt8::Container& result) {
     auto sz = val.size();
     for (size_t i = 0; i < sz; i++) {
@@ -247,7 +247,7 @@ Status FunctionLikeBase::constant_starts_with_fn(LikeSearchState* state, const C
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_starts_with_fn_scalar(LikeSearchState* state,
+Status FunctionLikeBase::constant_starts_with_fn_scalar(const LikeSearchState* state,
                                                         const StringRef& val,
                                                         const StringRef& pattern,
                                                         unsigned char* result) {
@@ -270,8 +270,8 @@ Status FunctionLikeBase::vector_starts_with_fn(const ColumnString& vals,
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_ends_with_fn(LikeSearchState* state, const ColumnString& val,
-                                               const StringRef& pattern,
+Status FunctionLikeBase::constant_ends_with_fn(const LikeSearchState* state,
+                                               const ColumnString& val, const StringRef& pattern,
                                                ColumnUInt8::Container& result) {
     auto sz = val.size();
     for (size_t i = 0; i < sz; i++) {
@@ -282,7 +282,8 @@ Status FunctionLikeBase::constant_ends_with_fn(LikeSearchState* state, const Col
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_ends_with_fn_scalar(LikeSearchState* state, const StringRef& val,
+Status FunctionLikeBase::constant_ends_with_fn_scalar(const LikeSearchState* state,
+                                                      const StringRef& val,
                                                       const StringRef& pattern,
                                                       unsigned char* result) {
     *result = (val.size >= state->search_string_sv.size) &&
@@ -305,7 +306,7 @@ Status FunctionLikeBase::vector_ends_with_fn(const ColumnString& vals,
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_equals_fn(LikeSearchState* state, const ColumnString& val,
+Status FunctionLikeBase::constant_equals_fn(const LikeSearchState* state, const ColumnString& val,
                                             const StringRef& pattern,
                                             ColumnUInt8::Container& result) {
     auto sz = val.size();
@@ -315,8 +316,8 @@ Status FunctionLikeBase::constant_equals_fn(LikeSearchState* state, const Column
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_equals_fn_scalar(LikeSearchState* state, const StringRef& val,
-                                                   const StringRef& pattern,
+Status FunctionLikeBase::constant_equals_fn_scalar(const LikeSearchState* state,
+                                                   const StringRef& val, const StringRef& pattern,
                                                    unsigned char* result) {
     *result = (val == state->search_string_sv);
     return Status::OK();
@@ -336,8 +337,8 @@ Status FunctionLikeBase::vector_equals_fn(const ColumnString& vals,
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const ColumnString& val,
-                                               const StringRef& pattern,
+Status FunctionLikeBase::constant_substring_fn(const LikeSearchState* state,
+                                               const ColumnString& val, const StringRef& pattern,
                                                ColumnUInt8::Container& result) {
     auto sz = val.size();
     for (size_t i = 0; i < sz; i++) {
@@ -350,7 +351,8 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Col
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_substring_fn_scalar(LikeSearchState* state, const StringRef& val,
+Status FunctionLikeBase::constant_substring_fn_scalar(const LikeSearchState* state,
+                                                      const StringRef& val,
                                                       const StringRef& pattern,
                                                       unsigned char* result) {
     if (state->search_string_sv.size == 0) {
@@ -380,8 +382,9 @@ Status FunctionLikeBase::vector_substring_fn(const ColumnString& vals,
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
-                                                  const StringRef& pattern, unsigned char* result) {
+Status FunctionLikeBase::constant_regex_fn_scalar(const LikeSearchState* state,
+                                                  const StringRef& val, const StringRef& pattern,
+                                                  unsigned char* result) {
     if (state->hs_database) { // use hyperscan
         auto ret = hs_scan(state->hs_database.get(), val.data, (int)val.size, 0,
                            state->hs_scratch.get(),
@@ -389,6 +392,8 @@ Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const 
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
+    } else if (state->boost_regex) { // use boost::regex for advanced features
+        *result = boost::regex_search(val.data, val.data + val.size, *state->boost_regex);
     } else { // fallback to re2
         *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), *state->regex);
     }
@@ -396,7 +401,7 @@ Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const 
     return Status::OK();
 }
 
-Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRef& val,
+Status FunctionLikeBase::regexp_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                           const StringRef& pattern, unsigned char* result) {
     RE2::Options opts;
     opts.set_never_nl(false);
@@ -411,7 +416,7 @@ Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRe
     return Status::OK();
 }
 
-Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnString& val,
+Status FunctionLikeBase::constant_regex_fn(const LikeSearchState* state, const ColumnString& val,
                                            const StringRef& pattern,
                                            ColumnUInt8::Container& result) {
     auto sz = val.size();
@@ -426,6 +431,12 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnS
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
             }
         }
+    } else if (state->boost_regex) { // use boost::regex for advanced features
+        for (size_t i = 0; i < sz; i++) {
+            const auto& str_ref = val.get_data_at(i);
+            *(result.data() + i) = boost::regex_search(str_ref.data, str_ref.data + str_ref.size,
+                                                       *state->boost_regex);
+        }
     } else { // fallback to re2
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
@@ -437,7 +448,7 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnS
     return Status::OK();
 }
 
-Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const ColumnString& val,
+Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnString& val,
                                    const StringRef& pattern, ColumnUInt8::Container& result) {
     std::string re_pattern(pattern.data, pattern.size);
 
@@ -523,8 +534,9 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     // for constant_substring_fn, use long run length search for performance
     if (constant_substring_fn ==
-        *(state->function.target<doris::Status (*)(LikeSearchState* state, const ColumnString&,
-                                                   const StringRef&, ColumnUInt8::Container&)>())) {
+        *(state->function
+                  .target<doris::Status (*)(const LikeSearchState* state, const ColumnString&,
+                                            const StringRef&, ColumnUInt8::Container&)>())) {
         RETURN_IF_ERROR(execute_substring(values->get_chars(), values->get_offsets(), vec_res,
                                           &state->search_state));
     } else {
@@ -699,14 +711,14 @@ Status FunctionLikeBase::vector_non_const(const ColumnString& values, const Colu
     return (vector_search_state->_vector_function)(values, *search_strings, result);
 }
 
-Status FunctionLike::like_fn(LikeSearchState* state, const ColumnString& val,
+Status FunctionLike::like_fn(const LikeSearchState* state, const ColumnString& val,
                              const StringRef& pattern, ColumnUInt8::Container& result) {
     std::string re_pattern;
     convert_like_pattern(state, std::string(pattern.data, pattern.size), &re_pattern);
     return regexp_fn(state, val, {re_pattern.c_str(), re_pattern.size()}, result);
 }
 
-Status FunctionLike::like_fn_scalar(LikeSearchState* state, const StringRef& val,
+Status FunctionLike::like_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                     const StringRef& pattern, unsigned char* result) {
     std::string re_pattern;
     convert_like_pattern(state, std::string(pattern.data, pattern.size), &re_pattern);
@@ -715,7 +727,7 @@ Status FunctionLike::like_fn_scalar(LikeSearchState* state, const StringRef& val
                             {re_pattern.c_str(), re_pattern.size()}, result);
 }
 
-void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::string& pattern,
+void FunctionLike::convert_like_pattern(const LikeSearchState* state, const std::string& pattern,
                                         std::string* re_pattern) {
     re_pattern->clear();
 
@@ -1005,7 +1017,23 @@ Status FunctionRegexpLike::open(FunctionContext* context,
                 opts.set_dot_nl(true);
                 state->search_state.regex = std::make_unique<RE2>(pattern_str, opts);
                 if (!state->search_state.regex->ok()) {
-                    return Status::InternalError("Invalid regex expression: {}", pattern_str);
+                    if (!context->state()->enable_extended_regex()) {
+                        return Status::InternalError(
+                                "Invalid regex expression: {}. Error: {}. If you need advanced "
+                                "regex features, try setting enable_extended_regex=true",
+                                pattern_str, state->search_state.regex->error());
+                    }
+
+                    // RE2 failed, fallback to Boost.Regex
+                    // This handles advanced regex features like zero-width assertions
+                    state->search_state.regex.reset();
+                    try {
+                        state->search_state.boost_regex =
+                                std::make_unique<boost::regex>(pattern_str);
+                    } catch (const boost::regex_error& e) {
+                        return Status::InternalError("Invalid regex expression: {}. Error: {}",
+                                                     pattern_str, e.what());
+                    }
                 }
             }
             state->function = constant_regex_fn;

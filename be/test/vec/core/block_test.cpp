@@ -74,8 +74,10 @@ void block_to_pb(
         segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::SNAPPY) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    Status st = block.serialize(BeExecVersionManager::get_newest_version(), pblock,
-                                &uncompressed_bytes, &compressed_bytes, compression_type);
+    int64_t compress_time = 0;
+    Status st =
+            block.serialize(BeExecVersionManager::get_newest_version(), pblock, &uncompressed_bytes,
+                            &compressed_bytes, &compress_time, compression_type);
     EXPECT_TRUE(st.ok());
     // const column maybe uncompressed_bytes<compressed_bytes
     // as the serialize_bytes add some additional byets: STREAMVBYTE_PADDING=16;
@@ -147,7 +149,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -169,7 +173,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -192,7 +198,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -219,7 +227,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -240,7 +250,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -263,7 +275,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -287,7 +301,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -303,11 +319,14 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
+        EXPECT_GT(block.dump_data_json().size(), 1);
     }
 }
 
@@ -327,11 +346,14 @@ void serialize_and_deserialize_test_one() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -352,11 +374,14 @@ void serialize_and_deserialize_test_int() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -375,11 +400,14 @@ void serialize_and_deserialize_test_int() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -399,11 +427,14 @@ void serialize_and_deserialize_test_long() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -422,11 +453,14 @@ void serialize_and_deserialize_test_long() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -446,11 +480,14 @@ void serialize_and_deserialize_test_string() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -470,11 +507,14 @@ void serialize_and_deserialize_test_string() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -497,11 +537,14 @@ void serialize_and_deserialize_test_nullable() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -521,11 +564,14 @@ void serialize_and_deserialize_test_nullable() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -544,7 +590,9 @@ void serialize_and_deserialize_test_nullable() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
@@ -566,11 +614,14 @@ void serialize_and_deserialize_test_nullable() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -591,11 +642,14 @@ void serialize_and_deserialize_test_decimal() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -614,11 +668,14 @@ void serialize_and_deserialize_test_decimal() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -645,7 +702,9 @@ void serialize_and_deserialize_test_bitmap() {
         std::string s1 = pblock.DebugString();
         std::string bb1 = block.dump_data(0, 1024);
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         std::string bb2 = block2.dump_data(0, 1024);
         EXPECT_EQ(bb1, bb2);
         PBlock pblock2;
@@ -675,9 +734,12 @@ void serialize_and_deserialize_test_bitmap() {
         std::string s1 = pblock.DebugString();
         std::string bb1 = block.dump_data(0, 1024);
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         std::string bb2 = block2.dump_data(0, 1024);
         EXPECT_EQ(bb1, bb2);
+        EXPECT_EQ(block.dump_data_json(0, 1024), block2.dump_data_json(0, 1024));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -695,11 +757,14 @@ void serialize_and_deserialize_test_array() {
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
         std::string s1 = pblock.DebugString();
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
+        EXPECT_GT(block.dump_data_json().size(), 1);
     }
 }
 
@@ -790,6 +855,7 @@ TEST(BlockTest, dump_data) {
     vectorized::Block block({test_int, test_string, test_decimal, test_nullable_int32, test_date,
                              test_datetime, test_date_v2});
     EXPECT_GT(block.dump_data().size(), 1);
+    EXPECT_GT(block.dump_data_json().size(), 1);
 
     // test dump array int and array string
     vectorized::Block block1;
@@ -797,6 +863,7 @@ TEST(BlockTest, dump_data) {
     fill_block_with_array_string(block1);
     // Note: here we should set 'row_num' in dump_data
     EXPECT_GT(block1.dump_data(10).size(), 1);
+    EXPECT_GT(block.dump_data_json(10).size(), 1);
 
     vectorized::IColumn::Filter filter;
     int size = block1.rows() / 2;
@@ -946,38 +1013,6 @@ TEST(BlockTest, compare_at) {
     ASSERT_GT(ret, 0);
 }
 
-TEST(BlockTest, same_bit) {
-    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 1, 3});
-    std::vector<bool> same_bit = {false, true, false};
-    block.set_same_bit(same_bit.begin(), same_bit.end());
-    ASSERT_EQ(block.get_same_bit(0), false);
-    ASSERT_EQ(block.get_same_bit(1), true);
-    ASSERT_EQ(block.get_same_bit(2), false);
-
-    auto block2 = block;
-    block2.set_num_rows(2);
-    ASSERT_EQ(block2.rows(), 2);
-
-    int64_t length = 3;
-    block2.skip_num_rows(length);
-    ASSERT_EQ(1, length);
-    ASSERT_EQ(block2.rows(), 0);
-
-    block2 = block;
-    length = 1;
-    block2.skip_num_rows(length);
-    ASSERT_EQ(block2.rows(), 2);
-    ASSERT_EQ(block2.get_same_bit(0), true);
-
-    block2.skip_num_rows(length);
-    ASSERT_EQ(block2.rows(), 1);
-    ASSERT_EQ(block2.get_same_bit(0), false);
-
-    block.clear_same_bit();
-
-    ASSERT_EQ(block.get_same_bit(1), false);
-}
-
 TEST(BlockTest, dump) {
     auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
     auto types = block.dump_types();
@@ -1066,10 +1101,7 @@ TEST(BlockTest, ctor) {
     tuple_builder
             .add_slot(
                     TSlotDescriptorBuilder().type(PrimitiveType::TYPE_INT).nullable(false).build())
-            .add_slot(TSlotDescriptorBuilder()
-                              .type(PrimitiveType::TYPE_STRING)
-                              .set_isMaterialized(false)
-                              .build());
+            .add_slot(TSlotDescriptorBuilder().type(PrimitiveType::TYPE_STRING).build());
     tuple_builder.build(&builder);
 
     auto t_table = builder.desc_tbl();
@@ -1090,26 +1122,6 @@ TEST(BlockTest, ctor) {
     ASSERT_EQ(block.columns(), 2);
     ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_INT);
     ASSERT_TRUE(block.get_by_position(1).type->is_nullable());
-
-    {
-        auto mutable_block =
-                vectorized::MutableBlock::create_unique(tbl->get_tuple_descs(), 10, false);
-        ASSERT_EQ(mutable_block->columns(), 2);
-        auto mutable_block2 = vectorized::MutableBlock::create_unique();
-        mutable_block->swap(*mutable_block2);
-        ASSERT_EQ(mutable_block->columns(), 0);
-        ASSERT_EQ(mutable_block2->columns(), 2);
-    }
-
-    {
-        auto mutable_block =
-                vectorized::MutableBlock::create_unique(tbl->get_tuple_descs(), 10, true);
-        ASSERT_EQ(mutable_block->columns(), 1);
-        auto mutable_block2 = vectorized::MutableBlock::create_unique();
-        mutable_block->swap(*mutable_block2);
-        ASSERT_EQ(mutable_block->columns(), 0);
-        ASSERT_EQ(mutable_block2->columns(), 1);
-    }
 }
 
 TEST(BlockTest, insert_erase) {
@@ -1140,39 +1152,20 @@ TEST(BlockTest, insert_erase) {
     block.erase_tail(0);
     ASSERT_EQ(block.columns(), 0);
 
-    EXPECT_ANY_THROW(block.erase("column"));
     column_with_name =
             vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({});
     block.insert(0, column_with_name);
-    EXPECT_NO_THROW(block.erase("column"));
-    ASSERT_EQ(block.columns(), 0);
+    ASSERT_EQ(block.columns(), 1);
 
-    EXPECT_ANY_THROW(block.safe_get_by_position(0));
-
-    ASSERT_EQ(block.try_get_by_name("column"), nullptr);
-    EXPECT_ANY_THROW(block.get_by_name("column"));
-    EXPECT_ANY_THROW(block.get_position_by_name("column"));
     block.insert(0, column_with_name);
 
-    EXPECT_NO_THROW(auto item = block.get_by_name("column"));
-    ASSERT_NE(block.try_get_by_name("column"), nullptr);
     EXPECT_EQ(block.get_position_by_name("column"), 0);
-
-    block.insert({nullptr, nullptr, BeConsts::BLOCK_TEMP_COLUMN_PREFIX});
-    EXPECT_NO_THROW(auto item = block.get_by_name(BeConsts::BLOCK_TEMP_COLUMN_PREFIX));
-
-    block.erase_tmp_columns();
-    ASSERT_EQ(block.try_get_by_name(BeConsts::BLOCK_TEMP_COLUMN_PREFIX), nullptr);
 
     {
         // test const block
         const auto const_block = block;
-        EXPECT_EQ(const_block.try_get_by_name("column2"), nullptr);
-        EXPECT_ANY_THROW(const_block.get_by_name("column2"));
-        EXPECT_ANY_THROW(const_block.get_position_by_name("column2"));
+        EXPECT_EQ(const_block.get_position_by_name("column2"), -1);
 
-        EXPECT_NO_THROW(auto item = const_block.get_by_name("column"));
-        ASSERT_NE(const_block.try_get_by_name("column"), nullptr);
         EXPECT_EQ(const_block.get_position_by_name("column"), 0);
     }
 
@@ -1181,14 +1174,7 @@ TEST(BlockTest, insert_erase) {
 
     block.insert({nullptr, std::make_shared<vectorized::DataTypeString>(), "col2"});
 
-    vectorized::MutableBlock mutable_block(&block);
-    mutable_block.erase("col1");
-    ASSERT_EQ(mutable_block.columns(), 2);
-
-    EXPECT_ANY_THROW(mutable_block.erase("col1"));
-    ASSERT_EQ(mutable_block.columns(), 2);
-    mutable_block.erase("col2");
-    ASSERT_EQ(mutable_block.columns(), 1);
+    ASSERT_EQ(block.columns(), 3);
 }
 
 TEST(BlockTest, check_number_of_rows) {
@@ -1362,11 +1348,11 @@ TEST(BlockTest, others) {
     vectorized::MutableBlock mutable_block(&block);
     auto dumped = mutable_block.dump_data();
     ASSERT_GT(dumped.size(), 0) << "Dumped data size: " << dumped.size();
+    auto dumped_json = mutable_block.dump_data_json();
+    ASSERT_GT(dumped_json.size(), 0) << "Dumped data json size: " << dumped_json.size();
 
     mutable_block.clear_column_data();
     ASSERT_EQ(mutable_block.get_column_by_position(0)->size(), 0);
-    ASSERT_TRUE(mutable_block.has("column"));
-    ASSERT_EQ(mutable_block.get_position_by_name("column"), 0);
 
     auto dumped_names = mutable_block.dump_names();
     ASSERT_TRUE(dumped_names.find("column") != std::string::npos);

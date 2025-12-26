@@ -28,6 +28,8 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
@@ -288,5 +290,17 @@ class DateLiteralTest {
         Assertions.assertEquals(2025, date.year);
         Assertions.assertEquals(7, date.month);
         Assertions.assertEquals(23, date.day);
+
+        Assertions.assertThrows(AnalysisException.class, () -> v2.uncheckedCastTo(SmallIntType.INSTANCE));
+
+        // to string
+        expression = v1.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("2025-07-23", ((StringLiteral) expression).value);
+
+        v1 = new DateLiteral(201, 7, 23);
+        expression = v1.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("0201-07-23", ((StringLiteral) expression).value);
     }
 }

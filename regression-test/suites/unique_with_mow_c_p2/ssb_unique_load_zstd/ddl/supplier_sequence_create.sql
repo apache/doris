@@ -15,6 +15,5 @@ PROPERTIES (
 "function_column.sequence_type" = 'int',
 "compression"="zstd",
 "replication_num" = "1",
-"enable_unique_key_merge_on_write" = "true",
-"enable_mow_light_delete" = "true"
+"enable_unique_key_merge_on_write" = "true"
 );

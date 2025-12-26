@@ -113,6 +113,9 @@ public:
     [[nodiscard]] virtual Status terminate(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
     [[nodiscard]] virtual int node_id() const = 0;
+    [[nodiscard]] virtual int parallelism(RuntimeState* state) const {
+        return _is_serial_operator ? 1 : state->query_parallel_instance_num();
+    }
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
         if (_child && child != nullptr) {
@@ -151,8 +154,9 @@ public:
         _followed_by_shuffled_operator = followed_by_shuffled_operator;
     }
     [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
-    [[nodiscard]] virtual DataDistribution required_data_distribution() const;
-    [[nodiscard]] virtual bool require_shuffled_data_distribution() const;
+    [[nodiscard]] virtual DataDistribution required_data_distribution(
+            RuntimeState* /*state*/) const;
+    [[nodiscard]] virtual bool require_shuffled_data_distribution(RuntimeState* /*state*/) const;
 
 protected:
     OperatorPtr _child = nullptr;
@@ -610,7 +614,7 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
-    [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
+    [[nodiscard]] virtual Status init(RuntimeState* state, ExchangeType type, const int num_buckets,
                                       const bool use_global_hash_shuffle,
                                       const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
@@ -837,13 +841,13 @@ public:
               _type(tnode.node_type),
               _pool(pool),
               _tuple_ids(tnode.row_tuples),
-              _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+              _row_descriptor(descs, tnode.row_tuples),
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
-            _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
-            _output_row_descriptor = std::make_unique<RowDescriptor>(
-                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
+            _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}));
+            _output_row_descriptor =
+                    std::make_unique<RowDescriptor>(descs, std::vector {tnode.output_tuple_id});
         }
         if (!tnode.intermediate_output_tuple_id_list.empty()) {
             // common subexpression elimination
@@ -851,7 +855,7 @@ public:
                     tnode.intermediate_output_tuple_id_list.size());
             for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {
                 _intermediate_output_row_descriptor.push_back(
-                        RowDescriptor(descs, std::vector {output_tuple_id}, std::vector {true}));
+                        RowDescriptor(descs, std::vector {output_tuple_id}));
             }
         }
     }
@@ -879,7 +883,7 @@ public:
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     bool is_blockable(RuntimeState* state) const override {
-        return state->get_sink_local_state()->is_blockable();
+        return state->get_sink_local_state()->is_blockable() || _blockable;
     }
 
     Status prepare(RuntimeState* state) override;
@@ -1015,6 +1019,9 @@ protected:
     //_keep_origin is used to avoid copying during projection,
     // currently set to false only in the nestloop join.
     bool _keep_origin = true;
+
+    // _blockable is true if the operator contains expressions that may block execution
+    bool _blockable = false;
 };
 
 template <typename LocalStateType>

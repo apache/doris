@@ -185,6 +185,27 @@ public class JdbcMySQLClient extends JdbcClient {
         return tableSchema;
     }
 
+    @Override
+    public List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
+        Connection conn = getConnection();
+        ResultSet rs = null;
+        List<String> primaryKeys = Lists.newArrayList();
+        try {
+            DatabaseMetaData databaseMetaData = conn.getMetaData();
+            rs = databaseMetaData.getPrimaryKeys(remoteDbName, null, remoteTableName);
+            while (rs.next()) {
+                String fieldName = rs.getString("COLUMN_NAME");
+                primaryKeys.add(fieldName);
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get jdbc primary key info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+        } finally {
+            close(rs, conn);
+        }
+        return primaryKeys;
+    }
+
     protected String getCatalogName(Connection conn) throws SQLException {
         return null;
     }
@@ -283,6 +304,14 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "VARCHAR":
                 return ScalarType.createVarcharType(fieldSchema.requiredColumnSize());
+            case "TINYBLOB":
+            case "BLOB":
+            case "MEDIUMBLOB":
+            case "LONGBLOB":
+            case "BINARY":
+            case "VARBINARY":
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
+                        : ScalarType.createStringType();
             case "BIT":
                 if (fieldSchema.requiredColumnSize() == 1) {
                     return Type.BOOLEAN;
@@ -295,14 +324,8 @@ public class JdbcMySQLClient extends JdbcClient {
             case "TEXT":
             case "MEDIUMTEXT":
             case "LONGTEXT":
-            case "TINYBLOB":
-            case "BLOB":
-            case "MEDIUMBLOB":
-            case "LONGBLOB":
             case "STRING":
             case "SET":
-            case "BINARY":
-            case "VARBINARY":
             case "ENUM":
                 return ScalarType.createStringType();
             default:
@@ -311,8 +334,10 @@ public class JdbcMySQLClient extends JdbcClient {
     }
 
     private boolean isConvertDatetimeToNull(JdbcClientConfig jdbcClientConfig) {
-        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull".
-        return jdbcClientConfig.getJdbcUrl().contains("zeroDateTimeBehavior=convertToNull");
+        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull" or "zeroDateTimeBehavior=convert_to_null"
+        String jdbcUrl = jdbcClientConfig.getJdbcUrl().toLowerCase();
+        return jdbcUrl.contains("zerodatetimebehavior=converttonull")
+                || jdbcUrl.contains("zerodatetimebehavior=convert_to_null");
     }
 
     /**
@@ -325,9 +350,9 @@ public class JdbcMySQLClient extends JdbcClient {
         Map<String, String> fieldToType = Maps.newHashMap();
 
         StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
-        queryBuf.append(remoteTableName);
+        queryBuf.append("`").append(remoteTableName).append("`");
         queryBuf.append(" FROM ");
-        queryBuf.append(remoteDbName);
+        queryBuf.append("`").append(remoteDbName).append("`");
         try {
             conn = getConnection();
             stmt = conn.createStatement();
@@ -418,6 +443,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createHllType();
             case "BITMAP":
                 return Type.BITMAP;
+            case "VARBINARY":
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             default:
                 return Type.UNSUPPORTED;
         }

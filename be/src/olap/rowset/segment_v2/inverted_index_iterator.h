@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 
@@ -30,6 +31,10 @@ struct InvertedIndexParam {
     uint32_t num_rows;
     std::shared_ptr<roaring::Roaring> roaring;
     bool skip_try = false;
+
+    // Pointer to analyzer context (can be nullptr if not needed)
+    // Used by FullTextIndexReader for tokenization
+    const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
 };
 
 class InvertedIndexIterator : public IndexIterator {
@@ -39,6 +44,7 @@ public:
 
     void add_reader(InvertedIndexReaderType type, const InvertedIndexReaderPtr& reader);
 
+    // Note: analyzer_ctx is now passed via InvertedIndexParam.analyzer_ctx
     Status read_from_index(const IndexParam& param) override;
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override;
@@ -47,15 +53,16 @@ public:
 
     IndexReaderPtr get_reader(IndexReaderType reader_type) const override;
 
+    Result<InvertedIndexReaderPtr> select_best_reader(const vectorized::DataTypePtr& column_type,
+                                                      InvertedIndexQueryType query_type);
+    Result<InvertedIndexReaderPtr> select_best_reader();
+
 private:
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
 
     Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
                                         const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, size_t* count);
-    Result<InvertedIndexReaderPtr> _select_best_reader(const vectorized::DataTypePtr& column_type,
-                                                       InvertedIndexQueryType query_type);
-    Result<InvertedIndexReaderPtr> _select_best_reader();
 
     std::unordered_map<IndexReaderType, InvertedIndexReaderPtr> _readers;
 };

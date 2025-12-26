@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.NumericLiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -38,8 +37,6 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
@@ -93,6 +90,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -103,7 +101,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -113,6 +111,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Used to estimate for expressions that not producing boolean value.
@@ -243,6 +242,20 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     convertSuccess = false;
                 }
             }
+            if (convertSuccess && colStats.getHotValues() != null) {
+                try {
+                    Map<Literal, Float> newHotValues = new HashMap<>();
+                    for (Literal oneHot : colStats.hotValues.keySet()) {
+                        DateTimeLiteral oneHotDate = new DateTimeLiteral(oneHot.getStringValue());
+                        newHotValues.put(oneHotDate,
+                                colStats.hotValues.get(oneHot));
+                    }
+                    builder.setHotValues(newHotValues.isEmpty() ? null : newHotValues);
+                } catch (Exception e) {
+                    convertSuccess = false;
+                }
+            }
+
             if (convertSuccess) {
                 return builder.build();
             }
@@ -257,7 +270,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         // cast other date types, set min/max infinity
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
         builder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
-                .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
+                .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY)
+                .setHotValues(null);
         return builder.build();
     }
 
@@ -283,7 +297,11 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitSlotReference(SlotReference slotReference, Statistics context) {
-        return context.findColumnStatistics(slotReference);
+        ColumnStatistic columnStatistic = context.findColumnStatistics(slotReference);
+        if (columnStatistic == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        return columnStatistic;
     }
 
     @Override
@@ -469,11 +487,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     @Override
-    public ColumnStatistic visitVirtualReference(VirtualSlotReference virtualSlotReference, Statistics context) {
-        return ColumnStatistic.UNKNOWN;
-    }
-
-    @Override
     public ColumnStatistic visitBoundFunction(BoundFunction boundFunction, Statistics context) {
         return ColumnStatistic.UNKNOWN;
     }
@@ -517,19 +530,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             maxNull = StatsMathUtil.maxNonNaN(maxNull, columnStatistic.numNulls);
         }
         return new ColumnStatisticBuilder(firstChild).setNumNulls(maxNull).setNdv(2).build();
-    }
-
-    @Override
-    public ColumnStatistic visitTimestampArithmetic(TimestampArithmetic arithmetic, Statistics context) {
-        Operator operator = arithmetic.getOp();
-        switch (operator) {
-            case ADD:
-                return dateAdd(arithmetic, context);
-            case SUBTRACT:
-                return dateSub(arithmetic, context);
-            default:
-                return arithmetic.left().accept(this, context);
-        }
     }
 
     @Override

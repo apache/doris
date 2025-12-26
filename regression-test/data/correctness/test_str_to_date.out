@@ -6,7 +6,6 @@
 4	\N	yyyy-MM-dd	\N
 5	2019-12-01	\N	\N
 6	\N	\N	\N
-7	无效日期	yyyy-MM-dd	\N
 
 -- !const_test1 --
 2019-12-01
@@ -21,6 +20,9 @@
 \N
 
 -- !const_test5 --
+\N
+
+-- !const_test6 --
 \N
 
 -- !short_1 --
@@ -52,7 +54,4 @@
 5	\N
 6	\N
 7	\N
-
--- !select_all_space --
-\N
 

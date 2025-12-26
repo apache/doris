@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
@@ -41,7 +39,8 @@ import java.util.Map;
  * AddPartitionOp
  */
 public class AddPartitionOp extends AlterTableOp {
-    private PartitionDefinition partitionDesc;
+    private PartitionDefinition partitionDefinition;
+    private SinglePartitionDesc partitionDesc;
     private DistributionDescriptor distributionDesc;
     private Map<String, String> properties;
     // true if this is to add a temporary partition
@@ -50,10 +49,26 @@ public class AddPartitionOp extends AlterTableOp {
     /**
      * AddPartitionOp
      */
-    public AddPartitionOp(PartitionDefinition partitionDesc,
+    public AddPartitionOp(PartitionDefinition partitionDefinition,
             DistributionDescriptor distributionDesc,
             Map<String, String> properties,
             boolean isTempPartition) {
+        super(AlterOpType.ADD_PARTITION);
+        this.partitionDefinition = partitionDefinition;
+        this.distributionDesc = distributionDesc;
+        this.properties = properties;
+        this.isTempPartition = isTempPartition;
+
+        this.needTableStable = false;
+    }
+
+    /**
+     * AddPartitionOp
+     */
+    public AddPartitionOp(SinglePartitionDesc partitionDesc,
+                          DistributionDescriptor distributionDesc,
+                          Map<String, String> properties,
+                          boolean isTempPartition) {
         super(AlterOpType.ADD_PARTITION);
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
@@ -63,21 +78,28 @@ public class AddPartitionOp extends AlterTableOp {
         this.needTableStable = false;
     }
 
-    private SinglePartitionDesc getSingeRangePartitionDesc() {
-        SinglePartitionDesc singlePartitionDesc = (SinglePartitionDesc) partitionDesc.translateToCatalogStyle();
+    /**
+     * getSingeRangePartitionDesc
+     */
+    public SinglePartitionDesc getSingeRangePartitionDesc() {
+        if (partitionDesc != null) {
+            return partitionDesc;
+        }
+
+        SinglePartitionDesc singlePartitionDesc = (SinglePartitionDesc) partitionDefinition.translateToCatalogStyle();
         // TODO fe/fe-core/src/main/java/org/apache/doris/datasource/InternalCatalog.java#addPartition
         // will call singlePartitionDesc.analyze method, so have to set analyzed to false to let it work
         singlePartitionDesc.setAnalyzed(false);
         return singlePartitionDesc;
     }
 
-    private DistributionDesc getDistributionDesc() {
+    public DistributionDesc getDistributionDesc() {
         return distributionDesc != null ? distributionDesc.translateToCatalogStyle() : null;
     }
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        if (partitionDesc instanceof StepPartition) {
+        if (partitionDefinition instanceof StepPartition) {
             throw new AnalysisException("StepPartition is not supported");
         }
         String ctlName = tableName.getCtl();
@@ -93,14 +115,9 @@ public class AddPartitionOp extends AlterTableOp {
             for (Column col : olapTable.getPartitionColumns()) {
                 partitionTypes.add(DataType.fromCatalogType(col.getType()));
             }
-            partitionDesc.setPartitionTypes(partitionTypes);
+            partitionDefinition.setPartitionTypes(partitionTypes);
         }
-        partitionDesc.validate(properties);
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new AddPartitionClause(getSingeRangePartitionDesc(), getDistributionDesc(), properties, isTempPartition);
+        partitionDefinition.validate(properties);
     }
 
     public boolean isTempPartition() {

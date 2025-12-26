@@ -26,6 +26,7 @@
 #include "arrow/status.h"
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "util/jsonb_document.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_buffer.hpp"
@@ -92,6 +93,38 @@ struct CastParameters;
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
+
+/// Info that represents a scalar or array field in a decomposed view.
+/// It allows to recreate field with different number
+/// of dimensions or nullability.
+struct FieldInfo {
+    /// The common type id of of all scalars in field.
+    PrimitiveType scalar_type_id = PrimitiveType::INVALID_TYPE;
+    /// Do we have NULL scalar in field.
+    bool have_nulls = false;
+    /// If true then we have scalars with different types in array and
+    /// we need to convert scalars to the common type.
+    bool need_convert = false;
+    /// Number of dimension in array. 0 if field is scalar.
+    size_t num_dimensions = 0;
+
+    // decimal info
+    int scale = 0;
+    int precision = 0;
+};
+struct PackedUInt128 {
+    // PackedInt128() : value(0) {}
+    PackedUInt128() = default;
+
+    PackedUInt128(const unsigned __int128& value_) { value = value_; }
+    PackedUInt128& operator=(const unsigned __int128& value_) {
+        value = value_;
+        return *this;
+    }
+    PackedUInt128& operator=(const PackedUInt128& rhs) = default;
+
+    uint128_t value;
+} __attribute__((packed));
 
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
@@ -218,6 +251,21 @@ public:
         }
     };
 
+    static FormatOptions get_default_format_options() {
+        FormatOptions options;
+        // eg:
+        //  array: ["abc", "def", "", null]
+        //  map: {"k1":null, "k2":"v3"}
+        options.nested_string_wrapper = "\"";
+        options.wrapper_len = 1;
+        options.map_key_delim = ':';
+        options.null_format = "null";
+        options.null_len = 4;
+        options.mysql_collection_delim = ", ";
+        options.is_bool_value_num = true;
+        return options;
+    }
+
     // only used for orc file format.
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer
@@ -239,6 +287,12 @@ public:
     virtual ~DataTypeSerDe();
 
     Status default_from_string(StringRef& str, IColumn& column) const;
+
+    virtual void to_string_batch(const IColumn& column, ColumnString& column_to,
+                                 const FormatOptions& options) const;
+
+    virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                           const FormatOptions& options) const;
 
     // All types can override this function
     // When this function is called, column should be of the corresponding type
@@ -353,6 +407,15 @@ public:
                                     get_name());
     }
 
+    // if jsonb is invalid, return nullptr
+    // if josnb is null json , return nullptr
+    // else return jsonb_value
+    static const JsonbValue* handle_jsonb_value(const StringRef& val);
+
+    virtual Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
+                                                        const ColumnString& from_column,
+                                                        CastParameters& castParms) const;
+
     Status parse_column_from_jsonb_string(IColumn& column, const JsonbValue* jsonb_value,
                                           CastParameters& castParms) const;
     // Protobuf serializer and deserializer
@@ -363,19 +426,26 @@ public:
 
     // JSONB serializer and deserializer, should write col_id
     virtual void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                         Arena& mem_pool, int32_t col_id,
-                                         int64_t row_num) const = 0;
+                                         Arena& mem_pool, int32_t col_id, int64_t row_num,
+                                         const FormatOptions& options) const = 0;
 
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
 
-    // MySQL serializer and deserializer
-    virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                         int64_t row_idx, bool col_const,
-                                         const FormatOptions& options) const = 0;
+    // return true if output as string
+    // return false if output null
+    virtual bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
+                                            int64_t row_idx, const FormatOptions& options) const;
 
-    virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                         int64_t row_idx, bool col_const,
-                                         const FormatOptions& options) const = 0;
+    virtual bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                             int64_t row_idx, const FormatOptions& options) const;
+
+    virtual bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                           int64_t row_idx, const FormatOptions& options) const;
+
+    virtual Status write_column_to_mysql_binary(const IColumn& column,
+                                                MysqlRowBinaryBuffer& row_buffer, int64_t row_idx,
+                                                bool col_const,
+                                                const FormatOptions& options) const = 0;
     // Thrift serializer and deserializer
 
     // JSON serializer and deserializer
@@ -392,7 +462,8 @@ public:
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                        const NullMap* null_map,
                                        orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                       int64_t end, vectorized::Arena& arena) const = 0;
+                                       int64_t end, vectorized::Arena& arena,
+                                       const FormatOptions& options) const = 0;
     // ORC deserializer
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
@@ -406,6 +477,11 @@ public:
                                           int64_t row_num) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "write_one_cell_to_binary");
     }
+
+    static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column);
+
+    static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                      FieldInfo& info);
 
 protected:
     bool _return_object_as_string = false;
@@ -440,6 +516,25 @@ inline Status checkArrowStatus(const arrow::Status& status, const std::string& c
                                   format_name, column, status.ToString());
     }
     return Status::OK();
+}
+
+inline const JsonbValue* DataTypeSerDe::handle_jsonb_value(const StringRef& val) {
+    const JsonbDocument* doc = nullptr;
+    if (val.size == 0) {
+        return nullptr;
+    }
+    auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
+    if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
+        return nullptr;
+    }
+    const JsonbValue* value = doc->getValue();
+    if (UNLIKELY(!value)) {
+        return nullptr;
+    }
+    if (value->isNull()) {
+        return nullptr;
+    }
+    return value;
 }
 
 DataTypeSerDeSPtrs create_data_type_serdes(

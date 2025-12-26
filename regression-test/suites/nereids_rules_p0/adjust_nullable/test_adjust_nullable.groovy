@@ -22,6 +22,7 @@ suite('test_adjust_nullable') {
     def tbl = 'test_adjust_nullable_t'
     sql "SET detail_shape_nodes='PhysicalProject'"
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
+    sql "set runtime_filter_mode=OFF"
     sql "CREATE TABLE ${tbl}(a int not null, b int, c int not null) distributed by hash(a) properties('replication_num' = '1')"
     sql "INSERT INTO ${tbl} VALUES(1, 2, 3)"
 

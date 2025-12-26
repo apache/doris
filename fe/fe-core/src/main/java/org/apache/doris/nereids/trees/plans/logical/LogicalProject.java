@@ -51,6 +51,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Logical project plan.
@@ -122,6 +123,24 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 "projects", projects,
                 "stats", statistics
         );
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT ");
+        if (isDistinct) {
+            sb.append("DISTINCT ");
+        }
+        sb.append(
+                projects.stream().map(NamedExpression::toDigest)
+                        .collect(Collectors.joining(", "))
+        );
+        if (child().getType() != PlanType.LOGICAL_UNBOUND_ONE_ROW_RELATION) {
+            sb.append(" FROM ");
+        }
+        sb.append(child().toDigest());
+        return sb.toString();
     }
 
     @Override
@@ -285,5 +304,24 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             }
             builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
         }
+    }
+
+    /**
+     *
+     * example:
+     * expression: x + 1
+     * project(a+b as x)
+     * then before project, the expression is a+b+1
+     *
+     */
+    public Expression pushDownExpressionPastProject(Expression expression) {
+        HashMap projectMap = new HashMap();
+        for (NamedExpression namedExpression : projects) {
+            if (namedExpression instanceof Alias) {
+                Alias alias = (Alias) namedExpression;
+                projectMap.put(alias.toSlot(), alias.child());
+            }
+        }
+        return ExpressionUtils.replace(expression, projectMap);
     }
 }

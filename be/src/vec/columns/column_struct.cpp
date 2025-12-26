@@ -257,6 +257,20 @@ void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTy
     }
 }
 
+void ColumnStruct::update_crc32c_batch(uint32_t* __restrict hashes,
+                                       const uint8_t* __restrict null_map) const {
+    for (const auto& column : columns) {
+        column->update_crc32c_batch(hashes, nullptr);
+    }
+}
+
+void ColumnStruct::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                        const uint8_t* __restrict null_map) const {
+    for (const auto& column : columns) {
+        column->update_crc32c_single(start, end, hash, nullptr);
+    }
+}
+
 void ColumnStruct::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
     const auto& src_concrete = assert_cast<const ColumnStruct&>(src);
@@ -434,13 +448,15 @@ void ColumnStruct::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
     sorter->sort_column(static_cast<const ColumnStruct&>(*this), flags, perms, range, last_column);
 }
 
-void ColumnStruct::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnStruct::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
+        // Used in hash_map_context.h, this address is allocated via Arena,
+        // but passed through StringRef, so using const_cast is acceptable.
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
-void ColumnStruct::deserialize_vec(StringRef* keys, const size_t num_rows) {
+void ColumnStruct::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
@@ -454,6 +470,12 @@ size_t ColumnStruct::get_max_row_byte_size() const {
         max_row_byte_sz += col->get_max_row_byte_size();
     }
     return max_row_byte_sz;
+}
+
+void ColumnStruct::replace_float_special_values() {
+    for (auto& col : columns) {
+        col->replace_float_special_values();
+    }
 }
 
 } // namespace doris::vectorized

@@ -40,7 +40,7 @@ public class InsertLoadJobTest {
     public void testGetTableNames(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable Database database,
             @Injectable Table table) throws MetaNotFoundException {
         UserIdentity userInfo = new UserIdentity("root", "localhost");
-        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "", userInfo);
+        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "", "", userInfo);
         String tableName = "table1";
         new Expectations() {
             {

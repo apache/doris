@@ -48,6 +48,18 @@ suite("test_key_bounds_truncation_read_scenarios", "nonConcurrent") {
                 return meta
             }
         }
+        if (cloudMode) {
+            for (int retryTimes = 0; retryTimes < 100; retryTimes++) {
+                Thread.sleep(1000)
+                jsonMeta = Http.GET(metaUrl, true, false)
+                for (def meta : jsonMeta.rs_metas) {
+                    int end_version = meta.end_version
+                    if (end_version == version) {
+                        return meta
+                    }
+                }
+            }
+        }
     }
 
     def checkKeyBounds = { int version, int length, boolean turnedOn ->

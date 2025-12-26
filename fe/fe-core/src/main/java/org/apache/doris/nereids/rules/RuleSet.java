@@ -39,6 +39,9 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProje
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterScanRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewLimitAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewLimitJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewLimitScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewOnlyScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
@@ -47,9 +50,16 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilt
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewTopNAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewTopNJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewTopNScanRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewWindowAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewWindowJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewWindowScanRule;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
+import org.apache.doris.nereids.rules.implementation.LogicalBlackholeSinkToPhysicalBlackholeSink;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEConsumerToPhysicalCTEConsumer;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEProducerToPhysicalCTEProducer;
@@ -87,6 +97,9 @@ import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysica
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
+import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
@@ -111,6 +124,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughSort;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushDownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
@@ -162,6 +176,7 @@ public class RuleSet {
             new PushDownFilterThroughSetOperation(),
             new PushDownFilterThroughGenerate(),
             new PushDownProjectThroughLimit(),
+            new PushDownProject(),
             new EliminateOuterJoin(),
             new MergeProjectable(),
             new MergeFilters(),
@@ -172,7 +187,7 @@ public class RuleSet {
             new PushDownFilterThroughPartitionTopN(),
             ExpressionNormalizationAndOptimization.NO_MIN_MAX_RANGE_INSTANCE,
             new EliminateFilter()
-    );
+            );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalCTEProducerToPhysicalCTEProducer())
@@ -202,6 +217,9 @@ public class RuleSet {
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
             .add(new LogicalTVFRelationToPhysicalTVFRelation())
             .add(new AggregateStrategies())
+            .add(SplitAggWithoutDistinct.INSTANCE)
+            .add(SplitAggMultiPhase.INSTANCE)
+            .add(SplitAggMultiPhaseWithoutGbyKey.INSTANCE)
             .add(new LogicalUnionToPhysicalUnion())
             .add(new LogicalExceptToPhysicalExcept())
             .add(new LogicalIntersectToPhysicalIntersect())
@@ -214,6 +232,7 @@ public class RuleSet {
             .add(new LogicalResultSinkToPhysicalResultSink())
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
             .add(new LogicalDictionarySinkToPhysicalDictionarySink())
+            .add(new LogicalBlackholeSinkToPhysicalBlackholeSink())
             .build();
 
     // left-zig-zag tree is used when column stats are not available.
@@ -262,6 +281,15 @@ public class RuleSet {
             .add(MaterializedViewProjectFilterScanRule.INSTANCE)
             .add(MaterializedViewAggregateOnNoneAggregateRule.INSTANCE)
             .add(MaterializedViewOnlyScanRule.INSTANCE)
+            .add(MaterializedViewLimitScanRule.INSTANCE)
+            .add(MaterializedViewLimitJoinRule.INSTANCE)
+            .add(MaterializedViewLimitAggregateRule.INSTANCE)
+            .add(MaterializedViewTopNAggregateRule.INSTANCE)
+            .add(MaterializedViewTopNJoinRule.INSTANCE)
+            .add(MaterializedViewTopNScanRule.INSTANCE)
+            .add(MaterializedViewWindowScanRule.INSTANCE)
+            .add(MaterializedViewWindowJoinRule.INSTANCE)
+            .add(MaterializedViewWindowAggregateRule.INSTANCE)
             .build();
 
     public static final List<Rule> MATERIALIZED_VIEW_IN_RBO_RULES = planRuleFactories()

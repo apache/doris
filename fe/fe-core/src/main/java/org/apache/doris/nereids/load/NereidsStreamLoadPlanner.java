@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -29,6 +31,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.FileLoadScanNode;
@@ -36,6 +39,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -54,6 +58,7 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -189,7 +194,7 @@ public class NereidsStreamLoadPlanner {
                     }
                 }
 
-                if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                if (CollectionUtils.isNotEmpty(col.getGeneratedColumnsThatReferToThis())
                         && col.getGeneratedColumnInfo() == null && !existInExpr) {
                     throw new UserException("Partial update should include"
                             + " all ordinary columns referenced"
@@ -214,6 +219,15 @@ public class NereidsStreamLoadPlanner {
                 throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
             }
         }
+
+        // make sure StatementContext is set in ConnectContext
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getStatementContext() == null) {
+            StatementContext statementContext = new StatementContext();
+            connectContext.setStatementContext(statementContext);
+            statementContext.setConnectContext(connectContext);
+        }
+
         // 1. create file group
         NereidsDataDescription dataDescription = new NereidsDataDescription(destTable.getName(), taskInfo);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());
@@ -239,16 +253,20 @@ public class NereidsStreamLoadPlanner {
                 partialUpdateInputColumns);
         NereidsParamCreateContext context = loadScanProvider.createLoadContext();
         TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy = taskInfo.getPartialUpdateNewRowPolicy();
-        LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, dataDescription.getPartitionNames(),
-                context, uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
-                partialUpdateNewRowPolicy);
+        LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo,
+                dataDescription.getPartitionNamesInfo(), context,
+                uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS, partialUpdateNewRowPolicy);
         NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(destTable, taskInfo, loadId,
                 db.getId(), uniquekeyUpdateMode, partialUpdateNewRowPolicy, partialUpdateInputColumns,
                 context.exprMap);
-        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan);
+        DescriptorTable descriptorTable = new DescriptorTable();
+        TupleDescriptor scanTupleDesc = descriptorTable.createTupleDescriptor();
+        scanTupleDesc.setTable(destTable);
+        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan,
+                descriptorTable, scanTupleDesc);
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
         fileScanNode.finalizeForNereids(loadId, Lists.newArrayList(fileGroupInfo), Lists.newArrayList(context),
-                loadPlanInfo);
+                Lists.newArrayList(loadPlanInfo));
         scanNode = fileScanNode;
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -262,7 +280,7 @@ public class NereidsStreamLoadPlanner {
         params.setProtocolVersion(PaloInternalServiceVersion.V1);
         params.setFragment(fragment.toThrift());
 
-        params.setDescTbl(loadPlanInfo.getDescriptorTable().toThrift());
+        params.setDescTbl(descriptorTable.toThrift());
         params.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
         params.setCurrentConnectFe(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
 
@@ -299,12 +317,13 @@ public class NereidsStreamLoadPlanner {
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         // load
         queryOptions.setBeExecVersion(Config.be_exec_version);
-        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableProfile(taskInfo.getEnableProfile());
+        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile() || Config.enable_stream_load_profile);
+        queryOptions.setEnableProfile(taskInfo.getEnableProfile() || Config.enable_stream_load_profile);
         boolean enableMemtableOnSinkNode = destTable.getTableProperty().getUseSchemaLightChange()
                 ? taskInfo.isMemtableOnSinkNode()
                 : false;
         queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
+        queryOptions.setNewVersionUnixTimestamp(true);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));

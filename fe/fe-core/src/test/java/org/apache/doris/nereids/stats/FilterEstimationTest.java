@@ -1364,6 +1364,21 @@ class FilterEstimationTest {
     }
 
     @Test
+    public void testStringRangeColToLiteralWithHotValue() {
+        double rowCont = 1000;
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia >= '2025-09-01'");
+        Expression expr = pair.first;
+        ArrayList<SlotReference> slots = pair.second;
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10, rowCont,
+                "2023-09-01", "2023-09-08", 0, new String[]{"2023-09-08"});
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCont);
+        Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+        Assertions.assertEquals(0, stats.getRowCount(), 0.1);
+        Assertions.assertNull(stats.findColumnStatistics(slots.get(0)).getHotValues());
+    }
+
+    @Test
     public void testStringRangeColToDateLiteral() {
         SlotReference a = new SlotReference("a", new VarcharType(25));
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(100)
@@ -1634,7 +1649,7 @@ class FilterEstimationTest {
         StatisticsBuilder statsBuilder = new StatisticsBuilder();
         statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCont);
         Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-        Assertions.assertEquals(StatsTestUtil.HOT_VALUE_PERCENTAGE * rowCont / ColumnStatistic.ONE_HUNDRED, stats.getRowCount(), 0.1);
+        Assertions.assertEquals(StatsTestUtil.HOT_VALUE_PERCENTAGE * rowCont, stats.getRowCount(), 0.1);
     }
 
     @Test
@@ -1648,7 +1663,7 @@ class FilterEstimationTest {
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-                Assertions.assertEquals((0.4 * 0.2 + StatsTestUtil.HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount,
+                Assertions.assertEquals((0.4 * 0.2 + StatsTestUtil.HOT_VALUE_PERCENTAGE) * rowCount,
                         stats.getRowCount(), 0.1);
                 Assertions.assertEquals((100 - 2) * 0.2 + 1, // (leftStats.ndv - hotValueCount) * selectivity + matchedHotValues.size();
                         stats.findColumnStatistics(slots.get(0)).ndv, 0.1);
@@ -1671,7 +1686,8 @@ class FilterEstimationTest {
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-                Assertions.assertEquals((0.4 * 0.01 + StatsTestUtil.HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount, stats.getRowCount(), 0.1);
+                Assertions.assertEquals((0.4 * 0.01 + StatsTestUtil.HOT_VALUE_PERCENTAGE) * rowCount,
+                        stats.getRowCount(), 0.1);
             }
     }
 
@@ -1686,7 +1702,7 @@ class FilterEstimationTest {
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-                Assertions.assertEquals((0.4 * 0.8 + StatsTestUtil.HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount,
+                Assertions.assertEquals((0.4 * 0.8 + StatsTestUtil.HOT_VALUE_PERCENTAGE) * rowCount,
                         stats.getRowCount(), 0.1);
             }
 
@@ -1708,7 +1724,7 @@ class FilterEstimationTest {
                 StatisticsBuilder statsBuilder = new StatisticsBuilder();
                 statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCount);
                 Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
-                Assertions.assertEquals((0.4 * 0.01 + StatsTestUtil.HOT_VALUE_PERCENTAGE / ColumnStatistic.ONE_HUNDRED) * rowCount, stats.getRowCount(), 0.1);
+                Assertions.assertEquals((0.4 * 0.01 + StatsTestUtil.HOT_VALUE_PERCENTAGE) * rowCount, stats.getRowCount(), 0.1);
             }
     }
 

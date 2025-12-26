@@ -23,7 +23,10 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
@@ -2937,6 +2940,20 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
                 + "ORDER BY sr_items.item_id ASC, sr_item_qty ASC\n"
                 + "LIMIT 100\n");
         checkIfEquals(originalSql, equivalentSqlList);
+    }
+
+    /**
+     * Test pre-materialized view rewrite need pre-rewrite when ELIMINATE_GROUP_BY_KEY_BY_UNIFORM applied
+     * */
+    @Test
+    public void testNeedPreRewrite() {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext("select T1.id from T1");
+        StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
+        statementContext.setForceRecordTmpPlan(true);
+        statementContext.ruleSetApplied(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM);
+        statementContext.getPlannerHooks().add(InitMaterializationContextHook.INSTANCE);
+        statementContext.getTmpPlanForMvRewrite().add(cascadesContext.getRewritePlan());
+        Assertions.assertTrue(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
     }
 
     private void checkIfEquals(String originalSql, List<String> equivalentSqlList) {

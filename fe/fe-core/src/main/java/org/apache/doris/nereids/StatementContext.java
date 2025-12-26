@@ -188,6 +188,14 @@ public class StatementContext implements Closeable {
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
+    // onelevel tables in this query directly,
+    // if
+    // create v1 as select * from t1
+    // create v2 as select * from v1
+    // current query is: select * from v2 join t2
+    // oneLevelTables will have two data: v2, t2,
+    // tables will have 4 data: t1, v1, v2, t2
+    private final Map<List<String>, TableIf> oneLevelTables = Maps.newHashMap();
     // tables maybe used by mtmv rewritten in this query,
     // this contains mvs which use table in tables and the tables in mvs
     // such as
@@ -204,7 +212,7 @@ public class StatementContext implements Closeable {
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
-    private final Map<List<String>, Pair<String, Long>> viewInfos = Maps.newHashMap();
+    private final Map<List<String>, Pair<String, Map<String, String>>> viewInfos = Maps.newHashMap();
     // save insert into schema to avoid schema changed between two read locks
     private final List<Column> insertTargetSchema = new ArrayList<>();
 
@@ -273,6 +281,16 @@ public class StatementContext implements Closeable {
 
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
+    private boolean isInsert = false;
+    private boolean skipPrunePredicate = false;
+
+    private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
+
+    // For Iceberg rewrite operations: store file scan tasks to be used by IcebergScanNode
+    // TODO: better solution?
+    private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+    private boolean hasNestedColumns;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -292,13 +310,16 @@ public class StatementContext implements Closeable {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
-        if (connectContext != null && connectContext.getSessionVariable() != null
-                && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
-            // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
-            this.sqlCacheContext = new SqlCacheContext(
-                    connectContext.getCurrentUserIdentity());
-            if (originStatement != null) {
-                this.sqlCacheContext.setOriginSql(originStatement.originStmt);
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+                // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
+                this.sqlCacheContext = new SqlCacheContext(
+                        connectContext.getCurrentUserIdentity());
+                if (originStatement != null) {
+                    this.sqlCacheContext.setOriginSql(originStatement.originStmt);
+                }
+            } else {
+                this.sqlCacheContext = null;
             }
         } else {
             this.sqlCacheContext = null;
@@ -325,18 +346,18 @@ public class StatementContext implements Closeable {
      *
      * @return view info, first is view's def sql, second is view's sql mode
      */
-    public Pair<String, Long> getAndCacheViewInfo(List<String> qualifiedViewName, View view) {
+    public Pair<String, Map<String, String>> getAndCacheViewInfo(List<String> qualifiedViewName, View view) {
         return viewInfos.computeIfAbsent(qualifiedViewName, k -> {
             String viewDef;
-            long sqlMode;
+            Map<String, String> sessionVariables;
             view.readLock();
             try {
                 viewDef = view.getInlineViewDef();
-                sqlMode = view.getSqlMode();
+                sessionVariables = view.getSessionVariables();
             } finally {
                 view.readUnlock();
             }
-            return Pair.of(viewDef, sqlMode);
+            return Pair.of(viewDef, sessionVariables);
         });
     }
 
@@ -350,6 +371,10 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getTables() {
         return tables;
+    }
+
+    public Map<List<String>, TableIf> getOneLevelTables() {
+        return oneLevelTables;
     }
 
     public Set<MTMV> getCandidateMTMVs() {
@@ -980,5 +1005,56 @@ public class StatementContext implements Closeable {
 
     public void setProducerStats(CTEId id, Statistics stats) {
         cteIdToProducerStats.put(id, stats);
+    }
+
+    public void setIsInsert(boolean isInsert) {
+        this.isInsert = isInsert;
+    }
+
+    public boolean isInsert() {
+        return isInsert;
+    }
+
+    public Optional<Map<TableIf, Set<Expression>>> getMvRefreshPredicates() {
+        return mvRefreshPredicates;
+    }
+
+    public void setMvRefreshPredicates(
+            Map<TableIf, Set<Expression>> mvRefreshPredicates) {
+        this.mvRefreshPredicates = Optional.of(mvRefreshPredicates);
+    }
+
+    /**
+     * Set file scan tasks for Iceberg rewrite operations.
+     * This allows IcebergScanNode to use specific file scan tasks instead of scanning the full table.
+     */
+    public void setIcebergRewriteFileScanTasks(List<org.apache.iceberg.FileScanTask> tasks) {
+        this.icebergRewriteFileScanTasks = tasks;
+    }
+
+    /**
+     * Get and consume file scan tasks for Iceberg rewrite operations.
+     * Returns the tasks and clears the field to prevent reuse.
+     */
+    public List<org.apache.iceberg.FileScanTask> getAndClearIcebergRewriteFileScanTasks() {
+        List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
+        this.icebergRewriteFileScanTasks = null;
+        return tasks;
+    }
+
+    public boolean isSkipPrunePredicate() {
+        return skipPrunePredicate;
+    }
+
+    public void setSkipPrunePredicate(boolean skipPrunePredicate) {
+        this.skipPrunePredicate = skipPrunePredicate;
+    }
+
+    public boolean hasNestedColumns() {
+        return hasNestedColumns;
+    }
+
+    public void setHasNestedColumns(boolean hasNestedColumns) {
+        this.hasNestedColumns = hasNestedColumns;
     }
 }

@@ -28,6 +28,7 @@
 #include "cast_to_map.h"
 #include "cast_to_string.h"
 #include "cast_to_struct.h"
+#include "cast_to_timestamptz.h"
 #include "cast_to_variant.h"
 #include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_agg_state.h"
@@ -57,6 +58,15 @@ WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& f
     }
 
     return CastWrapper::create_unsupport_wrapper("Cast to BitMap only support from String type");
+}
+
+WrapperType create_varbinary_wrapper(const DataTypePtr& from_type_untyped) {
+    /// Conversion from String through parsing.
+    if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
+        return cast_from_string_to_generic;
+    }
+
+    return CastWrapper::create_unsupport_wrapper("Cast to Varbinary only support from String type");
 }
 
 WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
@@ -177,10 +187,10 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
                     context, from_type_not_nullable, to_type_not_nullable);
 
             auto nested_result_index = block.columns();
-            block.insert(block.get_by_position(result).get_nested());
+            block.insert(block.get_by_position(result).unnest_nullable());
             auto nested_source_index = block.columns();
-            block.insert(
-                    block.get_by_position(arguments[0]).get_nested(replace_null_data_to_default));
+            block.insert(block.get_by_position(arguments[0])
+                                 .unnest_nullable(replace_null_data_to_default));
 
             const auto& arg_col = block.get_by_position(arguments[0]);
             const NullMap::value_type* arg_null_map = nullptr;
@@ -193,7 +203,7 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
 
             block.get_by_position(result).column =
                     wrap_in_nullable(block.get_by_position(nested_result_index).column, block,
-                                     arguments, result, input_rows_count);
+                                     arguments, input_rows_count);
 
             block.erase(nested_source_index);
             block.erase(nested_result_index);
@@ -255,6 +265,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_datelike_wrapper<DataTypeDateV2>(context, from_type);
     case PrimitiveType::TYPE_DATETIMEV2:
         return create_datelike_wrapper<DataTypeDateTimeV2>(context, from_type);
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return create_timestamptz_wrapper(context, from_type);
     case PrimitiveType::TYPE_TIMEV2:
         return create_datelike_wrapper<DataTypeTimeV2>(context, from_type);
     case PrimitiveType::TYPE_IPV4:
@@ -291,6 +303,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     case PrimitiveType::TYPE_JSONB:
         return create_cast_to_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
                                             context ? context->string_as_jsonb_string() : false);
+    case PrimitiveType::TYPE_VARBINARY:
+        return create_varbinary_wrapper(from_type);
     default:
         break;
     }

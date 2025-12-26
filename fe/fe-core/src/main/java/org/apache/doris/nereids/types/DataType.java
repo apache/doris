@@ -77,6 +77,7 @@ public abstract class DataType {
                     .put(Type.DATEV2.getPrimitiveType(), DateType.INSTANCE)
                     .put(Type.DATETIME.getPrimitiveType(), DateTimeType.INSTANCE)
                     .put(Type.DATETIMEV2.getPrimitiveType(), DateTimeV2Type.SYSTEM_DEFAULT)
+                    .put(Type.TIMESTAMPTZ.getPrimitiveType(), TimeStampTzType.SYSTEM_DEFAULT)
                     .put(Type.DECIMALV2.getPrimitiveType(), DecimalV2Type.SYSTEM_DEFAULT)
                     .put(Type.DECIMAL32.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
                     .put(Type.DECIMAL64.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
@@ -84,6 +85,7 @@ public abstract class DataType {
                     .put(Type.DECIMAL256.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
                     .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
                     .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
+                    .put(Type.VARBINARY.getPrimitiveType(), VarBinaryType.INSTANCE)
                     .build();
         }
     }
@@ -139,6 +141,22 @@ public abstract class DataType {
             return new StringLiteral((String) value);
         }
         return null;
+    }
+
+    /**
+     * Get the active types for the deprecated types. see also {@link ScalarType#getDefaultDateType()}
+     */
+    public static DataType getCurrentType(DataType dataType) {
+        if (dataType instanceof DateType) {
+            return DateV2Type.INSTANCE;
+        } else if (dataType instanceof DateTimeType) {
+            return DateTimeV2Type.SYSTEM_DEFAULT;
+        } else if (dataType instanceof TimeStampTzType) {
+            return DateTimeV2Type.of(((TimeStampTzType) dataType).getScale());
+        } else if (dataType instanceof DecimalV2Type) {
+            return DecimalV3Type.SYSTEM_DEFAULT;
+        }
+        return dataType;
     }
 
     /**
@@ -289,7 +307,7 @@ public abstract class DataType {
             case "timev2":
                 switch (types.size()) {
                     case 1:
-                        dataType = TimeV2Type.INSTANCE;
+                        dataType = TimeV2Type.SYSTEM_DEFAULT;
                         break;
                     case 2:
                         dataType = TimeV2Type.of(Integer.parseInt(types.get(1)));
@@ -333,6 +351,18 @@ public abstract class DataType {
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
                 break;
+            case "timestamptz":
+                switch (types.size()) {
+                    case 1:
+                        dataType = TimeStampTzType.SYSTEM_DEFAULT;
+                        break;
+                    case 2:
+                        dataType = TimeStampTzType.of(Integer.parseInt(types.get(1)));
+                        break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+                break;
             case "hll":
                 dataType = HllType.INSTANCE;
                 break;
@@ -354,6 +384,10 @@ public abstract class DataType {
                 break;
             case "variant":
                 dataType = VariantType.INSTANCE;
+                break;
+            case "varbinary":
+                // NOTICE, Maybe. not supported create table, and varbinary do not have len now
+                dataType = VarBinaryType.INSTANCE;
                 break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
@@ -394,6 +428,7 @@ public abstract class DataType {
             case DATEV2: return DateV2Type.INSTANCE;
             case DATE: return DateType.INSTANCE;
             case TIMEV2: return TimeV2Type.of(((ScalarType) type).getScalarScale());
+            case TIMESTAMPTZ: return TimeStampTzType.of(((ScalarType) type).getScalarScale());
             case HLL: return HllType.INSTANCE;
             case BITMAP: return BitmapType.INSTANCE;
             case QUANTILE_STATE: return QuantileStateType.INSTANCE;
@@ -403,6 +438,7 @@ public abstract class DataType {
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
+            case VARBINARY: return VarBinaryType.createVarBinaryType(type.getLength());
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
@@ -452,7 +488,8 @@ public abstract class DataType {
                 return new VariantType(variantFields,
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
                         ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
-                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize());
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantSparseHashShardCount());
             }
             return VariantType.INSTANCE;
         } else {
@@ -576,15 +613,15 @@ public abstract class DataType {
     }
 
     public boolean isDateLikeType() {
-        return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type();
-    }
-
-    public boolean isDateV2LikeType() {
-        return isDateV2Type() || isDateTimeV2Type();
+        return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type() || isTimeStampTzType();
     }
 
     public boolean isTimeType() {
         return this instanceof TimeV2Type;
+    }
+
+    public boolean isTimeStampTzType() {
+        return this instanceof TimeStampTzType;
     }
 
     public boolean isNullType() {
@@ -609,6 +646,10 @@ public abstract class DataType {
 
     public boolean isStringType() {
         return this instanceof StringType;
+    }
+
+    public boolean isVarBinaryType() {
+        return this instanceof VarBinaryType;
     }
 
     public boolean isJsonType() {
@@ -1047,16 +1088,17 @@ public abstract class DataType {
                 }
             }
             case TIMEV2:
-            case DATETIMEV2: {
+            case DATETIMEV2:
+            case TIMESTAMPTZ: {
                 int precision = scalarType.decimalPrecision();
                 int scale = scalarType.decimalScale();
-                // precision: [1, 27]
+                // precision: 18
                 if (precision != ScalarType.DATETIME_PRECISION) {
                     throw new AnalysisException(
                             "Precision of Datetime/Time must be " + ScalarType.DATETIME_PRECISION
                                     + "." + " Precision was set to: " + precision + ".");
                 }
-                // scale: [0, 9]
+                // scale: [0, 6]
                 if (scale < 0 || scale > 6) {
                     throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
                             + " Scale was set to: " + scale + ".");

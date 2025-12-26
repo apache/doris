@@ -17,11 +17,13 @@
 suite("test_select_with_predicate_like") {
     def tables=["test_basic_agg"]
 
+    sql "set enable_insert_strict=false"
     for (String table in tables) {
         sql """drop table if exists ${table};"""
         sql new File("""regression-test/common/table/${table}.sql""").text
         sql new File("""regression-test/common/load/${table}.sql""").text
     }
+    sql "set enable_insert_strict=true"
 
 
     qt_select_default  "select 1 from test_basic_agg where    1998  like '1%';"

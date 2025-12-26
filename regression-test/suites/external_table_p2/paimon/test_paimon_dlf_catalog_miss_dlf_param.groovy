@@ -28,6 +28,7 @@ suite("test_paimon_dlf_catalog_miss_dlf_param", "p2,external,paimon,external_rem
         String catalog_id = context.config.otherConfigs.get("dlf_catalog_id")
         String access_key = context.config.otherConfigs.get("dlf_access_key")
         String secret_key = context.config.otherConfigs.get("dlf_secret_key")
+        String oss_endpoint = context.config.otherConfigs.get("s3Endpoint")
 
 
         sql """drop catalog if exists ${catalog};"""
@@ -42,7 +43,7 @@ suite("test_paimon_dlf_catalog_miss_dlf_param", "p2,external,paimon,external_rem
             "dlf.catalog.id" = "${catalog_id}",
             "dlf.access_key" = "${access_key}",
             "dlf.secret_key" = "${secret_key}",
-            "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
+            "oss.endpoint"="${oss_endpoint}",
             "oss.access_key" = "${access_key}",
             "oss.secret_key" = "${secret_key}"
             );
@@ -56,6 +57,15 @@ suite("test_paimon_dlf_catalog_miss_dlf_param", "p2,external,paimon,external_rem
         qt_c1 """ select * from tb_simple order by id """
         sql """set force_jni_scanner=true"""
         qt_c2 """ select * from tb_simple order by id """
+        // 3.1 new features
+        // batch incremental
+        sql """SELECT * FROM tb_simple @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM tb_simple FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM tb_simple\$snapshots;"""
 
     } finally {
         sql """set force_jni_scanner=false"""

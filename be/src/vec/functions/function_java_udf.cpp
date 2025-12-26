@@ -17,10 +17,14 @@
 
 #include "vec/functions/function_java_udf.h"
 
+#include <bthread/bthread.h>
+
 #include <memory>
 #include <string>
 
+#include "common/exception.h"
 #include "jni.h"
+#include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/core/block.h"
@@ -32,6 +36,7 @@ const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
 const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
 
 namespace doris::vectorized {
+
 JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argument_types,
                                    const DataTypePtr& return_type)
         : fn_(fn), _argument_types(argument_types), _return_type(return_type) {}
@@ -122,13 +127,28 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
 
 Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
-    auto* jni_ctx = reinterpret_cast<JniContext*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
-    // JNIContext own some resource and its release method depend on JavaFunctionCall
-    // has to release the resource before JavaFunctionCall is deconstructed.
-    if (jni_ctx) {
-        RETURN_IF_ERROR(jni_ctx->close());
+    auto close_func = [context]() {
+        auto* jni_ctx = reinterpret_cast<JniContext*>(
+                context->get_function_state(FunctionContext::THREAD_LOCAL));
+        // JNIContext own some resource and its release method depend on JavaFunctionCall
+        // has to release the resource before JavaFunctionCall is deconstructed.
+        if (jni_ctx) {
+            RETURN_IF_ERROR(jni_ctx->close());
+        }
+        return Status::OK();
+    };
+
+    if (bthread_self() == 0) {
+        return close_func();
+    } else {
+        DorisMetrics::instance()->udf_close_bthread_count->increment(1);
+        // Use the close_workers pthread pool to execute the close function
+        auto task = std::make_shared<std::packaged_task<Status()>>(std::move(close_func));
+        auto task_future = task->get_future();
+        RETURN_IF_ERROR(ExecEnv::GetInstance()->udf_close_workers_pool()->submit_func(
+                [task]() { (*task)(); }));
+        RETURN_IF_ERROR(task_future.get());
+        return Status::OK();
     }
-    return Status::OK();
 }
 } // namespace doris::vectorized

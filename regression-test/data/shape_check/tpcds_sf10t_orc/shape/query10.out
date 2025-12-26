@@ -25,10 +25,10 @@ PhysicalResultSink
 ----------------------------------------filter((date_dim.d_moy <= 6) and (date_dim.d_moy >= 3) and (date_dim.d_year = 2000))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF4 RF5
+------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF4 RF5
 --------------------------------PhysicalProject
 ----------------------------------filter(ca_county IN ('Bonneville County', 'Boone County', 'Brown County', 'Fillmore County', 'McPherson County'))
-------------------------------------PhysicalOlapScan[customer_address]
+------------------------------------PhysicalOlapScan[customer_address(ca)]
 ----------------------------PhysicalOlapScan[customer_demographics]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]

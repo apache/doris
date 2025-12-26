@@ -20,8 +20,6 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
@@ -30,6 +28,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolAnd;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolOr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -74,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sem;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Skew;
@@ -137,6 +140,18 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(bitmapUnionInt, context);
     }
 
+    default R visitBoolAnd(BoolAnd boolAnd, C context) {
+        return visitAggregateFunction(boolAnd, context);
+    }
+
+    default R visitBoolOr(BoolOr boolOr, C context) {
+        return visitAggregateFunction(boolOr, context);
+    }
+
+    default R visitBoolXor(BoolXor boolXor, C context) {
+        return visitAggregateFunction(boolXor, context);
+    }
+
     default R visitCollectList(CollectList collectList, C context) {
         return visitAggregateFunction(collectList, context);
     }
@@ -187,6 +202,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitGroupArrayIntersect(GroupArrayIntersect groupArrayIntersect, C context) {
         return visitAggregateFunction(groupArrayIntersect, context);
+    }
+
+    default R visitGroupArrayUnion(GroupArrayUnion groupArrayUnion, C context) {
+        return visitAggregateFunction(groupArrayUnion, context);
     }
 
     default R visitGroupBitAnd(GroupBitAnd groupBitAnd, C context) {
@@ -313,6 +332,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitNullableAggregateFunction(retention, context);
     }
 
+    default R visitSem(Sem sem, C context) {
+        return visitNullableAggregateFunction(sem, context);
+    }
+
     default R visitSequenceCount(SequenceCount sequenceCount, C context) {
         return visitAggregateFunction(sequenceCount, context);
     }
@@ -379,14 +402,6 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitJavaUdaf(JavaUdaf javaUdaf, C context) {
         return visitAggregateFunction(javaUdaf, context);
-    }
-
-    default R visitApproxTopK(ApproxTopK approxTopK, C context) {
-        return visitNullableAggregateFunction(approxTopK, context);
-    }
-
-    default R visitApproxTopSum(ApproxTopSum approxTopSum, C context) {
-        return visitNullableAggregateFunction(approxTopSum, context);
     }
 
 }

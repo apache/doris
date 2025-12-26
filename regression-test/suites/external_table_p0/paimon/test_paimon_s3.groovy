@@ -46,6 +46,15 @@ suite("test_paimon_s3", "p0,external,doris,external_docker,external_docker_doris
         "order_qt_${prefix}" """
             SELECT * FROM hive_test_table;
         """
+        // 3.1 new features
+        // batch incremental
+        sql """SELECT * FROM hive_test_table @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM hive_test_table FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM hive_test_table\$snapshots;"""
 
     }
     String enabled = context.config.otherConfigs.get("enablePaimonTest")

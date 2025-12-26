@@ -21,11 +21,24 @@
 
 #include "olap/base_tablet.h"
 #include "olap/partial_update_info.h"
+#include "olap/rowset/rowset.h"
 
 namespace doris {
 
 class CloudStorageEngine;
-enum class WarmUpState : int;
+
+enum class WarmUpTriggerSource : int { NONE, SYNC_ROWSET, EVENT_DRIVEN, JOB };
+
+enum class WarmUpProgress : int { NONE, DOING, DONE };
+
+struct WarmUpState {
+    WarmUpTriggerSource trigger_source {WarmUpTriggerSource::NONE};
+    WarmUpProgress progress {WarmUpProgress::NONE};
+
+    bool operator==(const WarmUpState& other) const {
+        return trigger_source == other.trigger_source && progress == other.progress;
+    }
+};
 
 struct SyncRowsetStats {
     int64_t get_remote_rowsets_num {0};
@@ -68,10 +81,33 @@ public:
                                                                bool vertical) override;
 
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) override;
+                              const CaptureRowsetOps& opts) override;
 
-    Status capture_consistent_rowsets_unlocked(
-            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
+    [[nodiscard]] Result<std::vector<Version>> capture_consistent_versions_unlocked(
+            const Version& version_range, const CaptureRowsetOps& options) const override;
+
+    // Capture versions with cache preference optimization.
+    // This method prioritizes using cached/warmed-up rowsets when building version paths,
+    // avoiding cold data reads when possible. It uses capture_consistent_versions_prefer_cache
+    // to find a consistent version path that prefers already warmed-up rowsets.
+    Result<std::vector<Version>> capture_versions_prefer_cache(const Version& spec_version) const;
+
+    // Capture versions with query freshness tolerance.
+    // This method finds a consistent version path where all rowsets are warmed up,
+    // but allows fallback to normal capture if there are newer rowsets that should be
+    // visible (based on freshness tolerance) but haven't been warmed up yet.
+    // For merge-on-write tables, uses special validation to ensure data correctness.
+    //
+    // IMPORTANT: The returned version may be smaller than the requested version if newer
+    // data hasn't been warmed up yet. This can cause different tablets in the same query
+    // to read from different versions, potentially leading to inconsistent query results.
+    //
+    // @param options.query_freshness_tolerance_ms: Time tolerance in milliseconds. Rowsets that
+    //        became visible within this time range (after current_time - query_freshness_tolerance_ms)
+    //        can be skipped if not warmed up. However, if older rowsets (before this time point)
+    //        are not warmed up, the method will fallback to normal capture.
+    Result<std::vector<Version>> capture_versions_with_freshness_tolerance(
+            const Version& spec_version, const CaptureRowsetOps& options) const;
 
     size_t tablet_footprint() override {
         return _approximate_data_size.load(std::memory_order_relaxed);
@@ -297,8 +333,39 @@ public:
 
     // Add warmup state management
     WarmUpState get_rowset_warmup_state(RowsetId rowset_id);
-    bool add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState state);
-    WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status);
+    bool add_rowset_warmup_state(
+            const RowsetMeta& rowset, WarmUpTriggerSource source,
+            std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
+    bool update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource source, RowsetId rowset_id,
+                                                     int64_t delta);
+    bool update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource source,
+                                                              RowsetId rowset_id, int64_t delta);
+    WarmUpState complete_rowset_segment_warmup(WarmUpTriggerSource trigger_source,
+                                               RowsetId rowset_id, Status status,
+                                               int64_t segment_num, int64_t inverted_idx_num);
+
+    bool is_rowset_warmed_up(const RowsetId& rowset_id) const;
+
+    void add_warmed_up_rowset(const RowsetId& rowset_id);
+
+    std::string rowset_warmup_digest() const {
+        std::string res;
+        auto add_log = [&](const RowsetSharedPtr& rs) {
+            auto tmp = fmt::format("{}{}", rs->rowset_id().to_string(), rs->version().to_string());
+            if (_rowset_warm_up_states.contains(rs->rowset_id())) {
+                tmp += fmt::format(
+                        ", progress={}, segments_warmed_up={}/{}, inverted_idx_warmed_up={}/{}",
+                        _rowset_warm_up_states.at(rs->rowset_id()).state.progress,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_segments_warmed_up,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_segments,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_inverted_idx_warmed_up,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_inverted_idx);
+            }
+            res += fmt::format("[{}],", tmp);
+        };
+        traverse_rowsets_unlocked(add_log, true);
+        return res;
+    }
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
@@ -306,7 +373,12 @@ private:
 
     Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
 
-    bool add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state);
+    bool add_rowset_warmup_state_unlocked(
+            const RowsetMeta& rowset, WarmUpTriggerSource source,
+            std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
+
+    // used by capture_rs_reader_xxx functions
+    bool rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version) const;
 
     CloudStorageEngine& _engine;
 
@@ -366,7 +438,31 @@ private:
     std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
 
     // for warm up states management
-    std::unordered_map<RowsetId, std::pair<WarmUpState, int32_t>> _rowset_warm_up_states;
+    struct RowsetWarmUpInfo {
+        WarmUpState state;
+        int64_t num_segments = 0;
+        int64_t num_inverted_idx = 0;
+        int64_t num_segments_warmed_up = 0;
+        int64_t num_inverted_idx_warmed_up = 0;
+        std::chrono::steady_clock::time_point start_tp;
+
+        void done(int64_t input_num_segments, int64_t input_num_inverted_idx) {
+            num_segments_warmed_up += input_num_segments;
+            num_inverted_idx_warmed_up += input_num_inverted_idx;
+            update_state();
+        }
+
+        bool has_finished() const {
+            return (num_segments_warmed_up >= num_segments) &&
+                   (num_inverted_idx_warmed_up >= num_inverted_idx);
+        }
+
+        void update_state();
+    };
+    std::unordered_map<RowsetId, RowsetWarmUpInfo> _rowset_warm_up_states;
+
+    mutable std::shared_mutex _warmed_up_rowsets_mutex;
+    std::unordered_set<RowsetId> _warmed_up_rowsets;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

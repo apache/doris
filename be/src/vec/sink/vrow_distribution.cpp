@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
@@ -103,6 +104,10 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_partitionValues(_partitions_need_create);
     request.__set_be_endpoint(be_endpoint);
     request.__set_write_single_replica(_write_single_replica);
+    if (_state && _state->get_query_ctx()) {
+        // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
+        request.__set_query_id(_state->get_query_ctx()->query_id());
+    }
 
     VLOG_NOTICE << "automatic partition rpc begin request " << request;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
@@ -338,6 +343,9 @@ Status VRowDistribution::_deal_missing_map(vectorized::Block* block,
     col_strs.resize(part_col_num);
     col_null_maps.reserve(part_col_num);
 
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    format_options.timezone = &_state->timezone_obj();
+
     for (int i = 0; i < part_col_num; ++i) {
         auto return_type = part_exprs[i]->data_type();
         // expose the data column. the return type would be nullable
@@ -350,8 +358,8 @@ Status VRowDistribution::_deal_missing_map(vectorized::Block* block,
             col_null_maps.push_back(nullptr);
         }
         for (auto row : _missing_map) {
-            col_strs[i].push_back(
-                    return_type->to_string(*range_left_col, index_check_const(row, col_const)));
+            col_strs[i].push_back(return_type->to_string(
+                    *range_left_col, index_check_const(row, col_const), format_options));
         }
     }
 
@@ -479,13 +487,14 @@ void VRowDistribution::_reset_row_part_tablet_ids(
 
 Status VRowDistribution::generate_rows_distribution(
         vectorized::Block& input_block, std::shared_ptr<vectorized::Block>& block,
-        int64_t& filtered_rows, bool& has_filtered_rows,
-        std::vector<RowPartTabletIds>& row_part_tablet_ids, int64_t& rows_stat_val) {
+        int64_t& filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
+        int64_t& rows_stat_val) {
     auto input_rows = input_block.rows();
     _reset_row_part_tablet_ids(row_part_tablet_ids, input_rows);
 
     int64_t prev_filtered_rows =
             _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
+    bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             _state, &input_block, block, *_vec_output_expr_ctxs, input_rows, has_filtered_rows));
 

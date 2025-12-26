@@ -1,5 +1,3 @@
-import java.sql.Array
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -30,6 +28,7 @@ suite("test_paimon_dlf_catalog_new_param", "p2,external,paimon,external_remote,e
         String catalog_id = context.config.otherConfigs.get("dlf_catalog_id")
         String access_key = context.config.otherConfigs.get("dlf_access_key")
         String secret_key = context.config.otherConfigs.get("dlf_secret_key")
+        String oss_endpoint = context.config.otherConfigs.get("s3Endpoint")
         String dlf_vpc_endpoint = context.config.otherConfigs.get("dlf_vpc_endpoint")
         String dlf_public_endpoint = context.config.otherConfigs.get("dlf_public_endpoint")
 
@@ -46,7 +45,7 @@ suite("test_paimon_dlf_catalog_new_param", "p2,external,paimon,external_remote,e
             "dlf.access_key" = "${access_key}",
             "dlf.secret_key" = "${secret_key}",
             "dlf.endpoint" = "${dlf_vpc_endpoint}",
-            "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
+            "oss.endpoint"="${oss_endpoint}",
             "oss.access_key" = "${access_key}",
             "oss.secret_key" = "${secret_key}"
             );
@@ -60,6 +59,15 @@ suite("test_paimon_dlf_catalog_new_param", "p2,external,paimon,external_remote,e
         qt_c1 """ select * from tb_simple order by id """
         sql """set force_jni_scanner=true"""
         qt_c2 """ select * from tb_simple order by id """
+        // 3.1 new features
+        // batch incremental
+        sql """SELECT * FROM tb_simple @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM tb_simple FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM tb_simple\$snapshots;"""
 
     } finally {
         sql """set force_jni_scanner=false"""

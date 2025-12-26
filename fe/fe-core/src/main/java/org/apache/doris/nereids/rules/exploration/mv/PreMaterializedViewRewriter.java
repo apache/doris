@@ -59,14 +59,16 @@ public class PreMaterializedViewRewriter {
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_PROJECT_WINDOW.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_UNION.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_WINDOW.ordinal());
-        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.LIMIT_SORT_TO_TOP_N.ordinal());
-        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.LIMIT_AGG_TO_TOPN_AGG.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.ELIMINATE_CONST_JOIN_CONDITION.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.MERGE_PERCENTILE_TO_ARRAY.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SUM_LITERAL_REWRITE.ordinal());
-        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SPLIT_MULTI_DISTINCT.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.CONSTANT_PROPAGATION.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.DISTINCT_AGGREGATE_SPLIT.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SALT_JOIN.ordinal());
     }
 
     /**
@@ -152,22 +154,6 @@ public class PreMaterializedViewRewriter {
             }
             return false;
         }
-        boolean outputAnyEquals = false;
-        Plan finalRewritePlan = cascadesContext.getRewritePlan();
-        for (Plan tmpPlanForRewrite : statementContext.getTmpPlanForMvRewrite()) {
-            if (finalRewritePlan.getLogicalProperties().equals(tmpPlanForRewrite.getLogicalProperties())) {
-                outputAnyEquals = true;
-                break;
-            }
-        }
-        if (!outputAnyEquals) {
-            // if tmp plan has no same logical properties to the finalRewritePlan, should not be written in rbo
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("does not need pre rewrite, because outputAnyEquals is false, query id is {}",
-                        cascadesContext.getConnectContext().getQueryIdentifier());
-            }
-            return false;
-        }
         if (Optimizer.isDpHyp(cascadesContext)) {
             // dp hyper only support one group expression in each group when init
             if (LOG.isDebugEnabled()) {
@@ -190,6 +176,18 @@ public class PreMaterializedViewRewriter {
                     cascadesContext.getConnectContext().getQueryIdentifier());
         }
         return shouldPreRewrite;
+    }
+
+    /**
+     * convert millis to ceiling seconds
+     */
+    public static int convertMillisToCeilingSeconds(long milliseconds) {
+        if (milliseconds <= 0) {
+            return 0;
+        }
+        double secondsAsDouble = (double) milliseconds / 1000.0;
+        double ceilingSeconds = Math.ceil(secondsAsDouble);
+        return (int) ceilingSeconds;
     }
 
     /**

@@ -20,9 +20,12 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
+#include <unordered_set>
 #include <utility>
 
 namespace doris {
+
+const std::unordered_set<std::string> IndexPolicyMgr::BUILTIN_NORMALIZERS = {"lowercase"};
 
 void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& policys_to_update,
                                           const std::vector<int64_t>& policys_to_delete) {
@@ -85,38 +88,49 @@ const Policys& IndexPolicyMgr::get_index_policys() {
 }
 
 // TODO: Potential high-concurrency bottleneck
-segment_v2::inverted_index::CustomAnalyzerPtr IndexPolicyMgr::get_policy_by_name(
-        const std::string& name) {
+AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
 
-    // Check if policy exists
     auto name_it = _name_to_id.find(name);
     if (name_it == _name_to_id.end()) {
+        if (is_builtin_normalizer(name)) {
+            return build_builtin_normalizer(name);
+        }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
     }
 
-    // Get policy by ID
     auto policy_it = _policys.find(name_it->second);
     if (policy_it == _policys.end()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with id: " + name);
     }
 
-    const auto& index_policy_analyzer = policy_it->second;
+    const auto& index_policy = policy_it->second;
+    if (index_policy.type == TIndexPolicyType::ANALYZER) {
+        return build_analyzer_from_policy(index_policy);
+    } else if (index_policy.type == TIndexPolicyType::NORMALIZER) {
+        return build_normalizer_from_policy(index_policy);
+    }
+
+    throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with type: " + name);
+}
+
+AnalyzerPtr IndexPolicyMgr::build_analyzer_from_policy(const TIndexPolicy& index_policy_analyzer) {
     segment_v2::inverted_index::CustomAnalyzerConfig::Builder builder;
 
-    // Process tokenizer
     auto tokenizer_it = index_policy_analyzer.properties.find(PROP_TOKENIZER);
     if (tokenizer_it == index_policy_analyzer.properties.end() || tokenizer_it->second.empty()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Invalid tokenizer configuration in policy: " + name);
+        throw Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "Invalid tokenizer configuration in policy: analyzer must have a tokenizer");
     }
-    const auto& tokenzier_name = tokenizer_it->second;
-    if (_name_to_id.contains(tokenzier_name)) {
-        const auto& tokenizer_policy = _policys[_name_to_id[tokenzier_name]];
+
+    const auto& tokenizer_name = tokenizer_it->second;
+    if (_name_to_id.contains(tokenizer_name)) {
+        const auto& tokenizer_policy = _policys[_name_to_id[tokenizer_name]];
         auto type_it = tokenizer_policy.properties.find(PROP_TYPE);
         if (type_it == tokenizer_policy.properties.end()) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Invalid tokenizer configuration in policy: " + tokenzier_name);
+                            "Invalid tokenizer configuration in policy: " + tokenizer_name);
         }
 
         segment_v2::inverted_index::Settings settings;
@@ -127,47 +141,105 @@ segment_v2::inverted_index::CustomAnalyzerPtr IndexPolicyMgr::get_policy_by_name
         }
         builder.with_tokenizer_config(type_it->second, settings);
     } else {
-        builder.with_tokenizer_config(tokenzier_name, {});
+        builder.with_tokenizer_config(tokenizer_name, {});
     }
 
-    // Process token filters
-    auto token_filter_it = index_policy_analyzer.properties.find(PROP_TOKEN_FILTER);
-    if (token_filter_it != index_policy_analyzer.properties.end()) {
-        std::vector<std::string> token_filter_strs;
-        boost::split(token_filter_strs, token_filter_it->second, boost::is_any_of(","));
+    process_filter_configs(index_policy_analyzer, PROP_CHAR_FILTER, "char filter",
+                           [&builder](const std::string& name,
+                                      const segment_v2::inverted_index::Settings& settings) {
+                               builder.add_char_filter_config(name, settings);
+                           });
 
-        for (auto& filter_name : token_filter_strs) {
-            boost::trim(filter_name);
-            if (filter_name.empty()) {
-                continue;
-            }
-
-            if (_name_to_id.contains(filter_name)) {
-                // Nested token filter policy
-                const auto& filter_policy = _policys[_name_to_id[filter_name]];
-                auto type_it = filter_policy.properties.find(PROP_TYPE);
-                if (type_it == filter_policy.properties.end()) {
-                    throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                    "Invalid token filter configuration in policy: " + filter_name);
-                }
-
-                segment_v2::inverted_index::Settings settings;
-                for (const auto& prop : filter_policy.properties) {
-                    if (prop.first != PROP_TYPE) {
-                        settings.set(prop.first, prop.second);
-                    }
-                }
-                builder.add_token_filter_config(type_it->second, settings);
-            } else {
-                // Simple token filter
-                builder.add_token_filter_config(filter_name, {});
-            }
-        }
-    }
+    process_filter_configs(index_policy_analyzer, PROP_TOKEN_FILTER, "token filter",
+                           [&builder](const std::string& name,
+                                      const segment_v2::inverted_index::Settings& settings) {
+                               builder.add_token_filter_config(name, settings);
+                           });
 
     auto custom_analyzer_config = builder.build();
     return segment_v2::inverted_index::CustomAnalyzer::build_custom_analyzer(
             custom_analyzer_config);
+}
+
+AnalyzerPtr IndexPolicyMgr::build_normalizer_from_policy(
+        const TIndexPolicy& index_policy_normalizer) {
+    segment_v2::inverted_index::CustomNormalizerConfig::Builder builder;
+
+    process_filter_configs(index_policy_normalizer, PROP_CHAR_FILTER, "char filter",
+                           [&builder](const std::string& name,
+                                      const segment_v2::inverted_index::Settings& settings) {
+                               builder.add_char_filter_config(name, settings);
+                           });
+
+    process_filter_configs(index_policy_normalizer, PROP_TOKEN_FILTER, "token filter",
+                           [&builder](const std::string& name,
+                                      const segment_v2::inverted_index::Settings& settings) {
+                               builder.add_token_filter_config(name, settings);
+                           });
+
+    auto custom_normalizer_config = builder.build();
+    return segment_v2::inverted_index::CustomNormalizer::build_custom_normalizer(
+            custom_normalizer_config);
+}
+
+void IndexPolicyMgr::process_filter_configs(
+        const TIndexPolicy& index_policy_analyzer, const std::string& prop_name,
+        const std::string& error_prefix,
+        std::function<void(const std::string&, const segment_v2::inverted_index::Settings&)>
+                add_config_func) {
+    auto filter_it = index_policy_analyzer.properties.find(prop_name);
+    if (filter_it == index_policy_analyzer.properties.end()) {
+        return;
+    }
+
+    std::vector<std::string> filter_strs;
+    boost::split(filter_strs, filter_it->second, boost::is_any_of(","));
+
+    for (auto& filter_name : filter_strs) {
+        boost::trim(filter_name);
+        if (filter_name.empty()) {
+            continue;
+        }
+
+        if (_name_to_id.contains(filter_name)) {
+            // Nested filter policy
+            const auto& filter_policy = _policys[_name_to_id[filter_name]];
+            auto type_it = filter_policy.properties.find(PROP_TYPE);
+            if (type_it == filter_policy.properties.end()) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Invalid " + error_prefix + " configuration in policy: " + filter_name);
+            }
+
+            segment_v2::inverted_index::Settings settings;
+            for (const auto& prop : filter_policy.properties) {
+                if (prop.first != PROP_TYPE) {
+                    settings.set(prop.first, prop.second);
+                }
+            }
+            add_config_func(type_it->second, settings);
+        } else {
+            // Simple filter
+            add_config_func(filter_name, {});
+        }
+    }
+}
+
+bool IndexPolicyMgr::is_builtin_normalizer(const std::string& name) {
+    return BUILTIN_NORMALIZERS.contains(name);
+}
+
+AnalyzerPtr IndexPolicyMgr::build_builtin_normalizer(const std::string& name) {
+    using namespace segment_v2::inverted_index;
+
+    if (name == "lowercase") {
+        CustomNormalizerConfig::Builder builder;
+        builder.add_token_filter_config("lowercase", Settings {});
+        auto config = builder.build();
+        return CustomNormalizer::build_custom_normalizer(config);
+    }
+
+    throw Exception(ErrorCode::INVALID_ARGUMENT, "Unknown builtin normalizer: " + name);
 }
 
 } // namespace doris

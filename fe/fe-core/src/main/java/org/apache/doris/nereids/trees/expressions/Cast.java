@@ -31,7 +31,6 @@ import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -44,24 +43,20 @@ import java.util.Objects;
  */
 public class Cast extends Expression implements UnaryExpression, Monotonic {
 
-    // CAST can be from SQL Query or Type Coercion.
-    private final boolean isExplicitType;
+    // CAST can be from SQL Query or Type Coercion. true for explicitly cast from SQL query.
+    protected final boolean isExplicitType; //FIXME: now not useful
 
-    private final DataType targetType;
-
-    public Cast(Expression child, DataType targetType, boolean isExplicitType) {
-        super(ImmutableList.of(child));
-        this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
-        this.isExplicitType = isExplicitType;
-    }
+    protected final DataType targetType;
 
     public Cast(Expression child, DataType targetType) {
-        super(ImmutableList.of(child));
-        this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
-        this.isExplicitType = false;
+        this(child, targetType, false);
     }
 
-    private Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
+    public Cast(Expression child, DataType targetType, boolean isExplicitType) {
+        this(ImmutableList.of(child), targetType, isExplicitType);
+    }
+
+    protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
         super(child);
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
         this.isExplicitType = isExplicitType;
@@ -83,31 +78,37 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public boolean nullable() {
-        if (SessionVariable.enableStrictCast()) {
-            DataType childDataType = child().getDataType();
-            if (childDataType.isJsonType() && !targetType.isJsonType()) {
-                return true;
-            }
-            return child().nullable();
-        } else {
-            return unStrictCastNullable();
-        }
+        return castNullable(child().nullable(), child().getDataType(), targetType);
     }
 
-    protected boolean unStrictCastNullable() {
-        if (child().nullable()) {
+    /**
+     * process cast nullable.
+     * @param srcNullable src expr is nullable if true
+     * @param srcType src expr's type
+     * @param targetType target type
+     * @return true if result should be nullable
+     */
+    public static boolean castNullable(boolean srcNullable, DataType srcType, DataType targetType) {
+        if (srcNullable) {
             return true;
         }
         // Not allowed cast is forbidden in CheckCast, and all the Propagation Nullable cases are handled above
         // and the default return false below.
         // The if branches below only handle 2 cases: always nullable and nullable that may overflow.
-        DataType childDataType = child().getDataType();
+        DataType childDataType = srcType;
         // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
-        } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type())
+        } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type()
+                || childDataType.isTimeStampTzType())
                 && (targetType.isDateTimeType() || targetType.isDateTimeV2Type())) {
             // datetime to datetime is always nullable
+            return true;
+        } else if (childDataType.isDateTimeV2Type() && targetType.isTimeStampTzType()) {
+            // Datetime to timestamptz is always nullable
+            return true;
+        } else if (childDataType.isTimeStampTzType() && targetType.isTimeStampTzType()) {
+            // timestamptz to timestamptz is always nullable
             return true;
         } else if (childDataType.isTimeType()) {
             // time to tinyint, smallint, int and time is always nullable.
@@ -202,6 +203,9 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
             // Json to other type is always nullable
             return true;
+        } else if (childDataType.isVariantType() && targetType.isJsonType()) {
+            // Variant to Json is always nullable
+            return true;
         }
         return false;
     }
@@ -220,6 +224,17 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     @Override
     public String toString() {
         return "cast(" + child() + " as " + targetType + ")";
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("cast(")
+                .append(child().toDigest())
+                .append(" as ")
+                .append(targetType)
+                .append(")");
+        return sb.toString();
     }
 
     @Override

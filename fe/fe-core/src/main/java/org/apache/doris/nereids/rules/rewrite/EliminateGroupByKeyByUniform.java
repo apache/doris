@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -33,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.Utils;
@@ -42,7 +42,6 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -61,8 +60,7 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        Optional<CTEId> cteId = jobContext.getCascadesContext().getCurrentTree();
-        if (cteId.isPresent() || !plan.containsType(Aggregate.class)) {
+        if (!plan.containsType(Aggregate.class)) {
             return plan;
         }
         Map<ExprId, ExprId> replaceMap = new HashMap<>();
@@ -82,6 +80,11 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Map<ExprId, ExprId> replaceMap) {
         aggregate = visitChildren(this, aggregate, replaceMap);
         aggregate = (LogicalAggregate<? extends Plan>) exprIdReplacer.rewriteExpr(aggregate, replaceMap);
+        if (aggregate.getSourceRepeat().isPresent()) {
+            LogicalRepeat<?> sourceRepeat = (LogicalRepeat<?>) exprIdReplacer.rewriteExpr(
+                    aggregate.getSourceRepeat().get(), replaceMap);
+            aggregate = aggregate.withSourceRepeat(sourceRepeat);
+        }
 
         if (aggregate.getGroupByExpressions().isEmpty() || aggregate.getSourceRepeat().isPresent()) {
             return aggregate;
@@ -104,7 +107,7 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
         if (removedExpression.isEmpty()) {
             return aggregate;
         }
-        /* select 1 c1 from test group by c; -> select 1 c1 from test limit 1 */
+        /* select 1 c1 from test group by c1; -> select 1 c1 from test limit 1 */
         if (newGroupBy.isEmpty() && aggregate.getAggregateFunctions().isEmpty()) {
             LogicalProject<Plan> newProject = new LogicalProject<>(
                     Utils.fastToImmutableList(aggregate.getOutput()), aggregate.child());

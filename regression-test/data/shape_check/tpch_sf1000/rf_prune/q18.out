@@ -4,7 +4,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------hashAgg[LOCAL]
+--------hashAgg[GLOBAL]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF2 o_orderkey->[l_orderkey]
 --------------PhysicalProject
@@ -16,7 +16,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[orders] apply RFs: RF0
 --------------------PhysicalProject
 ----------------------filter((sum(l_quantity) > 300.00))
-------------------------hashAgg[LOCAL]
+------------------------hashAgg[GLOBAL]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[lineitem]
 ------------------PhysicalProject

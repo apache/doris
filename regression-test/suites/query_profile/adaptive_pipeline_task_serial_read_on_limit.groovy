@@ -18,33 +18,14 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
+import org.apache.doris.regression.action.ProfileAction
 
-
-def getProfileList = {
-    def dst = 'http://' + context.config.feHttpAddress
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
-}
-
-def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-}
-
-def verifyProfileContent = { stmt, serialReadOnLimit ->
+def verifyProfileContent = { suiteContext, stmt, serialReadOnLimit ->
     // Sleep 500ms to wait for the profile collection 
     Thread.sleep(500)
     // Get profile list by using getProfileList
-    List profileData = new JsonSlurper().parseText(getProfileList()).data.rows
+    def profileAction = new ProfileAction(suiteContext)
+    List profileData = profileAction.getProfileList()
     // Find the profile id for the query that we just emitted
     String profileId = ""
     for (def profileItem : profileData) {
@@ -60,7 +41,7 @@ def verifyProfileContent = { stmt, serialReadOnLimit ->
         return false
     }
     // Get profile content by using getProfile
-    def String profileContent = getProfile(profileId).toString()
+    String profileContent = profileAction.getProfile(profileId)
     logger.info("Profile content of ${stmt} is\n${profileContent}")
     // Check if the profile contains the expected content
     if (serialReadOnLimit) {
@@ -127,18 +108,18 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
 
     // With Limit, MaxScannerThreadNum = 1
     sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 10;"
-    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit limit 10;", true))
+    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit limit 10;", true))
     sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;"
-    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;", true))
+    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;", true))
     // With Limit, but bigger then adaptive_pipeline_task_serial_read_on_limit,  MaxScannerThreadNum = TabletNum
     sql "set adaptive_pipeline_task_serial_read_on_limit=9998;"
     sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;"
-    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;", false))
+    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;", false))
     // With limit, but with predicates too. MaxScannerThreadNum = TabletNum
     sql "select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;"
-    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;", false))
+    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;", false))
     // With large engough limit, but enable_adaptive_pipeline_task_serial_read_on_limit is false. MaxScannerThreadNum = TabletNum
     sql "set enable_adaptive_pipeline_task_serial_read_on_limit=false;"
     sql """select "enable_adaptive_pipeline_task_serial_read_on_limit=false", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;"""
-    assertTrue(verifyProfileContent("select \"enable_adaptive_pipeline_task_serial_read_on_limit=false\", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;", false))
+    assertTrue(verifyProfileContent(context, "select \"enable_adaptive_pipeline_task_serial_read_on_limit=false\", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;", false))
 }

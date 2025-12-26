@@ -18,10 +18,10 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
@@ -126,7 +126,7 @@ public class ExportMgrTest {
         ExportJob job1 = new ExportJob(id);
         Deencapsulation.setField(job1, "label", label);
 
-        TableName tbl1 = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "testCluster", "testDb");
+        TableNameInfo tbl1 = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, "testCluster", "testDb");
         Deencapsulation.setField(job1, "tableName", tbl1);
 
         BrokerDesc bd = new BrokerDesc("broker", new HashMap<>());

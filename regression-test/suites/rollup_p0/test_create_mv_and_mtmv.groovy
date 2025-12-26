@@ -21,6 +21,7 @@ suite("test_create_mv_and_mtmv") {
     def tableName = "test_create_mv_and_mtmt_advertiser_view_record"
     def mvName = "test_create_mv_and_mtmt_advertiser_uv"
     def mtmvName = "test_create_mv_and_mtmt_advertiser_uv_mtmv"
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ DROP MATERIALIZED VIEW IF EXISTS ${mtmvName} """
     sql """

@@ -17,11 +17,18 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker;
 
+import org.apache.doris.catalog.Env;
+
 /** DummyWorker */
 public class DummyWorker implements DistributedPlanWorker {
     public static final DummyWorker INSTANCE = new DummyWorker();
 
     private DummyWorker() {}
+
+    @Override
+    public long getCatalogId() {
+        return Env.getCurrentInternalCatalog().getId();
+    }
 
     @Override
     public long id() {

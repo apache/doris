@@ -93,9 +93,11 @@ public:
     void clear_source_content(size_t cid);
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
+    void add_column_data_convertor_at(const TabletColumn& column, size_t cid);
 
     bool empty() const { return _convertors.empty(); }
     void reserve(size_t size) { _convertors.reserve(size); }
+    void resize(size_t size) { _convertors.resize(size); }
     void reset() { _convertors.clear(); }
 
 private:
@@ -228,7 +230,7 @@ private:
         bool _check_length;
         bool _is_jsonb =
                 false; // Make sure that the json binary data written in is the correct jsonb value.
-        PaddedPODArray<Slice> _slice;
+        PaddedPODArray<StringRef> _slice;
     };
 
     class OlapColumnDataConvertorAggState : public OlapColumnDataConvertorBase {
@@ -306,27 +308,37 @@ private:
         }
 
         Status convert_to_olap() override {
-            const typename PrimitiveTypeTraits<T>::ColumnType* column_data = nullptr;
+            typename PrimitiveTypeTraits<T>::ColumnType* column_data = nullptr;
             if (_nullmap) {
                 auto nullable_column =
                         assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-                column_data = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType*>(
-                        nullable_column->get_nested_column_ptr().get());
+                _mutable_column = std::move(nullable_column->get_nested_column()).mutate();
+                column_data = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(
+                        _mutable_column.get());
             } else {
-                column_data = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType*>(
-                        _typed_column.column.get());
+                _mutable_column = std::move(*_typed_column.column).mutate();
+                column_data = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(
+                        _mutable_column.get());
             }
 
             assert(column_data);
-            _values =
-                    (const typename PrimitiveTypeTraits<T>::ColumnItemType*)(column_data->get_data()
-                                                                                     .data()) +
-                    _row_pos;
+            _values = (typename PrimitiveTypeTraits<T>::ColumnItemType*)(column_data->get_data()
+                                                                                 .data()) +
+                      _row_pos;
+            if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+                for (size_t i = 0; i < _num_rows; ++i) {
+                    if (std::isnan(_values[i])) {
+                        _values[i] = std::numeric_limits<
+                                typename PrimitiveTypeTraits<T>::ColumnItemType>::quiet_NaN();
+                    }
+                }
+            }
             return Status::OK();
         }
 
     protected:
-        const typename PrimitiveTypeTraits<T>::ColumnItemType* _values = nullptr;
+        typename PrimitiveTypeTraits<T>::ColumnItemType* _values = nullptr;
+        MutableColumnPtr _mutable_column = nullptr;
     };
 
     class OlapColumnDataConvertorDateV2 : public OlapColumnDataConvertorBase {
@@ -434,8 +446,8 @@ private:
 
             assert(column_data);
             this->_values =
-                    (const typename PrimitiveTypeTraits<T>::ColumnItemType*)(column_data->get_data()
-                                                                                     .data()) +
+                    (typename PrimitiveTypeTraits<T>::ColumnItemType*)(column_data->get_data()
+                                                                               .data()) +
                     this->_row_pos;
             return Status::OK();
         }

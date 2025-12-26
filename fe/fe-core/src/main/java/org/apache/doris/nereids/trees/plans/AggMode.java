@@ -19,19 +19,16 @@ package org.apache.doris.nereids.trees.plans;
 
 /** AggregateMode */
 public enum AggMode {
-    INPUT_TO_BUFFER(true, false, false),
-    INPUT_TO_RESULT(false, false, true),
-    BUFFER_TO_BUFFER(true, true, false),
-    BUFFER_TO_RESULT(false, true, true);
+    INPUT_TO_BUFFER(true, false),
+    INPUT_TO_RESULT(false, false),
+    BUFFER_TO_BUFFER(true, true),
+    BUFFER_TO_RESULT(false, true);
 
     public final boolean productAggregateBuffer;
     public final boolean consumeAggregateBuffer;
 
-    public final boolean isFinalPhase;
-
-    AggMode(boolean productAggregateBuffer, boolean consumeAggregateBuffer, boolean isFinalPhase) {
+    AggMode(boolean productAggregateBuffer, boolean consumeAggregateBuffer) {
         this.productAggregateBuffer = productAggregateBuffer;
         this.consumeAggregateBuffer = consumeAggregateBuffer;
-        this.isFinalPhase = isFinalPhase;
     }
 }

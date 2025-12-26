@@ -114,8 +114,14 @@ Status LocalFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         DorisMetrics::instance()->local_file_open_reading->increment(-1);
-        DCHECK(bthread_self() == 0);
-        if (-1 == ::close(_fd)) {
+        int res = -1;
+        if (bthread_self() == 0) {
+            res = ::close(_fd);
+        } else {
+            auto task = [&] { res = ::close(_fd); };
+            AsyncIO::run_task(task, io::FileSystemType::LOCAL);
+        }
+        if (-1 == res) {
             std::string err = errno_to_str();
             return localfs_error(errno, fmt::format("failed to close {}", _path.native()));
         }

@@ -19,6 +19,7 @@ suite("topn_lazy") {
     sql """
         set topn_lazy_materialization_threshold=1024;
         set runtime_filter_mode=GLOBAL;
+        set runtime_filter_type=BLOOM_FILTER;
         set TOPN_FILTER_RATIO=0.5;
         set disable_join_reorder=true;
         """
@@ -64,6 +65,8 @@ suite("topn_lazy") {
         contains("column_descs_lists[[`lo_orderkey` bigint NOT NULL, `lo_linenumber` bigint NOT NULL, `lo_custkey` int NOT NULL, `lo_partkey` int NOT NULL, `lo_suppkey` int NOT NULL, `lo_orderpriority` varchar(16) NOT NULL, `lo_shippriority` int NOT NULL, `lo_quantity` bigint NOT NULL, `lo_extendedprice` bigint NOT NULL, `lo_ordtotalprice` bigint NOT NULL, `lo_discount` bigint NOT NULL, `lo_revenue` bigint NOT NULL, `lo_supplycost` bigint NOT NULL, `lo_tax` bigint NOT NULL, `lo_commitdate` bigint NOT NULL, `lo_shipmode` varchar(11) NOT NULL], [`d_dayofweek` varchar(10) NOT NULL, `d_month` varchar(11) NOT NULL, `d_year` int NOT NULL, `d_yearmonthnum` int NOT NULL, `d_yearmonth` varchar(9) NOT NULL, `d_daynuminweek` int NOT NULL, `d_daynuminmonth` int NOT NULL, `d_daynuminyear` int NOT NULL, `d_monthnuminyear` int NOT NULL, `d_weeknuminyear` int NOT NULL, `d_sellingseason` varchar(14) NOT NULL, `d_lastdayinweekfl` int NOT NULL, `d_lastdayinmonthfl` int NOT NULL, `d_holidayfl` int NOT NULL, `d_weekdayfl` int NOT NULL]]")
         contains("locations: [[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18], [19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33]")
         contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__lineorder, __DORIS_GLOBAL_ROWID_COL__date]")
+        contains("runtime filters: RF000[bloom] -> lo_orderdate")
+
     }
     
 
@@ -105,7 +108,7 @@ suite("topn_lazy") {
         multiContains("VMaterializeNode", 1)
     }
     
-        explain {
+    explain {
         sql """    select *
             from 
                     customer left semi join (
@@ -214,10 +217,6 @@ suite("topn_lazy") {
         FROM users u LEFT JOIN orders o ON u.user_id = o.user_id 
         ORDER BY u.user_id LIMIT 5;
     """
-
-    // Cleanup tables
-    sql """ DROP TABLE IF EXISTS users """
-    sql """ DROP TABLE IF EXISTS orders """
 
     sql """
 drop table if exists table_100_undef_partitions2_keys3_properties4_distributed_by52;

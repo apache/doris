@@ -16,6 +16,7 @@
 // under the License.
 
 suite("virtual_slot_ref_basic") {
+    sql "set experimental_enable_virtual_slot_for_cse=true;"
     sql "drop table if exists virtual_slot_ref_basic;"
     sql """
     CREATE TABLE `virtual_slot_ref_basic` (

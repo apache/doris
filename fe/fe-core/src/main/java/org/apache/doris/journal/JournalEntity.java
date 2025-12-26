@@ -34,6 +34,7 @@ import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
+import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -59,7 +60,6 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -127,9 +127,6 @@ import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.TruncateTableInfo;
-import org.apache.doris.plsql.metastore.PlsqlPackage;
-import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
-import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
@@ -570,12 +567,14 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_SYNC_JOB: {
-                data = SyncJob.read(in);
+                // Note: The features (SYNC JOB) have been removed from the kernel code.
+                // data = SyncJob.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
-                data = SyncJob.SyncJobUpdateStateInfo.read(in);
+                // Note: The features (SYNC JOB) have been removed from the kernel code.
+                // data = SyncJob.SyncJobUpdateStateInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -861,22 +860,22 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_ADD_PLSQL_STORED_PROCEDURE: {
-                data = PlsqlStoredProcedure.read(in);
+                Text.readString(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_DROP_PLSQL_STORED_PROCEDURE: {
-                data = PlsqlProcedureKey.read(in);
+                Text.readString(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_ADD_PLSQL_PACKAGE: {
-                data = PlsqlPackage.read(in);
+                Text.readString(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_DROP_PLSQL_PACKAGE: {
-                data = PlsqlProcedureKey.read(in);
+                Text.readString(in);
                 isRead = true;
                 break;
             }
@@ -983,6 +982,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_OPERATE_KEY: {
                 data = KeyOperationInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BEGIN_SNAPSHOT: {
+                data = SnapshotState.read(in);
                 isRead = true;
                 break;
             }

@@ -61,10 +61,10 @@ public:
                                          bool use_cache = false) = 0;
     virtual void reset_read_options() = 0;
 
-    virtual Status next_block(vectorized::Block* block) = 0;
-
-    virtual Status next_block_view(vectorized::BlockView* block_view) = 0;
-    virtual bool support_return_data_by_ref() { return false; }
+    virtual Status next_batch(vectorized::Block* block) = 0;
+    virtual Status next_batch(vectorized::BlockView* block_view) = 0;
+    virtual Status next_batch(BlockWithSameBit* block_view) = 0;
+    virtual bool is_merge_iterator() const { return false; }
 
     virtual bool delete_flag() = 0;
 

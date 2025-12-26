@@ -17,6 +17,7 @@
 
 #include "cast_base.h"
 #include "runtime/jsonb_value.h"
+#include "runtime/primitive_type.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 #include "vec/common/assert_cast.h"
@@ -56,7 +57,7 @@ struct ConvertImplGenericFromJsonb {
             const bool is_dst_string = is_string_type(data_type_to->get_primitive_type());
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
                 if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                     (*vec_null_map_to)[i] = 1;
@@ -65,7 +66,7 @@ struct ConvertImplGenericFromJsonb {
                 }
 
                 // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-                JsonbValue* value = doc->getValue();
+                const JsonbValue* value = doc->getValue();
                 if (UNLIKELY(!value)) {
                     (*vec_null_map_to)[i] = 1;
                     col_to->insert_default();
@@ -136,32 +137,20 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
               uint32_t result, size_t input_rows_count, const NullMap::value_type*) {
         CastParameters params;
         params.is_strict = context->enable_strict_mode();
-        auto data_type_to = make_nullable(block.get_by_position(result).type);
+
+        auto data_type_to = remove_nullable(block.get_by_position(result).type);
         auto serde_to = data_type_to->get_serde();
+
         const auto& col_from_json =
                 assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
-        size_t size = col_from_json.size();
-        auto col_to = data_type_to->create_column();
-        for (size_t i = 0; i < size; ++i) {
-            const auto& val = col_from_json.get_data_at(i);
-            JsonbDocument* doc = nullptr;
-            auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
-            if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
-                col_to->insert_default();
-                continue;
-            }
-            JsonbValue* value = doc->getValue();
-            if (UNLIKELY(!value)) {
-                col_to->insert_default();
-                continue;
-            }
-            if (val.size == 0) {
-                col_to->insert_default();
-                continue;
-            }
-            RETURN_IF_ERROR(serde_to->deserialize_column_from_jsonb(*col_to, value, params));
-        }
-        block.get_by_position(result).column = std::move(col_to);
+
+        auto column_to = make_nullable(data_type_to)->create_column();
+        auto& column_to_nullable = assert_cast<ColumnNullable&>(*column_to);
+
+        RETURN_IF_ERROR(serde_to->deserialize_column_from_jsonb_vector(column_to_nullable,
+                                                                       col_from_json, params));
+
+        block.get_by_position(result).column = std::move(column_to);
         return Status::OK();
     };
 }
@@ -184,12 +173,13 @@ struct ParseJsonbFromString {
     static Status execute_non_strict(const ColumnString& col_from, size_t size,
                                      ColumnPtr& column_result) {
         auto col_to = ColumnString::create();
-        auto col_null = ColumnUInt8::create(size, 0);
+        auto col_null = ColumnBool::create(size, 0);
         auto& vec_null_map_to = col_null->get_data();
+
         for (size_t i = 0; i < size; ++i) {
             Status st = parse_json(col_from.get_data_at(i), *col_to);
             vec_null_map_to[i] = !st.ok();
-            if (!st.ok()) {
+            if (!st.ok()) [[unlikely]] {
                 col_to->insert_default();
             }
         }
@@ -197,6 +187,7 @@ struct ParseJsonbFromString {
         return Status::OK();
     }
 
+    // in both strict or non-strict mode, the return type is nullable column
     static Status execute_strict(const ColumnString& col_from, const NullMap::value_type* null_map,
                                  size_t size, ColumnPtr& column_result) {
         auto col_to = ColumnString::create();
@@ -207,7 +198,7 @@ struct ParseJsonbFromString {
             }
             RETURN_IF_ERROR(parse_json(col_from.get_data_at(i), *col_to));
         }
-        column_result = std::move(col_to);
+        column_result = ColumnNullable::create(std::move(col_to), ColumnBool::create(size, 0));
         return Status::OK();
     }
 
@@ -231,7 +222,7 @@ struct ParseJsonbFromString {
     }
 };
 
-// create cresponding jsonb value with type to_type
+// create corresponding jsonb value with type to_type
 // use jsonb writer to create jsonb value
 WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
                                          bool string_as_jsonb_string) {

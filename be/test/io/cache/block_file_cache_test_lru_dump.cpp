@@ -108,7 +108,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     context3.stats = &rstats;
     context3.cache_type = io::FileCacheType::TTL;
     context3.query_id = query_id;
-    context3.expiration_time = UnixSeconds() + 120;
+    context3.expiration_time = 120;
     auto key3 = io::BlockFileCache::hash("key3");
 
     offset = 0;
@@ -491,6 +491,104 @@ TEST_F(BlockFileCacheTest, test_lru_duplicate_queue_entry_restore) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
+}
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
+    std::string cache_base_path = caches_dir / "cache_direct_read_order_check" / "";
+    config::enable_read_cache_file_directly = true;
+    config::file_cache_background_block_lru_update_interval_ms = 1000;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 6291456;
+    settings.query_queue_elements = 6;
+    settings.index_queue_size = 1048576;
+    settings.index_queue_elements = 1;
+    settings.disposable_queue_size = 1048576;
+    settings.disposable_queue_elements = 1;
+    settings.capacity = 8388608;
+    settings.max_file_block_size = 1048576;
+
+    ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
+    auto cache = FileCacheFactory::instance()->_path_to_cache[cache_base_path];
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader));
+    io::FileReaderOptions opts;
+    opts.cache_type = io::cache_type_from_string("file_block_cache");
+    opts.is_doris_table = true;
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+    std::string buffer;
+    buffer.resize(64_kb);
+    IOContext io_ctx;
+    FileCacheStatistics stats;
+    io_ctx.file_cache_stats = &stats;
+    size_t bytes_read = 0;
+
+    // read
+    ASSERT_TRUE(reader->read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    // order are updated in batch, so wait the former batch complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
+    ASSERT_TRUE(
+            reader->read_at(1024 * 1024, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
+                    .ok());
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
+    ASSERT_TRUE(reader->read_at(1024 * 1024 * 2, Slice(buffer.data(), buffer.size()), &bytes_read,
+                                &io_ctx)
+                        .ok());
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
+    // check inital order
+    std::vector<size_t> initial_offsets;
+    for (auto it = cache->_normal_queue.begin(); it != cache->_normal_queue.end(); ++it) {
+        initial_offsets.push_back(it->offset);
+    }
+    ASSERT_EQ(initial_offsets.size(), 3);
+    ASSERT_EQ(initial_offsets[0], 0);
+    ASSERT_EQ(initial_offsets[1], 1024 * 1024);
+    ASSERT_EQ(initial_offsets[2], 1024 * 1024 * 2);
+
+    // read same but different order
+    ASSERT_TRUE(reader->read_at(1024 * 1024 * 2, Slice(buffer.data(), buffer.size()), &bytes_read,
+                                &io_ctx)
+                        .ok());
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
+    ASSERT_TRUE(
+            reader->read_at(1024 * 1024, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
+                    .ok());
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
+    ASSERT_TRUE(reader->read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+            2 * config::file_cache_background_block_lru_update_interval_ms));
+
+    // check order after update
+    std::vector<size_t> updated_offsets;
+    for (auto it = cache->_normal_queue.begin(); it != cache->_normal_queue.end(); ++it) {
+        updated_offsets.push_back(it->offset);
+    }
+    ASSERT_EQ(updated_offsets.size(), 3);
+    ASSERT_EQ(updated_offsets[0], 1024 * 1024 * 2);
+    ASSERT_EQ(updated_offsets[1], 1024 * 1024);
+    ASSERT_EQ(updated_offsets[2], 0);
+
+    EXPECT_TRUE(reader->close().ok());
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    FileCacheFactory::instance()->_caches.clear();
+    FileCacheFactory::instance()->_path_to_cache.clear();
+    FileCacheFactory::instance()->_capacity = 0;
 }
 
 } // namespace doris::io

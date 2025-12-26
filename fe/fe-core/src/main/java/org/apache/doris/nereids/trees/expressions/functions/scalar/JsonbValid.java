@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -38,8 +39,8 @@ public class JsonbValid extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
-    );
+            FunctionSignature.ret(IntegerType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(JsonType.INSTANCE));
 
     /**
      * constructor with 1 argument.

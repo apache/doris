@@ -66,6 +66,8 @@ private:
 
     RuntimeProfile::Counter* _extract_probe_data_timer = nullptr;
     RuntimeProfile::Counter* _probe_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_size = nullptr;
+    RuntimeProfile::Counter* _valid_element_in_hash_table = nullptr;
 };
 
 template <bool is_intersect>
@@ -102,7 +104,7 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }

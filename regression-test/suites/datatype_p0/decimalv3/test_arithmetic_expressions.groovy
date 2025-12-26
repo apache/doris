@@ -456,4 +456,122 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expre
 
     qt_decimal256_mod """ select v1, v2, v1 % v2, v1 % v3 from test_arithmetic_expressions_256_5 ORDER BY id; """
 
+    // bugfix: decimal256 multiply overflow
+    test {
+        sql """
+        select cast(999.99999999999999999999999999999999 as decimal(76,32)) * cast(9999999999.99999999999999999999999999999999 as decimal(76,32));
+        """
+        exception "Arithmetic overflow"
+    }
+    sql """
+        drop table if exists test_dec256_multiply_overflow;
+    """
+    sql """
+        create table test_dec256_multiply_overflow (
+            k1 int,
+            v1 decimalv3(76, 32),
+            v2 decimalv3(76, 32)
+        )
+        PROPERTIES (
+        "replication_num" = "1");
+    """
+    sql """
+        insert into test_dec256_multiply_overflow values
+            (1, "999.99999999999999999999999999999999", "9999999999.99999999999999999999999999999999");
+    """
+    test {
+        sql """
+            select v1 * v2 from test_dec256_multiply_overflow;
+        """
+        exception "Arithmetic overflow"
+    }
+    sql """
+        truncate table test_dec256_multiply_overflow;
+    """
+    sql """
+        insert into test_dec256_multiply_overflow values
+            (2, "-999.99999999999999999999999999999999", "9999999999.99999999999999999999999999999999");
+    """
+    test {
+        sql """
+            select v1 * v2 from test_dec256_multiply_overflow;
+        """
+        exception "Arithmetic overflow"
+    }
+    sql """
+        truncate table test_dec256_multiply_overflow;
+    """
+    sql """
+        insert into test_dec256_multiply_overflow values
+            (3, "-999.99999999999999999999999999999999", "-9999999999.99999999999999999999999999999999");
+    """
+    test {
+        sql """
+            select v1 * v2 from test_dec256_multiply_overflow;
+        """
+        exception "Arithmetic overflow"
+    }
+
+    sql """
+        drop table if exists test_dec256_multiply_overflow2;
+    """
+    sql """
+        create table test_dec256_multiply_overflow2 (
+            k1 int,
+            v1 decimalv3(76, 0),
+            v2 decimalv3(1, 0)
+        )
+        PROPERTIES (
+        "replication_num" = "1");
+    """
+    sql """
+        insert into test_dec256_multiply_overflow2 values
+            (1, "9999999999999999999999999999999999999999999999999999999999999999999999999999", 2);
+    """
+    test {
+        sql """
+            select v1 * v2 from test_dec256_multiply_overflow2;
+        """
+        exception "Arithmetic overflow"
+    }
+    sql """
+        truncate table test_dec256_multiply_overflow2;
+    """
+    sql """
+        insert into test_dec256_multiply_overflow2 values
+            (1, "-9999999999999999999999999999999999999999999999999999999999999999999999999999", 2);
+    """
+    test {
+        sql """
+            select v1 * v2 from test_dec256_multiply_overflow2;
+        """
+        exception "Arithmetic overflow"
+    }
+    sql """
+        truncate table test_dec256_multiply_overflow2;
+    """
+    sql """
+        insert into test_dec256_multiply_overflow2 values
+            (1, "5000000000000000000000000000000000000000000000000000000000000000000000000000", 2);
+    """
+    test {
+        sql """
+            select v1 * v2 from test_dec256_multiply_overflow2;
+        """
+        exception "Arithmetic overflow"
+    }
+    sql """
+        truncate table test_dec256_multiply_overflow2;
+    """
+    sql """
+        insert into test_dec256_multiply_overflow2 values
+            (1, "-5000000000000000000000000000000000000000000000000000000000000000000000000000", 2);
+    """
+    test {
+        sql """
+            select v1 * v2 from test_dec256_multiply_overflow2;
+        """
+        exception "Arithmetic overflow"
+    }
+
 }

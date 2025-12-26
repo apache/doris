@@ -268,33 +268,14 @@ public:
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
-        if (!_config.model_name.empty()) {
-            doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
-                          allocator);
+        std::string end_point = _config.endpoint;
+        if (end_point.ends_with("chat") || end_point.ends_with("generate")) {
+            RETURN_IF_ERROR(
+                    build_ollama_request(doc, allocator, inputs, system_prompt, request_body));
+        } else {
+            RETURN_IF_ERROR(
+                    build_default_request(doc, allocator, inputs, system_prompt, request_body));
         }
-
-        // If 'temperature' and 'max_tokens' are set, add them to the request body.
-        if (_config.temperature != -1) {
-            doc.AddMember("temperature", _config.temperature, allocator);
-        }
-        if (_config.max_tokens != -1) {
-            doc.AddMember("max_tokens", _config.max_tokens, allocator);
-        }
-
-        rapidjson::Value messages(rapidjson::kArrayType);
-        if (system_prompt && *system_prompt) {
-            rapidjson::Value sys_msg(rapidjson::kObjectType);
-            sys_msg.AddMember("role", "system", allocator);
-            sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
-            messages.PushBack(sys_msg, allocator);
-        }
-        for (const auto& input : inputs) {
-            rapidjson::Value message(rapidjson::kObjectType);
-            message.AddMember("role", "user", allocator);
-            message.AddMember("content", rapidjson::Value(input.c_str(), allocator), allocator);
-            messages.PushBack(message, allocator);
-        }
-        doc.AddMember("messages", messages, allocator);
 
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -329,30 +310,23 @@ public:
                     results.emplace_back(choices[i]["text"].GetString());
                 }
             }
-
-            if (!results.empty()) {
-                return Status::OK();
-            }
-        }
-
-        // Format 2: Simple response with just "text" or "content" field
-        if (doc.HasMember("text") && doc["text"].IsString()) {
+        } else if (doc.HasMember("text") && doc["text"].IsString()) {
+            // Format 2: Simple response with just "text" or "content" field
             results.emplace_back(doc["text"].GetString());
-            return Status::OK();
-        }
-
-        if (doc.HasMember("content") && doc["content"].IsString()) {
+        } else if (doc.HasMember("content") && doc["content"].IsString()) {
             results.emplace_back(doc["content"].GetString());
-            return Status::OK();
-        }
-
-        // Format 3: Response field (Ollama format)
-        if (doc.HasMember("response") && doc["response"].IsString()) {
+        } else if (doc.HasMember("response") && doc["response"].IsString()) {
+            // Format 3: Response field (Ollama `generate` format)
             results.emplace_back(doc["response"].GetString());
-            return Status::OK();
+        } else if (doc.HasMember("message") && doc["message"].IsObject() &&
+                   doc["message"].HasMember("content") && doc["message"]["content"].IsString()) {
+            // Format 4: message/content field (Ollama `chat` format)
+            results.emplace_back(doc["message"]["content"].GetString());
+        } else {
+            return Status::NotSupported("Unsupported response format from local AI.");
         }
 
-        return Status::InternalError("Unsupported response format from local AI.");
+        return Status::OK();
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
@@ -408,6 +382,15 @@ public:
                                std::back_inserter(results.emplace_back()),
                                [](const auto& val) { return val.GetFloat(); });
             }
+        } else if (doc.HasMember("embeddings") && doc["embeddings"].IsArray()) {
+            // "embeddings":[[0.1, 0.2, ...]]
+            results.reserve(1);
+            for (int i = 0; i < doc["embeddings"].Size(); i++) {
+                embedding = doc["embeddings"][i];
+                std::transform(embedding.Begin(), embedding.End(),
+                               std::back_inserter(results.emplace_back()),
+                               [](const auto& val) { return val.GetFloat(); });
+            }
         } else if (doc.HasMember("embedding") && doc["embedding"].IsArray()) {
             // "embedding":[0.1, 0.2, ...]
             results.reserve(1);
@@ -422,35 +405,101 @@ public:
 
         return Status::OK();
     }
-};
 
-// The OpenAI API format can be reused with some compatible AIs.
-class OpenAIAdapter : public VoyageAIAdapter {
-public:
-    Status set_authentication(HttpClient* client) const override {
-        client->set_header(HttpHeaders::AUTHORIZATION, "Bearer " + _config.api_key);
-        client->set_content_type("application/json");
+private:
+    Status build_ollama_request(rapidjson::Document& doc,
+                                rapidjson::Document::AllocatorType& allocator,
+                                const std::vector<std::string>& inputs,
+                                const char* const system_prompt, std::string& request_body) const {
+        /*
+        for endpoints end_with `/chat` like 'http://localhost:11434/api/chat':
+        {
+            "model": <model_name>,
+            "stream": false,
+            "think": false,
+            "options": {
+                "temperature": <temperature>,
+                "max_token": <max_token>
+            },
+            "messages": [
+                {"role": "system", "content": <system_prompt>},
+                {"role": "user", "content": <user_prompt>}
+            ]
+        }
+        
+        for endpoints end_with `/generate` like 'http://localhost:11434/api/generate':
+        {
+            "model": <model_name>,
+            "stream": false,
+            "think": false
+            "options": {
+                "temperature": <temperature>,
+                "max_token": <max_token>
+            },
+            "system": <system_prompt>,
+            "prompt": <user_prompt>
+        }
+        */
+
+        // For Ollama, only the prompt section ("system" + "prompt" or "role" + "content") is affected by the endpoint;
+        // The rest remains identical.
+        doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
+        doc.AddMember("stream", false, allocator);
+        doc.AddMember("think", false, allocator);
+
+        // option section
+        rapidjson::Value options(rapidjson::kObjectType);
+        if (_config.temperature != -1) {
+            options.AddMember("temperature", _config.temperature, allocator);
+        }
+        if (_config.max_tokens != -1) {
+            options.AddMember("max_token", _config.max_tokens, allocator);
+        }
+        doc.AddMember("options", options, allocator);
+
+        // prompt section
+        if (_config.endpoint.ends_with("chat")) {
+            rapidjson::Value messages(rapidjson::kArrayType);
+            if (system_prompt && *system_prompt) {
+                rapidjson::Value sys_msg(rapidjson::kObjectType);
+                sys_msg.AddMember("role", "system", allocator);
+                sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
+                messages.PushBack(sys_msg, allocator);
+            }
+            for (const auto& input : inputs) {
+                rapidjson::Value message(rapidjson::kObjectType);
+                message.AddMember("role", "user", allocator);
+                message.AddMember("content", rapidjson::Value(input.c_str(), allocator), allocator);
+                messages.PushBack(message, allocator);
+            }
+            doc.AddMember("messages", messages, allocator);
+        } else {
+            if (system_prompt && *system_prompt) {
+                doc.AddMember("system", rapidjson::Value(system_prompt, allocator), allocator);
+            }
+            doc.AddMember("prompt", rapidjson::Value(inputs[0].c_str(), allocator), allocator);
+        }
 
         return Status::OK();
     }
 
-    // TODO: Only supports GPT-4 and earlier; GPT-5 and newer are not supported yet.
-    Status build_request_payload(const std::vector<std::string>& inputs,
-                                 const char* const system_prompt,
-                                 std::string& request_body) const override {
-        rapidjson::Document doc;
-        doc.SetObject();
-        auto& allocator = doc.GetAllocator();
+    Status build_default_request(rapidjson::Document& doc,
+                                 rapidjson::Document::AllocatorType& allocator,
+                                 const std::vector<std::string>& inputs,
+                                 const char* const system_prompt, std::string& request_body) const {
+        /*
+        Default format(OpenAI-compatible):
+        {
+            "model": <model_name>,
+            "temperature": <temperature>,
+            "max_tokens": <max_tokens>,
+            "messages": [
+                {"role": "system", "content": <system_prompt>},
+                {"role": "user", "content": <user_prompt>}
+            ]
+        }
+        */
 
-        /*{
-          "model": "gpt-4",
-          "messages": [
-            {"role": "system", "content": "system_prompt here"},
-            {"role": "user", "content": "xxx"}
-          ],
-          "temperature": x,
-          "max_tokens": x,
-        }*/
         doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
 
         // If 'temperature' and 'max_tokens' are set, add them to the request body.
@@ -475,6 +524,99 @@ public:
             messages.PushBack(message, allocator);
         }
         doc.AddMember("messages", messages, allocator);
+        return Status::OK();
+    }
+};
+
+// The OpenAI API format can be reused with some compatible AIs.
+class OpenAIAdapter : public VoyageAIAdapter {
+public:
+    Status set_authentication(HttpClient* client) const override {
+        client->set_header(HttpHeaders::AUTHORIZATION, "Bearer " + _config.api_key);
+        client->set_content_type("application/json");
+
+        return Status::OK();
+    }
+
+    Status build_request_payload(const std::vector<std::string>& inputs,
+                                 const char* const system_prompt,
+                                 std::string& request_body) const override {
+        rapidjson::Document doc;
+        doc.SetObject();
+        auto& allocator = doc.GetAllocator();
+
+        if (_config.endpoint.ends_with("responses")) {
+            /*{
+              "model": "gpt-4.1-mini",
+              "input": [
+                {"role": "system", "content": "system_prompt here"},
+                {"role": "user", "content": "xxx"}
+              ],
+              "temperature": 0.7,
+              "max_output_tokens": 150
+            }*/
+            doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
+                          allocator);
+
+            // If 'temperature' and 'max_tokens' are set, add them to the request body.
+            if (_config.temperature != -1) {
+                doc.AddMember("temperature", _config.temperature, allocator);
+            }
+            if (_config.max_tokens != -1) {
+                doc.AddMember("max_output_tokens", _config.max_tokens, allocator);
+            }
+
+            // input
+            rapidjson::Value input(rapidjson::kArrayType);
+            if (system_prompt && *system_prompt) {
+                rapidjson::Value sys_msg(rapidjson::kObjectType);
+                sys_msg.AddMember("role", "system", allocator);
+                sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
+                input.PushBack(sys_msg, allocator);
+            }
+            for (const auto& msg : inputs) {
+                rapidjson::Value message(rapidjson::kObjectType);
+                message.AddMember("role", "user", allocator);
+                message.AddMember("content", rapidjson::Value(msg.c_str(), allocator), allocator);
+                input.PushBack(message, allocator);
+            }
+            doc.AddMember("input", input, allocator);
+        } else {
+            /*{
+              "model": "gpt-4",
+              "messages": [
+                {"role": "system", "content": "system_prompt here"},
+                {"role": "user", "content": "xxx"}
+              ],
+              "temperature": x,
+              "max_tokens": x,
+            }*/
+            doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
+                          allocator);
+
+            // If 'temperature' and 'max_tokens' are set, add them to the request body.
+            if (_config.temperature != -1) {
+                doc.AddMember("temperature", _config.temperature, allocator);
+            }
+            if (_config.max_tokens != -1) {
+                doc.AddMember("max_tokens", _config.max_tokens, allocator);
+            }
+
+            rapidjson::Value messages(rapidjson::kArrayType);
+            if (system_prompt && *system_prompt) {
+                rapidjson::Value sys_msg(rapidjson::kObjectType);
+                sys_msg.AddMember("role", "system", allocator);
+                sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
+                messages.PushBack(sys_msg, allocator);
+            }
+            for (const auto& input : inputs) {
+                rapidjson::Value message(rapidjson::kObjectType);
+                message.AddMember("role", "user", allocator);
+                message.AddMember("content", rapidjson::Value(input.c_str(), allocator), allocator);
+                messages.PushBack(message, allocator);
+            }
+            doc.AddMember("messages", messages, allocator);
+        }
 
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -494,37 +636,69 @@ public:
                                          response_body);
         }
 
-        if (!doc.HasMember("choices") || !doc["choices"].IsArray()) {
+        if (doc.HasMember("output") && doc["output"].IsArray()) {
+            /// for responses endpoint
+            /*{
+              "output": [
+                {
+                  "id": "msg_123",
+                  "type": "message",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "result text here"   <- result
+                    }
+                  ]
+                }
+              ]
+            }*/
+            const auto& output = doc["output"];
+            results.reserve(output.Size());
+
+            for (rapidjson::SizeType i = 0; i < output.Size(); i++) {
+                if (!output[i].HasMember("content") || !output[i]["content"].IsArray() ||
+                    output[i]["content"].Empty() || !output[i]["content"][0].HasMember("text") ||
+                    !output[i]["content"][0]["text"].IsString()) {
+                    return Status::InternalError("Invalid output format in {} response: {}",
+                                                 _config.provider_type, response_body);
+                }
+
+                results.emplace_back(output[i]["content"][0]["text"].GetString());
+            }
+        } else if (doc.HasMember("choices") && doc["choices"].IsArray()) {
+            /// for completions endpoint
+            /*{
+              "object": "chat.completion",
+              "model": "gpt-4",
+              "choices": [
+                {
+                  ...
+                  "message": {
+                    "role": "assistant",
+                    "content": "xxx"      <- result
+                  },
+                  ...
+                }
+              ],
+              ...
+            }*/
+            const auto& choices = doc["choices"];
+            results.reserve(choices.Size());
+
+            for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
+                if (!choices[i].HasMember("message") ||
+                    !choices[i]["message"].HasMember("content") ||
+                    !choices[i]["message"]["content"].IsString()) {
+                    return Status::InternalError("Invalid choice format in {} response: {}",
+                                                 _config.provider_type, response_body);
+                }
+
+                results.emplace_back(choices[i]["message"]["content"].GetString());
+            }
+        } else {
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
-        }
-
-        /*{
-          "object": "chat.completion",
-          "model": "gpt-4",
-          "choices": [
-            {
-              ...
-              "message": {
-                "role": "assistant",
-                "content": "xxx"      <- result
-              },
-              ...
-            }
-          ],
-          ...
-        }*/
-        const auto& choices = doc["choices"];
-        results.reserve(choices.Size());
-
-        for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
-            if (!choices[i].HasMember("message") || !choices[i]["message"].HasMember("content") ||
-                !choices[i]["message"]["content"].IsString()) {
-                return Status::InternalError("Invalid choice format in {} response: {}",
-                                             _config.provider_type, response_body);
-            }
-
-            results.emplace_back(choices[i]["message"]["content"].GetString());
         }
 
         return Status::OK();

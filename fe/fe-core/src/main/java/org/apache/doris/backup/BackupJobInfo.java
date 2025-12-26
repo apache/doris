@@ -17,8 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -34,9 +32,9 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -53,6 +51,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -208,22 +208,6 @@ public class BackupJobInfo implements GsonPostProcessable {
         }
     }
 
-    public void removeTable(TableRef tableRef, TableType tableType) {
-        switch (tableType) {
-            case OLAP:
-                removeOlapTable(tableRef);
-                break;
-            case VIEW:
-                removeView(tableRef);
-                break;
-            case ODBC:
-                removeOdbcTable(tableRef);
-                break;
-            default:
-                break;
-        }
-    }
-
     public void removeOlapTable(TableRefInfo tableRefInfo) {
         String tblName = tableRefInfo.getTableNameInfo().getTbl();
         BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tblName);
@@ -262,58 +246,6 @@ public class BackupJobInfo implements GsonPostProcessable {
         while (iter.hasNext()) {
             BackupOdbcTableInfo backupOdbcTableInfo = iter.next();
             if (backupOdbcTableInfo.dorisTableName.equals(tableRefInfo.getTableNameInfo().getTbl())) {
-                if (backupOdbcTableInfo.resourceName != null) {
-                    Iterator<BackupOdbcResourceInfo> resourceIter = newBackupObjects.odbcResources.listIterator();
-                    while (resourceIter.hasNext()) {
-                        if (resourceIter.next().name.equals(backupOdbcTableInfo.resourceName)) {
-                            resourceIter.remove();
-                        }
-                    }
-                }
-                iter.remove();
-                return;
-            }
-        }
-    }
-
-    public void removeOlapTable(TableRef tableRef) {
-        String tblName = tableRef.getName().getTbl();
-        BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tblName);
-        if (tblInfo == null) {
-            LOG.info("Ignore error: exclude table " + tblName + " does not exist in snapshot " + name);
-            return;
-        }
-        PartitionNames partitionNames = tableRef.getPartitionNames();
-        if (partitionNames == null) {
-            backupOlapTableObjects.remove(tblInfo);
-            return;
-        }
-        // check the selected partitions
-        for (String partName : partitionNames.getPartitionNames()) {
-            if (tblInfo.containsPart(partName)) {
-                tblInfo.partitions.remove(partName);
-            } else {
-                LOG.info("Ignore error: exclude partition " + partName + " of table " + tblName
-                        + " does not exist in snapshot");
-            }
-        }
-    }
-
-    public void removeView(TableRef tableRef) {
-        Iterator<BackupViewInfo> iter = newBackupObjects.views.listIterator();
-        while (iter.hasNext()) {
-            if (iter.next().name.equals(tableRef.getName().getTbl())) {
-                iter.remove();
-                return;
-            }
-        }
-    }
-
-    public void removeOdbcTable(TableRef tableRef) {
-        Iterator<BackupOdbcTableInfo> iter = newBackupObjects.odbcTables.listIterator();
-        while (iter.hasNext()) {
-            BackupOdbcTableInfo backupOdbcTableInfo = iter.next();
-            if (backupOdbcTableInfo.dorisTableName.equals(tableRef.getName().getTbl())) {
                 if (backupOdbcTableInfo.resourceName != null) {
                     Iterator<BackupOdbcResourceInfo> resourceIter = newBackupObjects.odbcResources.listIterator();
                     while (resourceIter.hasNext()) {
@@ -825,6 +757,12 @@ public class BackupJobInfo implements GsonPostProcessable {
          */
         BackupJobInfo jobInfo = GsonUtils.GSON.fromJson(json, BackupJobInfo.class);
         return jobInfo;
+    }
+
+    public static BackupJobInfo fromInputStream(InputStream inputStream) throws IOException {
+        try (InputStreamReader reader = new InputStreamReader(inputStream)) {
+            return GsonUtils.GSON.fromJson(reader, BackupJobInfo.class);
+        }
     }
 
     public void writeToFile(File jobInfoFile) throws FileNotFoundException {

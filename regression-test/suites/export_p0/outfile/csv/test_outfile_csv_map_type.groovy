@@ -399,6 +399,7 @@ suite("test_outfile_csv_map_type", "p0") {
         create_table(load_table_name, map_field_define)
 
         // insert data
+        sql "set enable_insert_strict = false"
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20 01:02:03': 'null', '2018-04-20 10:40:35':'b'}), (2, 'doris2', {'2000-04-20 00:00:00':'a', '1967-12-31 12:24:56':'b'}); """
         sql """ insert into ${export_table_name} values (3, 'doris3', {null: 'a', '2023-01-01 00:00:00':'b', '2023-02-27 00:01:02':'d'}); """
         sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
@@ -408,6 +409,7 @@ suite("test_outfile_csv_map_type", "p0") {
         sql """ insert into ${export_table_name} values (8, 'doris8', {'2025-12-31 12:01:41': 'min_largeint', '2006-02-19 09:01:02': 'max_largeint'}); """
         sql """ insert into ${export_table_name} values (9, 'doris9', {'209-04-20 00:00:00': 'min_largeint', '102-03-21 00:00:00':'b'}); """
         sql """ insert into ${export_table_name} values (10, 'doris10', {'2003-04-29 01:02:03':'a', '2006-02-22 02:01:04': 'max_largeint', '2020-03-21 19:21:23':'b'}); """
+        sql "set enable_insert_strict = true"
 
         // test base data
         qt_select_base10 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """

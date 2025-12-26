@@ -202,8 +202,8 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
 
         // test nvl
         explain {
-            sql("SELECT * FROM STUDENT WHERE nvl(score, 0) < 95;")
-            contains """SELECT "ID", "NAME", "AGE", "SCORE" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("SCORE", 0.0) < 95.0))"""
+            sql("SELECT * FROM STUDENT WHERE nvl(score, 0) < score;")
+            contains """SELECT "ID", "NAME", "AGE", "SCORE" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("SCORE", 0.0) < "SCORE"))"""
         }
 
         order_qt_raw  """ select * from TEST_RAW order by ID; """
@@ -417,38 +417,38 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
 
         sql "use oracle_function_rules.DORIS_TEST"
         explain {
-            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
-            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
-            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+            sql """select id from STUDENT where abs(id) > 0 and nvl(id, 3) = id;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs("ID") > 0)) AND ((nvl("ID", 3) = "ID"))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = ID[#0]))"""
         }
         sql """alter catalog oracle_function_rules set properties("function_rules" = '');"""
         explain {
-            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
-            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("ID", 3) = 3))"""
-            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = id;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("ID", 3) = "ID"))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = ID[#0]))"""
         }
 
         sql """alter catalog oracle_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["abs"], "unsupported" : []}}')"""
         explain {
-            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
-            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
-            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = id;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs("ID") > 0)) AND ((nvl("ID", 3) = "ID"))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = ID[#0]))"""
         }
 
         // test rewrite
         sql """alter catalog oracle_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}, "rewrite" : {"abs" : "abs2"}}');"""
         explain {
-            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
-            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs2("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
-            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = id;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs2("ID") > 0)) AND ((nvl("ID", 3) = "ID"))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = ID[#0]))"""
         }
 
         // reset function rules
         sql """alter catalog oracle_function_rules set properties("function_rules" = '');"""
         explain {
-            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
-            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("ID", 3) = 3))"""
-            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = id;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("ID", 3) = "ID"))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = ID[#0]))"""
         }
 
         // test invalid config

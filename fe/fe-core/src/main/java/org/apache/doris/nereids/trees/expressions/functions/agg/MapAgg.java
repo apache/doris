@@ -29,7 +29,7 @@ import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 
 /**
@@ -78,6 +78,6 @@ public class MapAgg extends NotNullableAggregateFunction
 
     @Override
     public Expression resultForEmptyInput() {
-        return new MapLiteral(new ArrayList<>(), new ArrayList<>(), this.getDataType());
+        return new MapLiteral(new LinkedHashMap<>(), this.getDataType());
     }
 }

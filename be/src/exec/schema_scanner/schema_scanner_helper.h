@@ -20,7 +20,7 @@
 
 #include <stdint.h>
 
-#include <string>
+#include <string_view>
 #include <vector>
 
 #include "cctz/time_zone.h"
@@ -34,7 +34,8 @@ class Block;
 } // namespace vectorized
 class SchemaScannerHelper {
 public:
-    static void insert_string_value(int col_index, std::string str_val, vectorized::Block* block);
+    static void insert_string_value(int col_index, std::string_view str_val,
+                                    vectorized::Block* block);
     static void insert_datetime_value(int col_index, const std::vector<void*>& datas,
                                       vectorized::Block* block);
     static void insert_datetime_value(int col_index, int64_t timestamp, const cctz::time_zone& ctz,

@@ -48,6 +48,7 @@ suite("aggregate_max_min_by_test") {
     );
     """
 
+    sql "set enable_insert_strict = false;"
     sql """
 INSERT INTO aggregate_max_min_by_test
 (k0, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k14, k15)
@@ -65,6 +66,7 @@ VALUES
 (9,   FALSE,  90,   9009,   90009,   900090009,   9000900090009,  9.09,   9.009,   9.009,   9009.009,   9009009.009,   9009009009.009,   '2025-09-09', '2025-09-09 09:09:09', 'text_9'),
 (6,   TRUE,   60,   6006,   60006,   600060006,   6000600060006,  6.06,   6.006,   6.006,   6006.006,   6006006.006,   6006006006.006,   '2025-06-06', '2025-06-06 06:06:06', 'text_6');
     """
+    sql "set enable_insert_strict = true;"
 
     qt_sql """
     SELECT  max_by(k0,k2), max_by(k0,k3), max_by(k0,k4), max_by(k0,k5), max_by(k0,k6),

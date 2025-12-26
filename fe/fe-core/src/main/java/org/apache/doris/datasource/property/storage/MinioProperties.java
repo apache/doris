@@ -41,18 +41,21 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"minio.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key", "s3.access_key"},
             required = false,
+            sensitive = true,
             description = "The access key of Minio.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"minio.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
             required = false,
+            sensitive = true,
             description = "The secret key of Minio.")
     protected String secretKey = "";
 
     @Getter
     @ConnectorProperty(names = {"minio.session_token", "s3.session_token", "session_token"},
             required = false,
+            sensitive = true,
             description = "The session token of Minio.")
     protected String sessionToken = "";
 
@@ -133,5 +136,10 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
         if (StringUtils.isBlank(getEndpoint())) {
             throw new IllegalArgumentException("Property minio.endpoint is required.");
         }
+    }
+
+    @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of("s3");
     }
 }

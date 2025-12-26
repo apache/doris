@@ -23,12 +23,16 @@ import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.obj.AzureObjStorage;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class AzureFileSystem extends ObjFileSystem {
-
+    private static final Logger LOG = LogManager.getLogger(AzureFileSystem.class);
     private final AzureProperties azureProperties;
 
     public AzureFileSystem(AzureProperties azureProperties) {
@@ -44,7 +48,8 @@ public class AzureFileSystem extends ObjFileSystem {
 
     @Override
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
-        throw new UnsupportedOperationException("Listing files is not supported in Azure File System.");
+        AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
+        return azureObjStorage.listFiles(remotePath, recursive, result);
     }
 
     @Override
@@ -55,7 +60,8 @@ public class AzureFileSystem extends ObjFileSystem {
 
     @Override
     public Status listDirectories(String remotePath, Set<String> result) {
-        throw new UnsupportedOperationException("Listing directories is not supported in Azure File System.");
+        AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
+        return azureObjStorage.listDirectories(remotePath, result);
     }
 
     @Override
@@ -73,4 +79,11 @@ public class AzureFileSystem extends ObjFileSystem {
             }
         }
     }
+
+    @Override
+    public void completeMultipartUpload(String bucket, String key, String uploadId, Map<Integer, String> parts) {
+        AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
+        azureObjStorage.completeMultipartUpload(bucket, key, parts);
+    }
+
 }

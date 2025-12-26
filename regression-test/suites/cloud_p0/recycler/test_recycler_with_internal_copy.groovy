@@ -23,7 +23,7 @@ suite("test_recycler_with_internal_copy") {
 
     def tableName = "test_recycler_with_internal_copy"
     def fileName = "test_recycler_with_internal_copy.csv"
-    def filePath = "${context.config.dataPath}/cloud/copy_into/internal_customer.csv"
+    def filePath = "${context.config.dataPath}/cloud_p0/copy_into/internal_customer.csv"
 
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("""curl -u """ + context.config.feCloudHttpUser + ":" + context.config.feCloudHttpPassword)

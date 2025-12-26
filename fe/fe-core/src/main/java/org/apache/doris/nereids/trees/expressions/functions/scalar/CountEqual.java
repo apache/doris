@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
@@ -58,6 +60,16 @@ public class CountEqual extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     private CountEqual(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child(0).getDataType();
+        if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
+                    || ((ArrayType) argType).getItemType().isVariantType()
+                    || ((ArrayType) argType).getItemType().isJsonType())) {
+            throw new AnalysisException("countequal does not support types: " + argType.toSql());
+        }
     }
 
     /**

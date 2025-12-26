@@ -461,6 +461,11 @@ public class DateLiteral extends Literal implements ComparableLiteral {
     }
 
     @Override
+    protected String castValueToString() {
+        return getStringValue();
+    }
+
+    @Override
     public int compareTo(ComparableLiteral other) {
         if (other instanceof DateLiteral) {
             int cmp = Long.compare(getValue(), ((DateLiteral) other).getValue());
@@ -611,6 +616,8 @@ public class DateLiteral extends Literal implements ComparableLiteral {
                 return new BigIntLiteral(value);
             } else if (targetType.isLargeIntType()) {
                 return new LargeIntLiteral(new BigInteger(String.valueOf(value)));
+            } else {
+                throw new AnalysisException("Date can not cast to " + targetType);
             }
         } else if (targetType.isFloatType()) {
             return new FloatLiteral(value);

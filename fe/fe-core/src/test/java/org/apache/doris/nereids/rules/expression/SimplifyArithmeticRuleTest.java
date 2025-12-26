@@ -166,7 +166,6 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("minutes_sub(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2021-01-01 00:01:00')");
         assertRewriteAfterTypeCoercion("seconds_add(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2020-12-31 23:59:59')");
         assertRewriteAfterTypeCoercion("seconds_sub(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2021-01-01 00:00:01')");
-
     }
 
     private void assertRewriteAfterSimplify(String expr, String expected) {

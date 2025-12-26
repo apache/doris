@@ -148,26 +148,11 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
 }
 
 Status RowsetBuilder::check_tablet_version_count() {
-    bool injection = false;
-    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
-                    { injection = true; });
-    int32_t max_version_config = _tablet->max_version_config();
-    if (injection) {
-        // do not return if injection
-    } else if (!_tablet->exceed_version_limit(max_version_config - 100) ||
-               GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
-        return Status::OK();
-    }
-    //trigger compaction
-    auto st = _engine.submit_compaction_task(tablet_sptr(), CompactionType::CUMULATIVE_COMPACTION,
-                                             true);
-    if (!st.ok()) [[unlikely]] {
-        LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id() << " : "
-                     << st;
-    }
+    auto max_version_config = _tablet->max_version_config();
     auto version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { version_count = INT_MAX; });
+    // Trigger TOO MANY VERSION error first
     if (version_count > max_version_config) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
@@ -175,6 +160,20 @@ Status RowsetBuilder::check_tablet_version_count() {
                 "max_tablet_version_num or time_series_max_tablet_version_num in be.conf to a "
                 "larger value.",
                 version_count, max_version_config, _tablet->tablet_id());
+    }
+    // (TODO Refrain) Maybe we can use a configurable param instead of hardcoded values '100'.
+    // max_version_config must > 100, otherwise silent errors will occur.
+    if ((!config::disable_auto_compaction &&
+         !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) &&
+        (version_count > max_version_config - 100) &&
+        !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+        // Trigger compaction
+        auto st = _engine.submit_compaction_task(tablet_sptr(),
+                                                 CompactionType::CUMULATIVE_COMPACTION, true);
+        if (!st.ok()) [[unlikely]] {
+            LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id()
+                         << " : " << st;
+        }
     }
     return Status::OK();
 }
@@ -190,10 +189,7 @@ Status RowsetBuilder::init() {
         RETURN_IF_ERROR(init_mow_context(mow_context));
     }
 
-    if (!config::disable_auto_compaction &&
-        !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
-        RETURN_IF_ERROR(check_tablet_version_count());
-    }
+    RETURN_IF_ERROR(check_tablet_version_count());
 
     auto version_count = tablet()->version_count() + tablet()->stale_version_count();
     if (tablet()->avg_rs_meta_serialize_size() * version_count >
@@ -227,6 +223,7 @@ Status RowsetBuilder::init() {
     context.tablet_id = _req.tablet_id;
     context.index_id = _req.index_id;
     context.tablet = _tablet;
+    context.enable_segcompaction = true;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;

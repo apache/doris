@@ -21,7 +21,6 @@
 
 #include <ostream>
 
-#include "common/config.h"
 #include "common/logging.h"
 #include "olap/base_tablet.h"
 #include "olap/memtable.h"
@@ -30,20 +29,19 @@
 namespace doris {
 using namespace ErrorCode;
 
-Status CalcDeleteBitmapToken::submit(
-        BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
-        const segment_v2::SegmentSharedPtr& cur_segment,
-        const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
-        DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-        DeleteBitmapPtr tablet_delete_bitmap,
-        std::function<void(segment_v2::SegmentSharedPtr, Status)> callback) {
+Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
+                                     const segment_v2::SegmentSharedPtr& cur_segment,
+                                     const std::vector<RowsetSharedPtr>& target_rowsets,
+                                     int64_t end_version, DeleteBitmapPtr delete_bitmap,
+                                     RowsetWriter* rowset_writer,
+                                     DeleteBitmapPtr tablet_delete_bitmap) {
     {
         std::shared_lock rlock(_lock);
         RETURN_IF_ERROR(_status);
         _resource_ctx = thread_context()->resource_ctx();
     }
 
-    return _thread_token->submit_func([=, this, callback = std::move(callback)]() {
+    return _thread_token->submit_func([=, this]() {
         SCOPED_ATTACH_TASK(_resource_ctx);
         auto st = tablet->calc_segment_delete_bitmap(cur_rowset, cur_segment, target_rowsets,
                                                      delete_bitmap, end_version, rowset_writer,
@@ -58,7 +56,6 @@ Status CalcDeleteBitmapToken::submit(
                 _status = st;
             }
         }
-        callback(cur_segment, st);
     });
 }
 
@@ -93,10 +90,10 @@ Status CalcDeleteBitmapToken::wait() {
     return _status;
 }
 
-void CalcDeleteBitmapExecutor::init() {
+void CalcDeleteBitmapExecutor::init(int max_threads) {
     static_cast<void>(ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
                               .set_min_threads(1)
-                              .set_max_threads(config::calc_delete_bitmap_max_thread)
+                              .set_max_threads(max_threads)
                               .build(&_thread_pool));
 }
 

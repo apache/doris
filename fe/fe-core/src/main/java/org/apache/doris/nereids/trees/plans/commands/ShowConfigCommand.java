@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -132,9 +133,9 @@ public class ShowConfigCommand extends Command implements NoForward {
                 urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
                 InputStream inputStream = urlConnection.getInputStream();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-                while (reader.ready()) {
+                String line;
+                while ((line = reader.readLine()) != null) {
                     // line's format like [["k1","v1"], ["k2","v2"]]
-                    String line = reader.readLine();
                     JSONArray outer = new JSONArray(line);
                     for (int i = 0; i < outer.length(); ++i) {
                         // [key, type, value, isMutable]
@@ -153,7 +154,7 @@ public class ShowConfigCommand extends Command implements NoForward {
                 }
             } catch (Exception e) {
                 throw new AnalysisException(
-                        String.format("Can’t get backend config, backendId: %d, host: %s. error: %s",
+                        String.format("Can't get backend config, backendId: %d, host: %s. error: %s",
                                 beId, host, e.getMessage()), e);
             }
         }
@@ -176,5 +177,18 @@ public class ShowConfigCommand extends Command implements NoForward {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowConfigCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // no need forward to master for backend config
+        if (nodeType == NodeType.BACKEND) {
+            return RedirectStatus.NO_FORWARD;
+        }
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }

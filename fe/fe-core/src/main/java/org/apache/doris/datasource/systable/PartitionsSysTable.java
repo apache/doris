@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.systable;
 
-import org.apache.doris.analysis.TableValuedFunctionRef;
+import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 
@@ -47,13 +47,13 @@ public class PartitionsSysTable extends SysTable {
     }
 
     @Override
-    public TableValuedFunctionRef createFunctionRef(String ctlName, String dbName, String sourceNameWithMetaName) {
+    public TableValuedFunctionRefInfo createFunctionRef(String ctlName, String dbName, String sourceNameWithMetaName) {
         Map<String, String> params = Maps.newHashMap();
         params.put("catalog", ctlName);
         params.put("database", dbName);
         params.put("table", getSourceTableName(sourceNameWithMetaName));
         try {
-            return new TableValuedFunctionRef(tvfName, null, params);
+            return new TableValuedFunctionRefInfo(tvfName, null, params);
         } catch (org.apache.doris.common.AnalysisException e) {
             LOG.warn("should not happen. {}.{}.{}", ctlName, dbName, sourceNameWithMetaName);
             return null;

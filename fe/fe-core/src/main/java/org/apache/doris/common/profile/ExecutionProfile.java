@@ -20,6 +20,7 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -320,12 +321,12 @@ public class ExecutionProfile {
     }
 
     public String toString() {
-        StringBuilder sb = new StringBuilder();
+        SafeStringBuilder sb = new SafeStringBuilder();
         root.prettyPrint(sb, "");
         return sb.toString();
     }
 
-    public void prettyPrint(StringBuilder sb, String prefix) {
+    public void prettyPrint(SafeStringBuilder sb, String prefix) {
         root.prettyPrint(sb, prefix);
     }
 }

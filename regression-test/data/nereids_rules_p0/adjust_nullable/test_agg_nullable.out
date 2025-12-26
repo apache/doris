@@ -6,6 +6,5 @@
 PhysicalResultSink
 --PhysicalProject[AND[k IS NULL,NULL] AS `k > 10 and k < 5`]
 ----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalEmptyRelation
+------PhysicalEmptyRelation
 

@@ -35,9 +35,8 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
     // arithmetic scala field types
     {
         // fieldType, test_string, expect_wrapper_field_string, expect_data_type_string
-        typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
-                           std::vector<std::string>>
-                FieldType_RandStr;
+        using FieldType_RandStr = std::tuple<FieldType, std::vector<std::string>,
+                                             std::vector<std::string>, std::vector<std::string>>;
         std::vector<FieldType_RandStr> arithmetic_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL, {"0", "1", "-9"},
                                   {"0", "1", "1"}, {"0", "1", ""}),
@@ -213,7 +212,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
 
     // date and datetime type
     {
-        typedef std::pair<FieldType, std::string> FieldType_RandStr;
+        using FieldType_RandStr = std::pair<FieldType, std::string>;
         std::vector<FieldType_RandStr> date_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE, "2020-01-01"),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATEV2, "2020-01-01"),
@@ -284,7 +283,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
 
     // ipv4 and ipv6 type
     {
-        typedef std::pair<FieldType, std::string> FieldType_RandStr;
+        using FieldType_RandStr = std::pair<FieldType, std::string>;
         std::vector<FieldType_RandStr> ip_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "0.0.0.0"),         // min case
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "127.0.0.1"),       // rand case

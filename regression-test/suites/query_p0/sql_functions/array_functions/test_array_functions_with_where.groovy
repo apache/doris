@@ -45,7 +45,7 @@ suite("test_array_functions_with_where") {
     qt_select "SELECT k1, size(k2) FROM ${tableName} WHERE cardinality(k2)>0 ORDER BY k1, size(k2)"
     qt_select_array_with_constant "SELECT k1, array_with_constant(5, k1), array_repeat(k1, 5) FROM ${tableName} WHERE k1 is null ORDER BY k1, size(k2)"
     qt_select "SELECT k1, array(5, k1) FROM ${tableName} WHERE k1 is not null ORDER BY k1, size(k2)"
-    qt_select "SELECT k1, array(k1, 'abc') FROM ${tableName} WHERE k1 is not null ORDER BY k1, size(k2)"
+    qt_select "SELECT k1, array(k1, '123') FROM ${tableName} WHERE k1 is not null ORDER BY k1, size(k2)"
     qt_select "SELECT k1, array(null, k1) FROM ${tableName} WHERE k1 is not null ORDER BY k1, size(k2)"
 
     tableName = "tbl_test_array_functions_with_where2"

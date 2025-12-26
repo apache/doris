@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.TableIf;
@@ -31,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -56,14 +56,14 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
                     LogicalProject<LogicalOlapScan> project = topN.child();
                     LogicalOlapScan scan = project.child();
                     return pushDown(topN, project, scan, Optional.empty());
-                }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN),
+                }).toRule(RuleType.PUSH_DOWN_VECTOR_TOPN_INTO_OLAP_SCAN),
                 logicalTopN(logicalProject(logicalFilter(logicalOlapScan())))
                         .when(t -> t.getOrderKeys().size() == 1).then(topN -> {
                             LogicalProject<LogicalFilter<LogicalOlapScan>> project = topN.child();
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
                             return pushDown(topN, project, scan, Optional.of(filter));
-                        }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN)
+                        }).toRule(RuleType.PUSH_DOWN_VECTOR_TOPN_INTO_OLAP_SCAN)
         );
     }
 

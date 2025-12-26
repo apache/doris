@@ -21,17 +21,11 @@ import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentPublishRequest;
 import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TAgentTaskRequest;
-import org.apache.doris.thrift.TCancelPlanFragmentParams;
-import org.apache.doris.thrift.TCancelPlanFragmentResult;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncResponse;
 import org.apache.doris.thrift.TDictionaryStatusList;
 import org.apache.doris.thrift.TDiskTrashInfo;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TExecPlanFragmentResult;
-import org.apache.doris.thrift.TExportStatusResult;
-import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
 import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
 import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
@@ -56,7 +50,6 @@ import org.apache.doris.thrift.TStreamLoadRecordResult;
 import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
 import org.apache.doris.thrift.TSyncLoadForTabletsResponse;
 import org.apache.doris.thrift.TTabletStatResult;
-import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
 import org.apache.doris.thrift.TWarmUpTabletsRequest;
@@ -125,16 +118,6 @@ public class GenericPoolTest {
         }
 
         @Override
-        public TExecPlanFragmentResult execPlanFragment(TExecPlanFragmentParams params) {
-            return new TExecPlanFragmentResult();
-        }
-
-        @Override
-        public TCancelPlanFragmentResult cancelPlanFragment(TCancelPlanFragmentParams params) {
-            return new TCancelPlanFragmentResult();
-        }
-
-        @Override
         public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             return null;
         }
@@ -156,24 +139,6 @@ public class GenericPoolTest {
 
         @Override
         public TAgentResult makeSnapshot(TSnapshotRequest snapshotRequest) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TStatus submitExportTask(TExportTaskRequest request) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TExportStatusResult getExportStatus(TUniqueId taskId) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TStatus eraseExportTask(TUniqueId taskId) throws TException {
             // TODO Auto-generated method stub
             return null;
         }
@@ -273,6 +238,12 @@ public class GenericPoolTest {
 
         @Override
         public TDictionaryStatusList getDictionaryStatus(List<Long> dictionaryIds) throws TException {
+            return null;
+        }
+
+        @Override
+        public org.apache.doris.thrift.TTestStorageConnectivityResponse testStorageConnectivity(
+                org.apache.doris.thrift.TTestStorageConnectivityRequest request) throws TException {
             return null;
         }
     }

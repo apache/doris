@@ -18,12 +18,50 @@
 #include "jsonb_document.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "util/jsonb_writer.h"
 
 namespace doris {
+
+Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
+                                             const JsonbDocument** doc) {
+    *doc = nullptr;
+    if (!pb || size == 0) {
+        static const std::string buf = []() {
+            JsonbWriter writer;
+            (void)writer.writeNull();
+            auto* out = writer.getOutput();
+            return std::string(out->getBuffer(), out->getSize());
+        }();
+        // Treat empty input as a valid JSONB null document.
+        *doc = reinterpret_cast<const JsonbDocument*>(buf.data());
+        return Status::OK();
+    }
+    if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
+        return Status::InvalidArgument("Invalid JSONB document: too small size({}) or null pointer",
+                                       size);
+    }
+
+    const auto* doc_ptr = (const JsonbDocument*)pb;
+    if (doc_ptr->header_.ver_ != JSONB_VER) {
+        return Status::InvalidArgument("Invalid JSONB document: invalid version({})",
+                                       doc_ptr->header_.ver_);
+    }
+
+    const auto* val = (const JsonbValue*)doc_ptr->payload_;
+    if (val->type < JsonbType::T_Null || val->type >= JsonbType::NUM_TYPES ||
+        size != sizeof(JsonbHeader) + val->numPackedBytes()) {
+        return Status::InvalidArgument("Invalid JSONB document: invalid type({}) or size({})",
+                                       static_cast<JsonbTypeUnder>(val->type), size);
+    }
+
+    *doc = doc_ptr;
+    return Status::OK();
+}
+
 JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
     JsonbFindResult result;
     bool is_wildcard = false;
@@ -52,8 +90,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
     }
 
     for (size_t i = 0; i < path.get_leg_vector_size(); ++i) {
-        values.assign(results.begin(), results.end());
-        results.clear();
+        values = std::move(results);
         for (const auto* pval : values) {
             switch (path.get_leg_from_leg_vector(i)->type) {
             case MEMBER_CODE: {
@@ -67,9 +104,9 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                         continue;
                     }
 
-                    pval = pval->unpack<ObjectVal>()->find(path.get_leg_from_leg_vector(i)->leg_ptr,
-                                                           path.get_leg_from_leg_vector(i)->leg_len,
-                                                           nullptr);
+                    pval = pval->unpack<ObjectVal>()->find(
+                            path.get_leg_from_leg_vector(i)->leg_ptr,
+                            path.get_leg_from_leg_vector(i)->leg_len);
 
                     if (pval) {
                         results.emplace_back(pval);
@@ -125,6 +162,22 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
         if (results.empty()) {
             result.value = nullptr; // No values found
         } else {
+            /// if supper wildcard, need distinct results
+            /// because supper wildcard will traverse all nodes
+            ///
+            /// `select json_extract( '[1]', '$**[0]' );`
+            /// +---------------------------------+
+            /// | json_extract( '[1]', '$**[0]' ) |
+            /// +---------------------------------+
+            /// | [1,1]                           |
+            /// +---------------------------------+
+            if (results.size() > 1 && path.is_supper_wildcard()) [[unlikely]] {
+                std::set<const JsonbValue*> distinct_results;
+                for (const auto* pval : results) {
+                    distinct_results.insert(pval);
+                }
+                results.assign(distinct_results.begin(), distinct_results.end());
+            }
             result.writer = std::make_unique<JsonbWriter>();
             result.writer->writeStartArray();
             for (const auto* pval : results) {
@@ -132,7 +185,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
             }
             result.writer->writeEndArray();
 
-            JsonbDocument* doc = nullptr;
+            const JsonbDocument* doc = nullptr;
             THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(
                     result.writer->getOutput()->getBuffer(), result.writer->getOutput()->getSize(),
                     &doc));
@@ -144,4 +197,24 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
 
     return result;
 }
+
+std::vector<std::pair<StringRef, const JsonbValue*>> ObjectVal::get_ordered_key_value_pairs()
+        const {
+    std::vector<std::pair<StringRef, const JsonbValue*>> kvs;
+    const auto* obj_val = this;
+    for (auto it = obj_val->begin(); it != obj_val->end(); ++it) {
+        kvs.emplace_back(StringRef(it->getKeyStr(), it->klen()), it->value());
+    }
+    // sort by key
+    std::sort(kvs.begin(), kvs.end(),
+              [](const auto& left, const auto& right) { return left.first < right.first; });
+    // unique by key
+    kvs.erase(std::unique(kvs.begin(), kvs.end(),
+                          [](const auto& left, const auto& right) {
+                              return left.first == right.first;
+                          }),
+              kvs.end());
+    return kvs;
+}
+
 } // namespace doris

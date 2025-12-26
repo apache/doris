@@ -23,10 +23,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;

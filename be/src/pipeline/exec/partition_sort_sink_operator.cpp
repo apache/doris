@@ -70,13 +70,15 @@ PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int ope
                                                        const DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, tnode.node_id, dest_id),
           _pool(pool),
-          _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+          _row_descriptor(descs, tnode.row_tuples),
           _limit(tnode.limit),
           _partition_exprs_num(static_cast<int>(tnode.partition_sort_node.partition_exprs.size())),
           _topn_phase(tnode.partition_sort_node.ptopn_phase),
           _has_global_limit(tnode.partition_sort_node.has_global_limit),
           _top_n_algorithm(tnode.partition_sort_node.top_n_algorithm),
-          _partition_inner_limit(tnode.partition_sort_node.partition_inner_limit) {}
+          _partition_inner_limit(tnode.partition_sort_node.partition_inner_limit),
+          _distribute_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
+                                                                : std::vector<TExpr> {}) {}
 
 Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));

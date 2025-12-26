@@ -20,9 +20,11 @@ package org.apache.doris.nereids.trees.plans.algebra;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
@@ -32,8 +34,10 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.BitSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -58,6 +62,31 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
 
     default Set<AggregateFunction> getAggregateFunctions() {
         return ExpressionUtils.collect(getOutputExpressions(), AggregateFunction.class::isInstance);
+    }
+
+    /**getAggregateFunctionWithGuardExpr*/
+    default Map<AggregateFunction, Expression> getAggregateFunctionWithGuardExpr() {
+        Map<AggregateFunction, Expression> aggFunctionWithGuardExpr = new HashMap<>();
+        for (Expression expr : getOutputExpressions()) {
+            expr.accept(new DefaultExpressionVisitor<Void, Map<String, String>>() {
+                @Override
+                public Void visitAggregateFunction(AggregateFunction expr, Map<String, String> sessionVars) {
+                    if (sessionVars != null) {
+                        aggFunctionWithGuardExpr.put(expr, new SessionVarGuardExpr(expr, sessionVars));
+                    } else {
+                        aggFunctionWithGuardExpr.put(expr, expr);
+                    }
+                    return null;
+                }
+
+                @Override
+                public Void visitSessionVarGuardExpr(SessionVarGuardExpr expr, Map<String, String> sessionVars) {
+                    super.visit(expr, expr.getSessionVars());
+                    return null;
+                }
+            }, null);
+        }
+        return aggFunctionWithGuardExpr;
     }
 
     /** getDistinctArguments */
@@ -113,6 +142,33 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
     }
 
     /**
+     * isAggregateDistinct
+     * @return true if there is at least one distinct aggregate function
+     */
+    default boolean hasDistinctFunc() {
+        for (AggregateFunction aggFunc : getAggregateFunctions()) {
+            if (aggFunc.isDistinct()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * distinctFuncNum
+     * @return number of distinct aggregate functions
+     */
+    default int distinctFuncNum() {
+        int num = 0;
+        for (AggregateFunction aggFunc : getAggregateFunctions()) {
+            if (aggFunc.isDistinct()) {
+                ++num;
+            }
+        }
+        return num;
+    }
+
+    /**
      * Skew rewrite is applicable only when all the following conditions are met:
      * 1. The rule is not disabled in the current session (checked via `disableRules`).
      * 2. There is exactly one distinct argument (e.g., `COUNT(DISTINCT x,y)` cannot be optimized).
@@ -139,5 +195,18 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
                 && aggregateFunctions.iterator().next().child(0) instanceof Slot
                 && !getGroupByExpressions().isEmpty()
                 && !(new HashSet<>(getGroupByExpressions()).containsAll(distinctArguments));
+    }
+
+    /**
+     * hasSkewHint
+     * @return true if there is at least one skew hint
+     */
+    default boolean hasSkewHint() {
+        for (AggregateFunction aggFunc : getAggregateFunctions()) {
+            if (aggFunc.isSkew()) {
+                return true;
+            }
+        }
+        return false;
     }
 }

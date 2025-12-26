@@ -17,24 +17,24 @@
 
 package org.apache.doris.cloud.catalog;
 
-// import org.apache.doris.analysis.WarmUpClusterStmt;
 import org.apache.doris.catalog.Env;
-// import org.apache.doris.cloud.CacheHotspotManager;
-// import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.CacheHotspotManager;
+import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-// import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-// import org.apache.doris.common.DdlException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-// import java.util.Arrays;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -58,10 +58,8 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         try {
+            long start = System.currentTimeMillis();
             Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get from ms response {}", response);
-            }
             if (!isResponseValid(response)) {
                 return;
             }
@@ -70,7 +68,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             cloudSystemInfoService.setInstanceStatus(instance.getStatus());
             syncStorageVault(instance);
             processVirtualClusters(instance.getClustersList());
-
+            // Add a log message to indicate that this thread is operating normally.
+            LOG.info("finished to cloud instance checker. cost: {} ms",
+                    System.currentTimeMillis() - start);
         } catch (Exception e) {
             LOG.warn("get instance from ms exception", e);
         }
@@ -87,6 +87,10 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     }
 
     private void syncStorageVault(Cloud.InstanceInfoPB instance) {
+        if (instance.getStorageVaultNamesCount() == 0) {
+            return;
+        }
+
         Map<String, String> vaultMap = new HashMap<>();
         int cnt = instance.getResourceIdsCount();
         for (int i = 0; i < cnt; i++) {
@@ -102,8 +106,61 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
         List<Cloud.ClusterPB> virtualClusters = new ArrayList<>();
         List<Cloud.ClusterPB> computeClusters = new ArrayList<>();
         categorizeClusters(clusters, virtualClusters, computeClusters);
+        handleComputeClusters(computeClusters);
         handleVirtualClusters(virtualClusters, computeClusters);
         removeObsoleteVirtualGroups(virtualClusters);
+    }
+
+    private void handleComputeClusters(List<Cloud.ClusterPB> computeClusters) {
+        for (Cloud.ClusterPB computeClusterInMs : computeClusters) {
+            ComputeGroup computeGroupInFe = cloudSystemInfoService
+                    .getComputeGroupById(computeClusterInMs.getClusterId());
+            if (computeGroupInFe == null) {
+                // cluster checker will sync it
+                LOG.info("found compute cluster {} in ms, but not in fe mem, "
+                        + "it may be wait cluster checker to sync, ignore it",
+                        computeClusterInMs);
+            } else {
+                // exist compute group, check properties changed and update if needed
+                updatePropertiesIfChanged(computeGroupInFe, computeClusterInMs);
+            }
+        }
+    }
+
+    /**
+     * Compare properties between compute cluster in MS and compute group in FE,
+     * update only the changed key-value pairs to avoid unnecessary updates.
+     */
+    private void updatePropertiesIfChanged(ComputeGroup computeGroupInFe, Cloud.ClusterPB computeClusterInMs) {
+        Map<String, String> propertiesInMs = computeClusterInMs.getPropertiesMap();
+        Map<String, String> propertiesInFe = computeGroupInFe.getProperties();
+
+        if (propertiesInMs == null || propertiesInMs.isEmpty()) {
+            return;
+        }
+        Map<String, String> changedProperties = new HashMap<>();
+
+        // Check for changed or new properties
+        for (Map.Entry<String, String> entry : propertiesInMs.entrySet()) {
+            String key = entry.getKey();
+            String valueInMs = entry.getValue();
+            String valueInFe = propertiesInFe.get(key);
+
+            if (valueInFe != null && valueInFe.equalsIgnoreCase(valueInMs)) {
+                continue;
+            }
+            changedProperties.put(key, valueInMs);
+
+            LOG.debug("Property changed for compute group {}: {} = {} (was: {})",
+                    computeGroupInFe.getName(), key, valueInMs, valueInFe);
+        }
+
+        // Only update if there are actual changes
+        if (!changedProperties.isEmpty()) {
+            LOG.info("Updating properties for compute group {}: {}",
+                    computeGroupInFe.getName(), changedProperties);
+            computeGroupInFe.setProperties(changedProperties);
+        }
     }
 
     private void categorizeClusters(List<Cloud.ClusterPB> clusters,
@@ -147,14 +204,12 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     }
 
     private void cancelCacheJobs(ComputeGroup vcgInFe, List<String> jobIds) {
-        // TODO(dx)
-        /*
         CacheHotspotManager cacheHotspotManager = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr();
         for (String jobId : jobIds) {
             try {
                 if (Env.getCurrentEnv().isMaster()) {
                     // cancel old jobId, will write editlog, so just master can do
-                    cacheHotspotManager.cancel(Long.parseLong(jobId));
+                    cacheHotspotManager.cancel(Long.parseLong(jobId), "vcg cancel");
                     LOG.info("virtual compute group {}, cancel jobId {}", vcgInFe.getName(), jobId);
                 }
             } catch (DdlException e) {
@@ -162,12 +217,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                         vcgInFe.getName(), jobId, e);
             }
         }
-       */
     }
 
     private void checkNeedRebuildFileCache(ComputeGroup virtualGroupInFe, List<String> jobIdsInMs) {
-        // TODO(dx):
-        /*
         CacheHotspotManager cacheHotspotManager = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr();
         // check jobIds in Ms valid, if been cancelled, start new jobs
         for (String jobId : jobIdsInMs) {
@@ -210,7 +262,6 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                 return;
             }
         }
-         */
     }
 
     /**
@@ -222,7 +273,7 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                     virtualGroupInFe.getName(), virtualGroupInMs);
             return;
         }
-        // CacheHotspotManager cacheHotspotManager = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr();
+        CacheHotspotManager cacheHotspotManager = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr();
         List<String> jobIdsInMs =
                 new ArrayList<>(virtualGroupInMs.getClusterPolicy().getCacheWarmupJobidsList());
 
@@ -230,8 +281,6 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
         LOG.debug("virtual compute group {}, get from ms file cache sync task jobIds {}",
                 virtualGroupInFe, jobIdsInMs);
         // virtual group has been changed in before step
-        // TODO(dx)
-        /*
         if (virtualGroupInFe.isNeedRebuildFileCache()) {
             String srcCg = virtualGroupInFe.getActiveComputeGroup();
             String dstCg = virtualGroupInFe.getStandbyComputeGroup();
@@ -247,8 +296,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                     syncInterValSec = 600;
                 }
                 periodicProperties.put("sync_interval_sec", String.valueOf(syncInterValSec));
-                WarmUpClusterStmt periodicStmtPeriodic =
-                        new WarmUpClusterStmt(dstCg, srcCg, true, periodicProperties);
+                WarmUpClusterCommand periodicStmtPeriodic =
+                        new WarmUpClusterCommand(Collections.emptyList(), srcCg, dstCg,
+                            true, false, periodicProperties);
                 long jobIdPeriodic = cacheHotspotManager.createJob(periodicStmtPeriodic);
 
                 // load event
@@ -256,8 +306,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                 // "sync_mode" = "event_driven", "sync_event" = "load"
                 eventProperties.put("sync_mode", "event_driven");
                 eventProperties.put("sync_event", "load");
-                WarmUpClusterStmt eventStmtPeriodic =
-                        new WarmUpClusterStmt(dstCg, srcCg, true, eventProperties);
+                WarmUpClusterCommand eventStmtPeriodic =
+                        new WarmUpClusterCommand(Collections.emptyList(), srcCg, dstCg,
+                            true, false, eventProperties);
                 long jobIdEvent = cacheHotspotManager.createJob(eventStmtPeriodic);
                 // send jobIds to ms
                 List<String> newJobIds = Arrays.asList(Long.toString(jobIdPeriodic), Long.toString(jobIdEvent));
@@ -270,7 +321,6 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             }
             virtualGroupInFe.setNeedRebuildFileCache(false);
         }
-         */
     }
 
     private void handleExistingVirtualComputeGroup(Cloud.ClusterPB clusterInMs, ComputeGroup virtualGroupInFe) {
@@ -479,6 +529,8 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             // in fe mem, but not in meta server
             if (!msVirtualClusters.contains(computeGroup.getId())) {
                 LOG.info("virtual compute group {} will be removed.", computeGroup.getName());
+                MetricRepo.unregisterCloudMetrics(computeGroup.getId(), computeGroup.getName(),
+                        Collections.emptyList());
                 cloudSystemInfoService.removeComputeGroup(computeGroup.getId(), computeGroup.getName());
                 // cancel invalid job
                 if (!computeGroup.getPolicy().getCacheWarmupJobIds().isEmpty()) {

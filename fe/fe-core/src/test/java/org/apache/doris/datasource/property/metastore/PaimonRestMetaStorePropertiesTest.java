@@ -18,15 +18,12 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class PaimonRestMetaStorePropertiesTest {
@@ -63,9 +60,8 @@ public class PaimonRestMetaStorePropertiesTest {
         restProps2.initNormalizeAndCheckProps();
 
         // Both should work and set the same URI in catalog options
-        List<StorageProperties> storagePropertiesList = new ArrayList<>();
-        restProps1.buildCatalogOptions(storagePropertiesList);
-        restProps2.buildCatalogOptions(storagePropertiesList);
+        restProps1.buildCatalogOptions();
+        restProps2.buildCatalogOptions();
 
         Options options1 = restProps1.getCatalogOptions();
         Options options2 = restProps2.getCatalogOptions();
@@ -87,8 +83,7 @@ public class PaimonRestMetaStorePropertiesTest {
         PaimonRestMetaStoreProperties restProps = new PaimonRestMetaStoreProperties(props);
         restProps.initNormalizeAndCheckProps();
 
-        List<StorageProperties> storagePropertiesList = new ArrayList<>();
-        restProps.buildCatalogOptions(storagePropertiesList);
+        restProps.buildCatalogOptions();
         Options catalogOptions = restProps.getCatalogOptions();
 
         // Basic URI should be set
@@ -356,8 +351,7 @@ public class PaimonRestMetaStorePropertiesTest {
         PaimonRestMetaStoreProperties restProps = new PaimonRestMetaStoreProperties(props);
         restProps.initNormalizeAndCheckProps();
 
-        List<StorageProperties> storagePropertiesList = new ArrayList<>();
-        restProps.buildCatalogOptions(storagePropertiesList);
+        restProps.buildCatalogOptions();
         Options catalogOptions = restProps.getCatalogOptions();
 
         // paimon.rest.* properties should be passed through without prefix

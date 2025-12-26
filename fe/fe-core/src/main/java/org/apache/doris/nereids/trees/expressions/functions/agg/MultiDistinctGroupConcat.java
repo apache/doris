@@ -51,7 +51,6 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
                     .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
 
-    private final boolean mustUseMultiDistinctAgg;
     private final int nonOrderArguments;
 
     /**
@@ -64,26 +63,19 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
     /**
      * constructor with argument list.
      */
-    public MultiDistinctGroupConcat(boolean alwaysNullable, List<Expression> args) {
-        this(false, alwaysNullable, args);
-    }
-
     private MultiDistinctGroupConcat(boolean alwaysNullable, Expression arg,
             Expression... others) {
         this(alwaysNullable, ExpressionUtils.mergeArguments(arg, others));
     }
 
-    private MultiDistinctGroupConcat(boolean mustUseMultiDistinctAgg, boolean alwaysNullable, List<Expression> args) {
+    public MultiDistinctGroupConcat(boolean alwaysNullable, List<Expression> args) {
         super("multi_distinct_group_concat", false, alwaysNullable, args);
-        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
         this.nonOrderArguments = findOrderExprIndex(children);
     }
 
     /** constructor for withChildren and reuse signature */
-    protected MultiDistinctGroupConcat(
-            boolean mustUseMultiDistinctAgg, NullableAggregateFunctionParams functionParams) {
+    protected MultiDistinctGroupConcat(NullableAggregateFunctionParams functionParams) {
         super(functionParams);
-        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
         this.nonOrderArguments = findOrderExprIndex(children);
     }
 
@@ -95,7 +87,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
 
     @Override
     public MultiDistinctGroupConcat withAlwaysNullable(boolean alwaysNullable) {
-        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, getAlwaysNullableFunctionParams(alwaysNullable));
+        return new MultiDistinctGroupConcat(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     /**
@@ -103,7 +95,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
      */
     @Override
     public MultiDistinctGroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, getFunctionParams(false, children));
+        return new MultiDistinctGroupConcat(getFunctionParams(false, children));
     }
 
     @Override
@@ -124,16 +116,6 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
             }
             return ONE_ARG;
         }
-    }
-
-    @Override
-    public boolean mustUseMultiDistinctAgg() {
-        return mustUseMultiDistinctAgg || children.stream().anyMatch(OrderExpression.class::isInstance);
-    }
-
-    @Override
-    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
-        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, alwaysNullable, children);
     }
 
     private int findOrderExprIndex(List<Expression> children) {

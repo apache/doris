@@ -33,8 +33,11 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 
 import org.apache.commons.math3.util.ArithmeticUtils;
 import org.apache.commons.math3.util.FastMath;
@@ -88,12 +91,12 @@ public class NumericArithmetic {
 
     @ExecFunction(name = "abs")
     public static Expression abs(DecimalLiteral literal) {
-        return new DecimalLiteral(literal.getValue().abs());
+        return new DecimalLiteral((DecimalV2Type) literal.getDataType(), literal.getValue().abs());
     }
 
     @ExecFunction(name = "abs")
     public static Expression abs(DecimalV3Literal literal) {
-        return new DecimalV3Literal(literal.getValue().abs());
+        return new DecimalV3Literal((DecimalV3Type) literal.getDataType(), literal.getValue().abs());
     }
 
     /**
@@ -357,7 +360,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.round(0).getDouble());
     }
 
@@ -366,7 +370,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.round(second.getValue()).getDouble());
     }
 
@@ -392,7 +397,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundCeiling(0).getDouble());
     }
 
@@ -401,7 +407,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundCeiling(second.getValue()).getDouble());
     }
 
@@ -427,7 +434,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundFloor(0).getDouble());
     }
 
@@ -436,7 +444,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundFloor(second.getValue()).getDouble());
     }
 
@@ -499,6 +508,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "sqrt")
     public static Expression sqrt(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -611,6 +623,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "asin")
     public static Expression asin(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, -1.0, 1.0, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -622,6 +637,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "acos")
     public static Expression acos(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, -1.0, 1.0, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -634,6 +652,14 @@ public class NumericArithmetic {
     @ExecFunction(name = "atan")
     public static Expression atan(DoubleLiteral first) {
         return new DoubleLiteral(Math.atan(first.getValue()));
+    }
+
+    /**
+     * atan
+     */
+    @ExecFunction(name = "atan")
+    public static Expression atan(DoubleLiteral first, DoubleLiteral second) {
+        return new DoubleLiteral(Math.atan2(first.getValue(), second.getValue()));
     }
 
     /**
@@ -715,6 +741,18 @@ public class NumericArithmetic {
         double evenMag = 2 * Math.ceil(mag / 2);
         double value = Math.copySign(evenMag, first.getValue());
         return new DoubleLiteral(value);
+    }
+
+    /**
+     * factorial
+     */
+    @ExecFunction(name = "factorial")
+    public static Expression factorial(BigIntLiteral first) {
+        long value = first.getValue();
+        if (value < 0 || value > 20) {
+            return new NullLiteral(BigIntType.INSTANCE);
+        }
+        return new BigIntLiteral(ArithmeticUtils.factorial((int) value));
     }
 
     /**
@@ -918,6 +956,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dsqrt")
     public static Expression dsqrt(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -937,6 +978,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(DoubleLiteral first, DoubleLiteral second) {
+        if (second.getValue() == 0) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return new DoubleLiteral(first.getValue() % second.getValue());
     }
 
@@ -945,6 +989,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(FloatLiteral first, FloatLiteral second) {
+        if (second.getValue() == 0) {
+            return new NullLiteral(FloatType.INSTANCE);
+        }
         return new FloatLiteral(first.getValue() % second.getValue());
     }
 
@@ -1036,5 +1083,29 @@ public class NumericArithmetic {
     @ExecFunction(name = "isinf")
     public static Expression isinf(FloatLiteral first) {
         return BooleanLiteral.of(Float.isInfinite(first.getValue()));
+    }
+
+    /**
+     * bool_and
+     */
+    @ExecFunction(name = "bool_and")
+    public static Expression booland(BooleanLiteral first) {
+        return first;
+    }
+
+    /**
+     * bool_or
+     */
+    @ExecFunction(name = "bool_or")
+    public static Expression boolor(BooleanLiteral first) {
+        return first;
+    }
+
+    /**
+     * bool_xor
+     */
+    @ExecFunction(name = "bool_xor")
+    public static Expression boolxor(BooleanLiteral first) {
+        return first;
     }
 }

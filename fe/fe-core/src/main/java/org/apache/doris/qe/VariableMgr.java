@@ -26,6 +26,7 @@ import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -191,45 +192,7 @@ public class VariableMgr {
             }
         } else  {
             try {
-                switch (field.getType().getSimpleName()) {
-                    case "boolean":
-                        if (value.equalsIgnoreCase("ON")
-                                || value.equalsIgnoreCase("TRUE")
-                                || value.equalsIgnoreCase("1")) {
-                            field.setBoolean(obj, true);
-                        } else if (value.equalsIgnoreCase("OFF")
-                                || value.equalsIgnoreCase("FALSE")
-                                || value.equalsIgnoreCase("0")) {
-                            field.setBoolean(obj, false);
-                        } else {
-                            throw new IllegalAccessException();
-                        }
-                        break;
-                    case "byte":
-                        field.setByte(obj, Byte.parseByte(value));
-                        break;
-                    case "short":
-                        field.setShort(obj, Short.parseShort(value));
-                        break;
-                    case "int":
-                        field.setInt(obj, Integer.parseInt(value));
-                        break;
-                    case "long":
-                        field.setLong(obj, Long.parseLong(value));
-                        break;
-                    case "float":
-                        field.setFloat(obj, Float.parseFloat(value));
-                        break;
-                    case "double":
-                        field.setDouble(obj, Double.parseDouble(value));
-                        break;
-                    case "String":
-                        field.set(obj, value);
-                        break;
-                    default:
-                        // Unsupported type variable.
-                        ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
-                }
+                setValue(obj, value, field, attr.name());
             } catch (NumberFormatException e) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
             } catch (IllegalAccessException e) {
@@ -242,6 +205,49 @@ public class VariableMgr {
         }
 
         return true;
+    }
+
+    public static void setValue(Object obj, String value, Field field, String name)
+            throws IllegalAccessException, DdlException {
+        switch (field.getType().getSimpleName()) {
+            case "boolean":
+                if (value.equalsIgnoreCase("ON")
+                        || value.equalsIgnoreCase("TRUE")
+                        || value.equalsIgnoreCase("1")) {
+                    field.setBoolean(obj, true);
+                } else if (value.equalsIgnoreCase("OFF")
+                        || value.equalsIgnoreCase("FALSE")
+                        || value.equalsIgnoreCase("0")) {
+                    field.setBoolean(obj, false);
+                } else {
+                    throw new IllegalAccessException();
+                }
+                break;
+            case "byte":
+                field.setByte(obj, Byte.parseByte(value));
+                break;
+            case "short":
+                field.setShort(obj, Short.parseShort(value));
+                break;
+            case "int":
+                field.setInt(obj, Integer.parseInt(value));
+                break;
+            case "long":
+                field.setLong(obj, Long.parseLong(value));
+                break;
+            case "float":
+                field.setFloat(obj, Float.parseFloat(value));
+                break;
+            case "double":
+                field.setDouble(obj, Double.parseDouble(value));
+                break;
+            case "String":
+                field.set(obj, value);
+                break;
+            default:
+                // Unsupported type variable.
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, name);
+        }
     }
 
     // revert the operator[set_var] on select/*+ SET_VAR()*/  sql;
@@ -292,11 +298,35 @@ public class VariableMgr {
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
+            // Check if the variable is in the MySQL compatibility whitelist
+            if (isInMySQLCompatWhitelist(setVar.getVariable())) {
+                // Silently ignore whitelisted variables for MySQL compatibility
+                LOG.debug("Ignoring whitelisted MySQL compatibility variable: {}", setVar.getVariable());
+                return;
+            }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable(),
                     findSimilarSessionVarNames(setVar.getVariable()));
         }
         checkUpdate(setVar, varCtx.getFlag());
         setVarInternal(sessionVariable, setVar, varCtx);
+    }
+
+    /**
+     * Check if a variable name is in the MySQL compatibility whitelist.
+     * This allows MySQL client tools (like phpMyAdmin, mysqldump) to set certain
+     * variables that Doris doesn't support without causing errors.
+     */
+    private static boolean isInMySQLCompatWhitelist(String varName) {
+        if (varName == null || Config.mysql_compat_var_whitelist == null) {
+            return false;
+        }
+        String normalizedVarName = varName.toLowerCase();
+        for (String whitelistedVar : Config.mysql_compat_var_whitelist) {
+            if (whitelistedVar != null && whitelistedVar.toLowerCase().equals(normalizedVarName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static String findSimilarSessionVarNames(String inputName) {
@@ -313,13 +343,19 @@ public class VariableMgr {
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
+            // Check if the variable is in the MySQL compatibility whitelist
+            if (isInMySQLCompatWhitelist(setVar.getVariable())) {
+                // Silently ignore whitelisted variables for MySQL compatibility
+                LOG.debug("Ignoring whitelisted MySQL compatibility variable: {}", setVar.getVariable());
+                return;
+            }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
         setVarInternal(sessionVariable, setVar, varCtx);
     }
 
     @Nullable
-    private static VarContext getVarContext(String name) {
+    public static VarContext getVarContext(String name) {
         String varName = name;
         boolean hasExpPrefix = false;
         if (varName.startsWith(VariableAnnotation.EXPERIMENTAL.getPrefix())) {
@@ -853,6 +889,8 @@ public class VariableMgr {
         // Name in show variables and set statement;
         String name();
 
+        String[] alias() default {};
+
         int flag() default 0;
 
         // TODO(zhaochun): min and max is not used.
@@ -888,10 +926,12 @@ public class VariableMgr {
         String convertBoolToLongMethod() default "";
         // If the variable affects the outcome, set it to true.
         // If this value is true, it will ignore needForward and enforce forwarding.
-        boolean affectQueryResult() default false;
+        boolean affectQueryResultInPlan() default false;
+
+        boolean affectQueryResultInExecution() default false;
     }
 
-    private static class VarContext {
+    public static class VarContext {
         private Field field;
         private Object obj;
         private int flag;
@@ -945,9 +985,16 @@ public class VariableMgr {
             }
 
             field.setAccessible(true);
-            builder.put(attr.name(),
-                    new VarContext(field, sessionVariable, SESSION | attr.flag(),
-                            getValue(sessionVariable, field)));
+            VarContext varContext = new VarContext(field, sessionVariable, SESSION | attr.flag(),
+                    getValue(sessionVariable, field));
+
+            // 1. Register the primary name.
+            builder.put(attr.name(), varContext);
+
+            // 2. Register all aliases, pointing to the SAME VarContext.
+            for (String aliasName : attr.alias()) {
+                builder.put(aliasName, varContext);
+            }
         }
 
         // Variables only exist in global environment.
@@ -1023,15 +1070,19 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.SQL_MODE,
                     String.valueOf(sqlMode));
-
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_400) {
+            // update to 4.0.0
             // update from older version, use legacy behavior.
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     GlobalVariable.ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR,
                     String.valueOf(false));
-        }
-        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_400) {
-            // update to master
-            // do nothing now
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    GlobalVariable.ENABLE_NEW_TYPE_COERCION_BEHAVIOR,
+                    String.valueOf(false));
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_SQL_CACHE,
+                    String.valueOf(true));
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,

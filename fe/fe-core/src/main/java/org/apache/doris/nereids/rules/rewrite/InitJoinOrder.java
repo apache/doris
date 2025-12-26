@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
@@ -55,12 +56,12 @@ public class InitJoinOrder extends OneRewriteRuleFactory {
                         return null;
                     }
                     LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin<?, ?>) ctx.root;
-                    return swapJoinChildrenIfNeed(join);
+                    return swapJoinChildrenIfNeed(join, ctx.cascadesContext);
                 })
                 .toRule(RuleType.INIT_JOIN_ORDER);
     }
 
-    private Plan swapJoinChildrenIfNeed(LogicalJoin<? extends Plan, ? extends Plan> join) {
+    private Plan swapJoinChildrenIfNeed(LogicalJoin<? extends Plan, ? extends Plan> join, CascadesContext context) {
         if (join.getJoinType().isLeftSemiOrAntiJoin()) {
             // TODO: currently, the transform rules for right semi/anti join is not complete,
             //  for example LogicalJoinSemiJoinTransposeProject (tpch 22) only works for left semi/anti join
@@ -68,7 +69,7 @@ public class InitJoinOrder extends OneRewriteRuleFactory {
             return null;
         }
         List<CatalogRelation> scans = join.collectToList(CatalogRelation.class::isInstance);
-        Optional<String> disableReason = StatsCalculator.disableJoinReorderIfStatsInvalid(scans, null);
+        Optional<String> disableReason = StatsCalculator.disableJoinReorderIfStatsInvalid(scans, context);
         if (!disableReason.isPresent()) {
             JoinType swapType = join.getJoinType().swap();
             if (swapType == null) {

@@ -131,6 +131,8 @@ public:
         return nested_function->set_query_context(ctx);
     }
 
+    bool is_blockable() const override { return nested_function->is_blockable(); }
+
     void set_version(const int version_) override {
         IAggregateFunctionHelper<Derived>::set_version(version_);
         nested_function->set_version(version_);

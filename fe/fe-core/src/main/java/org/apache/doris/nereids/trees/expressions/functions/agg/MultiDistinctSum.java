@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -32,10 +33,7 @@ import java.util.List;
 
 /** MultiDistinctSum */
 public class MultiDistinctSum extends NullableAggregateFunction implements UnaryExpression,
-        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction {
-
-    private final boolean mustUseMultiDistinctAgg;
-
+        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction, NeedSessionVarGuard {
     public MultiDistinctSum(Expression arg0) {
         this(false, arg0);
     }
@@ -45,19 +43,12 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
     }
 
     public MultiDistinctSum(boolean distinct, boolean alwaysNullable, Expression arg0) {
-        this(false, false, alwaysNullable, arg0);
-    }
-
-    private MultiDistinctSum(boolean mustUseMultiDistinctAgg, boolean distinct,
-            boolean alwaysNullable, Expression arg0) {
         super("multi_distinct_sum", false, alwaysNullable, arg0);
-        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     /** constructor for withChildren and reuse signature */
-    private MultiDistinctSum(boolean mustUseMultiDistinctAgg, NullableAggregateFunctionParams functionParams) {
+    private MultiDistinctSum(NullableAggregateFunctionParams functionParams) {
         super(functionParams);
-        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     @Override
@@ -81,27 +72,17 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new MultiDistinctSum(mustUseMultiDistinctAgg, getAlwaysNullableFunctionParams(alwaysNullable));
+        return new MultiDistinctSum(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override
     public MultiDistinctSum withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum(mustUseMultiDistinctAgg, getFunctionParams(false, children));
+        return new MultiDistinctSum(getFunctionParams(false, children));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMultiDistinctSum(this, context);
-    }
-
-    @Override
-    public boolean mustUseMultiDistinctAgg() {
-        return mustUseMultiDistinctAgg;
-    }
-
-    @Override
-    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
-        return new MultiDistinctSum(mustUseMultiDistinctAgg, getFunctionParams(children));
     }
 }

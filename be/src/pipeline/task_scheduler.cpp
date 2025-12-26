@@ -56,15 +56,14 @@ TaskScheduler::~TaskScheduler() {
 }
 
 Status TaskScheduler::start() {
-    int cores = _task_queue.cores();
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
-                            .set_min_threads(cores)
-                            .set_max_threads(cores)
+                            .set_min_threads(_num_threads)
+                            .set_max_threads(_num_threads)
                             .set_max_queue_size(0)
                             .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                             .build(&_fix_thread_pool));
-    LOG_INFO("TaskScheduler set cores").tag("size", cores);
-    for (int32_t i = 0; i < cores; ++i) {
+    LOG_INFO("TaskScheduler set cores").tag("size", _num_threads);
+    for (int32_t i = 0; i < _num_threads; ++i) {
         RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
     }
     return Status::OK();
@@ -105,19 +104,26 @@ void TaskScheduler::_do_work(int index) {
         // The task is already running, maybe block in now dependency wake up by other thread
         // but the block thread still hold the task, so put it back to the queue, until the hold
         // thread set task->set_running(false)
-        if (task->is_running()) {
+        // set_running return the old value
+        if (task->set_running(true)) {
             static_cast<void>(_task_queue.push_back(task, index));
             continue;
         }
+
         if (task->is_finalized()) {
+            task->set_running(false);
             continue;
         }
+
         auto fragment_context = task->fragment_context().lock();
         if (!fragment_context) {
             // Fragment already finished
+            task->set_running(false);
             continue;
         }
-        task->set_running(true).set_core_id(index);
+
+        task->set_thread_id(index);
+
         bool done = false;
         auto status = Status::OK();
         int64_t exec_ns = 0;

@@ -48,7 +48,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 RuntimeFilterMgr::RuntimeFilterMgr(const bool is_global)
         : _is_global(is_global),
-          _tracker(std::make_unique<MemTracker>("RuntimeFilterMgr(experimental)")) {}
+          _tracker(std::make_unique<MemTracker>(
+                  fmt::format("RuntimeFilterMgr({})", is_global ? "global" : "local"))) {}
 
 std::vector<std::shared_ptr<RuntimeFilterConsumer>> RuntimeFilterMgr::get_consume_filters(
         int filter_id) {
@@ -283,6 +284,24 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
     return Status::OK();
 }
 
+std::string RuntimeFilterMgr::debug_string() {
+    std::string result = "Local Merger Info:\n";
+    std::lock_guard l(_lock);
+    for (const auto& [filter_id, ctx] : _local_merge_map) {
+        result += fmt::format("{}\n", ctx.merger->debug_string());
+        for (const auto& producer : ctx.producers) {
+            result += fmt::format("{}\n", producer->debug_string());
+        }
+    }
+    result += "Consumer Info:\n";
+    for (const auto& [filter_id, consumers] : _consumer_map) {
+        for (const auto& consumer : consumers) {
+            result += fmt::format("{}\n", consumer->debug_string());
+        }
+    }
+    return result;
+}
+
 // merge data
 Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> query_ctx,
                                                  const PMergeFilterRequest* request,
@@ -291,7 +310,6 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     int64_t merge_time = 0;
     auto filter_id = request->filter_id();
     std::map<int, GlobalMergeContext>::iterator iter;
-    Status st = Status::OK();
     {
         std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
         iter = _filter_map.find(filter_id);
@@ -322,80 +340,129 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     }
 
     if (is_ready) {
-        DCHECK_GT(cnt_val.targetv2_info.size(), 0);
+        return _send_rf_to_target(cnt_val,
+                                  query_ctx->ignore_runtime_filter_error()
+                                          ? std::weak_ptr<QueryContext> {}
+                                          : query_ctx,
+                                  merge_time, request->query_id(), query_ctx->execution_timeout());
+    }
+    return Status::OK();
+}
 
-        butil::IOBuf request_attachment;
+Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext& cnt_val,
+                                                              std::weak_ptr<QueryContext> ctx,
+                                                              int64_t merge_time,
+                                                              PUniqueId query_id,
+                                                              int execution_timeout) {
+    DCHECK_GT(cnt_val.targetv2_info.size(), 0);
 
-        PPublishFilterRequestV2 apply_request;
-        // serialize filter
-        void* data = nullptr;
-        int len = 0;
-        bool has_attachment = false;
+    if (cnt_val.done) {
+        return Status::InternalError("Runtime filter has been sent",
+                                     cnt_val.merger->debug_string());
+    }
+    cnt_val.done = true;
 
-        RETURN_IF_ERROR(cnt_val.merger->serialize(&apply_request, &data, &len));
+    butil::IOBuf request_attachment;
 
-        if (data != nullptr && len > 0) {
-            void* allocated = malloc(len);
-            memcpy(allocated, data, len);
-            // control the memory by doris self to avoid using brpc's thread local storage
-            // because the memory of tls will not be released
-            request_attachment.append_user_data(allocated, len, [](void* ptr) { free(ptr); });
-            has_attachment = true;
+    PPublishFilterRequestV2 apply_request;
+    // serialize filter
+    void* data = nullptr;
+    int len = 0;
+    bool has_attachment = false;
+
+    RETURN_IF_ERROR(cnt_val.merger->serialize(&apply_request, &data, &len));
+
+    if (data != nullptr && len > 0) {
+        void* allocated = malloc(len);
+        memcpy(allocated, data, len);
+        // control the memory by doris self to avoid using brpc's thread local storage
+        // because the memory of tls will not be released
+        request_attachment.append_user_data(allocated, len, [](void* ptr) { free(ptr); });
+        has_attachment = true;
+    }
+
+    std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val.targetv2_info;
+    auto st = Status::OK();
+    for (auto& target : targets) {
+        auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
+                                          DummyBrpcCallback<PPublishFilterResponse>>::
+                create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
+                              DummyBrpcCallback<PPublishFilterResponse>::create_shared(), ctx);
+
+        closure->request_->set_merge_time(merge_time);
+        *closure->request_->mutable_query_id() = query_id;
+        if (has_attachment) {
+            closure->cntl_->request_attachment().append(request_attachment);
         }
 
-        auto ctx = query_ctx->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
-                                                            : query_ctx;
-        std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val.targetv2_info;
-
-        for (auto& target : targets) {
-            auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
-                                              DummyBrpcCallback<PPublishFilterResponse>>::
-                    create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
-                                  DummyBrpcCallback<PPublishFilterResponse>::create_shared(), ctx);
-
-            closure->request_->set_merge_time(merge_time);
-            *closure->request_->mutable_query_id() = request->query_id();
-            if (has_attachment) {
-                closure->cntl_->request_attachment().append(request_attachment);
-            }
-
-            closure->cntl_->set_timeout_ms(
-                    get_execution_rpc_timeout_ms(query_ctx->execution_timeout()));
-            if (config::execution_ignore_eovercrowded) {
-                closure->cntl_->ignore_eovercrowded();
-            }
-
-            // set fragment-id
-            if (target.__isset.target_fragment_ids) {
-                for (auto& target_fragment_id : target.target_fragment_ids) {
-                    closure->request_->add_fragment_ids(target_fragment_id);
-                }
-            } else {
-                // FE not upgraded yet.
-                for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
-                    PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
-                    cur_id->set_hi(target_fragment_instance_id.hi);
-                    cur_id->set_lo(target_fragment_instance_id.lo);
-                }
-            }
-
-            std::shared_ptr<PBackendService_Stub> stub(
-                    ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
-                            target.target_fragment_instance_addr));
-            if (stub == nullptr) {
-                LOG(WARNING) << "Failed to init rpc to "
-                             << target.target_fragment_instance_addr.hostname << ":"
-                             << target.target_fragment_instance_addr.port;
-                st = Status::InternalError("Failed to init rpc to {}:{}",
-                                           target.target_fragment_instance_addr.hostname,
-                                           target.target_fragment_instance_addr.port);
-                continue;
-            }
-            stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(),
-                                 closure->response_.get(), closure.get());
-            closure.release();
+        closure->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(execution_timeout));
+        if (config::execution_ignore_eovercrowded) {
+            closure->cntl_->ignore_eovercrowded();
         }
+
+        // set fragment-id
+        if (target.__isset.target_fragment_ids) {
+            for (auto& target_fragment_id : target.target_fragment_ids) {
+                closure->request_->add_fragment_ids(target_fragment_id);
+            }
+        } else {
+            // FE not upgraded yet.
+            for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
+                PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
+                cur_id->set_hi(target_fragment_instance_id.hi);
+                cur_id->set_lo(target_fragment_instance_id.lo);
+            }
+        }
+
+        std::shared_ptr<PBackendService_Stub> stub(
+                ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                        target.target_fragment_instance_addr));
+        if (stub == nullptr) {
+            LOG(WARNING) << "Failed to init rpc to "
+                         << target.target_fragment_instance_addr.hostname << ":"
+                         << target.target_fragment_instance_addr.port;
+            st = Status::InternalError("Failed to init rpc to {}:{}",
+                                       target.target_fragment_instance_addr.hostname,
+                                       target.target_fragment_instance_addr.port);
+            continue;
+        }
+        stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(),
+                             closure->response_.get(), closure.get());
+        closure.release();
     }
     return st;
+}
+
+void RuntimeFilterMergeControllerEntity::release_undone_filters(QueryContext* query_ctx) {
+    std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
+    for (auto& [filter_id, ctx] : _filter_map) {
+        if (!ctx.done && !ctx.targetv2_info.empty()) {
+            {
+                std::lock_guard<std::mutex> l(ctx.mtx);
+                ctx.merger->set_wrapper_state_and_ready_to_apply(
+                        RuntimeFilterWrapper::State::DISABLED,
+                        "rf coordinator's query context released before runtime filter is ready to "
+                        "apply");
+            }
+            auto st = _send_rf_to_target(ctx, std::weak_ptr<QueryContext> {}, 0,
+                                         UniqueId(query_ctx->query_id()).to_proto(),
+                                         query_ctx->execution_timeout());
+            if (!st.ok()) {
+                LOG(WARNING)
+                        << "Failed to send runtime filter to target before query done. filter_id:"
+                        << filter_id << " " << ctx.merger->debug_string() << " reason:" << st;
+            }
+        }
+    }
+    _filter_map.clear();
+}
+
+std::string RuntimeFilterMergeControllerEntity::debug_string() {
+    std::string result = "RuntimeFilterMergeControllerEntity Info:\n";
+    std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
+    for (const auto& [filter_id, ctx] : _filter_map) {
+        result += fmt::format("{}\n", ctx.merger->debug_string());
+    }
+    return result;
 }
 } // namespace doris

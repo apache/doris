@@ -18,17 +18,17 @@
 /**
  * @file ann_index.h
  * @brief Abstract interface for vector similarity search indexes in Doris.
- * 
+ *
  * This file defines the abstract VectorIndex interface that provides a unified
  * API for different vector index implementations (FAISS, etc.). The interface
  * supports both approximate k-nearest neighbor search and range search operations.
- * 
+ *
  * Key operations supported:
  * - Adding vectors to the index during build phase
  * - K-nearest neighbor search for Top-N queries
  * - Range search for finding vectors within a distance threshold
  * - Persistence to/from storage for index durability
- * 
+ *
  * This abstraction allows Doris to support multiple vector index libraries
  * through a consistent interface.
  */
@@ -38,6 +38,7 @@
 #include <roaring/roaring.hh>
 
 #include "common/status.h"
+#include "vec/core/types.h"
 
 namespace lucene::store {
 class Directory;
@@ -54,7 +55,7 @@ std::string metric_to_string(AnnIndexMetric metric);
 
 AnnIndexMetric string_to_metric(const std::string& metric);
 
-enum class AnnIndexType { UNKNOWN, HNSW };
+enum class AnnIndexType { UNKNOWN, HNSW, IVF };
 
 std::string ann_index_type_to_string(AnnIndexType type);
 
@@ -62,18 +63,21 @@ AnnIndexType string_to_ann_index_type(const std::string& type);
 
 /**
  * @brief Abstract base class for vector similarity search indexes.
- * 
+ *
  * This class defines the interface that all vector index implementations
  * must follow. It provides the core operations needed for vector similarity
  * search in Doris, including index building, searching, and persistence.
- * 
+ *
  * Implementations of this interface (like FaissVectorIndex) handle the
  * specifics of different vector index libraries while providing a consistent
  * API for the Doris query execution engine.
  */
 class VectorIndex {
 public:
-    virtual ~VectorIndex() = default;
+    VectorIndex();
+    virtual ~VectorIndex();
+
+    virtual doris::Status train(vectorized::Int64 n, const float* x) = 0;
 
     /** Add n vectors of dimension d vectors to the index.
      *
@@ -83,7 +87,7 @@ public:
      * @param n      number of vectors
      * @param x      input matrix, size n * d
      */
-    virtual doris::Status add(int n, const float* x) = 0;
+    virtual doris::Status add(vectorized::Int64 n, const float* x) = 0;
 
     /** Return approximate nearest neighbors of a query vector.
      * The result is stored in the result object.
@@ -115,10 +119,13 @@ public:
 
     void set_metric(AnnIndexMetric metric) { _metric = metric; }
 
+    void set_type(AnnIndexType type) { _index_type = type; }
+
 protected:
     // When adding vectors to the index, use this variable to check the dimension of the vectors.
     size_t _dimension = 0;
-    AnnIndexMetric _metric = AnnIndexMetric::L2; // Default metric is L2 distance
+    AnnIndexMetric _metric = AnnIndexMetric::L2;   // Default metric is L2 distance
+    AnnIndexType _index_type = AnnIndexType::HNSW; // Default index type is hnsw
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

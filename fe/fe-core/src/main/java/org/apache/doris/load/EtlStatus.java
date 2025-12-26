@@ -39,6 +39,8 @@ public class EtlStatus implements Writable {
     private TEtlState state;
     @SerializedName(value = "tu")
     private String trackingUrl;
+    @SerializedName(value = "fem")
+    private String firstErrorMsg;
     @SerializedName(value = "st")
     private Map<String, String> stats;
     @SerializedName(value = "c")
@@ -55,6 +57,7 @@ public class EtlStatus implements Writable {
     public EtlStatus() {
         this.state = TEtlState.RUNNING;
         this.trackingUrl = DEFAULT_TRACKING_URL;
+        this.firstErrorMsg = "";
         this.stats = Maps.newHashMap();
         this.counters = Maps.newHashMap();
         this.fileMap = Maps.newHashMap();
@@ -82,6 +85,14 @@ public class EtlStatus implements Writable {
 
     public void setTrackingUrl(String trackingUrl) {
         this.trackingUrl = Strings.nullToEmpty(trackingUrl);
+    }
+
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
+    }
+
+    public void setFirstErrorMsg(String firstErrorMsg) {
+        this.firstErrorMsg = Strings.nullToEmpty(firstErrorMsg);
     }
 
     public Map<String, String> getStats() {
@@ -154,6 +165,7 @@ public class EtlStatus implements Writable {
         return "EtlStatus{"
                 + "state=" + state
                 + ", trackingUrl='" + trackingUrl + '\''
+                + ", firstErrorMsg='" + firstErrorMsg + '\''
                 + ", stats=" + stats
                 + ", counters=" + counters
                 + ", fileMap=" + fileMap

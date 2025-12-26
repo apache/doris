@@ -22,8 +22,6 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.SetStmt;
-import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
@@ -52,7 +50,6 @@ import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -65,6 +62,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -86,6 +84,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -121,6 +120,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.ResultRow;
@@ -201,6 +201,9 @@ public class StmtExecutor {
     private Boolean isForwardedToMaster = null;
     // Flag for execute prepare statement, need to use binary protocol resultset
     private boolean isComStmtExecute = false;
+    // Set to true if there are more stmt need to execute.
+    // Mainly for forward to master, so that master can set the mysql server status correctly.
+    private boolean moreStmtExists = false;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -303,7 +306,14 @@ public class StmtExecutor {
         // reference the implementation of DebugUtil.getPrettyStringMs to figure out the format
         if (isFinished) {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
-            builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - context.getStartTime()));
+            long executionCosts = currentTimestamp - context.getStartTime();
+            // Execution of parser could happen before StmtExecutor is involved.
+            if (getSummaryProfile().parsedByConnectionProcess) {
+                builder.totalTime(DebugUtil.getPrettyStringMs(
+                        executionCosts + getSummaryProfile().getParseSqlTimeMs()));
+            } else {
+                builder.totalTime(DebugUtil.getPrettyStringMs(executionCosts));
+            }
         }
         String taskState = "RUNNING";
         if (isFinished) {
@@ -345,6 +355,14 @@ public class StmtExecutor {
             isForwardedToMaster = shouldForwardToMaster();
         }
         return isForwardedToMaster;
+    }
+
+    public boolean isMoreStmtExists() {
+        return moreStmtExists;
+    }
+
+    public void setMoreStmtExists(boolean moreStmtExists) {
+        this.moreStmtExists = moreStmtExists;
     }
 
     private boolean shouldForwardToMaster() {
@@ -482,7 +500,10 @@ public class StmtExecutor {
                 execute(queryId);
                 return;
             } catch (UserException e) {
-                if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
+                if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
+                    // We have retried internally(in handleQueryWithRetry()) for other kinds of exceptions.
+                    // And for error in SystemInfoService.NEED_REPLAN_ERRORS, they are not handled internally but here
+                    // so we just handle these errors, and throw exception for other errors.
                     throw e;
                 }
                 if (this.coord != null && this.coord.isQueryCancelled()) {
@@ -498,8 +519,8 @@ public class StmtExecutor {
                 if (DebugPointUtil.isEnable("StmtExecutor.retry.longtime")) {
                     randomMillis = 1000;
                 }
-                LOG.warn("receive E-230 tried={} first queryId={} last queryId={} new queryId={} sleep={}ms",
-                        i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
+                LOG.warn("receive '{}' tried={} first queryId={} last queryId={} new queryId={} sleep={}ms",
+                        e.getMessage(), i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
                         DebugUtil.printId(queryId), randomMillis);
                 Thread.sleep(randomMillis);
                 context.getState().reset();
@@ -518,13 +539,17 @@ public class StmtExecutor {
         try {
             try {
                 executeByNereids(queryId);
-            } catch (Exception e) {
+            } catch (NereidsException | ParseException e) {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
                     MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
                 }
                 LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMessage());
                 return;
+            } catch (Exception e) {
+                LOG.warn("Nereids execute failed. {}", context.getQueryIdentifier(), e);
+                context.getState().setError(e.getMessage());
+                throw e;
             }
         } finally {
             // revert Session Value
@@ -578,7 +603,8 @@ public class StmtExecutor {
         context.setStartTime();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
-        if (context.getSessionVariable().enableProfile) {
+        // short circuit query should not dump changed session var since it will impact the performance.
+        if (context.getSessionVariable().enableProfile && !statementContext.isShortCircuitQuery()) {
             List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
             profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
         }
@@ -662,7 +688,9 @@ public class StmtExecutor {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
-                if (Config.isCloudMode() && e.getDetailMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getDetailMessage())) {
+                    // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
+                    // throw exception directly to trigger a replan retry outside(in StmtExecutor.queryRetry())
                     throw e;
                 }
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
@@ -710,13 +738,83 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             try {
+                checkBlockRulesByRegex(originStmt);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
-                checkBlockRules();
+                checkBlockRulesByScan(planner);
             } catch (Exception e) {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
-            profile.getSummaryProfile().setQueryPlanFinishTime();
+            profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
+            if (MetricRepo.isInit) {
+                SummaryProfile summaryProfile = profile.getSummaryProfile();
+                int nereidsAnalysisTimeMs = summaryProfile.getNereidsAnalysisTimeMs();
+                // init is -1, so need record when >= 0
+                if (nereidsAnalysisTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_ANALYZE_DURATION.update(nereidsAnalysisTimeMs);
+                }
+                int nereidsRewriteTimeMs = summaryProfile.getNereidsRewriteTimeMs();
+                if (nereidsRewriteTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_REWRITE_DURATION.update(nereidsRewriteTimeMs);
+                }
+                // init is 0, so need record when > 0
+                int nereidsBeFoldConstTimeMs = summaryProfile.getNereidsBeFoldConstTimeMs();
+                if (nereidsBeFoldConstTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_FOLD_CONST_BY_BE_DURATION.update(nereidsBeFoldConstTimeMs);
+                }
+                int nereidsOptimizeTimeMs = summaryProfile.getNereidsOptimizeTimeMs();
+                if (nereidsOptimizeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_OPTIMIZE_DURATION.update(nereidsOptimizeTimeMs);
+                }
+                int nereidsTranslateTimeMs = summaryProfile.getNereidsTranslateTimeMs();
+                if (nereidsOptimizeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_TRANSLATE_DURATION.update(nereidsTranslateTimeMs);
+                }
+                long initScanNodeTimeMs = summaryProfile.getInitScanNodeTimeMs();
+                if (initScanNodeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_INIT_SCAN_NODE_DURATION.update(initScanNodeTimeMs);
+                }
+                long finalizeScanNodeTimeMs = summaryProfile.getFinalizeScanNodeTimeMs();
+                if (finalizeScanNodeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_FINALIZE_SCAN_NODE_DURATION.update(finalizeScanNodeTimeMs);
+                }
+                int createScanRangeTimeMs = summaryProfile.getCreateScanRangeTimeMs();
+                if (createScanRangeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_CREATE_SCAN_RANGE_DURATION.update(createScanRangeTimeMs);
+                }
+                int nereidsDistributeTimeMs = summaryProfile.getNereidsDistributeTimeMs();
+                if (nereidsDistributeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_DISTRIBUTE_DURATION.update(nereidsDistributeTimeMs);
+                }
+                int planTimeMs = summaryProfile.getPlanTimeMs();
+                if (planTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_DURATION.update(planTimeMs);
+                }
+                long externalCatalogMetaTimeMs = summaryProfile.getExternalCatalogMetaTimeMs();
+                if (externalCatalogMetaTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_EXTERNAL_CATALOG_META_DURATION.update(externalCatalogMetaTimeMs);
+                }
+                long externalTvfInitTimeMs = summaryProfile.getExternalTvfInitTimeMs();
+                if (externalTvfInitTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_EXTERNAL_TVF_INIT_DURATION.update(externalTvfInitTimeMs);
+                }
+                int nereidsLockTableTimeMs = summaryProfile.getNereidsLockTableTimeMs();
+                if (nereidsLockTableTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_LOCK_TABLES_DURATION.update(nereidsLockTableTimeMs);
+                }
+                long nereidsPartitiionPruneTimeMs = summaryProfile.getNereidsPartitiionPruneTimeMs();
+                if (nereidsPartitiionPruneTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_PARTITION_PRUNE_DURATION.update(nereidsPartitiionPruneTimeMs);
+                }
+                long cloudMetaTimeMs = summaryProfile.getCloudMetaTimeMs();
+                if (cloudMetaTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_CLOUD_META_DURATION.update(cloudMetaTimeMs);
+                }
+                long nereidsMvRewriteTimeMs = summaryProfile.getNereidsMvRewriteTimeMs();
+                if (nereidsMvRewriteTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_MATERIALIZED_VIEW_REWRITE_DURATION.update(nereidsMvRewriteTimeMs);
+                }
+            }
             handleQueryWithRetry(queryId);
         }
     }
@@ -747,6 +845,10 @@ public class StmtExecutor {
             getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
             getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
+            getProfile().getSummaryProfile().parsedByConnectionProcess = false;
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_PLAN_PARSE_DURATION.update(getProfile().getSummaryProfile().getParseSqlTimeMs());
+            }
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
@@ -810,14 +912,16 @@ public class StmtExecutor {
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 break;
             } catch (RpcException | UserException e) {
-                if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
+                    // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
+                    // throw exception directly to trigger a replan retry outside(in StmtExecutor.queryRetry())
                     throw e;
                 }
                 // If the previous try is timeout or cancelled, then do not need try again.
                 if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
                     throw e;
                 }
-                LOG.warn("due to exception {} retry {} rpc {} user {}",
+                LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
 
                 boolean isNeedRetry = false;
@@ -897,6 +1001,12 @@ public class StmtExecutor {
             return false;
         }
 
+        // If the query is short circuit, we should not update the profile,
+        // which will impact the performance of the short circuit query.
+        if (statementContext.isShortCircuitQuery()) {
+            return false;
+        }
+
         LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
 
         if (plan instanceof InsertIntoTableCommand) {
@@ -937,18 +1047,13 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }
+        masterOpExecutor.setMoreStmtExists(moreStmtExists);
         masterOpExecutor.execute();
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // for nereids command
             if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
                 Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
                 forward.afterForwardToMaster(context);
-            }
-        } else if (parsedStmt instanceof SetStmt) {
-            SetStmt setStmt = (SetStmt) parsedStmt;
-            setStmt.modifySetVarsForExecute();
-            for (SetVar var : setStmt.getSetVars()) {
-                VariableMgr.setVarForNonMasterFE(context.getSessionVariable(), var);
             }
         }
     }
@@ -1067,39 +1172,12 @@ public class StmtExecutor {
      * Handle the SelectStmt via Cache.
      */
     private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
-        InternalService.PFetchCacheResult cacheResult = null;
-        boolean wantToParseSqlForSqlCache = planner instanceof NereidsPlanner
-                && CacheAnalyzer.canUseSqlCache(context.getSessionVariable());
-        try {
-            cacheResult = cacheAnalyzer.getCacheData();
-            if (cacheResult == null) {
-                if (ConnectContext.get() != null
-                        && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
-                    throw new UserException("The variable test_query_cache_hit is set to "
-                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
-                            + ", but the query cache is not hit.");
-                }
-            }
-        } finally {
-            if (wantToParseSqlForSqlCache) {
-                String originStmt = parsedStmt.getOrigStmt().originStmt;
-                NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
-                if (cacheResult != null) {
-                    sqlCacheManager.tryAddBeCache(context, originStmt, cacheAnalyzer);
-                }
-            }
-        }
-
-        Queriable queryStmt = (Queriable) parsedStmt;
-        boolean isSendFields = false;
-        if (cacheResult != null) {
-            isCached = true;
-            if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
-                sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields, true);
-                return;
-            }
-        }
-        executeAndSendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
+        // only compute CacheTable, but not get cache from be, because there has a case in nereids planner:
+        // `select * from tbl`. the tbl has 2 columns and create cache in be, use the **original sql** as the cache key,
+        // and then we add another column to the table, and the cache in be will not remove. if we use the result in be,
+        // it will return 2 columns result, but the correct result is 3 columns. so we will not trust the cache in be.
+        cacheAnalyzer.getCacheData(false);
+        executeAndSendResult(false, false, (Queriable) parsedStmt, channel, cacheAnalyzer, null);
     }
 
     // Process a select statement.
@@ -1218,18 +1296,12 @@ public class StmtExecutor {
 
         try {
             coordBase.exec();
-            profile.getSummaryProfile().setQueryScheduleFinishTime();
+            profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
-                return;
-            }
-
-            if (context.isRunProcedure()) {
-                // plsql will get the returned results without sending them to mysql client.
-                // see org/apache/doris/plsql/executor/DorisRowResult.java
                 return;
             }
 
@@ -1315,7 +1387,7 @@ public class StmtExecutor {
 
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
-            profile.getSummaryProfile().setQueryFetchResultFinishTime();
+            profile.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
         } catch (QueryTimeoutException e) {
             // notify all be cancel running fragment
             // in some case may block all fragment handle threads
@@ -1335,6 +1407,8 @@ public class StmtExecutor {
                     DebugUtil.printId(context.queryId()), e.getMessage());
             LOG.warn(internalErrorSt.getErrorMsg());
             coordBase.cancel(internalErrorSt);
+            // set to null so that the retry logic will generate a new coordinator
+            this.coord = null;
             throw e;
         } finally {
             coordBase.close();
@@ -1369,7 +1443,12 @@ public class StmtExecutor {
             }
         }
         if (address == null) {
-            throw new AnalysisException("No Alive backends");
+            String computeGroupHints = "";
+            if (Config.isCloudMode()) {
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
+            }
+            throw new AnalysisException("No Alive backends" + computeGroupHints);
         }
 
         // 5. send rpc to BE
@@ -1663,6 +1742,7 @@ public class StmtExecutor {
                             break;
                         case DATETIME:
                         case DATETIMEV2:
+                        case TIMESTAMPTZ:
                             DateTimeV2Literal datetime = new DateTimeV2Literal(item);
                             long microSecond = datetime.getMicroSecond();
                             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html
@@ -1790,9 +1870,9 @@ public class StmtExecutor {
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter,"
                         + " but parsedStmt is " + parsedStmt.getClass().getName());
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(statementContext);
         nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
-        return nereidsPlanner.getPhysicalPlan().getOutput();
+        return nereidsPlanner.getCascadesContext().getRewritePlan().getOutput();
     }
 
     public List<ResultRow> executeInternalQuery() {
@@ -1903,14 +1983,6 @@ public class StmtExecutor {
         return coord;
     }
 
-    public List<String> getColumns() {
-        return parsedStmt.getColLabels();
-    }
-
-    public List<Type> getReturnTypes() {
-        return exprToType(parsedStmt.getResultExprs());
-    }
-
     public List<Type> getReturnTypes(Queriable stmt) {
         if (isShortCircuitedWithCtx()) {
             return statementContext.getShortCircuitQueryContext().getReturnTypes();
@@ -1919,7 +1991,7 @@ public class StmtExecutor {
     }
 
     private HttpStreamParams generateHttpStreamNereidsPlan(TUniqueId queryId) {
-        LOG.info("TUniqueId: {} generate stream load plan", queryId);
+        LOG.info("TUniqueId: {} generate stream load plan", DebugUtil.printId(queryId));
         context.setQueryId(queryId);
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
@@ -1928,7 +2000,6 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         InsertIntoTableCommand insert = (InsertIntoTableCommand) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        HttpStreamParams httpStreamParams = new HttpStreamParams();
 
         try {
             if (!StringUtils.isEmpty(context.getSessionVariable().groupCommit)) {
@@ -1938,6 +2009,7 @@ public class StmtExecutor {
                 context.setGroupCommit(true);
             }
             OlapInsertExecutor insertExecutor = (OlapInsertExecutor) insert.initPlan(context, this);
+            HttpStreamParams httpStreamParams = new HttpStreamParams();
             httpStreamParams.setTxnId(insertExecutor.getTxnId());
             httpStreamParams.setDb(insertExecutor.getDatabase());
             httpStreamParams.setTable(insertExecutor.getTable());
@@ -1954,6 +2026,7 @@ public class StmtExecutor {
             if (!isValidPlan) {
                 throw new AnalysisException("plan is invalid: " + planRoot.getExplainString());
             }
+            return httpStreamParams;
         } catch (QueryStateException e) {
             LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
             context.setState(e.getQueryState());
@@ -1972,17 +2045,15 @@ public class StmtExecutor {
             throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
                     new AnalysisException(e.getMessage(), e));
         }
-        return httpStreamParams;
     }
 
     public HttpStreamParams generateHttpStreamPlan(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
-        HttpStreamParams httpStreamParams = null;
         try {
             try {
                 // disable shuffle for http stream (only 1 sink)
                 sessionVariable.setVarOnce(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, "false");
-                httpStreamParams = generateHttpStreamNereidsPlan(queryId);
+                return generateHttpStreamNereidsPlan(queryId);
             } catch (NereidsException | ParseException e) {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
                     MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
@@ -1994,8 +2065,8 @@ public class StmtExecutor {
                 }
                 if (e instanceof NereidsException) {
                     LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                    throw ((NereidsException) e).getException();
                 }
+                throw e;
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -2011,7 +2082,6 @@ public class StmtExecutor {
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             }
         }
-        return httpStreamParams;
     }
 
     public SummaryProfile getSummaryProfile() {

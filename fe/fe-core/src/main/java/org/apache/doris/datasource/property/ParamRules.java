@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
 
 public class ParamRules {
 
@@ -167,6 +168,79 @@ public class ParamRules {
         });
         return this;
     }
+
+    /**
+     * Require that all values must either all exist or all be null/empty.
+     *
+     * @param values array of values to check
+     * @param errorMessage error message if the requirement is violated
+     * @return this ParamRules instance for chaining
+     */
+    public ParamRules requireTogether(String[] values, String errorMessage) {
+        rules.add(() -> {
+            boolean anyPresent = false;
+            boolean allPresent = true;
+
+            for (String val : values) {
+                if (isPresent(val)) {
+                    anyPresent = true;
+                } else {
+                    allPresent = false;
+                }
+            }
+
+            if (anyPresent && !allPresent) {
+                throw new IllegalArgumentException(errorMessage);
+            }
+        });
+        return this;
+    }
+
+    /**
+     * Require that at least one value in the array is present (non-null and not empty).
+     *
+     * @param values array of values to check
+     * @param errorMessage error message if none of the values are present
+     * @return this ParamRules instance for chaining
+     */
+    public ParamRules requireAtLeastOne(String[] values, String errorMessage) {
+        rules.add(() -> {
+            boolean anyPresent = false;
+            for (String val : values) {
+                if (isPresent(val)) {
+                    anyPresent = true;
+                    break;
+                }
+            }
+            if (!anyPresent) {
+                throw new IllegalArgumentException(errorMessage);
+            }
+        });
+        return this;
+    }
+
+    /**
+     * Add a custom validation rule using a lambda expression.
+     * <p>
+     * The validation rule will be executed when {@link #validate()} is called.
+     * If the condition evaluates to true, an {@link IllegalArgumentException} will be thrown
+     * with the provided error message.
+     *
+     * @param condition a BooleanSupplier that returns true if validation should fail
+     * @param errorMessage the error message to throw if condition evaluates to true
+     * @return this ParamRules instance for chaining
+     *
+     * @see #validate()
+     */
+    public ParamRules check(BooleanSupplier condition, String errorMessage) {
+        rules.add(() -> {
+            if (condition.getAsBoolean()) {
+                throw new IllegalArgumentException(errorMessage);
+            }
+        });
+        return this;
+    }
+
 
     // --------- Utility Methods ----------
 

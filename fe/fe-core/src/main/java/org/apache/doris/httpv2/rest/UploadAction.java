@@ -27,6 +27,8 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -40,8 +42,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 /**
  * Upload file

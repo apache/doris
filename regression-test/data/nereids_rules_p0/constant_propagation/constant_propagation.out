@@ -621,13 +621,14 @@ PhysicalResultSink
 -- !union_3_shape --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalUnion
-------PhysicalProject[-1 AS `k2`, 3 AS `k1`, c AS `k3`]
---------filter((t1.a = 1) and (t1.b = 2) and (t1.c = 3))
-----------PhysicalOlapScan[t1]
-------PhysicalProject[-1 AS `k2`, 3 AS `k1`, z AS `k3`]
---------filter((t2.x = 1) and (t2.y = 2) and (t2.z = 3))
-----------PhysicalOlapScan[t2]
+----PhysicalProject[-1 AS `k2`, 3 AS `k1`, 3 AS `k3`]
+------PhysicalUnion
+--------PhysicalProject[1 AS `1`]
+----------filter((t1.a = 1) and (t1.b = 2) and (t1.c = 3))
+------------PhysicalOlapScan[t1]
+--------PhysicalProject[1 AS `1`]
+----------filter((t2.x = 1) and (t2.y = 2) and (t2.z = 3))
+------------PhysicalOlapScan[t2]
 
 -- !union_3_result --
 3	-1	3
@@ -780,10 +781,11 @@ PhysicalResultSink
 -- !union_17_shape --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalUnion
-------PhysicalProject[3 AS `a + b`, t1.a]
---------filter((t1.a = 1) and (t1.b = 2))
-----------PhysicalOlapScan[t1]
+----PhysicalProject[1 AS `1`, 3 AS `3`]
+------PhysicalUnion
+--------PhysicalProject[1 AS `1`]
+----------filter((t1.a = 1) and (t1.b = 2))
+------------PhysicalOlapScan[t1]
 
 -- !union_17_result --
 1	3
@@ -792,7 +794,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalUnion
 ----PhysicalLimit[GLOBAL]
-------PhysicalUnion
+------PhysicalProject[1 AS `1`, 3 AS `3`]
+--------PhysicalUnion
 ----PhysicalProject[3 AS `a + b`, t1.a]
 ------filter((t1.a = 1) and (t1.b = 2))
 --------PhysicalOlapScan[t1]

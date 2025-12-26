@@ -124,10 +124,6 @@ bool register_task_info(const TTaskType::type task_type, int64_t signature) {
         // no need to report task of these types
         return true;
     }
-    if (task_type == TTaskType::type::DROP && config::is_cloud_mode()) {
-        // cloud no need to report drop task status
-        return true;
-    }
 
     if (signature == -1) { // No need to report task with unintialized signature
         return true;
@@ -419,6 +415,8 @@ Status _submit_task(const TAgentTaskRequest& task,
     // TODO(plat1ko): check task request member
 
     // Set the receiving time of task so that we can determine whether it is timed out later
+    // exist a path task_worker_pool <- agent_server <- backend_service <- BackendService
+    // use the arg BackendService_submit_tasks_args.tasks is not const, so modify is ok
     (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
     auto st = submit_op(task);
     if (!st.ok()) [[unlikely]] {
@@ -498,11 +496,14 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     {
         ALTER_count << n;
         // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
-        doris::g_fragment_executing_count << 1;
-        int64_t now = duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-        g_fragment_last_active_time.set_value(now);
+        if (n > 0) {
+            // only count fragment when task is actually starting
+            doris::g_fragment_executing_count << 1;
+            int64_t now = duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+            g_fragment_last_active_time.set_value(now);
+        }
         return;
     }
     default:
@@ -614,7 +615,7 @@ Status PriorTaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
     });
 }
 
-Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskRequest& task) {
+Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(TAgentTaskRequest& task) {
     const TTaskType::type task_type = task.task_type;
     int64_t signature = task.signature;
     std::string type_str;
@@ -654,7 +655,7 @@ Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskReq
     } while (false);
 
     // Set the receiving time of task so that we can determine whether it is timed out later
-    (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
+    task.__set_recv_time(time(nullptr));
 
     LOG_INFO("successfully submit task").tag("type", type_str).tag("signature", signature);
     return Status::OK();
@@ -895,7 +896,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
                     tablet_meta_info.is_in_memory);
             std::shared_lock rlock(tablet->get_header_lock());
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_is_in_memory(tablet_meta_info.is_in_memory);
             }
             tablet->tablet_schema_unlocked()->set_is_in_memory(tablet_meta_info.is_in_memory);
@@ -993,7 +994,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_enable_single_replica_compaction(
                     tablet_meta_info.enable_single_replica_compaction);
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_enable_single_replica_compaction(
                         tablet_meta_info.enable_single_replica_compaction);
             }
@@ -1005,7 +1006,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(
                     tablet_meta_info.disable_auto_compaction);
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_disable_auto_compaction(
                         tablet_meta_info.disable_auto_compaction);
             }
@@ -1018,7 +1019,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_skip_write_index_on_load(
                     tablet_meta_info.skip_write_index_on_load);
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_skip_write_index_on_load(
                         tablet_meta_info.skip_write_index_on_load);
             }
@@ -1093,6 +1094,7 @@ void report_task_callback(const ClusterInfo* cluster_info) {
         }
     }
     request.__set_backend(BackendOptions::get_local_backend());
+    request.__set_running_tasks(ExecEnv::GetInstance()->fragment_mgr()->running_query_num());
     bool succ = handle_report(request, cluster_info, "task");
     report_task_total << 1;
     if (!succ) [[unlikely]] {
@@ -1789,7 +1791,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         }
         DCHECK(tablet != nullptr);
         TTabletInfo tablet_info;
-        tablet_info.tablet_id = tablet->table_id();
+        tablet_info.tablet_id = tablet->tablet_id();
         tablet_info.schema_hash = tablet->schema_hash();
         tablet_info.version = create_tablet_req.version;
         // Useless but it is a required field in TTabletInfo
@@ -1848,12 +1850,28 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     finish_task_request.__set_signature(req.signature);
     finish_task_request.__set_task_status(status.to_thrift());
 
+    TTabletInfo tablet_info;
+    tablet_info.tablet_id = drop_tablet_req.tablet_id;
+    tablet_info.schema_hash = drop_tablet_req.schema_hash;
+    tablet_info.version = 0;
+    // Useless but it is a required field in TTabletInfo
+    tablet_info.version_hash = 0;
+    tablet_info.row_count = 0;
+    tablet_info.data_size = 0;
+
+    finish_task_request.__set_finish_tablet_infos({tablet_info});
+    LOG_INFO("successfully drop tablet")
+            .tag("signature", req.signature)
+            .tag("tablet_id", drop_tablet_req.tablet_id);
+
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
 }
 
 void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& drop_tablet_req = req.drop_tablet_req;
+    // here drop_tablet_req.tablet_id is the signature of the task, see DropReplicaTask in fe
+    Defer defer = [&] { remove_task_info(req.task_type, req.signature); };
     DBUG_EXECUTE_IF("WorkPoolCloudDropTablet.drop_tablet_callback.failed", {
         LOG_WARNING("WorkPoolCloudDropTablet.drop_tablet_callback.failed")
                 .tag("tablet_id", drop_tablet_req.tablet_id);
@@ -1908,6 +1926,9 @@ void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
               << " push_type=" << push_req.push_type;
     std::vector<TTabletInfo> tablet_infos;
 
+    // exist a path task_worker_pool <- agent_server <- backend_service <- BackendService
+    // use the arg BackendService_submit_tasks_args.tasks is not const
+    // and push_req will be modify, so modify is ok
     EngineBatchLoadTask engine_task(engine, const_cast<TPushReq&>(push_req), &tablet_infos);
     SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();

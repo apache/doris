@@ -87,7 +87,7 @@ public class ArrayZip extends ScalarFunction implements ExplicitlyCastableSignat
             if (childType instanceof ArrayType) {
                 itemType = ((ArrayType) childType).getItemType();
             }
-            structFieldBuilder.add(new StructField(String.valueOf(i + 1), itemType, true, ""));
+            structFieldBuilder.add(new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), itemType, true, ""));
         }
 
         return ImmutableList.of(FunctionSignature.ret(ArrayType.of(new StructType(structFieldBuilder.build())))

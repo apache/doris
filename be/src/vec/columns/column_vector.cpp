@@ -20,13 +20,16 @@
 
 #include "vec/columns/column_vector.h"
 
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
+#include <glog/logging.h>
 #include <pdqsort.h>
 
 #include <limits>
 #include <ostream>
 #include <string>
 
+#include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
@@ -73,15 +76,60 @@ size_t ColumnVector<T>::get_max_row_byte_size() const {
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnVector<T>::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
+        // Used in hash_map_context.h, this address is allocated via Arena,
+        // but passed through StringRef, so using const_cast is acceptable.
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
+void ColumnVector<T>::serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                              const uint8_t* __restrict null_map) const {
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            keys[i].size += sizeof(UInt8);
+            if (null_map[i]) {
+                // is null
+                *dest = true;
+                continue;
+            }
+            // not null
+            *dest = false;
+            keys[i].size += serialize_impl(dest + sizeof(UInt8), i);
+        }
+    } else {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            *dest = false;
+            keys[i].size += serialize_impl(dest + sizeof(UInt8), i) + sizeof(UInt8);
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                                PaddedPODArray<UInt8>& null_map) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        UInt8 is_null = *reinterpret_cast<const UInt8*>(keys[i].data);
+        null_map.push_back(is_null);
+        keys[i].data += sizeof(UInt8);
+        keys[i].size -= sizeof(UInt8);
+        if (is_null) {
+            insert_default();
+            continue;
+        }
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
         keys[i].size -= sz;
@@ -186,6 +234,52 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
                             &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
                             hashes[i]);
             }
+        }
+    }
+}
+
+template <PrimitiveType T>
+uint32_t ColumnVector<T>::_crc32c_hash(uint32_t hash, size_t idx) const {
+    if constexpr (is_date_or_datetime(T)) {
+        char buf[64];
+        const auto& date_val = (const VecDateTimeValue&)data[idx];
+        auto len = date_val.to_buffer(buf);
+        return crc32c_extend(hash, (const uint8_t*)buf, len);
+    } else {
+        return HashUtil::crc32c_fixed(data[idx], hash);
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                          const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hashes[i] = _crc32c_hash(hashes[i], i);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hashes[i] = _crc32c_hash(hashes[i], i);
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                           const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hash = _crc32c_hash(hash, i);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hash = _crc32c_hash(hash, i);
         }
     }
 }
@@ -440,6 +534,16 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
     }
 }
 
+template <PrimitiveType T>
+void ColumnVector<T>::replace_float_special_values() {
+    if constexpr (is_float_or_double(T)) {
+        auto s = size();
+        for (size_t i = 0; i < s; ++i) {
+            NormalizeFloat(data[i]);
+        }
+    }
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class ColumnVector<TYPE_BOOLEAN>;
 template class ColumnVector<TYPE_TINYINT>;
@@ -457,6 +561,7 @@ template class ColumnVector<TYPE_DATETIME>;
 template class ColumnVector<TYPE_DATETIMEV2>;
 template class ColumnVector<TYPE_TIME>;
 template class ColumnVector<TYPE_TIMEV2>;
+template class ColumnVector<TYPE_TIMESTAMPTZ>;
 template class ColumnVector<TYPE_UINT32>;
 template class ColumnVector<TYPE_UINT64>;
 } // namespace doris::vectorized

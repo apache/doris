@@ -28,6 +28,7 @@
 #include <string>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -82,24 +83,46 @@ String ColumnWithTypeAndName::dump_structure() const {
     return out.str();
 }
 
-std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
-    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num);
+std::string ColumnWithTypeAndName::to_string(
+        size_t row_num, const vectorized::DataTypeSerDe::FormatOptions& format_options) const {
+    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num,
+                           format_options);
 }
+
+#ifdef BE_TEST
+std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto timezone = cctz::utc_time_zone();
+    format_options.timezone = &timezone;
+    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num,
+                           format_options);
+}
+#endif
 
 void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {
     col_meta->set_name(name);
     type->to_pb_column_meta(col_meta);
 }
 
-ColumnWithTypeAndName ColumnWithTypeAndName::get_nested(bool replace_null_data_to_default) const {
+ColumnWithTypeAndName ColumnWithTypeAndName::unnest_nullable(
+        bool replace_null_data_to_default) const {
     if (type->is_nullable()) {
-        auto nested_type = assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
+        auto nested_type =
+                assert_cast<const DataTypeNullable*, TypeCheckOnRelease::DISABLE>(type.get())
+                        ->get_nested_type();
         ColumnPtr nested_column = column;
         if (column) {
             // A column_ptr is needed here to ensure that the column in convert_to_full_column_if_const is not released.
-            auto column_ptr = nested_column->convert_to_full_column_if_const();
-            const auto* source_column = assert_cast<const ColumnNullable*>(column_ptr.get());
-            nested_column = source_column->get_nested_column_ptr();
+            auto [column_ptr, is_const] = unpack_if_const(column);
+            const auto* source_column =
+                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                            column_ptr.get());
+            if (is_const) {
+                nested_column =
+                        ColumnConst::create(source_column->get_nested_column_ptr(), column->size());
+            } else {
+                nested_column = source_column->get_nested_column_ptr();
+            }
 
             if (replace_null_data_to_default) {
                 const auto& null_map = source_column->get_null_map_data();

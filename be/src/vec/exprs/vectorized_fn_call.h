@@ -52,10 +52,10 @@ public:
     VectorizedFnCall() = default;
 #endif
     VectorizedFnCall(const TExprNode& node);
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
-    Status execute_runtime_filter(doris::vectorized::VExprContext* context,
-                                  doris::vectorized::Block* block, int* result_column_id,
-                                  ColumnNumbers& args) override;
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
+                          ColumnPtr& result_column) const override;
+    Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
+                                  ColumnPtr& result_column, ColumnPtr* arg_column) const override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
@@ -64,6 +64,11 @@ public:
     const std::string& expr_name() const override;
     std::string function_name() const;
     std::string debug_string() const override;
+    bool is_blockable() const override {
+        return _function->is_blockable() ||
+               std::any_of(_children.begin(), _children.end(),
+                           [](VExprSPtr child) { return child->is_blockable(); });
+    }
     bool is_constant() const override {
         if (!_function->is_use_default_implementation_for_constants() ||
             // udf function with no argument, can't sure it's must return const column
@@ -96,8 +101,8 @@ protected:
     std::string _function_name;
 
 private:
-    Status _do_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                       int* result_column_id, ColumnNumbers& args);
+    Status _do_execute(VExprContext* context, const Block* block, size_t count,
+                       ColumnPtr& result_column, ColumnPtr* arg_column) const;
 };
 
 #include "common/compile_check_end.h"

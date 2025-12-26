@@ -543,6 +543,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     optStats.isPresent(), tableRowCount, olapTable.getQualifiedName());
             if (optStats.isPresent()) {
                 double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
+                if (isRegisteredRowCount(olapScan)) {
+                    // If a row count is injected for the materialized view, use it to fix the issue where
+                    // the materialized view cannot be selected by cbo stable due to selectedPartitionsRowCount being 0,
+                    // which is caused by delayed statistics reporting.
+                    selectedPartitionsRowCount = tableRowCount;
+                }
                 LOG.info("computeOlapScan optStats is {}, selectedPartitionsRowCount is {}", optStats.get(),
                         selectedPartitionsRowCount);
                 // if estimated mv rowCount is more than actual row count, fall back to base table stats
@@ -562,10 +568,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
         StatisticsBuilder builder = new StatisticsBuilder();
 
-        // for system table or FeUt, use ColumnStatistic.UNKNOWN
+        // query for system table or FeUt or analysis, use ColumnStatistic.UNKNOWN
+
         if (StatisticConstants.isSystemTable(olapTable) || !FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
-                || ConnectContext.get().getState().isInternal()) {
+                || ConnectContext.get().getState().isPlanWithUnKnownColumnStats()) {
             for (Slot slot : ((Plan) olapScan).getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
@@ -637,6 +644,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(tableRowCount);
+        }
+        return computeVirtualColumnStats(olapScan, builder.build());
+    }
+
+    private Statistics computeVirtualColumnStats(OlapScan relation, Statistics stats) {
+        List<NamedExpression> virtualColumns;
+        if (relation instanceof LogicalOlapScan) {
+            virtualColumns = ((LogicalOlapScan) relation).getVirtualColumns();
+        } else if (relation instanceof PhysicalOlapScan) {
+            virtualColumns = ((PhysicalOlapScan) relation).getVirtualColumns();
+        } else {
+            return stats;
+        }
+        if (virtualColumns.isEmpty()) {
+            return stats;
+        }
+        StatisticsBuilder builder = new StatisticsBuilder(stats);
+        for (NamedExpression virtualColumn : virtualColumns) {
+            ColumnStatistic colStats = ExpressionEstimation.estimate(virtualColumn, stats);
+            builder.putColumnStatistics(virtualColumn.toSlot(), colStats);
         }
         return builder.build();
     }
@@ -1128,7 +1155,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
-        if (connectContext != null && connectContext.getState().isInternal()) {
+        if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {
             return ColumnStatistic.UNKNOWN;
         }
         long catalogId;
@@ -1160,7 +1187,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private ColumnStatistic getColumnStatistic(
             OlapTableStatistics olapTableStatistics, String colName, List<String> partitionNames) {
-        if (connectContext != null && connectContext.getState().isInternal()) {
+        if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {
             return ColumnStatistic.UNKNOWN;
         }
         OlapTable table = olapTableStatistics.olapTable;
@@ -1316,7 +1343,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     /**
      * computeAggregate
      */
-    private double estimateGroupByRowCount(List<Expression> groupByExpressions, Statistics childStats) {
+    public static double estimateGroupByRowCount(List<Expression> groupByExpressions, Statistics childStats) {
         double rowCount = 1;
         // if there is group-bys, output row count is childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO,
         // o.w. output row count is 1
@@ -1494,12 +1521,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         Float value = unionHotValues.get(entry.getKey());
                         if (value == null) {
                             unionHotValues.put(entry.getKey(),
-                                    (float) (entry.getValue()
-                                            / ColumnStatistic.ONE_HUNDRED * childStats.get(j).getRowCount()));
+                                    (float) (entry.getValue() * childStats.get(j).getRowCount()));
                         } else {
                             unionHotValues.put(entry.getKey(),
-                                    (float) (value + entry.getValue()
-                                            / ColumnStatistic.ONE_HUNDRED * childStats.get(j).getRowCount()));
+                                    (float) (value + entry.getValue() * childStats.get(j).getRowCount()));
                         }
                     }
                 }
@@ -1507,8 +1532,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
             Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
             for (Literal hot : unionHotValues.keySet()) {
-                float ratio = (float) (ColumnStatistic.ONE_HUNDRED * unionHotValues.get(hot) / unionRowCount);
-                if (ratio > SessionVariable.getHotValueThreshold()) {
+                float ratio = (float) (unionHotValues.get(hot) / unionRowCount);
+                if (ratio * colStatsBuilder.getNdv() >= SessionVariable.getSkewValueThreshold()
+                        || ratio >= SessionVariable.getHotValueThreshold()) {
                     resultHotValues.put(hot, ratio);
                 }
             }

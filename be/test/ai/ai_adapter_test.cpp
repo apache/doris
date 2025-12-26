@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/functions/ai/ai_classify.h"
 #include "vec/functions/ai/ai_extract.h"
 #include "vec/functions/ai/ai_sentiment.h"
@@ -40,12 +41,13 @@ private:
     std::string _content_type;
 };
 
-TEST(AI_ADAPTER_TEST, local_adapter_request) {
+TEST(AI_ADAPTER_TEST, local_adapter_request_chat_endpoint) {
     LocalAdapter adapter;
     TAIResource config;
     config.model_name = "ollama";
     config.temperature = 0.7;
     config.max_tokens = 128;
+    config.endpoint = "http://localhost:11434/api/chat";
     adapter.init(config);
 
     // header test
@@ -66,40 +68,89 @@ TEST(AI_ADAPTER_TEST, local_adapter_request) {
     ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
     ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
 
-    // model name
+    // general flags
     ASSERT_TRUE(doc.HasMember("model")) << "Missing model field";
     ASSERT_TRUE(doc["model"].IsString()) << "Model field is not a string";
     ASSERT_STREQ(doc["model"].GetString(), "ollama");
+    ASSERT_TRUE(doc.HasMember("stream")) << "Missing stream field";
+    ASSERT_TRUE(doc["stream"].IsBool()) << "Stream field is not a bool";
+    ASSERT_FALSE(doc["stream"].GetBool());
+    ASSERT_TRUE(doc.HasMember("think")) << "Missing think field";
+    ASSERT_TRUE(doc["think"].IsBool()) << "Think field is not a bool";
+    ASSERT_FALSE(doc["think"].GetBool());
 
-    // temperature
-    ASSERT_TRUE(doc.HasMember("temperature")) << "Missing temperature field";
-    ASSERT_TRUE(doc["temperature"].IsNumber()) << "Temperature field is not a number";
-    ASSERT_DOUBLE_EQ(doc["temperature"].GetDouble(), 0.7);
-
-    // max token
-    ASSERT_TRUE(doc.HasMember("max_tokens")) << "Missing max_tokens field";
-    ASSERT_TRUE(doc["max_tokens"].IsInt()) << "Max_tokens field is not an integer";
-    ASSERT_EQ(doc["max_tokens"].GetInt(), 128);
+    // options (temperature + max_token)
+    ASSERT_FALSE(doc.HasMember("temperature")) << "Temperature should be nested in options";
+    ASSERT_FALSE(doc.HasMember("max_tokens")) << "Max tokens should be nested in options";
+    ASSERT_TRUE(doc.HasMember("options")) << "Missing options field";
+    ASSERT_TRUE(doc["options"].IsObject()) << "Options is not an object";
+    const auto& options = doc["options"];
+    ASSERT_TRUE(options.HasMember("temperature")) << "Missing options.temperature field";
+    ASSERT_TRUE(options["temperature"].IsNumber()) << "options.temperature is not a number";
+    ASSERT_DOUBLE_EQ(options["temperature"].GetDouble(), 0.7);
+    ASSERT_TRUE(options.HasMember("max_token")) << "Missing options.max_token field";
+    ASSERT_TRUE(options["max_token"].IsInt()) << "options.max_token is not an integer";
+    ASSERT_EQ(options["max_token"].GetInt(), 128);
 
     // content
-    if (doc.HasMember("messages")) {
-        ASSERT_TRUE(doc["messages"].IsArray()) << "Messages is not an array";
-        ASSERT_GT(doc["messages"].Size(), 0) << "Messages array is empty";
-        // system_prompt
-        const auto& first_message = doc["messages"][0];
-        ASSERT_TRUE(first_message.HasMember("role")) << "Message missing role field";
-        ASSERT_TRUE(first_message["role"].IsString()) << "Role field is not a string";
-        ASSERT_STREQ(first_message["role"].GetString(), "system");
-        ASSERT_STREQ(first_message["content"].GetString(), FunctionAISummarize::system_prompt);
+    ASSERT_TRUE(doc.HasMember("messages")) << "Missing messages field";
+    ASSERT_TRUE(doc["messages"].IsArray()) << "Messages is not an array";
+    ASSERT_GE(doc["messages"].Size(), 2) << "Messages should contain system and user prompts";
+    const auto& first_message = doc["messages"][0];
+    ASSERT_TRUE(first_message.HasMember("role")) << "Message missing role field";
+    ASSERT_TRUE(first_message["role"].IsString()) << "Role field is not a string";
+    ASSERT_STREQ(first_message["role"].GetString(), "system");
+    ASSERT_TRUE(first_message.HasMember("content")) << "Message missing content field";
+    ASSERT_TRUE(first_message["content"].IsString()) << "Content field is not a string";
+    ASSERT_STREQ(first_message["content"].GetString(), FunctionAISummarize::system_prompt);
 
-        const auto& last_message = doc["messages"][doc["messages"].Size() - 1];
-        ASSERT_TRUE(last_message.HasMember("content")) << "Message missing content field";
-        ASSERT_TRUE(last_message["content"].IsString()) << "Content field is not a string";
-        ASSERT_STREQ(last_message["content"].GetString(), "hello world");
-    } else if (doc.HasMember("prompt")) {
-        ASSERT_TRUE(doc["prompt"].IsString()) << "Prompt field is not a string";
-        ASSERT_STREQ(doc["prompt"].GetString(), "hello world");
-    }
+    const auto& user_message = doc["messages"][doc["messages"].Size() - 1];
+    ASSERT_TRUE(user_message.HasMember("role")) << "User message missing role field";
+    ASSERT_TRUE(user_message["role"].IsString()) << "User role field is not a string";
+    ASSERT_STREQ(user_message["role"].GetString(), "user");
+    ASSERT_TRUE(user_message.HasMember("content")) << "User message missing content field";
+    ASSERT_TRUE(user_message["content"].IsString()) << "User content field is not a string";
+    ASSERT_STREQ(user_message["content"].GetString(), inputs[0].c_str());
+}
+
+TEST(AI_ADAPTER_TEST, local_adapter_request_generate_endpoint) {
+    LocalAdapter adapter;
+    TAIResource config;
+    config.model_name = "ollama";
+    config.temperature = 0.8;
+    config.max_tokens = 64;
+    config.endpoint = "http://localhost:11434/api/generate";
+    adapter.init(config);
+
+    std::vector<std::string> inputs = {"hello world"};
+    std::string request_body;
+    Status st =
+            adapter.build_request_payload(inputs, FunctionAISummarize::system_prompt, request_body);
+    ASSERT_TRUE(st.ok());
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
+    ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
+
+    ASSERT_TRUE(doc.HasMember("model")) << "Missing model field";
+    ASSERT_STREQ(doc["model"].GetString(), "ollama");
+    ASSERT_TRUE(doc.HasMember("system")) << "Missing system field";
+    ASSERT_TRUE(doc["system"].IsString()) << "System field is not a string";
+    ASSERT_STREQ(doc["system"].GetString(), FunctionAISummarize::system_prompt);
+    ASSERT_TRUE(doc.HasMember("prompt")) << "Missing prompt field";
+    ASSERT_TRUE(doc["prompt"].IsString()) << "Prompt field is not a string";
+    ASSERT_STREQ(doc["prompt"].GetString(), inputs[0].c_str());
+
+    ASSERT_FALSE(doc.HasMember("messages")) << "Generate endpoint should not include messages";
+
+    ASSERT_TRUE(doc.HasMember("options")) << "Missing options field";
+    ASSERT_TRUE(doc["options"].IsObject()) << "Options is not an object";
+    const auto& options = doc["options"];
+    ASSERT_TRUE(options.HasMember("temperature")) << "Missing options.temperature field";
+    ASSERT_DOUBLE_EQ(options["temperature"].GetDouble(), 0.8);
+    ASSERT_TRUE(options.HasMember("max_token")) << "Missing options.max_token field";
+    ASSERT_EQ(options["max_token"].GetInt(), 64);
 }
 
 TEST(AI_ADAPTER_TEST, local_adapter_parse_response) {
@@ -127,16 +178,70 @@ TEST(AI_ADAPTER_TEST, local_adapter_parse_response) {
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0], "simple result");
 
-    // Ollama type
+    // Ollama response type
     resp = R"({"response":"ollama result"})";
     results.clear();
     st = adapter.parse_response(resp, results);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0], "ollama result");
+
+    // Ollama chat message type
+    resp = R"({"message":{"content":"ollama chat"}})";
+    results.clear();
+    st = adapter.parse_response(resp, results);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0], "ollama chat");
 }
 
-TEST(AI_ADAPTER_TEST, openai_adapter_request) {
+TEST(AI_ADAPTER_TEST, local_adapter_request_default_endpoint) {
+    LocalAdapter adapter;
+    TAIResource config;
+    config.model_name = "local-default";
+    config.temperature = 0.3;
+    config.max_tokens = 42;
+    config.endpoint = "http://localhost:8000/v1/completions";
+    adapter.init(config);
+
+    std::vector<std::string> inputs = {"default prompt"};
+    std::string request_body;
+    Status st =
+            adapter.build_request_payload(inputs, FunctionAISummarize::system_prompt, request_body);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
+    ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
+
+    ASSERT_TRUE(doc.HasMember("model"));
+    ASSERT_STREQ(doc["model"].GetString(), "local-default");
+
+    ASSERT_TRUE(doc.HasMember("temperature"));
+    ASSERT_DOUBLE_EQ(doc["temperature"].GetDouble(), 0.3);
+
+    ASSERT_TRUE(doc.HasMember("max_tokens"));
+    ASSERT_EQ(doc["max_tokens"].GetInt(), 42);
+
+    ASSERT_TRUE(doc.HasMember("messages"));
+    ASSERT_TRUE(doc["messages"].IsArray());
+    ASSERT_GE(doc["messages"].Size(), 2);
+
+    const auto& system_msg = doc["messages"][0];
+    ASSERT_TRUE(system_msg.HasMember("role"));
+    ASSERT_STREQ(system_msg["role"].GetString(), "system");
+    ASSERT_TRUE(system_msg.HasMember("content"));
+    ASSERT_STREQ(system_msg["content"].GetString(), FunctionAISummarize::system_prompt);
+
+    const auto& user_msg = doc["messages"][doc["messages"].Size() - 1];
+    ASSERT_TRUE(user_msg.HasMember("role"));
+    ASSERT_STREQ(user_msg["role"].GetString(), "user");
+    ASSERT_TRUE(user_msg.HasMember("content"));
+    ASSERT_STREQ(user_msg["content"].GetString(), inputs[0].c_str());
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_completions_request) {
     OpenAIAdapter adapter;
     TAIResource config;
     config.model_name = "gpt-3.5-turbo";
@@ -195,10 +300,10 @@ TEST(AI_ADAPTER_TEST, openai_adapter_request) {
     const auto& last_message = doc["messages"][doc["messages"].Size() - 1];
     ASSERT_TRUE(last_message.HasMember("content")) << "Message missing content field";
     ASSERT_TRUE(last_message["content"].IsString()) << "Content field is not a string";
-    ASSERT_STREQ(last_message["content"].GetString(), "hi openai");
+    ASSERT_STREQ(last_message["content"].GetString(), inputs[0].c_str());
 }
 
-TEST(AI_ADAPTER_TEST, openai_adapter_parse_response) {
+TEST(AI_ADAPTER_TEST, openai_adapter_completions_parse_response) {
     OpenAIAdapter adapter;
     std::string resp = R"({"choices":[{"message":{"content":"openai result"}}]})";
     std::vector<std::string> results;
@@ -206,6 +311,84 @@ TEST(AI_ADAPTER_TEST, openai_adapter_parse_response) {
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0], "openai result");
+}
+
+TEST(AI_ADAPTER_TEST, openai_adatper_responses_request) {
+    OpenAIAdapter adapter;
+    TAIResource config;
+    config.model_name = "gpt-5";
+    config.temperature = 0.5;
+    config.max_tokens = 64;
+    config.api_key = "test_openai_key";
+    config.endpoint = "https://api.openai.com/v1/responses";
+    adapter.init(config);
+
+    // header
+    MockHttpClient mock_client;
+    Status auth_status = adapter.set_authentication(&mock_client);
+    ASSERT_TRUE(auth_status.ok());
+
+    EXPECT_STREQ(mock_client.get()->data, "Authorization: Bearer test_openai_key");
+    EXPECT_STREQ(mock_client.get()->next->data, "Content-Type: application/json");
+
+    std::vector<std::string> inputs = {"hi openai"};
+    std::string request_body;
+    Status st =
+            adapter.build_request_payload(inputs, FunctionAISentiment::system_prompt, request_body);
+    ASSERT_TRUE(st.ok());
+
+    // body
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
+    ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
+
+    // model
+    ASSERT_TRUE(doc.HasMember("model")) << "Missing model field";
+    ASSERT_TRUE(doc["model"].IsString()) << "Model field is not a string";
+    ASSERT_STREQ(doc["model"].GetString(), "gpt-5");
+
+    // temperature
+    ASSERT_TRUE(doc.HasMember("temperature")) << "Missing temperature field";
+    ASSERT_TRUE(doc["temperature"].IsNumber()) << "Temperature field is not a number";
+    ASSERT_DOUBLE_EQ(doc["temperature"].GetDouble(), 0.5);
+
+    // max tokens
+    ASSERT_TRUE(doc.HasMember("max_output_tokens")) << "Missing max_output_tokens field";
+    ASSERT_TRUE(doc["max_output_tokens"].IsInt()) << "max_output_tokens field is not an integer";
+    ASSERT_EQ(doc["max_output_tokens"].GetInt(), 64);
+
+    // input
+    ASSERT_TRUE(doc.HasMember("input")) << "Missing input field";
+    ASSERT_TRUE(doc["input"].IsArray()) << "Input is not an array";
+    ASSERT_GT(doc["input"].Size(), 0) << "Input array is empty";
+
+    // system_prompt
+    const auto& input = doc["input"];
+    ASSERT_TRUE(input[0].HasMember("role")) << request_body;
+    ASSERT_TRUE(input[0]["role"].IsString()) << "Role field is not a string";
+    ASSERT_STREQ(input[0]["role"].GetString(), "system");
+    ASSERT_TRUE(input[0].HasMember("content")) << request_body;
+    ASSERT_TRUE(input[0]["content"].IsString()) << "Content field is not a string";
+    ASSERT_STREQ(input[0]["content"].GetString(), FunctionAISentiment::system_prompt);
+
+    // input content
+    ASSERT_TRUE(input[1].HasMember("role")) << request_body;
+    ASSERT_TRUE(input[1]["role"].IsString()) << "Role field is not a string";
+    ASSERT_STREQ(input[1]["role"].GetString(), "user");
+    ASSERT_TRUE(input[1].HasMember("content")) << request_body;
+    ASSERT_TRUE(input[1]["content"].IsString()) << "Content field is not a string";
+    ASSERT_STREQ(input[1]["content"].GetString(), inputs[0].c_str());
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({"output":[{"content":[{"text":"openai response result"}]}]})";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0], "openai response result");
 }
 
 TEST(AI_ADAPTER_TEST, gemini_adapter_request) {
@@ -402,6 +585,8 @@ TEST(AI_ADAPTER_TEST, parse_response_wrong_type) {
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(),
+                ::testing::HasSubstr("Unsupported response format from local AI."));
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
@@ -411,12 +596,14 @@ TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid choice format in  response"));
 
     // content field is not a string
     resp = R"({"choices":[{"message":{"content":123}}]})";
     results.clear();
     st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid choice format in  response"));
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_parse_error) {
@@ -425,6 +612,7 @@ TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_parse_error) {
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Failed to parse"));
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choices_not_array) {
@@ -433,6 +621,7 @@ TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choices_not_array) {
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
 TEST(AI_ADAPTER_TEST, gemini_adapter_parse_response_parse_error) {
@@ -441,6 +630,7 @@ TEST(AI_ADAPTER_TEST, gemini_adapter_parse_response_parse_error) {
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Failed to parse"));
 }
 
 TEST(AI_ADAPTER_TEST, gemini_parse_response_missing_candidates) {
@@ -449,6 +639,7 @@ TEST(AI_ADAPTER_TEST, gemini_parse_response_missing_candidates) {
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
 TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_parse_error) {
@@ -457,6 +648,7 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_parse_error) {
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Failed to parse"));
 }
 
 TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_content_not_array) {
@@ -465,6 +657,7 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_content_not_array) {
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
 TEST(AI_ADAPTER_TEST, voyage_adapter_chat_test) {

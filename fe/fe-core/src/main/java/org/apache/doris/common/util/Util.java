@@ -83,6 +83,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIME, "datetime");
         TYPE_STRING_MAP.put(PrimitiveType.DATEV2, "datev2");
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
+        TYPE_STRING_MAP.put(PrimitiveType.TIMESTAMPTZ, "timestamptz");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.JSONB, "json");
@@ -575,6 +576,9 @@ public class Util {
             return TFileFormatType.FORMAT_WAL;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {
             return TFileFormatType.FORMAT_ARROW;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_NATIVE)) {
+            // Doris Native binary columnar format
+            return TFileFormatType.FORMAT_NATIVE;
         } else {
             return TFileFormatType.FORMAT_UNKNOWN;
         }
@@ -616,6 +620,10 @@ public class Util {
         }
         final String upperCaseType = compressType.toUpperCase();
         try {
+            // for compatibility, convert lz4 to lz4frame
+            if (upperCaseType.equals("LZ4")) {
+                return TFileCompressType.LZ4FRAME;
+            }
             return TFileCompressType.valueOf(upperCaseType);
         } catch (IllegalArgumentException e) {
             throw new AnalysisException("Unknown compression type: " + compressType);
@@ -650,15 +658,18 @@ public class Util {
 
     public static String getRootCauseMessage(Throwable t) {
         String rootCause = "unknown";
+        if (t == null) {
+            return rootCause;
+        }
         Throwable p = t;
-        while (p != null) {
-            String message = p.getMessage();
-            if (message == null) {
-                rootCause = p.getClass().getName();
-            } else {
-                rootCause = p.getClass().getName() + ": " + p.getMessage();
-            }
+        while (p.getCause() != null) {
             p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + message;
         }
         return rootCause;
     }

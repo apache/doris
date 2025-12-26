@@ -33,8 +33,16 @@ public class LargeIntLiteral extends IntegerLikeLiteral {
 
     private final BigInteger value;
 
+    /**
+     * LargeIntLiteral
+     * @param value Value.
+     */
     public LargeIntLiteral(BigInteger value) {
         super(LargeIntType.INSTANCE);
+        if (value.compareTo(LargeIntType.MAX_VALUE) > 0 || value.compareTo(LargeIntType.MIN_VALUE) < 0) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Can not create LargeIntLiteral by value : " + value);
+        }
         this.value = Objects.requireNonNull(value);
     }
 

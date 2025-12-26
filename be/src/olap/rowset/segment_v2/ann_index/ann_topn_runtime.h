@@ -35,6 +35,7 @@
 
 #pragma once
 
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column.h"
 #include "vec/exprs/varray_literal.h"
@@ -48,6 +49,8 @@
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 struct AnnIndexStats;
+
+Result<vectorized::IColumn::Ptr> extract_query_vector(std::shared_ptr<vectorized::VExpr> arg_expr);
 
 /**
  * @brief Runtime execution engine for ANN (Approximate Nearest Neighbor) Top-N queries.
@@ -161,7 +164,7 @@ private:
     size_t _src_column_idx = -1;                ///< Source vector column index
     size_t _dest_column_idx = -1;               ///< Destination distance column index
     segment_v2::AnnIndexMetric _metric_type;    ///< Distance metric type
-    vectorized::IColumn::Ptr _query_array;      ///< Query vector data
+    vectorized::IColumn::Ptr _query_array;      ///< Query vector data (contiguous float buffer)
     doris::VectorSearchUserParams _user_params; ///< User-defined search parameters
 };
 #include "common/compile_check_end.h"

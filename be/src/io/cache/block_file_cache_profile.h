@@ -37,6 +37,7 @@ namespace io {
 struct AtomicStatistics {
     std::atomic<int64_t> num_io_bytes_read_from_cache = 0;
     std::atomic<int64_t> num_io_bytes_read_from_remote = 0;
+    std::atomic<int64_t> num_io_bytes_read_from_peer = 0;
 };
 class FileCacheMetrics {
 public:
@@ -66,10 +67,14 @@ private:
 struct FileCacheProfileReporter {
     RuntimeProfile::Counter* num_local_io_total = nullptr;
     RuntimeProfile::Counter* num_remote_io_total = nullptr;
+    RuntimeProfile::Counter* num_peer_io_total = nullptr;
     RuntimeProfile::Counter* local_io_timer = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_cache = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_remote = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_peer = nullptr;
     RuntimeProfile::Counter* remote_io_timer = nullptr;
+    RuntimeProfile::Counter* peer_io_timer = nullptr;
+    RuntimeProfile::Counter* remote_wait_timer = nullptr;
     RuntimeProfile::Counter* write_cache_io_timer = nullptr;
     RuntimeProfile::Counter* bytes_write_into_cache = nullptr;
     RuntimeProfile::Counter* num_skip_cache_io_total = nullptr;
@@ -81,10 +86,13 @@ struct FileCacheProfileReporter {
 
     RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;
+    RuntimeProfile::Counter* inverted_index_num_peer_io_total = nullptr;
     RuntimeProfile::Counter* inverted_index_bytes_scanned_from_cache = nullptr;
     RuntimeProfile::Counter* inverted_index_bytes_scanned_from_remote = nullptr;
+    RuntimeProfile::Counter* inverted_index_bytes_scanned_from_peer = nullptr;
     RuntimeProfile::Counter* inverted_index_local_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_remote_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_peer_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_io_timer = nullptr;
 
     FileCacheProfileReporter(RuntimeProfile* profile);

@@ -94,7 +94,7 @@ struct AnnTopNParam {
 
 struct AnnRangeSearchParams {
     bool is_le_or_lt = true;
-    float* query_value = nullptr;
+    const float* query_value = nullptr;
     float radius = -1;
     roaring::Roaring* roaring; // roaring from segment_iterator
     std::string to_string() const {
@@ -141,6 +141,10 @@ struct HNSWSearchParameters : public IndexSearchParameters {
     int ef_search = 16;
     bool check_relative_distance = true;
     bool bounded_queue = true;
+};
+
+struct IVFSearchParameters : public IndexSearchParameters {
+    int nprobe = 1;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

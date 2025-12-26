@@ -315,6 +315,24 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(left().toDigest());
+        sb.append(" ").append(joinType).append(" ");
+        sb.append(right().toDigest());
+        if (!hashJoinConjuncts.isEmpty() || !otherJoinConjuncts.isEmpty()) {
+            sb.append(" ON ");
+            sb.append(
+                    hashJoinConjuncts.stream().map(Expression::toDigest).collect(Collectors.joining(" AND "))
+            );
+            sb.append(
+                    otherJoinConjuncts.stream().map(Expression::toDigest).collect(Collectors.joining(" AND "))
+            );
+        }
+        return sb.toString();
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

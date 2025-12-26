@@ -50,12 +50,15 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -70,8 +73,8 @@ import java.util.Set;
  */
 public class CheckCast implements ExpressionPatternRuleFactory {
     public static CheckCast INSTANCE = new CheckCast();
-    private static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> strictCastWhiteList;
-    private static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> unStrictCastWhiteList;
+    public static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> strictCastWhiteList;
+    public static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> unStrictCastWhiteList;
 
     static {
         Set<Class<? extends DataType>> allowedTypes = Sets.newHashSet();
@@ -119,7 +122,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         strictCastWhiteList.put(DateType.class, allowedTypes);
         strictCastWhiteList.put(DateV2Type.class, allowedTypes);
 
-        // DateTime
+        // DateTimeV1
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(BigIntType.class);
         allowedTypes.add(LargeIntType.class);
@@ -131,7 +134,27 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(DateTimeType.class, allowedTypes);
+
+        // DateTimeV2
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(BigIntType.class);
+        allowedTypes.add(LargeIntType.class);
+        allowedTypes.add(DateType.class);
+        allowedTypes.add(DateV2Type.class);
+        allowedTypes.add(DateTimeType.class);
+        allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeV2Type.class);
+        allowToStringLikeType(allowedTypes);
+        allowedTypes.add(VariantType.class);
+        allowedTypes.add(TimeStampTzType.class);
         strictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
+
+        // timestamp tz
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampTzType.class);
+        allowToStringLikeType(allowedTypes);
+        strictCastWhiteList.put(TimeStampTzType.class, allowedTypes);
 
         // Time
         allowedTypes = Sets.newHashSet();
@@ -154,6 +177,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToBasicType(allowedTypes);
         allowedTypes.add(IPv4Type.class);
         allowedTypes.add(IPv6Type.class);
+        allowedTypes.add(VarBinaryType.class);
+        allowedTypes.add(TimeStampTzType.class);
         allowToComplexType(allowedTypes);
         allowedTypes.remove(HllType.class);
         allowedTypes.remove(BitmapType.class);
@@ -191,6 +216,12 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(QuantileStateType.class);
         strictCastWhiteList.put(QuantileStateType.class, allowedTypes);
+
+        //varbinary
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(VarBinaryType.class);
+        allowToStringLikeType(allowedTypes);
+        strictCastWhiteList.put(VarBinaryType.class, allowedTypes);
 
         // array
         allowedTypes = Sets.newHashSet();
@@ -302,8 +333,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                     Cast cast = ctx.expr;
                     DataType originalType = cast.child().getDataType();
                     DataType targetType = cast.getDataType();
-                    if (!check(originalType, targetType, ctx.cascadesContext.getConnectContext()
-                            .getSessionVariable().enableStrictCast)) {
+                    if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
                         throw new AnalysisException("cannot cast " + originalType.toSql()
                                 + " to " + targetType.toSql());
                     }
@@ -312,7 +342,19 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         );
     }
 
-    protected static boolean check(DataType originalType, DataType targetType, boolean isStrictMode) {
+    public static boolean checkWithLooseAggState(DataType originalType, DataType targetType, boolean isStrictMode) {
+        return check(originalType, targetType, isStrictMode, true);
+    }
+
+    public static boolean check(DataType originalType, DataType targetType, boolean isStrictMode) {
+        return check(originalType, targetType, isStrictMode, false);
+    }
+
+    /**
+     * check cast valid or not.
+     */
+    public static boolean check(DataType originalType, DataType targetType,
+            boolean isStrictMode, boolean looseAggState) {
         if (originalType.isVariantType() && targetType.isVariantType()) {
             return originalType.equals(targetType);
         }
@@ -325,6 +367,16 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         }
         if (originalType.equals(targetType)) {
             return true;
+        }
+        // for plan, we will first add a cast on AggStateType, and then apply a rule to remove cast if could be.
+        // so here, we should only check function name and parameters list size.
+        if (looseAggState && originalType instanceof AggStateType && targetType instanceof AggStateType) {
+            AggStateType originalAggState = (AggStateType) originalType;
+            AggStateType targetAggState = (AggStateType) targetType;
+            if (originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
+                    && originalAggState.getSubTypes().size() == targetAggState.getSubTypes().size()) {
+                return true;
+            }
         }
         // New check strict and un-strict cast logic, the check logic is not completed yet.
         // So for now, if the new check logic return false,
@@ -373,37 +425,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else if (originalType.isComplexType() && targetType.isJsonType()) {
             return !checkTypeContainsType(originalType, MapType.class);
         } else {
-            return checkPrimitiveType(originalType, targetType);
-        }
-    }
-
-    /**
-     * forbid this original and target type
-     *   1. original type is object type
-     *   2. target type is object type
-     *   3. original type is same with target type
-     *   4. target type is null type
-     */
-    private static boolean checkPrimitiveType(DataType originalType, DataType targetType) {
-        if (originalType.isJsonType() || targetType.isJsonType()) {
             return true;
         }
-        if (!originalType.isPrimitive() || !targetType.isPrimitive()) {
-            return false;
-        }
-        if (originalType.equals(targetType)) {
-            return false;
-        }
-        if (originalType.isNullType()) {
-            return true;
-        }
-        if (originalType.isObjectType() || targetType.isObjectType()) {
-            return false;
-        }
-        if (targetType.isNullType()) {
-            return false;
-        }
-        return true;
     }
 
     /**

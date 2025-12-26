@@ -79,10 +79,15 @@ public class SearchSignature {
         // search every round
         for (BiFunction<DataType, DataType, Boolean> typePredicate : typePredicatePerRound) {
             int candidateNonStrictMatched = Integer.MAX_VALUE;
+            int candidateNonStrictMatchedWithoutStringLiteralCoercion = Integer.MAX_VALUE;
             int candidateDateToDateV2Count = Integer.MIN_VALUE;
             FunctionSignature candidate = null;
             for (FunctionSignature signature : signatures) {
-                if (doMatchArity(signature, arguments) && doMatchTypes(signature, arguments, typePredicate)) {
+                if (doMatchArity(signature, arguments)) {
+                    Pair<Boolean, Integer> matchTypesResult = doMatchTypes(signature, arguments, typePredicate);
+                    if (!matchTypesResult.first) {
+                        continue;
+                    }
                     // first we need to check decimal v3 precision promotion
                     if (computeSignature instanceof ComputePrecision) {
                         if (!((ComputePrecision) computeSignature).checkPrecision(signature)) {
@@ -94,17 +99,34 @@ public class SearchSignature {
                             continue;
                         }
                     }
-                    // has most identical matched signature has the highest priority
+                    // compare identical matched, the more identical matched has higher priority
+                    // first, compare identical matched + string like literal coercion
+                    // if equals, compare identical matched itself
+                    // if equals, compare identical matched + date to datev2
                     Pair<Integer, Integer> currentNonStrictMatched = nonStrictMatchedCount(signature, arguments);
-                    if (currentNonStrictMatched.first < candidateNonStrictMatched) {
-                        candidateNonStrictMatched = currentNonStrictMatched.first;
+                    int currentNonStrictMatchedCount = currentNonStrictMatched.first;
+                    int currentNonStrictMatchedWithoutStringLiteralCoercion
+                            = currentNonStrictMatchedCount - matchTypesResult.second;
+                    if (currentNonStrictMatchedWithoutStringLiteralCoercion
+                            < candidateNonStrictMatchedWithoutStringLiteralCoercion) {
+                        candidateNonStrictMatchedWithoutStringLiteralCoercion
+                                = currentNonStrictMatchedWithoutStringLiteralCoercion;
+                        candidateNonStrictMatched = currentNonStrictMatchedCount;
                         candidateDateToDateV2Count = currentNonStrictMatched.second;
                         candidate = signature;
-                    } else if (currentNonStrictMatched.first == candidateNonStrictMatched) {
-                        // if we need to do same count cast, then we choose the signature need to do more v1 to v2 cast
-                        if (candidateDateToDateV2Count < currentNonStrictMatched.second) {
+                    } else if (currentNonStrictMatchedWithoutStringLiteralCoercion
+                            == candidateNonStrictMatchedWithoutStringLiteralCoercion) {
+                        if (currentNonStrictMatchedCount < candidateNonStrictMatched) {
+                            candidateNonStrictMatched = currentNonStrictMatchedCount;
                             candidateDateToDateV2Count = currentNonStrictMatched.second;
                             candidate = signature;
+                        } else if (currentNonStrictMatchedCount == candidateNonStrictMatched) {
+                            // if we need to do same count cast,
+                            // then we choose the signature need to do more v1 to v2 cast
+                            if (candidateDateToDateV2Count < currentNonStrictMatched.second) {
+                                candidateDateToDateV2Count = currentNonStrictMatched.second;
+                                candidate = signature;
+                            }
                         }
                     }
                 }
@@ -159,7 +181,7 @@ public class SearchSignature {
                     finalType = DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
                 } else {
                     finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType,
-                            DecimalV3Type.forType(arg.getDataType()), true);
+                            DecimalV3Type.forType(arg.getDataType()), false);
                 }
             }
             if (!finalType.isDecimalV3Type()) {
@@ -204,8 +226,9 @@ public class SearchSignature {
         return Pair.of(nonStrictMatched, dateToDateV2Count);
     }
 
-    private boolean doMatchTypes(FunctionSignature sig, List<Expression> arguments,
+    private Pair<Boolean, Integer> doMatchTypes(FunctionSignature sig, List<Expression> arguments,
             BiFunction<DataType, DataType, Boolean> typePredicate) {
+        int stringLiteralCoersionCount = 0;
         int arity = arguments.size();
         for (int i = 0; i < arity; i++) {
             DataType sigArgType = sig.getArgType(i);
@@ -217,12 +240,15 @@ public class SearchSignature {
             if (!argument.isNullLiteral() && argument.isLiteral() && realType.isStringLikeType()) {
                 realType = TypeCoercionUtils.characterLiteralTypeCoercion(((Literal) argument).getStringValue(),
                         sigArgType).orElse(argument).getDataType();
+                if (!realType.isStringLikeType()) {
+                    stringLiteralCoersionCount++;
+                }
             }
             if (!typePredicate.apply(sigArgType, realType)) {
-                return false;
+                return Pair.of(false, stringLiteralCoersionCount);
             }
         }
-        return true;
+        return Pair.of(true, stringLiteralCoersionCount);
     }
 
     public static void throwCanNotFoundFunctionException(String name, List<Expression> arguments) {

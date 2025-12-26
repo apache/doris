@@ -37,28 +37,6 @@ class IColumn;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-std::string DataTypeJsonb::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    return s.size > 0 ? JsonbToJson::jsonb_to_json_string(s.data, s.size) : "";
-}
-
-void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                              class doris::vectorized::BufferWritable& ostr) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    if (s.size > 0) {
-        std::string str = JsonbToJson::jsonb_to_json_string(s.data, s.size);
-        ostr.write(str.c_str(), str.size());
-    }
-}
-
 Field DataTypeJsonb::get_default() const {
     std::string default_json = "null";
     // convert default_json to binary
@@ -92,17 +70,17 @@ bool DataTypeJsonb::equals(const IDataType& rhs) const {
 }
 
 int64_t DataTypeJsonb::get_uncompressed_serialized_bytes(const IColumn& column,
-                                                         int data_version) const {
-    return data_type_string.get_uncompressed_serialized_bytes(column, data_version);
+                                                         int be_exec_version) const {
+    return data_type_string.get_uncompressed_serialized_bytes(column, be_exec_version);
 }
 
-char* DataTypeJsonb::serialize(const IColumn& column, char* buf, int data_version) const {
-    return data_type_string.serialize(column, buf, data_version);
+char* DataTypeJsonb::serialize(const IColumn& column, char* buf, int be_exec_version) const {
+    return data_type_string.serialize(column, buf, be_exec_version);
 }
 
 const char* DataTypeJsonb::deserialize(const char* buf, MutableColumnPtr* column,
-                                       int data_version) const {
-    return data_type_string.deserialize(buf, column, data_version);
+                                       int be_exec_version) const {
+    return data_type_string.deserialize(buf, column, be_exec_version);
 }
 
 FieldWithDataType DataTypeJsonb::get_field_with_data_type(const IColumn& column,

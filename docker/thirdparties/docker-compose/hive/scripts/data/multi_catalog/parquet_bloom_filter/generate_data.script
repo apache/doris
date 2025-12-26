@@ -1,0 +1,44 @@
+duckdb
+COPY (
+    SELECT 
+        (row_number() OVER () - 1)::TINYINT as tinyint_col,
+        (row_number() OVER () * 100)::SMALLINT as smallint_col,
+        (row_number() OVER () - 1)::INTEGER as int_col,
+        (row_number() OVER () * 10000)::BIGINT as bigint_col,
+        
+        (random() * 100)::FLOAT as float_col,
+        (random() * 1000)::DOUBLE as double_col,
+        (random() * 500)::DECIMAL(10,2) as decimal_col,
+        
+        'User_' || ((row_number() OVER () - 1)::INTEGER)::VARCHAR as name,
+        ((row_number() OVER () - 1)::INTEGER % 2)::BOOLEAN as is_active,
+        date '2024-01-01' + ((row_number() OVER () - 1)::INTEGER) as created_date,
+        now() - (((row_number() OVER () - 1)::INTEGER) * INTERVAL '1 hour') as last_login,
+        
+        CASE ((row_number() OVER () - 1)::INTEGER) % 3
+            WHEN 0 THEN [1.1, 2.2, 3.3]::DOUBLE[]
+            WHEN 1 THEN [4.4, 5.5]::DOUBLE[]
+            ELSE [6.6, 7.7, 8.8, 9.9]::DOUBLE[]
+        END as numeric_array,
+        
+        {'city': 'city_' || ((row_number() OVER () - 1)::INTEGER)::VARCHAR,
+         'population': (random() * 100000)::INTEGER,
+         'area': (random() * 100)::DOUBLE,
+         'is_capital': ((row_number() OVER () - 1)::INTEGER % 2)::BOOLEAN}::STRUCT(city VARCHAR, population INTEGER, area DOUBLE, is_capital BOOLEAN) as address_info,
+        
+        MAP(
+            LIST_VALUE('count', 'score', 'rating'), 
+            LIST_VALUE(
+                ((row_number() OVER () - 1)::INTEGER)::VARCHAR,
+                (random() * 100)::VARCHAR,
+                ((row_number() OVER () - 1)::INTEGER % 5 + 1)::VARCHAR
+            )
+        ) AS metrics
+    FROM range(10)
+) TO 'complete_data_types.parquet' (
+    FORMAT 'PARQUET',
+    ROW_GROUP_SIZE 10,
+    DICTIONARY_SIZE_LIMIT 50,
+    COMPRESSION 'ZSTD'
+);
+

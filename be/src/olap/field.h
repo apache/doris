@@ -212,6 +212,10 @@ public:
     int32_t get_scale() const { return _scale; }
     const TabletColumn& get_desc() const { return _desc; }
 
+    int32_t get_unique_id() const {
+        return is_extracted_column() ? parent_unique_id() : unique_id();
+    }
+
 protected:
     TypeInfoPtr _type_info;
     TabletColumn _desc;
@@ -534,6 +538,8 @@ public:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
                 [[fallthrough]];
+            case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+                [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);
                 field->set_precision(column.precision());
@@ -593,6 +599,8 @@ public:
             case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+                [[fallthrough]];
+            case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);

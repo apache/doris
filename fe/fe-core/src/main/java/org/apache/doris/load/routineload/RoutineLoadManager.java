@@ -56,7 +56,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -500,7 +500,7 @@ public class RoutineLoadManager implements Writable {
         if (availableBeIds.isEmpty()) {
             RoutineLoadJob job = getJob(jobId);
             if (job != null) {
-                String msg = "no available BE found for job " + jobId
+                String msg = "no available BE found for job " + jobId + ", cluster Name {}, " + job.getCloudCluster()
                         + "please check the BE status and user's cluster or tags";
                 job.updateState(RoutineLoadJob.JobState.PAUSED,
                         new ErrorReason(InternalErrorCode.INTERNAL_ERR, msg), false /* not replay */);
@@ -952,6 +952,9 @@ public class RoutineLoadManager implements Writable {
             jobs.add(routineLoadJob);
             if (!routineLoadJob.getState().isFinalState()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
+            }
+            if (Config.isCloudMode()) {
+                routineLoadJob.setCloudCluster();
             }
         }
     }

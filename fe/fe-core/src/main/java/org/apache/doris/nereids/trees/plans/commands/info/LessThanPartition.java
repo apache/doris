@@ -70,4 +70,8 @@ public class LessThanPartition extends PartitionDefinition {
                 partitionDataProperty, isInMemory, tabletType, versionInfo, storagePolicy,
                 isMutable);
     }
+
+    public List<Expression> getValues() {
+        return values;
+    }
 }

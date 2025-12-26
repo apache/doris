@@ -25,20 +25,7 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
     def alter_res = "null"
     def useTime = 0
 
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(10000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
+    sql "set enable_add_index_for_new_data = true"
 
     def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
@@ -72,11 +59,18 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
 
         backend_id = backendId_to_backendIP.keySet()[0]
         StringBuilder showConfigCommand = new StringBuilder();
-        showConfigCommand.append("curl -X GET http://")
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http"
+        showConfigCommand.append("curl -X GET ${protocol}://")
         showConfigCommand.append(backendId_to_backendIP.get(backend_id))
         showConfigCommand.append(":")
         showConfigCommand.append(backendId_to_backendHttpPort.get(backend_id))
         showConfigCommand.append("/api/show_config")
+        if (enableTls) {
+            showConfigCommand.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+            showConfigCommand.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+            showConfigCommand.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+        }
         logger.info(showConfigCommand.toString())
         def process = showConfigCommand.toString().execute()
         int code = process.waitFor()
@@ -157,21 +151,16 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
 
         // create inverted index
         sql """ CREATE INDEX idx_user_id ON ${tableName}(`user_id`) USING INVERTED """
-        wait_for_latest_op_on_table_finish(tableName, timeout)
         sql """ CREATE INDEX idx_date ON ${tableName}(`date`) USING INVERTED """
-        wait_for_latest_op_on_table_finish(tableName, timeout)
         sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED """
-        wait_for_latest_op_on_table_finish(tableName, timeout)
 
         // build index
-        if (!isCloudMode()) {
-            sql "build index idx_user_id on ${tableName}"
-            wait_for_build_index_on_partition_finish(tableName, timeout)
-            sql "build index idx_date on ${tableName}"
-            wait_for_build_index_on_partition_finish(tableName, timeout)
-            sql "build index idx_city on ${tableName}"
-            wait_for_build_index_on_partition_finish(tableName, timeout)
-        }
+        build_index_on_table("idx_user_id", tableName)
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+        build_index_on_table("idx_date", tableName)
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+        build_index_on_table("idx_city", tableName)
+        wait_for_build_index_on_partition_finish(tableName, timeout)
 
         // trigger compactions for all tablets in ${tableName}
         trigger_and_wait_compaction(tableName, "cumulative")
@@ -183,6 +172,9 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
             sb.append("curl -X GET ")
             sb.append(tablet.CompactionStatus)
             String command = sb.toString()
+            if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+                command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+            }
             // wait for cleaning stale_rowsets
             process = command.execute()
             code = process.waitFor()

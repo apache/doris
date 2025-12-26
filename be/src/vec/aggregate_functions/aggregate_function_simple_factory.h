@@ -39,8 +39,9 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
-using AggregateFunctionCreator = std::function<AggregateFunctionPtr(
-        const std::string&, const DataTypes&, const bool, const AggregateFunctionAttr&)>;
+using AggregateFunctionCreator =
+        std::function<AggregateFunctionPtr(const std::string&, const DataTypes&, const DataTypePtr&,
+                                           const bool, const AggregateFunctionAttr&)>;
 
 inline std::string types_name(const DataTypes& types) {
     std::string name;
@@ -120,8 +121,8 @@ public:
     }
 
     AggregateFunctionPtr get(const std::string& name, const DataTypes& argument_types,
-                             const bool result_is_nullable, int be_version,
-                             AggregateFunctionAttr attr = {}) {
+                             const DataTypePtr& result_type, const bool result_is_nullable,
+                             int be_version, AggregateFunctionAttr attr = {}) {
         bool nullable = false;
         for (const auto& type : argument_types) {
             if (type->is_nullable()) {
@@ -139,11 +140,12 @@ public:
             return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
                            ? nullptr
                            : nullable_aggregate_functions[name_str](name_str, argument_types,
-                                                                    result_is_nullable, attr);
+                                                                    result_type, result_is_nullable,
+                                                                    attr);
         } else {
             return aggregate_functions.find(name_str) == aggregate_functions.end()
                            ? nullptr
-                           : aggregate_functions[name_str](name_str, argument_types,
+                           : aggregate_functions[name_str](name_str, argument_types, result_type,
                                                            result_is_nullable, attr);
         }
     }

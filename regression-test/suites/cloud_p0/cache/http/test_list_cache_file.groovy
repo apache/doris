@@ -59,6 +59,9 @@ suite("test_list_cache_file") {
     """
 
     sql "insert into user select number, cast(rand() as varchar(32)) from numbers(\"number\"=\"1000000\")"
+    sql "sync"
+    //trigger be sync_rowsets
+    sql "select count(*) from user"
 
     Thread.sleep(50000)
 
