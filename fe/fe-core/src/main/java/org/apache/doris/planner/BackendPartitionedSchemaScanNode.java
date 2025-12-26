@@ -70,6 +70,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         BEACKEND_ID_COLUMN_SET.add("be_id");
 
         BACKEND_TABLE.add("file_cache_statistics");
+        BACKEND_TABLE.add("file_cache_info");
         BACKEND_TABLE.add("backend_kerberos_ticket_cache");
 
         BACKEND_TABLE.add("backend_tablets");
