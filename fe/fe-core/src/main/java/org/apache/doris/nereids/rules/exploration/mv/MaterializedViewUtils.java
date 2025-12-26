@@ -271,6 +271,9 @@ public class MaterializedViewUtils {
      * Extract struct info from plan, support to get struct info from logical plan or plan in group.
      * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
      * @param originalPlan original plan, the output is right
+     * @param cascadesContext the cascadesContext when extractStructInfo
+     * @param targetRelationIdSet the target relation id set which used to filter struct info,
+     *                            empty means no struct info match
      */
     public static List<StructInfo> extractStructInfo(Plan plan, Plan originalPlan, CascadesContext cascadesContext,
             BitSet targetRelationIdSet) {
@@ -288,8 +291,7 @@ public class MaterializedViewUtils {
             if (!queryRelationIdSets.isEmpty()) {
                 for (BitSet queryRelationIdSet : queryRelationIdSets) {
                     // compare relation id corresponding table id
-                    if (!targetRelationIdSet.isEmpty()
-                            && !containsAll(targetRelationIdSet, queryRelationIdSet)) {
+                    if (!containsAll(targetRelationIdSet, queryRelationIdSet)) {
                         continue;
                     }
                     StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext, queryRelationIdSet, ownerGroup,
