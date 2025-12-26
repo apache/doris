@@ -944,7 +944,8 @@ void StorageEngine::_clean_unused_rowset_metas() {
             return true;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
-            (!tablet->rowset_meta_is_useful(rowset_meta))) {
+            (!tablet->rowset_meta_is_useful(rowset_meta)) &&
+            !check_rowset_id_in_unused_rowsets(rowset_id)) {
             LOG(INFO) << "rowset meta is not used any more, remove it. rowset_id="
                       << rowset_meta->rowset_id();
             invalid_rowset_metas.push_back(rowset_meta);
