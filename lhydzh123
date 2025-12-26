@@ -1,0 +1,70 @@
+# Doris Java UDF: 判断保留IP地址
+
+## 背景说明
+
+Doris 的 Java UDF 不支持 `InetAddress` 作为参数类型，仅支持基础类型（`int`/`long`/`String` 等）。对于 IPV4 类型，Doris 会将其转换为 `long` 类型（64位有符号整数），而不是 `Integer`。这是因为 IPv4 地址在内部存储为无符号32位整数，需要更大的类型来处理。
+
+## UDF 实现代码
+
+```java
+import com.starrocks.udf.UDF;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+
+public class IsReservedIpUDF extends UDF {
+    
+    // 使用 Long 类型接收IPv4参数
+    public String evaluate(Long ipNum) {
+        if (ipNum == null) {
+            return "";
+        }
+        
+        try {
+            // 将长整型转换为IPv4地址
+            String ip = longToIp(ipNum);
+            return isReservedIp(ip) ? "reserved" : "public";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+    
+    // 辅助方法：长整型转IP字符串
+    private String longToIp(long ip) {
+        return ((ip >> 24) & 0xFF) + "." +
+               ((ip >> 16) & 0xFF) + "." +
+               ((ip >> 8) & 0xFF) + "." +
+               (ip & 0xFF);
+    }
+    
+    // 判断是否为保留IP
+    private boolean isReservedIp(String ip) {
+        // 私有IP地址范围
+        if (ip.startsWith("10.") || 
+            ip.startsWith("192.168.") ||
+            ip.startsWith("172.") && isInRange(ip, 16, 31)) {
+            return true;
+        }
+        
+        // 其他保留地址
+        if (ip.startsWith("127.") ||
+            ip.startsWith("169.254.")) {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    private boolean isInRange(String ip, int start, int end) {
+        String[] parts = ip.split("\\.");
+        if (parts.length >= 2) {
+            int secondOctet = Integer.parseInt(parts[1]);
+            return secondOctet >= start && secondOctet <= end;
+        }
+        return false;
+    }
+}
+```
+
+## 后续步骤
+
+然后进行Maven依赖配置，对Doris的函数进行管理（包括删除旧函数、创建新函数）；编译打包 UDF 后，可在 Doris 中调用 is_reserved_ip() 函数进行测试。
