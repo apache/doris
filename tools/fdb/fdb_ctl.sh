@@ -108,6 +108,7 @@ function download_fdb() {
         wget "${URL}/libfdb_c.aarch64.so" -O "${TMP}/libfdb_c.aarch64.so"
     else
         echo "Unsupported architecture: ""${arch}"
+        exit 1
     fi
 
     chmod +x "${TMP}"/fdb*
@@ -338,6 +339,13 @@ logdir = ${LOG_DIR}" >>"${FDB_HOME}/conf/fdb.conf"
 }
 
 function start_fdb() {
+    local daemonize="true"
+
+    # detect flag
+    if [[ "${1:-}" == "--foreground" || "${1:-}" == "-f" ]]; then
+        daemonize="false"
+    fi
+
     check_fdb_running
 
     if [[ ! -f "${FDB_HOME}/fdbmonitor" ]]; then
@@ -347,11 +355,88 @@ function start_fdb() {
 
     ensure_port_is_listenable "fdbserver" "${FDB_PORT}"
 
-    echo "Run FDB monitor ..."
-    "${FDB_HOME}/fdbmonitor" \
-        --conffile "${FDB_HOME}/conf/fdb.conf" \
-        --lockfile "${FDB_HOME}/fdbmonitor.pid" \
-        --daemonize
+    if [[ "${daemonize}" == "true" ]]; then
+        # default daemon mode
+        "${FDB_HOME}/fdbmonitor" \
+            --conffile "${FDB_HOME}/conf/fdb.conf" \
+            --lockfile "${FDB_HOME}/fdbmonitor.pid" \
+            --daemonize
+    else
+        # foreground mode
+        exec "${FDB_HOME}/fdbmonitor" \
+            --conffile "${FDB_HOME}/conf/fdb.conf" \
+            --lockfile "${FDB_HOME}/fdbmonitor.pid"
+    fi
+}
+
+function wait_for_fdb_start() {
+    local max_attempts=120
+    local attempt=0
+
+    echo "Waiting for FDB to start..."
+
+    while [[ ${attempt} -lt ${max_attempts} ]]; do
+        if lsof -nP -iTCP:"${FDB_PORT}" -sTCP:LISTEN 2>/dev/null | grep -q ":${FDB_PORT}"; then
+            echo "FDB server is listening on port ${FDB_PORT}"
+            return 0
+        fi
+
+        attempt=$((attempt + 1))
+        if [[ $((attempt % 10)) -eq 0 ]]; then
+            echo "Waiting for FDB to start... (${attempt}/${max_attempts})"
+        fi
+        sleep 1
+    done
+
+    echo "ERROR: FDB failed to start listening on port ${FDB_PORT} within ${max_attempts} seconds"
+    return 1
+}
+
+function initialize_fdb() {
+    local fdb_mode
+    fdb_mode=$(get_fdb_mode)
+
+    echo "Checking FDB database status..."
+
+    sleep 5
+
+    # check if database is already available
+    local status_output
+    status_output=$("${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" --exec "status" 2>&1 || true)
+
+    # return if database is available
+    if echo "${status_output}" | grep -q "The database is available"; then
+        echo "FDB database is available"
+        return 0
+    fi
+
+    # try to initialize database if no database exists
+    if echo "${status_output}" | grep -q "no record of this database\|no database\|unavailable"; then
+        echo "Initializing FDB database with mode: ${fdb_mode}"
+
+        if "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" --exec "configure new ${fdb_mode} ssd" --timeout 60; then
+            echo "Database initialized successfully, verifying status..."
+            sleep 10
+
+            # verify status
+            local verify_output
+            verify_output=$("${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" --exec "status" 2>&1 || true)
+
+            if echo "${verify_output}" | grep -q "The database is available"; then
+                echo "Database status verified successfully"
+                return 0
+            else
+                echo "ERROR: Database status verification failed"
+                return 1
+            fi
+        else
+            echo "ERROR: Database initialization failed"
+            return 1
+        fi
+    fi
+
+    echo "ERROR: Failed to initialize FDB database"
+    return 1
 }
 
 function stop_fdb() {
@@ -420,27 +505,90 @@ function deploy() {
 function start() {
     local job="$1"
     local init="$2"
+    shift 2
 
     if [[ ${job} =~ ^(all|fdb)$ ]]; then
-        start_fdb
+        # check mode
+        local foreground_mode="false"
+        for arg in "$@"; do
+            if [[ "${arg}" == "--foreground" || "${arg}" == "-f" ]]; then
+                foreground_mode="true"
+                break
+            fi
+        done
+
+        if [[ "${foreground_mode}" == "true" ]]; then
+            echo "Starting FDB in foreground mode..."
+
+            # ensure no stale pid
+            if [[ -f "${FDB_HOME}/fdbmonitor.pid" ]]; then
+                rm -f "${FDB_HOME}/fdbmonitor.pid"
+            fi
+
+            # trap must kill child processes
+            trap 'echo "Signal received, stopping FDB..."; pkill -TERM -P ${monitor_pid} 2>/dev/null; kill ${monitor_pid} 2>/dev/null; exit 0' SIGTERM SIGINT
+
+            echo "Starting FDB in foreground mode..."
+            # start fdbmonitor in foreground
+            "${FDB_HOME}/fdbmonitor" \
+                --conffile "${FDB_HOME}/conf/fdb.conf" \
+                --lockfile "${FDB_HOME}/fdbmonitor.pid" &
+
+            local monitor_pid=$!
+            echo "FDB monitor PID: ${monitor_pid}"
+
+            # wait for fdbmonitor to start
+            if wait_for_fdb_start; then
+                echo "FDB monitor started successfully"
+
+                # initialize database
+                if [[ ${init} =~ ^(all|fdb)$ ]]; then
+                    if initialize_fdb; then
+                        echo "Initializing FDB database successfully"
+                    else
+                        echo "Failed to initialize FDB database or database already exists"
+                    fi
+                fi
+
+                # wait for fdbmonitor dealing with signals
+                echo "FDB started successfully and waiting for FDB monitor (PID: ${monitor_pid})..."
+                # set trap to handle termination signals
+                trap 'echo "recive signal and stop FDB..."; kill ${monitor_pid} 2>/dev/null; exit 0' SIGTERM SIGINT
+
+                # wait for fdbmonitor to exit
+                wait "${monitor_pid}" 2>/dev/null || true
+                echo "FDB monitor exited with status code $?"
+            else
+                echo "Failed to start FDB monitor"
+                kill ${monitor_pid} 2>/dev/null
+                exit 1
+            fi
+
+            # propagate exit code to container
+            wait "${monitor_pid}"; exit $?
+        else
+            # start fdbmonitor in background
+            start_fdb "$@"
+
+            sleep 15
+
+            if [[ ${init} =~ ^(all|fdb)$ ]]; then
+                local fdb_mode
+                fdb_mode=$(get_fdb_mode)
+
+                echo "Try create database in fdb ${fdb_mode}"
+
+                "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" \
+                    --exec "configure new ${fdb_mode} ssd" ||
+                    "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" --exec "status" ||
+                    (echo "failed to start fdb, please check that all nodes have same FDB_CLUSTER_ID" &&
+                        exit 1)
+            fi
+
+            echo "Start fdb success, and you can set conf for MetaService:"
+            echo "fdb_cluster = $(cat "${FDB_HOME}"/conf/fdb.cluster)"
+        fi
     fi
-
-    if [[ ${init} =~ ^(all|fdb)$ ]]; then
-        local fdb_mode
-
-        fdb_mode=$(get_fdb_mode)
-
-        echo "Try create database in fdb ${fdb_mode}"
-
-        "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" \
-            --exec "configure new ${fdb_mode} ssd" ||
-            "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" --exec "status" ||
-            (echo "failed to start fdb, please check that all nodes have same FDB_CLUSTER_ID" &&
-                exit 1)
-    fi
-
-    echo "Start fdb success, and you can set conf for MetaService:"
-    echo "fdb_cluster = $(cat "${FDB_HOME}"/conf/fdb.cluster)"
 }
 
 function stop() {
@@ -499,7 +647,8 @@ deploy)
     deploy "${job}"
     ;;
 start)
-    start "${job}" "${init}"
+    # pass extra flags to start_fdb, like --foreground
+    start "${job}" "${init}" "$@"
     ;;
 stop)
     stop "${job}"
