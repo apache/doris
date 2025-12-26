@@ -241,5 +241,27 @@ inline size_t find_zero(const std::vector<uint8_t>& vec, size_t start) {
     return find_byte<uint8_t>(vec, start, 0);
 }
 
+inline bool contain_one(const uint8_t* __restrict data, size_t size) {
+    size_t i = 0;
+#if defined(__SSE2__)
+    {
+        const __m128i zero = _mm_setzero_si128();
+        __m128i acc = zero;
+        for (; i + 15 < size; i += 16) {
+            acc = _mm_or_si128(acc, _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + i)));
+        }
+
+        if (_mm_movemask_epi8(_mm_cmpeq_epi8(acc, zero)) != 0xFFFF) {
+            return true;
+        }
+    }
+#endif
+    uint8_t tail_acc = 0;
+    for (; i < size; ++i) {
+        tail_acc |= data[i];
+    }
+    return tail_acc != 0;
+}
+
 } // namespace doris::simd
 #include "common/compile_check_end.h"

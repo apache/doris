@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "common/compiler_util.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
@@ -502,42 +503,50 @@ struct MethodKeysFixed : public MethodBase<TData> {
         result.clear();
         result.resize(row_numbers);
 
+        auto* __restrict result_data = reinterpret_cast<char*>(result.data());
+
         size_t offset = 0;
+        std::vector<bool> has_null_column(nullmap_columns.size(), false);
         if (bitmap_size > 0) {
             for (size_t j = 0; j < nullmap_columns.size(); j++) {
                 if (!nullmap_columns[j]) {
                     continue;
                 }
-                size_t bucket = j / BITSIZE;
-                size_t local_offset = j % BITSIZE;
-                const auto& data =
+                const auto* __restrict data =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
+
+                if (!simd::contain_one(data, row_numbers)) {
+                    continue;
+                }
+                has_null_column[j] = true;
+
+                size_t bucket = j / BITSIZE;
+                size_t local_offset = j - bucket * BITSIZE;
+                const auto mask = uint8_t(1 << local_offset);
+                auto* __restrict current = result_data + bucket;
                 for (size_t i = 0; i < row_numbers; ++i) {
-                    *((char*)(&result[i]) + bucket) |= data[i] << local_offset;
+                    *(current) |= data[i] * mask;
+                    current += sizeof(T);
                 }
             }
             offset += bitmap_size;
         }
 
         for (size_t j = 0; j < key_columns.size(); ++j) {
-            const char* data = key_columns[j]->get_raw_data().data;
+            const char* __restrict data = key_columns[j]->get_raw_data().data;
 
             auto foo = [&]<typename Fixed>(Fixed zero) {
                 CHECK_EQ(sizeof(Fixed), key_sizes[j]);
-                if (!nullmap_columns.empty() && nullmap_columns[j]) {
-                    const auto& nullmap =
+                if (has_null_column.size() && has_null_column[j]) {
+                    const auto* nullmap =
                             assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
-                    for (size_t i = 0; i < row_numbers; ++i) {
-                        // make sure null cell is filled by 0x0
-                        memcpy_fixed<Fixed, true>(
-                                (char*)(&result[i]) + offset,
-                                nullmap[i] ? (char*)&zero : data + i * sizeof(Fixed));
-                    }
-                } else {
-                    for (size_t i = 0; i < row_numbers; ++i) {
-                        memcpy_fixed<Fixed, true>((char*)(&result[i]) + offset,
-                                                  data + i * sizeof(Fixed));
-                    }
+                    // make sure null cell is filled by 0x0
+                    key_columns[j]->assume_mutable()->replace_column_null_data(nullmap);
+                }
+                auto* __restrict current = result_data + offset;
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed<Fixed, true>(current, data + i * sizeof(Fixed));
+                    current += sizeof(T);
                 }
             };
 
