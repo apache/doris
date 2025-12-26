@@ -146,10 +146,10 @@ public class RefreshManager {
             }
             return;
         }
-        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, 0);
-
+        long updateTime = System.currentTimeMillis();
+        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
         ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(catalog.getId(), db.getFullName(),
-                table.getName());
+                table.getName(), updateTime);
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 
@@ -194,6 +194,9 @@ public class RefreshManager {
                 HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                         .getMetaStoreCache((HMSExternalCatalog) catalog);
                 cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
+                if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
+                    ((HMSExternalTable) table.get()).setEventUpdateTime(log.getLastUpdateTime());
+                }
                 LOG.info("replay refresh partitions for table {}, "
                                 + "modified partitions count: {}, "
                                 + "new partitions count: {}",
@@ -233,8 +236,8 @@ public class RefreshManager {
             ((HMSExternalTable) table).setEventUpdateTime(updateTime);
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
-        LOG.info("refresh table {}, id {} from db {} in catalog {}",
-                table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName());
+        LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
+                table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
 
     // Refresh partition
