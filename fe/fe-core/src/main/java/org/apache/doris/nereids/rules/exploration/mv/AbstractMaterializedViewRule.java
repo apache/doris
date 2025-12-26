@@ -837,17 +837,19 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         if (couldNotPulledUpCompensateConjunctions == null) {
             return SplitPredicate.INVALID_INSTANCE;
         }
-        // viewEquivalenceClass to query based
-        // equal predicate compensate
+        Set<Expression> uncoveredEquals = new HashSet<>();
+        Set<Expression> uncoveredRanges = new HashSet<>();
         final Map<Expression, ExpressionInfo> equalCompensateConjunctions = Predicates.compensateEquivalence(
-                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult);
-        // range compensate
+                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult, uncoveredEquals);
         final Map<Expression, ExpressionInfo> rangeCompensatePredicates =
                 Predicates.compensateRangePredicate(queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
-                comparisonResult, cascadesContext);
-        // residual compensate
+                        comparisonResult, cascadesContext, uncoveredRanges);
+
+        Set<Expression> extraResiduals = new HashSet<>();
+        extraResiduals.addAll(uncoveredEquals);
+        extraResiduals.addAll(uncoveredRanges);
         final Map<Expression, ExpressionInfo> residualCompensatePredicates = Predicates.compensateResidualPredicate(
-                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult);
+                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult, extraResiduals);
         if (equalCompensateConjunctions == null || rangeCompensatePredicates == null
                 || residualCompensatePredicates == null) {
             return SplitPredicate.INVALID_INSTANCE;
