@@ -336,6 +336,14 @@ public class SystemInfoService {
         return true;
     }
 
+    public boolean checkBackendOnline(long backendId) {
+        Backend backend = getAllClusterBackendsNoException().get(backendId);
+        if (backend == null || !backend.isDecommissioned()) {
+            return false;
+        }
+        return true;
+    }
+
     public Backend getBackendWithHeartbeatPort(String host, int heartPort) {
         ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
         for (Backend backend : idToBackend.values()) {
