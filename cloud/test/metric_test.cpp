@@ -196,96 +196,96 @@ TEST(MetricTest, FdbMetricExporterTest) {
         fdb_metric_exporter.start();
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         fdb_metric_exporter.stop();
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "cpu", "usage_cores"}),
                   0.0012292);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "disk", "busy"}),
                   0.0085999800000000001);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "disk", "free_bytes"}),
                   490412584960);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "disk", "reads_counter"}),
                   854857);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "disk", "reads_hz"}),
                   0);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "disk", "reads_sectors"}),
                   0);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "disk", "total_bytes"}),
                   527295578112);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "disk", "writes_counter"}),
                   73765457);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "disk", "writes_hz"}),
                   26.1999);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "disk", "writes_sectors"}),
                   1336);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "memory", "available_bytes"}),
                   3065090867);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "memory", "limit_bytes"}),
                   8589934592);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "memory", "rss_bytes"}),
                   46551040);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get({"09ca90b9f3f413e5816b2610ed8b465d", "memory",
-                                                  "unused_allocated_memory"}),
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get({"09ca90b9f3f413e5816b2610ed8b465d", "memory",
+                                                    "unused_allocated_memory"}),
                   655360);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "memory", "used_bytes"}),
                   122974208);
 
         // test second process
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "cpu", "usage_cores"}),
                   0.0049765900000000004);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "disk", "busy"}),
                   0.012200000000000001);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "disk", "free_bytes"}),
                   489160159232);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "disk", "reads_counter"}),
                   877107);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "disk", "reads_hz"}),
                   0);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "disk", "reads_sectors"}),
                   0);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "disk", "total_bytes"}),
                   527295578112);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "disk", "writes_counter"}),
                   79316112);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "disk", "writes_hz"}),
                   30.9999);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "disk", "writes_sectors"}),
                   744);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "memory", "available_bytes"}),
                   3076787404);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "memory", "limit_bytes"}),
                   8589934592);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "memory", "rss_bytes"}),
                   72359936);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get({"0a456165f04e1ec1a2ade0ce523d54a8", "memory",
-                                                  "unused_allocated_memory"}),
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get({"0a456165f04e1ec1a2ade0ce523d54a8", "memory",
+                                                    "unused_allocated_memory"}),
                   393216);
-        ASSERT_EQ(g_bvar_fdb_cluster_process.get(
+        ASSERT_EQ(g_bvar_fdb_cluster_processes.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "memory", "used_bytes"}),
                   157978624);
     }

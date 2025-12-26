@@ -183,26 +183,6 @@ static void export_fdb_status_details(const std::string& status_str) {
             get_nanoseconds({"latency_probe", "commit_seconds"}));
     g_bvar_fdb_latency_probe_read_ns.set_value(get_nanoseconds({"latency_probe", "read_seconds"}));
 
-    // Workload
-    g_bvar_fdb_workload_conflict_rate_hz.set_value(
-            get_value({"workload", "transactions", "conflicted", "hz"}));
-    g_bvar_fdb_workload_location_rate_hz.set_value(
-            get_value({"workload", "operations", "location_requests", "hz"}));
-    g_bvar_fdb_workload_keys_read_hz.set_value(get_value({"workload", "keys", "read", "hz"}));
-    g_bvar_fdb_workload_read_bytes_hz.set_value(get_value({"workload", "bytes", "read", "hz"}));
-    g_bvar_fdb_workload_read_rate_hz.set_value(
-            get_value({"workload", "operations", "reads", "hz"}));
-    g_bvar_fdb_workload_written_bytes_hz.set_value(
-            get_value({"workload", "bytes", "written", "hz"}));
-    g_bvar_fdb_workload_write_rate_hz.set_value(
-            get_value({"workload", "operations", "writes", "hz"}));
-    g_bvar_fdb_workload_transactions_started_hz.set_value(
-            get_value({"workload", "transactions", "started", "hz"}));
-    g_bvar_fdb_workload_transactions_committed_hz.set_value(
-            get_value({"workload", "transactions", "committed", "hz"}));
-    g_bvar_fdb_workload_transactions_rejected_hz.set_value(
-            get_value({"workload", "transactions", "rejected_for_queued_too_long", "hz"}));
-
     // QOS
     g_bvar_fdb_qos_worst_data_lag_storage_server_ns.set_value(
             get_nanoseconds({"qos", "worst_data_lag_storage_server", "seconds"}));
@@ -272,7 +252,7 @@ static void export_fdb_status_details(const std::string& status_str) {
             const char* process_id = process_node->name.GetString();
             decltype(process_node) component_node;
             // get component iter
-            if (!process_node->value.HasMember(component.data())) return;
+            if (!process_node->value.HasMember(component.data())) continue;
             component_node = process_node->value.FindMember(component.data());
 
             // set_bvar_value is responsible for setting integer and float values to the corresponding bvar.
@@ -280,14 +260,14 @@ static void export_fdb_status_details(const std::string& status_str) {
                                           std::string& name,
                                           decltype(process_node)& temp_node) -> void {
                 if (temp_node->value.IsInt64()) {
-                    g_bvar_fdb_cluster_process.put(
+                    g_bvar_fdb_cluster_processes.put(
                             {process_id, component, name},
                             static_cast<double>(temp_node->value.GetInt64()));
                     return;
                 }
                 if (temp_node->value.IsDouble()) {
-                    g_bvar_fdb_cluster_process.put({process_id, component, name},
-                                                   temp_node->value.GetDouble());
+                    g_bvar_fdb_cluster_processes.put({process_id, component, name},
+                                                     temp_node->value.GetDouble());
                     return;
                 }
                 LOG(WARNING) << fmt::format(
