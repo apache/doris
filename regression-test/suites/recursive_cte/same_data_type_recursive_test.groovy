@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("same_data_type_recursive_test") {
+suite("same_data_type_recursive_test", "rec_cte") {
     String db = context.config.getDbNameByFile(context.file)
     def prefix_str = "data_null_not_recursive_"
     def tb_name = prefix_str + "tb"

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("recursive_100_number_test") {
+suite("recursive_100_number_test", "rec_cte") {
 
     def level = 100
     sql """
