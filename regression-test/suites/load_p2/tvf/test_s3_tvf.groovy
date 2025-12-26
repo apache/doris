@@ -64,7 +64,6 @@ suite("test_s3_tvf", "p2") {
                  .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/kd16=abcdefg/basic_data.csv")
                  .addProperty("format", "csv")
                  .addProperty("column_separator", "|")
-                 .addProperty("use_path_style", "true")
                  .addProperty("force_parsing_by_standard_uri", "true")
                  .addProperty("path_partition_keys", "kd16"))
    }
@@ -74,7 +73,6 @@ suite("test_s3_tvf", "p2") {
             .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/kd16=abcdefg/basic_data.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
-            .addProperty("use_path_style", "true")
             .addProperty("force_parsing_by_standard_uri", "true")
             .addProperty("path_partition_keys", "kd16"))
     // path partition key maybe don't support array type ? 
@@ -92,7 +90,6 @@ suite("test_s3_tvf", "p2") {
                  .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/kd16=abcdefg/kd17=hello/basic_data.csv")
                  .addProperty("format", "csv")
                  .addProperty("column_separator", "|")
-                 .addProperty("use_path_style", "true")
                  .addProperty("force_parsing_by_standard_uri", "true")
                  .addProperty("path_partition_keys", "kd16,kd17"))
    }
@@ -926,6 +923,7 @@ suite("test_s3_tvf", "p2") {
             "s3.access_key" = "$ak",
             "s3.secret_key" = "$sk",
             "s3.region" = "${s3Region}",
+            "s3.endpoint" = "${s3Endpoint}",
             ${prop}
         ) ${attribute.whereClause}
           ${attribute.orderByClause}
@@ -935,8 +933,8 @@ suite("test_s3_tvf", "p2") {
         try {
             sql """${sqlStr}"""
         } catch (Exception ex) {
-            assertTrue(attribute.expectFiled)
-            logger.info("error: ", ex)
+            logger.error("SQL execution failed: ${ex.message}", ex)
+            assertTrue(attribute.expectFiled, "SQL execution failed but expectFiled is false. Error: ${ex.message}")
         }
         qt_select """ select count(*) from $attribute.tableName """
         ++i
