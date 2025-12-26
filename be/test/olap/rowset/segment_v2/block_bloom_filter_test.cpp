@@ -29,6 +29,9 @@
 #include "gtest/gtest_pred_impl.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "util/slice.h"
+#include "vec/common/string_ref.h"
+#include "vec/functions/cast/cast_parameters.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -210,6 +213,67 @@ TEST_F(BlockBloomFilterTest, contains) {
 
     ASSERT_TRUE(bf1->contains(*bf2));
     ASSERT_FALSE(bf2->contains(*bf1));
+}
+
+// Test for timestamptz
+TEST_F(BlockBloomFilterTest, timestamptz) {
+    // test write
+    std::unique_ptr<BloomFilter> bf;
+    // now CLASSIC_BLOOM_FILTER is not supported
+    auto st = BloomFilter::create(CLASSIC_BLOOM_FILTER, &bf);
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(nullptr, bf);
+    st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
+    EXPECT_TRUE(st.ok());
+    EXPECT_NE(nullptr, bf);
+    st = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(bf->size() > 0);
+
+    cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
+    TimezoneUtils::load_offsets_to_cache();
+    vectorized::CastParameters params;
+    params.is_strict = true;
+    std::vector<std::string> str_values = {"0001-01-01 00:00:00", "2023-01-01 15:00:00",
+                                           "8999-12-31 23:59:59"};
+
+    int num = 3;
+    TimestampTzValue values[3];
+    for (int i = 0; i < num; ++i) {
+        TimestampTzValue tz {};
+        EXPECT_TRUE(tz.from_string(StringRef {str_values[i]}, &time_zone, params, 0));
+        bf->add_bytes((char*)&tz, sizeof(TimestampTzValue));
+        values[i] = tz;
+    }
+    // add nullptr
+    bf->add_bytes(nullptr, 1);
+    for (int i = 0; i < num; ++i) {
+        EXPECT_TRUE(bf->test_bytes((char*)&values[i], sizeof(TimestampTzValue)));
+    }
+    // test nullptr
+    EXPECT_TRUE(bf->test_bytes(nullptr, 1));
+
+    // test read
+    std::unique_ptr<BloomFilter> bf2;
+    st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf2);
+    EXPECT_TRUE(st.ok());
+    EXPECT_NE(nullptr, bf2);
+    st = bf2->init(bf->data(), bf->size(), HASH_MURMUR3_X64_64);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(bf2->size() > 0);
+    for (int i = 0; i < num; ++i) {
+        EXPECT_TRUE(bf2->test_bytes((char*)&values[i], sizeof(TimestampTzValue)));
+    }
+    // test nullptr
+    EXPECT_TRUE(bf2->test_bytes(nullptr, 1));
+
+    bf->reset();
+    const char* data = bf->data();
+    // data is reset to 0
+    for (int i = 0; i < bf->size(); ++i) {
+        EXPECT_EQ(*data, 0);
+        data++;
+    }
 }
 
 } // namespace segment_v2

@@ -72,7 +72,8 @@ suite("test_partition_table_err_msg", "p0") {
               PARTITION partition_d VALUES LESS THAN ("10000-01-01 00:00:00") ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 13
         """
-        exception "date/datetime literal [10000-01-01 00:00:00] is invalid"
+        // exception "date/datetime literal [10000-01-01 00:00:00] is invalid"
+        exception "Invalid range value format"
     }
     test {
         sql """
@@ -91,7 +92,8 @@ suite("test_partition_table_err_msg", "p0") {
               PARTITION partition_d VALUES LESS THAN ("9999-12-31 24:00:00") ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 13
         """
-        exception "date/datetime literal [9999-12-31 24:00:00] is invalid"
+        // exception "date/datetime literal [9999-12-31 24:00:00] is invalid"
+        exception "Invalid range value format"
     }
     test {
         sql """

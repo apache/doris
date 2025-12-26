@@ -208,6 +208,9 @@ TEST(DataTypeSerDeTest, DataTypeScalaSerDeTest) {
 }
 
 TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     // ipv6
     {
         std::string ip = "5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b";
@@ -221,7 +224,7 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         Arena pool;
         jsonb_writer.writeStartObject();
-        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, pool, 0, 0);
+        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, pool, 0, 0, options);
         jsonb_writer.writeEndObject();
         auto jsonb_column = ColumnString::create();
         jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
@@ -253,7 +256,7 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         Arena pool;
         jsonb_writer.writeStartObject();
-        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, pool, 0, 0);
+        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, pool, 0, 0, options);
         jsonb_writer.writeEndObject();
         auto jsonb_column = ColumnString::create();
         jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),

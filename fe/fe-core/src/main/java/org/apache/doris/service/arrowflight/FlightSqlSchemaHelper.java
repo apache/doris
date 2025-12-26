@@ -130,6 +130,14 @@ public class FlightSqlSchemaHelper {
                 } else {
                     return new ArrowType.Timestamp(TimeUnit.SECOND, timeZone);
                 }
+            case TIMESTAMPTZ:
+                if (scale > 3) {
+                    return new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC");
+                } else if (scale > 0) {
+                    return new ArrowType.Timestamp(TimeUnit.MILLISECOND, "UTC");
+                } else {
+                    return new ArrowType.Timestamp(TimeUnit.SECOND, "UTC");
+                }
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:

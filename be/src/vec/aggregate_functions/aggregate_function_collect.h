@@ -310,7 +310,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
 template <PrimitiveType T, bool HasLimit>
     requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
-             !is_date_type(T) && !is_ip(T))
+             !is_date_type(T) && !is_ip(T) && !is_timestamptz_type(T))
 struct AggregateFunctionCollectListData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;

@@ -31,9 +31,11 @@
 #include "io/fs/local_file_system.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
+#include "runtime/type_limit.h"
 #include "util/slice.h"
 #include "vec/columns/column_vector.h"
 #include "vec/functions/cast/cast_to_string.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -431,6 +433,185 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
 
     EXPECT_EQ(true, zone_maps[2].has_null());
     EXPECT_EQ(false, zone_maps[2].has_not_null());
+    delete field;
+}
+
+TabletColumnPtr create_timestamptz_column(int32_t id, bool is_nullable) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
+    column->_is_key = false;
+    column->_is_nullable = is_nullable;
+    column->_length = 8;
+    column->_index_length = 8;
+    column->_is_bf_column = false;
+    return column;
+}
+
+TEST_F(ColumnZoneMapTest, TimestamptzPage) {
+    std::string filename = kTestDir + "/TimestamptzPage";
+    auto fs = io::global_local_filesystem();
+
+    auto column = create_timestamptz_column(0, true);
+    Field* field = FieldFactory::create(*column);
+
+    std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
+    static_cast<void>(ZoneMapIndexWriter::create(field, builder));
+    cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
+    TimezoneUtils::load_offsets_to_cache();
+    vectorized::CastParameters params;
+    params.is_strict = true;
+
+    // page 1
+    // with min and max value
+    {
+        std::vector<std::string> values = {"0000-01-01 00:00:00", "0000-01-01 00:00:00",
+                                           "0000-01-01 03:00:00", "0000-01-01 03:00:00",
+                                           "2023-01-01 15:00:00", "2023-01-01 15:00:00",
+                                           "9999-12-31 23:59:59", "9999-12-31 23:59:59"};
+        for (auto str : values) {
+            TimestampTzValue tz {};
+            EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
+            builder->add_values((const uint8_t*)&tz, 1);
+        }
+        static_cast<void>(builder->flush());
+    }
+
+    // page 2
+    // with min value
+    {
+        std::vector<std::string> values = {"0000-01-01 00:00:00", "0000-01-01 00:00:00",
+                                           "0000-01-01 03:00:00", "0000-01-01 03:00:00",
+                                           "2023-01-01 15:00:00", "2023-01-01 15:00:00",
+                                           "8999-12-31 23:59:59", "8999-12-31 23:59:59"};
+        for (auto str : values) {
+            TimestampTzValue tz {};
+            EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
+            builder->add_values((const uint8_t*)&tz, 1);
+        }
+        builder->add_nulls(1);
+        static_cast<void>(builder->flush());
+    }
+    // page 3
+    // with max value
+    {
+        std::vector<std::string> values = {"0000-01-01 00:00:59", "0000-01-01 00:00:59",
+                                           "0000-01-01 03:00:00", "0000-01-01 03:00:00",
+                                           "2023-01-01 15:00:00", "2023-01-01 15:00:00",
+                                           "9999-12-31 23:59:59", "9999-12-31 23:59:59"};
+        for (auto str : values) {
+            TimestampTzValue tz {};
+            EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
+            builder->add_values((const uint8_t*)&tz, 1);
+        }
+        builder->add_nulls(1);
+        static_cast<void>(builder->flush());
+    }
+
+    // page 4
+    // no min and max value
+    {
+        std::vector<std::string> values = {"0000-01-01 00:00:59", "0000-01-01 00:00:59",
+                                           "0000-01-01 03:00:00", "0000-01-01 03:00:00",
+                                           "2023-01-01 15:00:00", "2023-01-01 15:00:00",
+                                           "8999-12-31 23:59:59", "8999-12-31 23:59:59"};
+        for (auto str : values) {
+            TimestampTzValue tz {};
+            EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
+            builder->add_values((const uint8_t*)&tz, 1);
+        }
+        builder->add_nulls(1);
+        static_cast<void>(builder->flush());
+    }
+
+    // page 5
+    builder->add_nulls(6);
+    static_cast<void>(builder->flush());
+
+    // write out zone map index
+    ColumnIndexMetaPB index_meta;
+    {
+        io::FileWriterPtr file_writer;
+        EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
+        EXPECT_TRUE(builder->finish(file_writer.get(), &index_meta).ok());
+        EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
+        EXPECT_TRUE(file_writer->close().ok());
+    }
+
+    io::FileReaderSPtr file_reader;
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+
+    vectorized::UInt32 scale = 6;
+    auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
+    EXPECT_EQ(
+            vectorized::CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
+            segment_zone_map.min());
+    std::string max_str = "9999-12-31 23:59:59";
+    TimestampTzValue tz_max {};
+    EXPECT_TRUE(tz_max.from_string(StringRef {max_str}, &time_zone, params, 0));
+    EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz_max, scale), segment_zone_map.max());
+    EXPECT_EQ(true, segment_zone_map.has_null());
+    EXPECT_EQ(true, segment_zone_map.has_not_null());
+
+    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index().page_zone_maps());
+    Status status = column_zone_map.load(true, false);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(5, column_zone_map.num_pages());
+    const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
+    EXPECT_EQ(5, zone_maps.size());
+
+    // page 1
+    EXPECT_EQ(
+            vectorized::CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
+            zone_maps[0].min());
+    EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz_max, scale), zone_maps[0].max());
+    EXPECT_EQ(false, zone_maps[0].has_null());
+    EXPECT_EQ(true, zone_maps[0].has_not_null());
+
+    // page 2
+    EXPECT_EQ(
+            vectorized::CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
+            zone_maps[1].min());
+    {
+        TimestampTzValue tz {};
+        StringRef str = StringRef {"8999-12-31 23:59:59"};
+        EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0));
+        EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz, scale), zone_maps[1].max());
+        EXPECT_EQ(true, zone_maps[1].has_null());
+        EXPECT_EQ(true, zone_maps[1].has_not_null());
+    }
+
+    // page 3
+    {
+        TimestampTzValue tz {};
+        StringRef str = StringRef {"0000-01-01 00:00:59"};
+        EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0));
+        EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz, scale), zone_maps[2].min());
+    }
+    EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz_max, scale), zone_maps[2].max());
+    EXPECT_EQ(true, zone_maps[2].has_null());
+    EXPECT_EQ(true, zone_maps[2].has_not_null());
+
+    // page 4
+    {
+        TimestampTzValue tz {};
+        StringRef str = StringRef {"0000-01-01 00:00:59"};
+        EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0));
+        EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz, scale), zone_maps[3].min());
+    }
+    {
+        TimestampTzValue tz {};
+        StringRef str = StringRef {"8999-12-31 23:59:59"};
+        EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0));
+        EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz, scale), zone_maps[3].max());
+    }
+    EXPECT_EQ(true, zone_maps[3].has_null());
+    EXPECT_EQ(true, zone_maps[3].has_not_null());
+
+    // page 5
+    EXPECT_EQ(true, zone_maps[4].has_null());
+    EXPECT_EQ(false, zone_maps[4].has_not_null());
     delete field;
 }
 

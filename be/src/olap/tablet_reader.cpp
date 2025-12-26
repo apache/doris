@@ -189,7 +189,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     if (eof) {
-        return Status::OK();
+        return Status::EndOfFile("reach end of scan range. tablet={}", _tablet->tablet_id());
     }
 
     bool need_ordered_result = true;

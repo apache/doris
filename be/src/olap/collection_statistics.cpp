@@ -123,6 +123,9 @@ Status handle_match_pred(RuntimeState* state, const TabletSchemaSPtr& tablet_sch
                 left_slot_ref->column_name());
     }
 #endif
+
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    format_options.timezone = &state->timezone_obj();
     for (const auto* index_meta : index_metas) {
         if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
             continue;
@@ -131,8 +134,8 @@ Status handle_match_pred(RuntimeState* state, const TabletSchemaSPtr& tablet_sch
             continue;
         }
 
-        auto term_infos = InvertedIndexAnalyzer::get_analyse_result(right_literal->value(),
-                                                                    index_meta->properties());
+        auto term_infos = InvertedIndexAnalyzer::get_analyse_result(
+                right_literal->value(format_options), index_meta->properties());
 
         std::string field_name = std::to_string(index_meta->col_unique_ids()[0]);
         if (!column.suffix_path().empty()) {

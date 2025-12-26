@@ -572,6 +572,7 @@ public class ColumnDef {
             switch (primitiveType) {
                 case DATETIME:
                 case DATETIMEV2:
+                case TIMESTAMPTZ:
                     break;
                 default:
                     throw new AnalysisException("Types other than DATETIME and DATETIMEV2 "
@@ -648,6 +649,7 @@ public class ColumnDef {
                 break;
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMPTZ:
                 if (defaultValueExprDef == null) {
                     new DateLiteral(defaultValue, scalarType);
                 } else {

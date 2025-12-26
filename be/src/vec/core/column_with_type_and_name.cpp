@@ -83,9 +83,21 @@ String ColumnWithTypeAndName::dump_structure() const {
     return out.str();
 }
 
-std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
-    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num);
+std::string ColumnWithTypeAndName::to_string(
+        size_t row_num, const vectorized::DataTypeSerDe::FormatOptions& format_options) const {
+    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num,
+                           format_options);
 }
+
+#ifdef BE_TEST
+std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto timezone = cctz::utc_time_zone();
+    format_options.timezone = &timezone;
+    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num,
+                           format_options);
+}
+#endif
 
 void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {
     col_meta->set_name(name);

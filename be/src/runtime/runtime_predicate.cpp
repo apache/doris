@@ -25,6 +25,7 @@
 #include "olap/accept_null_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/predicate_creator.h"
+#include "runtime/define_primitive_type.h"
 
 namespace doris::vectorized {
 

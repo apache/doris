@@ -368,6 +368,8 @@ public:
             return get<UInt64>() <=> rhs.get<UInt64>();
         case PrimitiveType::TYPE_DATEV2:
             return get<UInt32>() <=> rhs.get<UInt32>();
+        case PrimitiveType::TYPE_TIMESTAMPTZ:
+            return get<UInt64>() <=> rhs.get<UInt64>();
         case PrimitiveType::TYPE_DATE:
         case PrimitiveType::TYPE_DATETIME:
         case PrimitiveType::TYPE_BIGINT:
@@ -413,6 +415,7 @@ public:
             f(field.template get<Null>());
             return;
         case PrimitiveType::TYPE_DATETIMEV2:
+        case PrimitiveType::TYPE_TIMESTAMPTZ:
             f(field.template get<UInt64>());
             return;
         case PrimitiveType::TYPE_DATETIME:

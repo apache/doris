@@ -49,9 +49,12 @@ TEST_F(AggStateSerdeTest, writeOneCellToJsonb) {
     ASSERT_EQ(column_fixed_length->size(), 1);
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     jsonb_writer.writeStartObject();
     datatype_agg_state_serde_count->write_one_cell_to_jsonb(*column_fixed_length, jsonb_writer,
-                                                            pool, 0, 0);
+                                                            pool, 0, 0, options);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
@@ -77,9 +80,12 @@ TEST_F(AggStateSerdeTest, writeOneCellToJsonb2) {
     ASSERT_EQ(column_string->size(), 1);
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
     jsonb_writer.writeStartObject();
     datatype_agg_state_serde_hll_union->write_one_cell_to_jsonb(*column_string, jsonb_writer, pool,
-                                                                0, 0);
+                                                                0, 0, options);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
