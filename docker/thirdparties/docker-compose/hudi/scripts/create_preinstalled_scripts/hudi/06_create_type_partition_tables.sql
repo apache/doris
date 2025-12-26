@@ -1,6 +1,16 @@
 -- Create partition tables with different partition column types
 USE regression_hudi;
 
+-- Drop existing tables if they exist
+DROP TABLE IF EXISTS boolean_partition_tb;
+DROP TABLE IF EXISTS tinyint_partition_tb;
+DROP TABLE IF EXISTS smallint_partition_tb;
+DROP TABLE IF EXISTS int_partition_tb;
+DROP TABLE IF EXISTS bigint_partition_tb;
+DROP TABLE IF EXISTS string_partition_tb;
+DROP TABLE IF EXISTS date_partition_tb;
+DROP TABLE IF EXISTS timestamp_partition_tb;
+
 CREATE TABLE IF NOT EXISTS boolean_partition_tb (
   id BIGINT,
   name STRING,

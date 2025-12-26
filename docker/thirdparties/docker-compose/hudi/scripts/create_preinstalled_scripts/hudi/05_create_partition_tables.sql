@@ -1,6 +1,11 @@
 -- Create partition tables for partition pruning tests
 USE regression_hudi;
 
+-- Drop existing tables if they exist
+DROP TABLE IF EXISTS one_partition_tb;
+DROP TABLE IF EXISTS two_partition_tb;
+DROP TABLE IF EXISTS three_partition_tb;
+
 -- One partition table
 CREATE TABLE IF NOT EXISTS one_partition_tb (
   id BIGINT,

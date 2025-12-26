@@ -1,6 +1,10 @@
 -- Create time travel test tables
 USE regression_hudi;
 
+-- Drop existing tables if they exist
+DROP TABLE IF EXISTS timetravel_cow;
+DROP TABLE IF EXISTS timetravel_mor;
+
 CREATE TABLE IF NOT EXISTS timetravel_cow (
   id BIGINT,
   name STRING,

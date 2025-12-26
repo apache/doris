@@ -2,6 +2,10 @@
 -- These tables are used to test schema evolution capabilities
 USE regression_hudi;
 
+-- Drop existing tables if they exist
+DROP TABLE IF EXISTS hudi_sc_orc_cow;
+DROP TABLE IF EXISTS hudi_sc_parquet_cow;
+
 -- Create hudi_sc_orc_cow table with initial schema
 CREATE TABLE IF NOT EXISTS hudi_sc_orc_cow (
   id INT,

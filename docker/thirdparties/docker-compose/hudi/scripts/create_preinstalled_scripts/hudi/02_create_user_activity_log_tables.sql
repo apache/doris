@@ -1,6 +1,12 @@
 -- Create user_activity_log tables (COW/MOR, partitioned/non-partitioned) and insert demo data
 USE regression_hudi;
 
+-- Drop existing tables if they exist
+DROP TABLE IF EXISTS user_activity_log_cow_partition;
+DROP TABLE IF EXISTS user_activity_log_cow_non_partition;
+DROP TABLE IF EXISTS user_activity_log_mor_partition;
+DROP TABLE IF EXISTS user_activity_log_mor_non_partition;
+
 -- Create COW partitioned table
 CREATE TABLE IF NOT EXISTS user_activity_log_cow_partition (
   user_id BIGINT,

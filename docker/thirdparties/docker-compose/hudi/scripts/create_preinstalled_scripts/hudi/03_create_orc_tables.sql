@@ -1,6 +1,10 @@
 -- Create ORC format Hudi tables
 USE regression_hudi;
 
+-- Drop existing tables if they exist
+DROP TABLE IF EXISTS orc_hudi_table_cow;
+DROP TABLE IF EXISTS orc_hudi_table_mor;
+
 CREATE TABLE IF NOT EXISTS orc_hudi_table_cow (
   id BIGINT,
   name STRING,
