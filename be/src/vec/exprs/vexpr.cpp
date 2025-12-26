@@ -1022,5 +1022,60 @@ bool VExpr::ann_dist_is_fulfilled() const {
     return _virtual_column_is_fulfilled;
 }
 
+Status VExpr::execute_filter(VExprContext* context, const Block* block,
+                             uint8_t* __restrict result_filter_data, size_t rows, bool accept_null,
+                             bool* can_filter_all) const {
+    ColumnPtr filter_column;
+    RETURN_IF_ERROR(execute_column(context, block, rows, filter_column));
+    if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+        // const(nullable) or const(bool)
+        const bool result = accept_null
+                                    ? (const_column->is_null_at(0) || const_column->get_bool(0))
+                                    : (!const_column->is_null_at(0) && const_column->get_bool(0));
+        if (!result) {
+            // filter all
+            *can_filter_all = true;
+            memset(result_filter_data, 0, rows);
+            return Status::OK();
+        }
+    } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+        // nullable(bool)
+        const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
+        const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+        const auto* __restrict filter_data = filter.data();
+        const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+
+        if (accept_null) {
+            for (size_t i = 0; i < rows; ++i) {
+                result_filter_data[i] &= (null_map_data[i]) || filter_data[i];
+            }
+        } else {
+            for (size_t i = 0; i < rows; ++i) {
+                result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
+            }
+        }
+
+        if ((memchr(result_filter_data, 0x1, rows) == nullptr)) {
+            *can_filter_all = true;
+            return Status::OK();
+        }
+    } else {
+        // bool
+        const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*filter_column).get_data();
+        const auto* __restrict filter_data = filter.data();
+
+        for (size_t i = 0; i < rows; ++i) {
+            result_filter_data[i] &= filter_data[i];
+        }
+
+        if (memchr(result_filter_data, 0x1, rows) == nullptr) {
+            *can_filter_all = true;
+            return Status::OK();
+        }
+    }
+
+    return Status::OK();
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
