@@ -5261,6 +5261,7 @@ public:
     }
 };
 
+<<<<<<< HEAD
 class FunctionUnicodeNormalize : public IFunction {
 public:
     static constexpr auto name = "unicode_normalize";
@@ -5401,8 +5402,137 @@ private:
 
         output.clear();
         result16.toUTF8String(output);
+=======
+// Implementation of Levenshtein algorithm
+struct LevenshteinImpl {
+    static constexpr auto name = "levenshtein";
+
+    using ResultDataType = DataTypeInt32;
+    using ResultPaddedPODArray = ColumnInt32::Container;
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<ResultDataType>();
+    }
+
+    // Get UTF-8 byte length
+    static size_t get_utf8_byte_length(unsigned char byte) {
+        if (byte < 0x80) return 1;
+        if ((byte & 0xE0) == 0xC0) return 2;
+        if ((byte & 0xF0) == 0xE0) return 3;
+        if ((byte & 0xF8) == 0xF0) return 4;
+        return 1;
+    }
+
+    // Convert string to UTF-8 code points
+    static void to_utf32(const char* data, size_t size, std::vector<int32_t>& out) {
+        out.clear();
+        size_t i = 0;
+        while (i < size) {
+            size_t char_len = get_utf8_byte_length(static_cast<unsigned char>(data[i]));
+            if (i + char_len > size) {
+                char_len = 1;
+            }
+
+            int32_t code_point = 0;
+            for (size_t j = 0; j < char_len; ++j) {
+                code_point = (code_point << 8) | static_cast<unsigned char>(data[i + j]);
+            }
+            out.push_back(code_point);
+            i += char_len;
+        }
+    }
+
+    static void execute(std::string_view l, std::string_view r, int32_t& res) {
+        // Optimization for empty strings
+        if (UNLIKELY(l.empty())) {
+            // Need to count chars in r, not bytes
+            std::vector<int32_t> tmp;
+            to_utf32(r.data(), r.size(), tmp);
+            res = static_cast<int32_t>(tmp.size());
+            return;
+        }
+        if (UNLIKELY(r.empty())) {
+            std::vector<int32_t> tmp;
+            to_utf32(l.data(), l.size(), tmp);
+            res = static_cast<int32_t>(tmp.size());
+            return;
+        }
+
+        std::vector<int32_t> l_code_points;
+        std::vector<int32_t> r_code_points;
+
+        l_code_points.reserve(l.size());
+        r_code_points.reserve(r.size());
+
+        to_utf32(l.data(), l.size(), l_code_points);
+        to_utf32(r.data(), r.size(), r_code_points);
+
+        const auto& source = l_code_points;
+        const auto& target = r_code_points;
+
+        size_t n = source.size();
+        size_t m = target.size();
+
+        // DP arrays: prev_dist (previous row), curr_dist (current row)
+        std::vector<int32_t> prev_dist(m + 1);
+        std::vector<int32_t> curr_dist(m + 1);
+
+        for (size_t j = 0; j <= m; ++j) {
+            prev_dist[j] = static_cast<int32_t>(j);
+        }
+
+        for (size_t i = 1; i <= n; ++i) {
+            curr_dist[0] = static_cast<int32_t>(i);
+            for (size_t j = 1; j <= m; ++j) {
+                int32_t cost = (source[i - 1] == target[j - 1]) ? 0 : 1;
+                curr_dist[j] =
+                        std::min({prev_dist[j] + 1, curr_dist[j - 1] + 1, prev_dist[j - 1] + cost});
+            }
+            prev_dist.swap(curr_dist);
+        }
+
+        res = prev_dist[m];
+>>>>>>> f5b07c9f4e (feat(vec): implement string function levenshtein with UTF-8 support)
     }
 };
 
+class FunctionStringLevenshtein : public IFunction {
+public:
+    static constexpr auto name = "levenshtein";
+    static FunctionPtr create() { return std::make_shared<FunctionStringLevenshtein>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt32>();
+    }
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto col_left =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_right =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+
+        const auto* col_left_str = check_and_get_column<ColumnString>(col_left.get());
+        const auto* col_right_str = check_and_get_column<ColumnString>(col_right.get());
+
+        if (!col_left_str || !col_right_str) {
+            return Status::InternalError("Levenshtein arguments must be String");
+        }
+
+        auto col_res = ColumnInt32::create(input_rows_count);
+        auto& res_data = col_res->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto l_view = col_left_str->get_data_at(i).to_string_view();
+            auto r_view = col_right_str->get_data_at(i).to_string_view();
+            LevenshteinImpl::execute(l_view, r_view, res_data[i]);
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+};
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized
