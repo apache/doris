@@ -413,6 +413,13 @@ PDQSORT_NAME="pdqsort.h"
 PDQSORT_FILE="pdqsort.h"
 PDQSORT_MD5SUM="af28f79d5d7d7a5486f54d9f1244c2b5"
 
+#timsort
+TIMSORT_DOWNLOAD="https://raw.githubusercontent.com/timsort/cpp-TimSort/3.x.y/include/gfx/timsort.hpp"
+TIMSORT_NAME="timsort.hpp"
+TIMSORT_FILE="timsort.hpp"
+TIMSORT_MD5SUM="000db489fb9c39a1cfb64a034f16b04d"
+
+
 # benchmark
 BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/refs/tags/v1.8.0.tar.gz"
 BENCHMARK_NAME=benchmark-v1.8.0.tar.gz
@@ -611,6 +618,7 @@ export TP_ARCHIVES=(
     'HDFS3'
     'LIBDIVIDE'
     'PDQSORT'
+    'TIMSORT'
     'BENCHMARK'
     'XSIMD'
     'SIMDJSON'
