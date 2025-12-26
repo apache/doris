@@ -46,6 +46,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExprMinMaxValue;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
@@ -115,6 +116,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
+    private int minMaxOptimizationSplitsCount = 0;
 
     // for test
     @VisibleForTesting
@@ -235,6 +237,11 @@ public class IcebergScanNode extends FileQueryScanNode {
             rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+        rangeDesc.setMinMaxValues(icebergSplit.getMinMaxValues());
+        rangeDesc.setCouldUseIcebergMinMaxOptimization(
+                !icebergSplit.getMinMaxValues().isEmpty());
+        minMaxOptimizationSplitsCount = minMaxOptimizationSplitsCount
+                + (icebergSplit.getMinMaxValues().isEmpty() ? 0 : 1);
     }
 
     @Override
@@ -330,6 +337,9 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         TableScan scan = icebergTable.newScan().metricsReporter(new IcebergMetricsReporter());
 
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.MINMAX) {
+            scan = scan.includeColumnStats();
+        }
         // set snapshot
         IcebergTableQueryInfo info = getSpecifiedSnapshot();
         if (info != null) {
@@ -376,6 +386,15 @@ public class IcebergScanNode extends FileQueryScanNode {
                 storagePropertiesMap,
                 new ArrayList<>(),
                 originalPath);
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.MINMAX && fileScanTask.deletes().isEmpty()
+                && fileScanTask.file().nullValueCounts() != null
+                && fileScanTask.file().valueCounts() != null) {
+            Map<Integer, TExprMinMaxValue> tExprMinMaxValueMap = IcebergUtils.toThriftMinMaxValueBySlots(
+                    icebergTable.schema(), fileScanTask.file().lowerBounds(), fileScanTask.file().upperBounds(),
+                    fileScanTask.file().nullValueCounts(), fileScanTask.file().valueCounts(), desc.getSlots());
+            split.setMinMaxValues(tExprMinMaxValueMap);
+        }
+
         if (!fileScanTask.deletes().isEmpty()) {
             split.setDeleteFileFilters(getDeleteFileFilters(fileScanTask));
         }
@@ -612,10 +631,14 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        if (pushdownIcebergPredicates.isEmpty()) {
-            return super.getNodeExplainString(prefix, detailLevel);
-        }
         StringBuilder sb = new StringBuilder();
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.MINMAX) {
+            sb.append(prefix).append(String.format("MINMAX: opt/total_splits(%d/%d)",
+                    minMaxOptimizationSplitsCount, selectedSplitNum)).append("\n");
+        }
+        if (pushdownIcebergPredicates.isEmpty()) {
+            return super.getNodeExplainString(prefix, detailLevel) + sb.toString();
+        }
         for (String predicate : pushdownIcebergPredicates) {
             sb.append(prefix).append(prefix).append(predicate).append("\n");
         }

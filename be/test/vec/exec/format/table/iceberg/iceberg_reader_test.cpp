@@ -543,7 +543,7 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     // Create IcebergParquetReader
     auto iceberg_reader = std::make_unique<IcebergParquetReader>(
             std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range, nullptr,
-            nullptr, cache.get());
+            nullptr, cache.get(), false);
 
     // Create complex struct types using helper function
     DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
@@ -678,7 +678,7 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     // Create IcebergOrcReader
     auto iceberg_reader = std::make_unique<IcebergOrcReader>(
             std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range, nullptr,
-            nullptr, cache.get());
+            nullptr, cache.get(), false);
 
     // Create complex struct types using helper function
     DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;

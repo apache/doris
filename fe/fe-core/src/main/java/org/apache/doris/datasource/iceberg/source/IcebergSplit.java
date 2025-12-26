@@ -20,10 +20,12 @@ package org.apache.doris.datasource.iceberg.source;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.thrift.TExprMinMaxValue;
 
 import lombok.Data;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -43,6 +45,8 @@ public class IcebergSplit extends FileSplit {
     private long tableLevelRowCount = -1;
     // Partition values are used to do runtime filter partition pruning.
     private Map<String, String> icebergPartitionValues = null;
+    // iceberg: Upper and lower bounds for columns, <column_id> : <min_max_value>.
+    private Map<Integer, TExprMinMaxValue> minMaxValues = new HashMap<>();
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
@@ -58,5 +62,13 @@ public class IcebergSplit extends FileSplit {
     public void setDeleteFileFilters(List<IcebergDeleteFileFilter> deleteFileFilters) {
         this.deleteFileFilters = deleteFileFilters;
         this.selfSplitWeight += deleteFileFilters.stream().mapToLong(IcebergDeleteFileFilter::getFilesize).sum();
+    }
+
+    public void setMinMaxValues(Map<Integer, TExprMinMaxValue> minMaxValues) {
+        this.minMaxValues = minMaxValues;
+    }
+
+    public Map<Integer, TExprMinMaxValue> getMinMaxValues() {
+        return minMaxValues;
     }
 }
