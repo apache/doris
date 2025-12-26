@@ -147,6 +147,14 @@ public abstract class ExpressionVisitor<R, C>
         return visitBoundFunction(scalarFunction, context);
     }
 
+    public R visitToSeconds(org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds toSeconds, C context) {
+        return visitScalarFunction(toSeconds, context);
+    }
+
+    public R visitUnicodeNormalize(org.apache.doris.nereids.trees.expressions.functions.scalar.UnicodeNormalize unicodeNormalize, C context) {
+        return visitScalarFunction(unicodeNormalize, context);
+    }
+
     public R visitSearchExpression(SearchExpression searchExpression, C context) {
         return visit(searchExpression, context);
     }
