@@ -161,9 +161,10 @@ public class HiveScanNode extends FileQueryScanNode {
         } else {
             // non partitioned table, create a dummy partition to save location and inputformat,
             // so that we can unify the interface.
+            org.apache.hadoop.hive.metastore.api.StorageDescriptor sd = hmsTable.getRemoteTable().getSd();
             HivePartition dummyPartition = new HivePartition(hmsTable.getOrBuildNameMapping(), true,
-                    hmsTable.getRemoteTable().getSd().getInputFormat(),
-                    hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
+                    sd.getInputFormat(), sd.getLocation(), null, Maps.newHashMap(),
+                    sd.getOutputFormat(), sd.getSerdeInfo().getSerializationLib(), sd.getCols());
             this.totalPartitionNum = 1;
             this.selectedPartitionNum = 1;
             resPartitions.add(dummyPartition);
@@ -328,7 +329,8 @@ public class HiveScanNode extends FileQueryScanNode {
                             getRealFileSplitSize(needSplit ? status.getBlockSize() : Long.MAX_VALUE),
                             status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                             isSplittable, fileCacheValue.getPartitionValues(),
-                            new HiveSplitCreator(fileCacheValue.getAcidInfo())));
+                            new HiveSplitCreator(fileCacheValue.getAcidInfo(),
+                                    fileCacheValue.getInputFormat(), fileCacheValue.getSerde())));
                 }
             }
         }
@@ -340,7 +342,7 @@ public class HiveScanNode extends FileQueryScanNode {
             allFiles.addAll(FileSplitter.splitFile(status.getPath(), getRealFileSplitSize(status.getBlockSize()),
                     status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                     status.isSplittable(), status.getPartitionValues(),
-                    new HiveSplitCreator(status.getAcidInfo())));
+                    new HiveSplitCreator(status.getAcidInfo(), status.getInputFormat(), status.getSerde())));
         }
     }
 
@@ -352,6 +354,8 @@ public class HiveScanNode extends FileQueryScanNode {
                 file.setSplittable(value.isSplittable());
                 file.setPartitionValues(value.getPartitionValues());
                 file.setAcidInfo(value.getAcidInfo());
+                file.setInputFormat(value.getInputFormat());
+                file.setSerde(value.getSerde());
                 fileList.add(file);
                 totalSize += file.getLength();
             }
@@ -438,6 +442,18 @@ public class HiveScanNode extends FileQueryScanNode {
                 tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
                 tableFormatFileDesc.setTableLevelRowCount(-1);
                 rangeDesc.setTableFormatParams(tableFormatFileDesc);
+            }
+            try {
+                TFileFormatType formatType = HMSExternalTable.getTFileFormatType(
+                        hiveSplit.getInputFormat(), hiveSplit.getSerde(), sessionVariable,
+                        hmsTable.firstColumnIsString(), hmsTable.getName());
+                if (formatType != null) {
+                    rangeDesc.setFormatType(formatType);
+                }
+            } catch (UserException e) {
+                LOG.warn("Failed to get file format type for split: {} of table {}.{}.{}. Error: {}",
+                        split, hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(),
+                        e.getMessage());
             }
         }
     }

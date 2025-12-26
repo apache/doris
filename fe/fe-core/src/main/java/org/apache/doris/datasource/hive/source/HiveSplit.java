@@ -28,9 +28,12 @@ import java.util.List;
 public class HiveSplit extends FileSplit {
 
     private HiveSplit(LocationPath path, long start, long length, long fileLength,
-            long modificationTime, String[] hosts, List<String> partitionValues, AcidInfo acidInfo) {
+            long modificationTime, String[] hosts, List<String> partitionValues, AcidInfo acidInfo,
+            String inputFormat, String serde) {
         super(path, start, length, fileLength, modificationTime, hosts, partitionValues);
         this.acidInfo = acidInfo;
+        this.inputFormat = inputFormat;
+        this.serde = serde;
     }
 
     @Override
@@ -39,17 +42,35 @@ public class HiveSplit extends FileSplit {
     }
 
     private AcidInfo acidInfo;
+    private String inputFormat;
+    private String serde;
 
     public boolean isACID() {
         return acidInfo != null;
     }
 
+    public String getInputFormat() {
+        return inputFormat;
+    }
+
+    public String getSerde() {
+        return serde;
+    }
+
     public static class HiveSplitCreator implements SplitCreator {
 
         private AcidInfo acidInfo;
+        private String inputFormat;
+        private String serde;
 
         public HiveSplitCreator(AcidInfo acidInfo) {
+            this(acidInfo, null, null);
+        }
+
+        public HiveSplitCreator(AcidInfo acidInfo, String inputFormat, String serde) {
             this.acidInfo = acidInfo;
+            this.inputFormat = inputFormat;
+            this.serde = serde;
         }
 
         @Override
@@ -58,7 +79,7 @@ public class HiveSplit extends FileSplit {
                 long modificationTime, String[] hosts,
                 List<String> partitionValues) {
             HiveSplit split =  new HiveSplit(path, start, length, fileLength, modificationTime,
-                    hosts, partitionValues, acidInfo);
+                    hosts, partitionValues, acidInfo, inputFormat, serde);
             split.setTargetSplitSize(fileSplitSize);
             return split;
         }

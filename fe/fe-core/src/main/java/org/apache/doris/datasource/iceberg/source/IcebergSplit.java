@@ -43,16 +43,18 @@ public class IcebergSplit extends FileSplit {
     private long tableLevelRowCount = -1;
     // Partition values are used to do runtime filter partition pruning.
     private Map<String, String> icebergPartitionValues = null;
+    private String fileFormat;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
                         Integer formatVersion, Map<StorageProperties.Type, StorageProperties> config,
-                        List<String> partitionList, String originalPath) {
+                        List<String> partitionList, String originalPath, String fileFormat) {
         super(file, start, length, fileLength, 0, hosts, partitionList);
         this.formatVersion = formatVersion;
         this.config = config;
         this.originalPath = originalPath;
         this.selfSplitWeight = length;
+        this.fileFormat = fileFormat;
     }
 
     public void setDeleteFileFilters(List<IcebergDeleteFileFilter> deleteFileFilters) {
