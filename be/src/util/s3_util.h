@@ -82,7 +82,7 @@ struct S3ClientConf {
     // For aws s3, no need to override endpoint
     bool need_override_endpoint = true;
 
-    CredProviderType cred_provider_type = CredProviderType::Default;
+    CredProviderType cred_provider_type = CredProviderType::InstanceProfile;
     std::string role_arn;
     std::string external_id;
 
