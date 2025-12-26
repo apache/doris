@@ -906,8 +906,10 @@ void Tablet::delete_expired_stale_rowset() {
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
     }
-    DBUG_EXECUTE_IF("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset",
-                    { _engine.start_delete_unused_rowset(); });
+    DBUG_EXECUTE_IF("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset", {
+        _engine.start_delete_unused_rowset();
+        [[maybe_unused]] auto st = _engine.start_trash_sweep(nullptr);
+    });
 }
 
 Status Tablet::check_version_integrity(const Version& version, bool quiet) {
