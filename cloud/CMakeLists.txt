@@ -513,5 +513,5 @@ foreach(version ${FDB_VERSIONS})
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
         GROUP_READ GROUP_WRITE GROUP_EXECUTE
         WORLD_READ WORLD_EXECUTE
-        DESTINATION ${OUTPUT_DIR}/lib/fdb/${version}/libfdb_c.so)
+        DESTINATION ${OUTPUT_DIR}/lib/fdb/${version})
 endforeach()
