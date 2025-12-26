@@ -16,8 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# usage: get_query_profiles.sh -q query_id -o output_dir
-
 set -e
 
 # Configuration
