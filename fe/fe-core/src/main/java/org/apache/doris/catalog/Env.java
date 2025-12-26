@@ -3710,7 +3710,7 @@ public class Env {
         sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
 
         // compression type
-        if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
+        if (olapTable.getCompressionType() != TCompressionType.valueOf(Config.default_compression_type)) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
             sb.append(olapTable.getCompressionType()).append("\"");
         }
