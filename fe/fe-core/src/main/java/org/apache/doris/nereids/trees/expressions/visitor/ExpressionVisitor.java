@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
@@ -118,7 +119,6 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -145,6 +145,14 @@ public abstract class ExpressionVisitor<R, C>
     @Override
     public R visitScalarFunction(ScalarFunction scalarFunction, C context) {
         return visitBoundFunction(scalarFunction, context);
+    }
+
+    public R visitToSeconds(org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds toSeconds, C context) {
+        return visitScalarFunction(toSeconds, context);
+    }
+
+    public R visitUnicodeNormalize(org.apache.doris.nereids.trees.expressions.functions.scalar.UnicodeNormalize unicodeNormalize, C context) {
+        return visitScalarFunction(unicodeNormalize, context);
     }
 
     public R visitSearchExpression(SearchExpression searchExpression, C context) {
@@ -330,10 +338,6 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(dateTimeV2Literal, context);
     }
 
-    public R visitTimestampTzLiteral(TimestampTzLiteral timestampTzLiteral, C context) {
-        return visitLiteral(timestampTzLiteral, context);
-    }
-
     public R visitIPv4Literal(IPv4Literal ipv4Literal, C context) {
         return visitLiteral(ipv4Literal, context);
     }
@@ -453,6 +457,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitSubqueryExpr(SubqueryExpr subqueryExpr, C context) {
         return visit(subqueryExpr, context);
+    }
+
+    public R visitTimestampArithmetic(TimestampArithmetic arithmetic, C context) {
+        return visit(arithmetic, context);
     }
 
     public R visitScalarSubquery(ScalarSubquery scalar, C context) {
