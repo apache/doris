@@ -79,6 +79,11 @@ public class Interval extends Expression implements UnaryExpression, AlwaysNotNu
         return sb.toString();
     }
 
+    @Override
+    protected boolean extraEquals(Expression that) {
+        return that instanceof Interval && this.timeUnit().equals(((Interval) that).timeUnit());
+    }
+
     /**
      * Supported time unit.
      */
