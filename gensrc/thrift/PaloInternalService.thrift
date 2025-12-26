@@ -422,6 +422,8 @@ struct TQueryOptions {
 
   182: optional i32 ivf_nprobe = 1;
 
+  183: optional bool enable_streaming_agg_force_passthrough;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
