@@ -40,6 +40,7 @@ public class IcebergExecuteActionFactory {
     public static final String EXPIRE_SNAPSHOTS = "expire_snapshots";
     public static final String REWRITE_DATA_FILES = "rewrite_data_files";
     public static final String PUBLISH_CHANGES = "publish_changes";
+    public static final String ANCESTORS_OF = "ancestors_of";
 
     /**
      * Create an Iceberg-specific ExecuteAction instance.
@@ -84,6 +85,9 @@ public class IcebergExecuteActionFactory {
             case PUBLISH_CHANGES:
                 return new IcebergPublishChangesAction(properties, partitionNamesInfo,
                         whereCondition);
+            case ANCESTORS_OF:
+                return new IcebergAncestorsOfAction(properties, partitionNamesInfo,
+                        whereCondition);
             default:
                 throw new DdlException("Unsupported Iceberg procedure: " + actionType
                         + ". Supported procedures: " + String.join(", ", getSupportedActions()));
@@ -104,7 +108,8 @@ public class IcebergExecuteActionFactory {
                 FAST_FORWARD,
                 EXPIRE_SNAPSHOTS,
                 REWRITE_DATA_FILES,
-                PUBLISH_CHANGES
+                PUBLISH_CHANGES,
+                ANCESTORS_OF
         };
     }
 }

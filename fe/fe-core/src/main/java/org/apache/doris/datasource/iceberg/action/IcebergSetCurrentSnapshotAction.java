@@ -33,6 +33,7 @@ import com.google.common.collect.Lists;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -86,7 +87,7 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<List<String>> executeAction(TableIf table) throws UserException {
         Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
 
         Snapshot previousSnapshot = icebergTable.currentSnapshot();
@@ -104,10 +105,10 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
                 }
 
                 if (previousSnapshot != null && previousSnapshot.snapshotId() == targetSnapshotId) {
-                    return Lists.newArrayList(
+                    return Collections.singletonList(Lists.newArrayList(
                             String.valueOf(previousSnapshotId),
                             String.valueOf(targetSnapshotId)
-                    );
+                    ));
                 }
 
                 icebergTable.manageSnapshots().setCurrentSnapshot(targetSnapshotId).commit();
@@ -120,10 +121,10 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
                 targetSnapshotId = refSnapshot.snapshotId();
 
                 if (previousSnapshot != null && previousSnapshot.snapshotId() == targetSnapshotId) {
-                    return Lists.newArrayList(
+                    return Collections.singletonList(Lists.newArrayList(
                             String.valueOf(previousSnapshotId),
                             String.valueOf(targetSnapshotId)
-                    );
+                    ));
                 }
 
                 icebergTable.manageSnapshots().setCurrentSnapshot(targetSnapshotId).commit();
@@ -131,10 +132,10 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
 
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
-            return Lists.newArrayList(
+            return Collections.singletonList(Lists.newArrayList(
                     String.valueOf(previousSnapshotId),
                     String.valueOf(targetSnapshotId)
-            );
+            ));
 
         } catch (Exception e) {
             String target = targetSnapshotId != null ? "snapshot " + targetSnapshotId : "reference '" + ref + "'";
