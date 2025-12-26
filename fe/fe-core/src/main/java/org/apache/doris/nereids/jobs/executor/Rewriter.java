@@ -146,6 +146,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
+import org.apache.doris.nereids.rules.rewrite.PushDownUnnestInProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownVectorTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownVirtualColumnsIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
@@ -535,6 +536,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new SimplifyWindowExpression()
                         )
                 ),
+                topic("Push down Unnest",
+                        topDown(
+                                new PushDownUnnestInProject()
+                        )),
                 topic("Rewrite join",
                         // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
                         topDown(
