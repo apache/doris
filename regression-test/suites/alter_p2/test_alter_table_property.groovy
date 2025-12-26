@@ -88,6 +88,26 @@ suite ("test_alter_table_property") {
     def createTableStr = result[0]['Create Table']
     assertTrue(createTableStr.contains("\"storage_medium\" = \"ssd\""))
 
+    // Test medium_allocation_mode property
+    sql """ ALTER TABLE ${tableName} SET("medium_allocation_mode"="strict") """
+
+    def result2 = sql_return_maparray """
+    show create table ${tableName}
+    """
+    logger.info(${result2[0]})
+    def createTableStr2 = result2[0]['Create Table']
+    assertTrue(createTableStr2.contains("\"medium_allocation_mode\" = \"strict\""))
+
+    // Test setting medium_allocation_mode to adaptive
+    sql """ ALTER TABLE ${tableName} SET("medium_allocation_mode"="adaptive") """
+
+    def result3 = sql_return_maparray """
+    show create table ${tableName}
+    """
+    logger.info(${result3[0]})
+    def createTableStr3 = result3[0]['Create Table']
+    assertTrue(createTableStr3.contains("\"medium_allocation_mode\" = \"adaptive\""))
+
     sql "DROP TABLE ${tableName}"
 }
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -409,7 +410,7 @@ public class SystemInfoServiceTest {
         Map<Long, Integer> beCounterMap = Maps.newHashMap();
         for (int i = 0; i < 30000; ++i) {
             Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(replicaAlloc,
-                    Maps.newHashMap(), TStorageMedium.HDD, false, false);
+                    Maps.newHashMap(), TStorageMedium.HDD, MediumAllocationMode.ADAPTIVE, false);
             Map<Tag, List<Long>> res = ret.first;
             Assert.assertEquals(3, res.get(Tag.DEFAULT_BACKEND_TAG).size());
             for (Long beId : res.get(Tag.DEFAULT_BACKEND_TAG)) {
