@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -34,7 +33,7 @@ public class LocalTablet extends Tablet {
     private long cooldownReplicaId = -1;
     @SerializedName(value = "ctm", alternate = {"cooldownTerm"})
     private long cooldownTerm = -1;
-    private MonitoredReentrantReadWriteLock cooldownConfLock = new MonitoredReentrantReadWriteLock();
+    private final Object cooldownConfLock = new Object();
 
     public LocalTablet() {
     }
@@ -44,10 +43,10 @@ public class LocalTablet extends Tablet {
     }
 
     public void setCooldownConf(long cooldownReplicaId, long cooldownTerm) {
-        cooldownConfLock.writeLock().lock();
-        this.cooldownReplicaId = cooldownReplicaId;
-        this.cooldownTerm = cooldownTerm;
-        cooldownConfLock.writeLock().unlock();
+        synchronized (cooldownConfLock) {
+            this.cooldownReplicaId = cooldownReplicaId;
+            this.cooldownTerm = cooldownTerm;
+        }
     }
 
     public long getCooldownReplicaId() {
@@ -55,11 +54,8 @@ public class LocalTablet extends Tablet {
     }
 
     public Pair<Long, Long> getCooldownConf() {
-        cooldownConfLock.readLock().lock();
-        try {
+        synchronized (cooldownConfLock) {
             return Pair.of(cooldownReplicaId, cooldownTerm);
-        } finally {
-            cooldownConfLock.readLock().unlock();
         }
     }
 
