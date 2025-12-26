@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
@@ -44,7 +43,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -172,51 +170,16 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         Set<RelationId> consumerIds = cascadesContext.getCteIdToConsumers().get(cteId).stream()
                 .map(LogicalCTEConsumer::getRelationId)
                 .collect(Collectors.toSet());
-        List<Set<Expression>> filtersAboveEachConsumer = cascadesContext.getConsumerIdToFilters().entrySet().stream()
+        List<Expression> filtersAboveEachConsumer = cascadesContext.getConsumerIdToFilters().entrySet().stream()
                 .filter(kv -> consumerIds.contains(kv.getKey()))
                 .map(Entry::getValue)
+                .map(ExpressionUtils::and)
                 .collect(Collectors.toList());
-        Set<Expression> someone = filtersAboveEachConsumer.stream().findFirst().orElse(null);
-        if (someone == null) {
+        if (filtersAboveEachConsumer.size() < cascadesContext.getCteIdToConsumers().get(cteId).size()) {
             return child;
         }
-        int filterSize = cascadesContext.getCteIdToConsumers().get(cteId).size();
-        Set<Expression> conjuncts = new HashSet<>();
-        for (Expression f : someone) {
-            int matchCount = 0;
-            Set<SlotReference> slots = f.collect(e -> e instanceof SlotReference);
-            Set<Expression> mightBeJoined = new HashSet<>();
-            for (Set<Expression> another : filtersAboveEachConsumer) {
-                if (another.equals(someone)) {
-                    matchCount++;
-                    continue;
-                }
-                Set<Expression> matched = new HashSet<>();
-                for (Expression e : another) {
-                    Set<SlotReference> otherSlots = e.collect(ae -> ae instanceof SlotReference);
-                    if (otherSlots.equals(slots)) {
-                        matched.add(e);
-                    }
-                }
-                if (!matched.isEmpty()) {
-                    matchCount++;
-                }
-                mightBeJoined.addAll(matched);
-            }
-            if (matchCount >= filterSize) {
-                mightBeJoined.add(f);
-                conjuncts.add(ExpressionUtils.or(mightBeJoined));
-            }
-        }
-        if (!conjuncts.isEmpty()) {
-            // distinct conjuncts
-            ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builderWithExpectedSize(conjuncts.size());
-            for (Expression conjunct : conjuncts) {
-                newConjuncts.addAll(ExpressionUtils.extractConjunction(conjunct));
-            }
-            LogicalPlan filter = new LogicalFilter<>(newConjuncts.build(), child);
-            return pushPlanUnderAnchor(filter);
-        }
-        return child;
+        Expression conjunct = ExpressionUtils.or(filtersAboveEachConsumer);
+        LogicalPlan filter = new LogicalFilter<>(ImmutableSet.of(conjunct), child);
+        return pushPlanUnderAnchor(filter);
     }
 }
