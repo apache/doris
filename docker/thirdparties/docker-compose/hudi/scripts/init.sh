@@ -18,6 +18,13 @@
 
 set -euo pipefail
 
+# Remove SUCCESS file from previous run to ensure fresh initialization
+SUCCESS_FILE="/opt/hudi-scripts/SUCCESS"
+if [[ -f "${SUCCESS_FILE}" ]]; then
+  echo "Removing previous SUCCESS file to ensure fresh initialization..."
+  rm -f "${SUCCESS_FILE}"
+fi
+
 SPARK_HOME=/opt/spark
 CONF_DIR="${SPARK_HOME}/conf"
 JARS_DIR="${SPARK_HOME}/jars"
@@ -230,7 +237,7 @@ fi
 
 # Create success marker file to indicate initialization is complete
 # This file is used by docker healthcheck to verify container is ready
-touch /opt/hudi-scripts/SUCCESS
+touch ${SUCCESS_FILE}
 
 echo "Hudi demo data initialized."
 echo "Initialization completed successfully."
