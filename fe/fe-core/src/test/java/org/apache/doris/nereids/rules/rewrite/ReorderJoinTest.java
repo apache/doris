@@ -43,15 +43,20 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
 
     @Test
     public void testLeftOuterJoin() {
+        testLeftOuterJoinHelper(JoinType.LEFT_OUTER_JOIN);
+        testLeftOuterJoinHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testLeftOuterJoinHelper(JoinType joinType) {
         ImmutableList<LogicalPlan> plans = ImmutableList.of(
                 new LogicalPlanBuilder(scan1)
-                        .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                        .join(scan2, joinType, Pair.of(0, 0))
                         .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build(),
                 new LogicalPlanBuilder(scan1)
                         .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                        .join(scan2, joinType, Pair.of(0, 0))
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build()
         );
@@ -61,15 +66,20 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
 
     @Test
     public void testRightOuterJoin() {
+        testRightOuterJoinHelper(JoinType.RIGHT_OUTER_JOIN);
+        testRightOuterJoinHelper(JoinType.ASOF_RIGHT_OUTER_JOIN);
+    }
+
+    private void testRightOuterJoinHelper(JoinType joinType) {
         ImmutableList<LogicalPlan> plans = ImmutableList.of(
                 new LogicalPlanBuilder(scan1)
-                        .join(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))
+                        .join(scan2, joinType, Pair.of(0, 0))
                         .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build(),
                 new LogicalPlanBuilder(scan1)
                         .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .join(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))
+                        .join(scan2, joinType, Pair.of(0, 0))
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build()
         );
@@ -229,11 +239,17 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
      */
     @Test
     public void testInnerOrCrossJoin() {
+        testInnerOrCrossJoinHelper(JoinType.INNER_JOIN);
+        testInnerOrCrossJoinHelper(JoinType.ASOF_LEFT_INNER_JOIN);
+        testInnerOrCrossJoinHelper(JoinType.ASOF_RIGHT_INNER_JOIN);
+    }
+
+    private void testInnerOrCrossJoinHelper(JoinType joinType) {
         LogicalPlan leftJoin = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .join(scan2, joinType, Pair.of(0, 0))
                 .build();
         LogicalPlan rightJoin = new LogicalPlanBuilder(scan3)
-                .join(scan4, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .join(scan4, joinType, Pair.of(0, 0))
                 .build();
 
         LogicalPlan plan = new LogicalPlanBuilder(leftJoin)

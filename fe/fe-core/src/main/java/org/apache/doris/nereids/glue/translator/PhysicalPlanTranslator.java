@@ -1730,7 +1730,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // set slots as nullable for outer join
-        if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+        if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.ASOF_LEFT_OUTER_JOIN
+                || joinType == JoinType.FULL_OUTER_JOIN) {
             for (SlotDescriptor sd : rightIntermediateSlotDescriptor) {
                 sd.setIsNullable(true);
                 SlotRef slotRef = new SlotRef(sd);
@@ -1738,7 +1739,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 context.addExprIdSlotRefPair(exprId, slotRef);
             }
         }
-        if (joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+        if (joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.ASOF_RIGHT_OUTER_JOIN
+                || joinType == JoinType.FULL_OUTER_JOIN) {
             for (SlotDescriptor sd : leftIntermediateSlotDescriptor) {
                 sd.setIsNullable(true);
                 SlotRef slotRef = new SlotRef(sd);
