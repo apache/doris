@@ -50,7 +50,7 @@ public class JdbcQueryTableValueFunction extends QueryTableValueFunction {
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
         JdbcExternalCatalog catalog = (JdbcExternalCatalog) catalogIf;
-        JdbcTable jdbcTable = new JdbcTable(1, desc.getTable().getName(), desc.getTable().getFullSchema(),
+        JdbcTable jdbcTable = new JdbcTable(desc.getId().asInt(), desc.getTable().getName(), desc.getTable().getFullSchema(),
                 TableType.JDBC);
         catalog.configureJdbcTable(jdbcTable, desc.getTable().getName());
         desc.setTable(jdbcTable);
