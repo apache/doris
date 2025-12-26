@@ -128,18 +128,18 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     statementContext.getMaterializedViewRewriteDuration());
             return rewrittenPlans;
         }
-        for (MaterializationContext context : cascadesContext.getMaterializationContexts()) {
+        for (MaterializationContext materializationContext : cascadesContext.getMaterializationContexts()) {
             statementContext.getMaterializedViewStopwatch().reset().start();
-            if (checkIfRewritten(queryPlan, context)) {
+            if (checkIfRewritten(queryPlan, materializationContext)) {
                 continue;
             }
             // check mv plan is valid or not
-            if (!isMaterializationValid(queryPlan, cascadesContext, context)) {
+            if (!isMaterializationValid(queryPlan, cascadesContext, materializationContext)) {
                 continue;
             }
             // get query struct infos according to the view strut info, if valid query struct infos is empty, bail out
             List<StructInfo> queryStructInfos = getValidQueryStructInfos(queryPlan, cascadesContext,
-                    context.getCommonTableIdSet(statementContext));
+                    materializationContext);
             if (queryStructInfos.isEmpty()) {
                 continue;
             }
@@ -163,11 +163,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 try {
                     if (rewrittenPlans.size() < sessionVariable.getMaterializedViewRewriteSuccessCandidateNum()) {
-                        rewrittenPlans.addAll(doRewrite(queryStructInfo, cascadesContext, context));
+                        rewrittenPlans.addAll(doRewrite(queryStructInfo, cascadesContext, materializationContext));
                     }
                 } catch (Exception exception) {
                     LOG.warn("Materialized view rule exec fail", exception);
-                    context.recordFailReason(queryStructInfo,
+                    materializationContext.recordFailReason(queryStructInfo,
                             "Materialized view rule exec fail", exception::toString);
                 } finally {
                     elapsed = statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS);
@@ -185,12 +185,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * Get valid query struct infos, if invalid record the invalid reason
      */
     protected List<StructInfo> getValidQueryStructInfos(Plan queryPlan, CascadesContext cascadesContext,
-            BitSet materializedViewTableSet) {
+            MaterializationContext materializationContext) {
         List<StructInfo> validStructInfos = new ArrayList<>();
         // For every materialized view we should trigger refreshing struct info map
-        List<StructInfo> uncheckedStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
-                cascadesContext, materializedViewTableSet);
-        uncheckedStructInfos.forEach(queryStructInfo -> {
+        List<StructInfo> uncheckedQueryStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
+                cascadesContext,
+                materializationContext.getQueryRelationIdSetMvMatched(cascadesContext.getStatementContext()));
+        uncheckedQueryStructInfos.forEach(queryStructInfo -> {
             boolean valid = checkQueryPattern(queryStructInfo, cascadesContext) && queryStructInfo.isValid();
             if (!valid) {
                 cascadesContext.getMaterializationContexts().forEach(ctx ->
@@ -465,10 +466,34 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     materializationContext);
             rewriteResults.add(rewrittenPlan);
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
-            // If rewrite successfully, try to clear mv scan currently because it maybe used again
-            materializationContext.clearScanPlan(cascadesContext);
+            resetMaterializationContext(materializationContext, cascadesContext);
         }
         return rewriteResults;
+    }
+
+    // reset some materialization context state after one materialized view written successfully
+    private void resetMaterializationContext(MaterializationContext currentContext,
+                                             CascadesContext cascadesContext) {
+        // If rewrite successfully, try to clear mv scan currently because it maybe used again
+        currentContext.clearScanPlan(cascadesContext);
+        // Clear the currentContext queryRelationIdSet for nest materialized view rewrite
+        // Such as mv2 commonTableIdSet is (0, 1) mapping to (t1, mv1), queryRelationIdSet is (t1), because query
+        // doesn't use the mv1 firstly, when mv1 is rewritten successfully, then currentContext
+        // queryRelationIdSet, should be (t1, mv1) for later rewrite mv2, need invalid mv2
+        // currentContext's queryRelationIdSet cache
+        if (!cascadesContext.getConnectContext().getSessionVariable().isEnableMaterializedViewNestRewrite()
+                || !(currentContext instanceof AsyncMaterializationContext)) {
+            return;
+        }
+        TableId mvTableCommonTableId = cascadesContext.getStatementContext().getTableId(
+                ((AsyncMaterializationContext) currentContext).getMtmv());
+        for (MaterializationContext context : cascadesContext.getAllMaterializationContexts().values()) {
+            // If the mv in currentContext is rewritten successfully,
+            // should clear the materialization context query relation id set for later which contain the mv
+            if (context.getCommonTableIdSet(cascadesContext.getStatementContext()).get(mvTableCommonTableId.asInt())) {
+                context.clearQueryRelationIdSet();
+            }
+        }
     }
 
     // Set materialization context statistics to statementContext for cost estimate later

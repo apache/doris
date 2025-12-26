@@ -271,30 +271,30 @@ public class MaterializedViewUtils {
      * Extract struct info from plan, support to get struct info from logical plan or plan in group.
      * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
      * @param originalPlan original plan, the output is right
+     * @param cascadesContext the cascadesContext when extractStructInfo
+     * @param targetRelationIdSet the target relation id set which used to filter struct info,
+     *                            empty means no struct info match
      */
     public static List<StructInfo> extractStructInfo(Plan plan, Plan originalPlan, CascadesContext cascadesContext,
-            BitSet materializedViewTableSet) {
+            BitSet targetRelationIdSet) {
         // If plan belong to some group, construct it with group struct info
         if (plan.getGroupExpression().isPresent()) {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
             StructInfoMap structInfoMap = ownerGroup.getStructInfoMap();
             // Refresh struct info in current level plan from top to bottom
             SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-            structInfoMap.refresh(ownerGroup, cascadesContext, new BitSet(), new HashSet<>(),
+            structInfoMap.refresh(ownerGroup, cascadesContext, targetRelationIdSet, new HashSet<>(),
                     sessionVariable.isEnableMaterializedViewNestRewrite());
             structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
-            Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
+            Set<BitSet> queryRelationIdSets = structInfoMap.getTableMaps();
             ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
-            if (!queryTableSets.isEmpty()) {
-                for (BitSet queryTableSet : queryTableSets) {
-                    BitSet queryCommonTableSet = MaterializedViewUtils.transformToCommonTableId(queryTableSet,
-                            cascadesContext.getStatementContext().getRelationIdToCommonTableIdMap());
+            if (!queryRelationIdSets.isEmpty()) {
+                for (BitSet queryRelationIdSet : queryRelationIdSets) {
                     // compare relation id corresponding table id
-                    if (!materializedViewTableSet.isEmpty()
-                            && !containsAll(materializedViewTableSet, queryCommonTableSet)) {
+                    if (!containsAll(targetRelationIdSet, queryRelationIdSet)) {
                         continue;
                     }
-                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext, queryTableSet, ownerGroup,
+                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext, queryRelationIdSet, ownerGroup,
                             originalPlan, sessionVariable.isEnableMaterializedViewNestRewrite());
                     if (structInfo != null) {
                         structInfosBuilder.add(structInfo);
