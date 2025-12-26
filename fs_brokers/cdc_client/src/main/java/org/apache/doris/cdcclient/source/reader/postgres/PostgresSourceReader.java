@@ -1,5 +1,7 @@
 package org.apache.doris.cdcclient.source.reader.postgres;
 
+import org.apache.doris.cdcclient.exception.CdcClientException;
+import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.reader.JdbcIncrementalSourceReader;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -41,6 +43,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import io.debezium.connector.postgresql.SourceInfo;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
+import io.debezium.connector.postgresql.connection.PostgresReplicationConnection;
+import io.debezium.connector.postgresql.spi.SlotState;
 import io.debezium.jdbc.JdbcConnection;
 import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
@@ -58,6 +62,46 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
     public PostgresSourceReader() {
         super();
+    }
+
+    @Override
+    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+        PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId);
+        PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        createSlotForGlobalStreamSplit(dialect);
+        super.initialize(jobId, dataSource, config);
+    }
+
+    /**
+     * copy from org.apache.flink.cdc.connectors.postgres.source
+     * .enumerator.PostgresSourceEnumerator.createSlotForGlobalStreamSplit
+     *
+     * <p>Create slot for the unique global stream split.
+     *
+     * <p>Currently all startup modes need read the stream split. We need open the slot before
+     * reading the globalStreamSplit to catch all data changes.
+     */
+    private void createSlotForGlobalStreamSplit(PostgresDialect postgresDialect) {
+        try (PostgresConnection connection = postgresDialect.openJdbcConnection()) {
+            SlotState slotInfo =
+                    connection.getReplicationSlotState(
+                            postgresDialect.getSlotName(), postgresDialect.getPluginName());
+            // skip creating the replication slot when the slot exists.
+            if (slotInfo != null) {
+                return;
+            }
+            PostgresReplicationConnection replicationConnection =
+                    postgresDialect.openPostgresReplicationConnection(connection);
+            replicationConnection.createReplicationSlot();
+            replicationConnection.close(false);
+
+        } catch (Throwable t) {
+            throw new CdcClientException(
+                    String.format(
+                            "Fail to get or create slot for global stream split, the slot name is %s. Due to: ",
+                            postgresDialect.getSlotName()),
+                    t);
+        }
     }
 
     @Override
@@ -133,6 +177,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
             configFactory.splitSize(
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
         }
+
+        Properties dbzProps = new Properties();
+        dbzProps.put("interval.handling.mode", "string");
+        configFactory.debeziumProperties(dbzProps);
 
         configFactory.serverTimeZone(
                 ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());

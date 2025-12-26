@@ -102,8 +102,8 @@ public class Env {
         private synchronized SourceReader getOrCreateReader(DataSource source) {
             if (reader == null) {
                 reader = SourceReaderFactory.createSourceReader(source);
-                reader.initialize(config);
                 dataSource = source;
+                reader.initialize(jobId, dataSource, config);
             } else if (dataSource != source) {
                 throw new IllegalStateException(
                         String.format(

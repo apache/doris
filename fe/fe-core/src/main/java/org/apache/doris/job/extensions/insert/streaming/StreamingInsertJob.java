@@ -514,6 +514,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 offsetProvider.fetchRemoteMeta(new HashMap<>());
             }
         } catch (Exception ex) {
+            //todo: The job status = MANUAL_PAUSE_ERR, No need to set failureReason again
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
             failureReason = new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
                     "Failed to fetch meta, " + ex.getMessage());
@@ -1093,20 +1094,22 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         writeLock();
         try {
-            if (offsetRequest.getScannedRows() == 0 && offsetRequest.getScannedBytes() == 0) {
-                JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
-                op.setHasMoreData(false);
-            }
-            updateNoTxnJobStatisticAndOffset(offsetRequest);
             if (this.runningStreamTask != null
                     && this.runningStreamTask instanceof StreamingMultiTblTask) {
                 if (this.runningStreamTask.getTaskId() != offsetRequest.getTaskId()) {
                     throw new JobException("Task id mismatch when commit offset. expected: "
                             + this.runningStreamTask.getTaskId() + ", actual: " + offsetRequest.getTaskId());
                 }
+                updateNoTxnJobStatisticAndOffset(offsetRequest);
+                if (offsetRequest.getScannedRows() == 0 && offsetRequest.getScannedBytes() == 0) {
+                    JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
+                    op.setHasMoreData(false);
+                }
+
                 persistOffsetProviderIfNeed();
                 ((StreamingMultiTblTask) this.runningStreamTask).successCallback(offsetRequest);
             }
+
         } finally {
             writeUnlock();
         }

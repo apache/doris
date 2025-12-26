@@ -43,15 +43,21 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.apache.doris.cdcclient.common.Constants.DORIS_DELETE_SIGN;
 
+import com.esri.core.geometry.ogc.OGCGeometry;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.debezium.data.Bits;
 import io.debezium.data.Envelope;
 import io.debezium.data.SpecialValueDecimal;
 import io.debezium.data.VariableScaleDecimal;
+import io.debezium.data.geometry.Geography;
+import io.debezium.data.geometry.Geometry;
+import io.debezium.data.geometry.Point;
 import io.debezium.time.MicroTime;
 import io.debezium.time.MicroTimestamp;
 import io.debezium.time.NanoTime;
@@ -68,7 +74,7 @@ public class DebeziumJsonDeserializer
         implements SourceRecordDeserializer<SourceRecord, List<String>> {
     private static final long serialVersionUID = 1L;
     private static final Logger LOG = LoggerFactory.getLogger(DebeziumJsonDeserializer.class);
-    private static ObjectMapper objectMapper = new ObjectMapper();
+    protected static ObjectMapper objectMapper = new ObjectMapper();
     @Setter private ZoneId serverTimeZone = ZoneId.systemDefault();
 
     public DebeziumJsonDeserializer() {}
@@ -201,6 +207,10 @@ public class DebeziumJsonDeserializer
                     return convertDecimal(dbzObj, fieldSchema);
                 case Bits.LOGICAL_NAME:
                     return dbzObj;
+                case Point.LOGICAL_NAME:
+                case Geometry.LOGICAL_NAME:
+                case Geography.LOGICAL_NAME:
+                    return convertPoint(dbzObj);
                 default:
                     LOG.debug(
                             "Unsupported type: {} with name {}, transform value to string",
@@ -208,6 +218,37 @@ public class DebeziumJsonDeserializer
                             name);
                     return dbzObj.toString();
             }
+        }
+    }
+
+    private Object convertPoint(Object dbzObj) {
+        // the Geometry datatype in PostgreSQL will be converted to
+        // a String with Json format
+        try {
+            Struct geometryStruct = (Struct) dbzObj;
+            byte[] wkb = geometryStruct.getBytes("wkb");
+
+            String geoJson = OGCGeometry.fromBinary(ByteBuffer.wrap(wkb)).asGeoJson();
+            JsonNode originGeoNode = objectMapper.readTree(geoJson);
+
+            Optional<Integer> srid = Optional.ofNullable(geometryStruct.getInt32("srid"));
+            Map<String, Object> geometryInfo = new HashMap<>();
+            String geometryType = originGeoNode.get("type").asText();
+
+            geometryInfo.put("type", geometryType);
+            if ("GeometryCollection".equals(geometryType)) {
+                geometryInfo.put("geometries", originGeoNode.get("geometries"));
+            } else {
+                geometryInfo.put("coordinates", originGeoNode.get("coordinates"));
+            }
+
+            geometryInfo.put("srid", srid.orElse(0));
+            return objectMapper.writeValueAsString(geometryInfo);
+        } catch (Exception e) {
+            LOG.debug(
+                    "Failed to parse Geometry datatype, converting the value to string {}",
+                    dbzObj.toString());
+            return dbzObj.toString();
         }
     }
 
