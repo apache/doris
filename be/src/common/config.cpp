@@ -1000,6 +1000,11 @@ DEFINE_mInt32(parquet_header_max_size_mb, "1");
 DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 DEFINE_mInt32(parquet_column_max_buffer_mb, "8");
+// Enable Parquet file page cache for Parquet page reader
+DEFINE_Bool(enable_parquet_file_page_cache, "true");
+// Threshold ratio to decide caching decompressed parquet page. If uncompressed_size <=
+// parquet_page_cache_decompress_threshold * compressed_size, we cache decompressed page.
+DEFINE_mDouble(parquet_page_cache_decompress_threshold, "1.5");
 DEFINE_mDouble(max_amplified_read_ratio, "0.8");
 DEFINE_mInt32(merged_oss_min_io_size, "1048576");
 DEFINE_mInt32(merged_hdfs_min_io_size, "8192");

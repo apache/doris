@@ -144,6 +144,13 @@ DECLARE_String(memory_mode);
 // if true, process memory limit and memory usage based on cgroup memory info.
 DECLARE_mBool(enable_use_cgroup_memory_info);
 
+// Enable Parquet file page cache for Parquet page reader
+DECLARE_Bool(enable_parquet_file_page_cache);
+
+// Threshold ratio to decide caching decompressed parquet page. If uncompressed_size <=
+// parquet_page_cache_decompress_threshold * compressed_size, we cache decompressed page.
+DECLARE_mDouble(parquet_page_cache_decompress_threshold);
+
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of the physical memory ('<int>%').

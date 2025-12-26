@@ -24,6 +24,7 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "olap/page_cache.h"
 #include "util/block_compression.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 namespace doris {
@@ -58,6 +59,19 @@ public:
         int64_t skip_page_header_num = 0;
         int64_t parse_page_header_num = 0;
         int64_t read_page_header_time = 0;
+        // page cache metrics
+        // page_cache_hit_counter: number of times a cached page was used
+        int64_t page_cache_hit_counter = 0;
+        // page_cache_missing_counter: number of times a cached page was not found
+        int64_t page_cache_missing_counter = 0;
+        // page_cache_compressed_hit_counter: number of cache hits where the cached payload is compressed
+        int64_t page_cache_compressed_hit_counter = 0;
+        // page_cache_decompressed_hit_counter: number of cache hits where the cached payload is decompressed
+        int64_t page_cache_decompressed_hit_counter = 0;
+        // page_cache_write_counter: number of times this reader wrote an entry into the cache
+        int64_t page_cache_write_counter = 0;
+        // page_read_counter: total pages read by this PageReader (includes cache hits and file reads)
+        int64_t page_read_counter = 0;
     };
 
     PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
@@ -123,15 +137,30 @@ public:
         }
     }
 
-    Status get_page_header(const tparquet::PageHeader*& page_header) {
+    Status get_page_header(const tparquet::PageHeader** page_header) {
         if (UNLIKELY(_state != HEADER_PARSED)) {
             return Status::InternalError("Page header not parsed");
         }
-        page_header = &_cur_page_header;
+        *page_header = &_cur_page_header;
         return Status::OK();
     }
 
     Status get_page_data(Slice& slice);
+
+    // Expose header bytes info for cache insertion
+    uint32_t last_header_size() const { return _last_header_size; }
+    const std::vector<uint8_t>& header_bytes() const { return _header_buf; }
+    // header start offset for current page
+    int64_t header_start_offset() const {
+        return static_cast<int64_t>(_next_header_offset) - static_cast<int64_t>(_last_header_size) -
+               static_cast<int64_t>(_cur_page_header.compressed_page_size);
+    }
+    uint64_t file_end_offset() const { return _end_offset; }
+    bool cached_decompressed() const {
+        return static_cast<double>(_cur_page_header.uncompressed_page_size) <=
+               static_cast<double>(config::parquet_page_cache_decompress_threshold) *
+                       static_cast<double>(_cur_page_header.compressed_page_size);
+    }
 
     PageStatistics& page_statistics() { return _page_statistics; }
 
@@ -140,6 +169,17 @@ public:
     size_t start_row() const { return _start_row; }
 
     size_t end_row() const { return _end_row; }
+
+    // Accessors for cache handle
+    bool has_page_cache_handle() const { return _page_cache_handle.cache() != nullptr; }
+    const doris::PageCacheHandle& page_cache_handle() const { return _page_cache_handle; }
+
+    // Page cache members
+    doris::PageCacheHandle _page_cache_handle;
+    // stored header bytes when cache miss so we can insert header+payload into cache
+    std::vector<uint8_t> _header_buf;
+    // last parsed header size in bytes
+    uint32_t _last_header_size = 0;
 
 private:
     enum PageReaderState { INITIALIZED, HEADER_PARSED, DATA_LOADED };

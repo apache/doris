@@ -65,7 +65,13 @@ public:
                   decode_null_map_time(0),
                   skip_page_header_num(0),
                   parse_page_header_num(0),
-                  read_page_header_time(0) {}
+                  read_page_header_time(0),
+                  page_read_counter(0),
+                  page_cache_write_counter(0),
+                  page_cache_hit_counter(0),
+                  page_cache_missing_counter(0),
+                  page_cache_compressed_hit_counter(0),
+                  page_cache_decompressed_hit_counter(0) {}
 
         ColumnStatistics(ColumnChunkReaderStatistics& cs, int64_t null_map_time)
                 : page_index_read_calls(0),
@@ -78,7 +84,13 @@ public:
                   decode_null_map_time(null_map_time),
                   skip_page_header_num(cs.skip_page_header_num),
                   parse_page_header_num(cs.parse_page_header_num),
-                  read_page_header_time(cs.read_page_header_time) {}
+                  read_page_header_time(cs.read_page_header_time),
+                  page_read_counter(cs.page_read_counter),
+                  page_cache_write_counter(cs.page_cache_write_counter),
+                  page_cache_hit_counter(cs.page_cache_hit_counter),
+                  page_cache_missing_counter(cs.page_cache_missing_counter),
+                  page_cache_compressed_hit_counter(cs.page_cache_compressed_hit_counter),
+                  page_cache_decompressed_hit_counter(cs.page_cache_decompressed_hit_counter) {}
 
         int64_t page_index_read_calls;
         int64_t decompress_time;
@@ -91,6 +103,12 @@ public:
         int64_t skip_page_header_num;
         int64_t parse_page_header_num;
         int64_t read_page_header_time;
+        int64_t page_read_counter;
+        int64_t page_cache_write_counter;
+        int64_t page_cache_hit_counter;
+        int64_t page_cache_missing_counter;
+        int64_t page_cache_compressed_hit_counter;
+        int64_t page_cache_decompressed_hit_counter;
 
         void merge(ColumnStatistics& col_statistics) {
             page_index_read_calls += col_statistics.page_index_read_calls;
@@ -104,6 +122,13 @@ public:
             skip_page_header_num += col_statistics.skip_page_header_num;
             parse_page_header_num += col_statistics.parse_page_header_num;
             read_page_header_time += col_statistics.read_page_header_time;
+            page_read_counter += col_statistics.page_read_counter;
+            page_cache_write_counter += col_statistics.page_cache_write_counter;
+            page_cache_hit_counter += col_statistics.page_cache_hit_counter;
+            page_cache_missing_counter += col_statistics.page_cache_missing_counter;
+            page_cache_compressed_hit_counter += col_statistics.page_cache_compressed_hit_counter;
+            page_cache_decompressed_hit_counter +=
+                    col_statistics.page_cache_decompressed_hit_counter;
         }
     };
 
