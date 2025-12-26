@@ -34,10 +34,17 @@ import java.util.List;
  * ScalarFunction 'search' - simplified architecture similar to MultiMatch.
  * Handles DSL parsing and generates SearchPredicate during translation.
  * <p>
- * Supports 1-3 parameters:
+ * Supports 1-4 parameters:
  * - search(dsl_string): Traditional usage
  * - search(dsl_string, default_field): Simplified syntax with default field
  * - search(dsl_string, default_field, default_operator): Full control over expansion
+ * - search(dsl_string, default_field, default_operator, options): With parsing options
+ * <p>
+ * Options parameter (JSON format):
+ * - mode: "standard" (default) or "lucene" (ES/Lucene-style boolean parsing)
+ * - minimum_should_match: integer for Lucene mode (default: 0 for filter context)
+ * <p>
+ * Example options: '{"mode":"lucene","minimum_should_match":0}'
  */
 public class Search extends ScalarFunction
         implements ExplicitlyCastableSignature, AlwaysNotNullable {
@@ -49,7 +56,10 @@ public class Search extends ScalarFunction
             FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE),
             // With default field and operator: search(dsl_string, default_field, default_operator)
             FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE,
-                    StringType.INSTANCE)
+                    StringType.INSTANCE),
+            // With options: search(dsl_string, default_field, default_operator, options)
+            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE,
+                    StringType.INSTANCE, StringType.INSTANCE)
     );
 
     public Search(Expression... varArgs) {
@@ -62,8 +72,8 @@ public class Search extends ScalarFunction
 
     @Override
     public Search withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1 && children.size() <= 3,
-                "search() requires 1-3 arguments");
+        Preconditions.checkArgument(children.size() >= 1 && children.size() <= 4,
+                "search() requires 1-4 arguments");
         return new Search(getFunctionParams(children));
     }
 
@@ -117,12 +127,28 @@ public class Search extends ScalarFunction
     }
 
     /**
+     * Get options from fourth argument (optional)
+     * Options is a JSON string with parsing configuration.
+     * Example: '{"mode":"lucene","minimum_should_match":0}'
+     */
+    public String getOptions() {
+        if (children().size() < 4) {
+            return null;
+        }
+        Expression optionsArg = child(3);
+        if (optionsArg instanceof StringLikeLiteral) {
+            return ((StringLikeLiteral) optionsArg).getStringValue();
+        }
+        return optionsArg.toString();
+    }
+
+    /**
      * Get parsed DSL plan - deferred to translation phase
      * This will be handled by SearchPredicate during ExpressionTranslator.visitSearch()
      */
     public SearchDslParser.QsPlan getQsPlan() {
         // Lazy evaluation will be handled in SearchPredicate
-        return SearchDslParser.parseDsl(getDslString(), getDefaultField(), getDefaultOperator());
+        return SearchDslParser.parseDsl(getDslString(), getDefaultField(), getDefaultOperator(), getOptions());
     }
 
     @Override

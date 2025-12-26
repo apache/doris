@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsClauseType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsFieldBinding;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsNode;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsOccur;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsPlan;
 
 import org.junit.jupiter.api.Assertions;
@@ -576,5 +577,182 @@ public class SearchDslParserTest {
         Assertions.assertEquals(1, plan.fieldBindings.size());
         Assertions.assertEquals("tags", plan.fieldBindings.get(0).fieldName);
         Assertions.assertEquals(0, plan.fieldBindings.get(0).slotIndex);
+    }
+
+    // ============ Tests for Lucene Mode Parsing ============
+
+    @Test
+    public void testLuceneModeSimpleAndQuery() {
+        // Test: "a AND b" in Lucene mode → both MUST
+        String dsl = "field:a AND field:b";
+        String options = "{\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(Integer.valueOf(0), plan.root.minimumShouldMatch);
+
+        // Both children should have MUST occur
+        for (QsNode child : plan.root.children) {
+            Assertions.assertEquals(SearchDslParser.QsOccur.MUST, child.occur);
+        }
+    }
+
+    @Test
+    public void testLuceneModeSimpleOrQuery() {
+        // Test: "a OR b OR c" in Lucene mode → all SHOULD, at least one must match
+        String dsl = "field:a OR field:b OR field:c";
+        String options = "{\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(3, plan.root.children.size());
+
+        // All children should have SHOULD occur
+        for (QsNode child : plan.root.children) {
+            Assertions.assertEquals(SearchDslParser.QsOccur.SHOULD, child.occur);
+        }
+
+        // minimum_should_match should be 1 (at least one must match)
+        Assertions.assertEquals(Integer.valueOf(1), plan.root.minimumShouldMatch);
+    }
+
+    @Test
+    public void testLuceneModeAndOrMixed() {
+        // Test: "a AND b OR c" in Lucene mode with minimum_should_match=0
+        // Expected: +a (SHOULD terms discarded because MUST exists)
+        String dsl = "field:a AND field:b OR field:c";
+        String options = "{\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, options);
+
+        Assertions.assertNotNull(plan);
+        // With minimum_should_match=0 and MUST clauses present, SHOULD is discarded
+        // Only "a" remains with MUST
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals("field", plan.root.field);
+        Assertions.assertEquals("a", plan.root.value);
+    }
+
+    @Test
+    public void testLuceneModeAndOrNotMixed() {
+        // Test: "a AND b OR NOT c AND d" in Lucene mode
+        // Expected processing:
+        // - a: MUST (first term, default_operator=AND)
+        // - b: MUST (AND introduces)
+        // - c: MUST_NOT (OR + NOT, but OR makes preceding SHOULD, NOT makes current MUST_NOT)
+        // - d: MUST (AND introduces)
+        // With minimum_should_match=0: b becomes SHOULD and is discarded
+        // Result: +a -c +d
+        String dsl = "field:a AND field:b OR NOT field:c AND field:d";
+        String options = "{\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+
+        // Should have 3 children: a(MUST), c(MUST_NOT), d(MUST)
+        // b is filtered out because it becomes SHOULD
+        Assertions.assertEquals(3, plan.root.children.size());
+
+        QsNode nodeA = plan.root.children.get(0);
+        Assertions.assertEquals("a", nodeA.value);
+        Assertions.assertEquals(SearchDslParser.QsOccur.MUST, nodeA.occur);
+
+        QsNode nodeC = plan.root.children.get(1);
+        Assertions.assertEquals("c", nodeC.value);
+        Assertions.assertEquals(SearchDslParser.QsOccur.MUST_NOT, nodeC.occur);
+
+        QsNode nodeD = plan.root.children.get(2);
+        Assertions.assertEquals("d", nodeD.value);
+        Assertions.assertEquals(SearchDslParser.QsOccur.MUST, nodeD.occur);
+    }
+
+    @Test
+    public void testLuceneModeWithDefaultField() {
+        // Test: Lucene mode with default field expansion
+        String dsl = "aterm AND bterm OR cterm";
+        String options = "{\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "firstname", "and", options);
+
+        Assertions.assertNotNull(plan);
+        // With minimum_should_match=0, only aterm (MUST) remains
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals("firstname", plan.root.field);
+        Assertions.assertEquals("aterm", plan.root.value);
+    }
+
+    @Test
+    public void testLuceneModeNotOperator() {
+        // Test: "NOT a" in Lucene mode
+        // In Lucene mode, single NOT produces a TERM with occur=MUST_NOT (not a NOT wrapper)
+        String dsl = "NOT field:a";
+        String options = "{\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals(QsOccur.MUST_NOT, plan.root.occur);
+    }
+
+    @Test
+    public void testLuceneModeMinimumShouldMatchExplicit() {
+        // Test: explicit minimum_should_match=1 keeps SHOULD clauses
+        String dsl = "field:a AND field:b OR field:c";
+        String options = "{\"mode\":\"lucene\",\"minimum_should_match\":1}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        // All 3 terms should be present
+        Assertions.assertEquals(3, plan.root.children.size());
+        Assertions.assertEquals(Integer.valueOf(1), plan.root.minimumShouldMatch);
+    }
+
+    @Test
+    public void testLuceneModeSingleTerm() {
+        // Test: single term should not create OCCUR_BOOLEAN wrapper
+        String dsl = "field:hello";
+        String options = "{\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals("field", plan.root.field);
+        Assertions.assertEquals("hello", plan.root.value);
+    }
+
+    @Test
+    public void testStandardModeUnchanged() {
+        // Test: standard mode (default) should work as before
+        String dsl = "field:a AND field:b OR field:c";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, null);
+
+        Assertions.assertNotNull(plan);
+        // Standard mode uses traditional boolean algebra: OR at top level
+        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
+    }
+
+    @Test
+    public void testLuceneModeInvalidJson() {
+        // Test: invalid JSON options should fall back to standard mode
+        String dsl = "field:a AND field:b";
+        String options = "not valid json";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, options);
+
+        Assertions.assertNotNull(plan);
+        // Should fall back to standard mode (AND type)
+        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+    }
+
+    @Test
+    public void testLuceneModeEmptyOptions() {
+        // Test: empty options string should use standard mode
+        String dsl = "field:a AND field:b";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, "");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
     }
 }
