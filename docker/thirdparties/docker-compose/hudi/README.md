@@ -49,10 +49,13 @@ This directory contains the Docker Compose configuration for setting up a Hudi t
 
 ### Version Compatibility
 ⚠️ **Important**: Hadoop versions must match Spark's built-in Hadoop version
-- **Spark Version**: 3.5.7 (uses Hadoop 3.3.4)
-- **Hadoop AWS Version**: Must be 3.3.4 (matching Spark's Hadoop)
-- **Hadoop Common Version**: Must be 3.3.4 (matching Spark's Hadoop)
-- **Hudi Bundle Version**: 1.1.1 (compatible with Spark 3.5)
+- **Spark Version**: 3.5.7 (uses Hadoop 3.3.4) - default build for Hudi 1.0.2
+- **Hadoop AWS Version**: 3.3.4 (matching Spark's Hadoop)
+- **Hadoop Common Version**: 3.3.4 (matching Spark's Hadoop)
+- **Hudi Bundle Version**: 1.0.2 Spark 3.5 bundle (default build, matches Spark 3.5.7, matches Doris's Hudi version to avoid versionCode compatibility issues)
+- **AWS SDK Bundle Version**: 1.12.262 (compatible with Hadoop 3.3.4)
+- **PostgreSQL JDBC Version**: 42.7.1 (compatible with Hive Metastore)
+- **Hudi 1.0.x Compatibility**: Supports Spark 3.5.x (default), 3.4.x, and 3.3.x
 
 ### JAR Dependencies (`hudi.env.tpl`)
 All JAR file versions and URLs are configurable:
@@ -74,13 +77,17 @@ All JAR file versions and URLs are configurable:
 
 ## Adding Data
 
-### Method 1: Using SQL Scripts (Recommended)
+⚠️ **Important**: To ensure data consistency after Docker restarts, **only use SQL scripts** to add data. Data added through `spark-sql` interactive shell is temporary and will not persist after container restart.
+
+### Using SQL Scripts
 
 Add new SQL files in `scripts/create_preinstalled_scripts/hudi/` directory:
-- Files are executed in alphabetical order (`run01.sql`, `run02.sql`, etc.)
+- Files are executed in alphabetical order (e.g., `01_config_and_database.sql`, `02_create_user_activity_log_tables.sql`, etc.)
+- Use descriptive names with numeric prefixes to control execution order
 - Use environment variable substitution: `${HIVE_METASTORE_URIS}` and `${HUDI_BUCKET}`
+- **Data created through SQL scripts will persist after Docker restart**
 
-Example: Create `run07.sql`:
+Example: Create `08_create_custom_table.sql`:
 ```sql
 USE regression_hudi;
 
@@ -109,56 +116,48 @@ After adding SQL files, restart the container to execute them:
 docker restart doris--hudi-spark
 ```
 
-### Method 2: Using Spark SQL Interactive Shell
+## Creating Hudi Catalog in Doris
 
-Connect to Spark container and use `spark-sql`:
+After starting the Hudi Docker environment, you can create a Hudi catalog in Doris to access Hudi tables:
 
-```bash
-# Enter Spark container
-docker exec -it doris--hudi-spark bash
-
-# Run Spark SQL
-/opt/spark/bin/spark-sql \
-  --master local[*] \
-  --conf spark.sql.catalogImplementation=hive \
-  --conf spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension \
-  --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.hudi.catalog.HoodieCatalog
-```
-
-Then execute SQL commands:
 ```sql
+-- Create Hudi catalog
+CREATE CATALOG IF NOT EXISTS hudi_catalog PROPERTIES (
+    'type' = 'hms',
+    'hive.metastore.uris' = 'thrift://<externalEnvIp>:19083',
+    's3.endpoint' = 'http://<externalEnvIp>:19100',
+    's3.access_key' = 'minio',
+    's3.secret_key' = 'minio123',
+    's3.region' = 'us-east-1',
+    'use_path_style' = 'true'
+);
+
+-- Switch to Hudi catalog
+SWITCH hudi_catalog;
+
+-- Use database
 USE regression_hudi;
 
-CREATE TABLE IF NOT EXISTS test_table (
-  id BIGINT,
-  value STRING
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'id'
-)
-LOCATION 's3a://datalake/warehouse/regression_hudi/test_table';
+-- Show tables
+SHOW TABLES;
 
-INSERT INTO test_table VALUES (1, 'test');
-SELECT * FROM test_table;
+-- Query Hudi table
+SELECT * FROM user_activity_log_cow_partition LIMIT 10;
 ```
 
-### Method 3: Execute SQL File
+**Configuration Parameters:**
+- `hive.metastore.uris`: Hive Metastore Thrift service address (default port: 19083)
+- `s3.endpoint`: MinIO S3 API endpoint (default port: 19100)
+- `s3.access_key`: MinIO access key (default: `minio`)
+- `s3.secret_key`: MinIO secret key (default: `minio123`)
+- `s3.region`: S3 region (default: `us-east-1`)
+- `use_path_style`: Use path-style access for MinIO (required: `true`)
 
-```bash
-# Copy SQL file to container
-docker cp my_script.sql doris--hudi-spark:/tmp/
-
-# Execute SQL file
-docker exec doris--hudi-spark /opt/spark/bin/spark-sql \
-  --master local[*] \
-  --conf spark.sql.catalogImplementation=hive \
-  --conf spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension \
-  --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.hudi.catalog.HoodieCatalog \
-  -f /tmp/my_script.sql
-```
+Replace `<externalEnvIp>` with your actual external environment IP address (e.g., `127.0.0.1` for localhost).
 
 ## Debugging with Spark SQL
+
+⚠️ **Note**: The methods below are for debugging purposes only. Data created through `spark-sql` interactive shell will **not persist** after Docker restart. To add persistent data, use SQL scripts as described in the "Adding Data" section.
 
 ### 1. Connect to Spark Container
 
@@ -236,17 +235,6 @@ docker logs doris--hudi-minio --tail 100 -f
 docker exec -it doris--hudi-minio-mc mc ls myminio/datalake/warehouse/regression_hudi/
 ```
 
-## Pre-installed Tables
-
-The environment automatically creates the following demo tables:
-
-1. **user_activity_log_cow_partition**: COW (Copy-On-Write) table with partitioning
-2. **user_activity_log_cow_non_partition**: COW table without partitioning
-3. **user_activity_log_mor_partition**: MOR (Merge-On-Read) table with partitioning
-4. **user_activity_log_mor_non_partition**: MOR table without partitioning
-
-All tables are located in the `regression_hudi` database and contain sample data.
-
 ## Troubleshooting
 
 ### Container Exits Immediately
@@ -278,7 +266,7 @@ hudi/
 ├── scripts/
 │   ├── init.sh            # Initialization script
 │   ├── create_preinstalled_scripts/
-│   │   └── hudi/          # SQL scripts (run01.sql, run02.sql, ...)
+│   │   └── hudi/          # SQL scripts (01_config_and_database.sql, 02_create_user_activity_log_tables.sql, ...)
 │   └── SUCCESS            # Initialization marker (generated)
 └── cache/                 # Downloaded JAR files (generated)
 ```
