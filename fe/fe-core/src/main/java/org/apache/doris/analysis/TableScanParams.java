@@ -53,7 +53,7 @@ public class TableScanParams {
             throw new IllegalArgumentException("Invalid param type: " + paramType);
         }
         if (isRo() && (!mapParams.isEmpty() || !listParams.isEmpty())) {
-            throw new IllegalArgumentException("Please use '@ro' for Paimon read-optimized system table");
+            throw new IllegalArgumentException("The '@ro' parameter for Paimon read-optimized tables must be used without arguments");
         }
         // TODO: validate mapParams and listParams for different param types
     }
