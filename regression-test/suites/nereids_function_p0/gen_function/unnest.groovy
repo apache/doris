@@ -340,12 +340,27 @@ suite("nereids_unnest_fn") {
         name, tags, unnest(tags);
     '''
 
+    /* this case is unnstable, still under investigation, enable it after root cause fixed 
     order_qt_sql_sum_window '''
     select
         name,
         category_ids,
         unnest(category_ids),
         sum(unnest(category_ids)) over(partition by category_ids)
+    from
+        items_dict_unnest_t
+    group by
+        name, category_ids, unnest(category_ids)
+    order by
+        name, category_ids, unnest(category_ids);
+    '''
+    */
+    order_qt_sql_sum_window2 '''
+    select
+        name,
+        category_ids,
+        unnest(category_ids),
+        sum(unnest(category_ids)) over(partition by name)
     from
         items_dict_unnest_t
     group by

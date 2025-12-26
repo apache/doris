@@ -570,6 +570,17 @@ Mechanical Keyboard	[1, 2]	1	3
 Mechanical Keyboard	[1, 2]	2	3
 Shirt	[4]	4	4
 
+-- !sql_sum_window2 --
+Badminton Racket	[3]	3	3
+Basketball	[1, 3]	1	4
+Basketball	[1, 3]	3	4
+Laptop	[1, 2, 3]	1	6
+Laptop	[1, 2, 3]	2	6
+Laptop	[1, 2, 3]	3	6
+Mechanical Keyboard	[1, 2]	1	3
+Mechanical Keyboard	[1, 2]	2	3
+Shirt	[4]	4	4
+
 -- !sql_inner_join0 --
 1	Laptop	["Electronics", "Office", "High-End", "Laptop"]	Laptop
 5	Shirt	["Clothing", "Office", "Shirt"]	Shirt
