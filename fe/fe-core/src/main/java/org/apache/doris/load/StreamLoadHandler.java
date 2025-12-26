@@ -248,6 +248,7 @@ public class StreamLoadHandler {
             TPipelineFragmentParams result = null;
             result = planner.plan(streamLoadTask.getId(), index);
             result.setTableName(table.getName());
+            result.setTableId(table.getId());
             result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
             result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
             fragmentParams.add(result);
