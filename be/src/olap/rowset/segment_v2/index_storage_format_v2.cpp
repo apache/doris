@@ -39,7 +39,6 @@ IndexStorageFormatV2::IndexStorageFormatV2(IndexFileWriter* index_file_writer)
         : IndexStorageFormat(index_file_writer) {}
 
 Status IndexStorageFormatV2::write() {
-    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir = nullptr;
     std::unique_ptr<lucene::store::IndexOutput> compound_file_output = nullptr;
     ErrorContext error_context;
     try {
@@ -48,11 +47,13 @@ Status IndexStorageFormatV2::write() {
         // Prepare file metadata
         auto file_metadata = prepare_file_metadata(current_offset);
 
-        // Create output stream
-        auto result = create_output_stream();
-        out_dir = std::move(result.first);
-        compound_file_output = std::move(result.second);
-        VLOG_DEBUG << fmt::format("Output compound index file to streams: {}", out_dir->toString());
+        // Create output stream directly without directory operations.
+        // This is important for cloud storage (like S3) where directory operations are not
+        // supported or unnecessary.
+        compound_file_output = create_output_stream();
+        auto index_path = InvertedIndexDescriptor::get_index_file_path_v2(
+                _index_file_writer->_index_path_prefix);
+        VLOG_DEBUG << fmt::format("Output compound index file to: {}", index_path);
 
         // Write version and number of indices
         write_version_and_indices_count(compound_file_output.get());
@@ -75,10 +76,7 @@ Status IndexStorageFormatV2::write() {
         error_context.err_msg.append(err.what());
         LOG(ERROR) << error_context.err_msg;
     }
-    FINALLY({
-        FINALLY_CLOSE(compound_file_output);
-        FINALLY_CLOSE(out_dir);
-    })
+    FINALLY({ FINALLY_CLOSE(compound_file_output); })
 
     return Status::OK();
 }
@@ -177,21 +175,16 @@ std::vector<FileMetadata> IndexStorageFormatV2::prepare_file_metadata(int64_t& c
     return file_metadata;
 }
 
-std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-          std::unique_ptr<lucene::store::IndexOutput>>
-IndexStorageFormatV2::create_output_stream() {
-    io::Path index_path {InvertedIndexDescriptor::get_index_file_path_v2(
-            _index_file_writer->_index_path_prefix)};
-
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_index_file_writer->_fs,
-                                                          index_path.parent_path().c_str());
-    out_dir->set_file_writer_opts(_index_file_writer->_opts);
-    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
-
+std::unique_ptr<lucene::store::IndexOutput> IndexStorageFormatV2::create_output_stream() {
+    // For V2 format, we create the output stream directly using the file writer,
+    // bypassing the directory layer entirely. This optimization is especially important
+    // for cloud storage (like S3) where:
+    // 1. Directory operations (exists, create_directory) are unnecessary overhead
+    // 2. S3 doesn't have a real directory concept - directories are just key prefixes
+    // 3. The file writer is already created and ready to use
     DCHECK(_index_file_writer->_idx_v2_writer != nullptr)
             << "inverted index file writer v2 is nullptr";
-    auto compound_file_output = out_dir->createOutputV2(_index_file_writer->_idx_v2_writer.get());
-    return {std::move(out_dir_ptr), std::move(compound_file_output)};
+    return DorisFSDirectory::FSIndexOutputV2::create(_index_file_writer->_idx_v2_writer.get());
 }
 
 void IndexStorageFormatV2::write_version_and_indices_count(lucene::store::IndexOutput* output) {
