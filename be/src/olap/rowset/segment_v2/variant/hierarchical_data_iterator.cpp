@@ -49,8 +49,9 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                                         ColumnReaderCache* column_reader_cache,
                                         OlapReaderStatistics* stats, ReadType read_type) {
     // None leave node need merge with root
-    std::unique_ptr<HierarchicalDataIterator> stream_iter(new HierarchicalDataIterator(path));
-    if (node != nullptr && read_type != ReadType::MERGE_ROOT_DOC) {
+    std::unique_ptr<HierarchicalDataIterator> stream_iter(
+            new HierarchicalDataIterator(path, read_type));
+    if (node != nullptr && read_type == ReadType::SUBCOLUMNS_AND_SPARSE) {
         std::vector<const SubcolumnColumnMetaInfo::Node*> leaves;
         vectorized::PathsInData leaves_paths;
         SubcolumnColumnMetaInfo::get_leaves_of_node(node, leaves, leaves_paths);
@@ -68,7 +69,6 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
     // need read from sparse column if not null
     stream_iter->_binary_column_reader = std::move(binary_column_reader);
     stream_iter->_stats = stats;
-    stream_iter->_read_type = read_type;
     *reader = std::move(stream_iter);
 
     return Status::OK();
@@ -84,7 +84,7 @@ Status HierarchicalDataIterator::init(const ColumnIteratorOptions& opts) {
         RETURN_IF_ERROR(_root_reader->iterator->init(opts));
         _root_reader->inited = true;
     }
-    if (_binary_column_reader && !_binary_column_reader->inited) {
+    if (!_binary_column_reader->inited) {
         RETURN_IF_ERROR(_binary_column_reader->iterator->init(opts));
         _binary_column_reader->inited = true;
     }
@@ -100,10 +100,8 @@ Status HierarchicalDataIterator::seek_to_ordinal(ordinal_t ord) {
         DCHECK(_root_reader->inited);
         RETURN_IF_ERROR(_root_reader->iterator->seek_to_ordinal(ord));
     }
-    if (_binary_column_reader) {
-        DCHECK(_binary_column_reader->inited);
-        RETURN_IF_ERROR(_binary_column_reader->iterator->seek_to_ordinal(ord));
-    }
+    DCHECK(_binary_column_reader->inited);
+    RETURN_IF_ERROR(_binary_column_reader->iterator->seek_to_ordinal(ord));
     return Status::OK();
 }
 
@@ -319,18 +317,12 @@ Status HierarchicalDataIterator::_process_sparse_column(
         vectorized::ColumnVariant& container_variant, size_t nrows) {
     using namespace vectorized;
     container_variant.clear_sparse_column();
-    if (!_binary_column_reader) {
-        container_variant.get_sparse_column()->assume_mutable()->resize(nrows);
-        container_variant.get_doc_value_column()->assume_mutable()->resize(nrows);
-        ENABLE_CHECK_CONSISTENCY(&container_variant);
-        return Status::OK();
-    }
     // process sparse column
     if (_path.get_parts().empty()) {
-        if (_read_type == ReadType::MERGE_ROOT_SPARSE) {
+        if (_read_type == ReadType::SUBCOLUMNS_AND_SPARSE) {
             container_variant.set_sparse_column(_binary_column_reader->column->get_ptr());
             container_variant.get_doc_value_column()->assume_mutable()->resize(nrows);
-        } else if (_read_type == ReadType::MERGE_ROOT_DOC) {
+        } else if (_read_type == ReadType::DOC_VALUE_COLUMN) {
             container_variant.set_doc_value_column(_binary_column_reader->column->get_ptr());
             container_variant.get_sparse_column()->assume_mutable()->resize(nrows);
         } else {
@@ -402,7 +394,8 @@ Status HierarchicalDataIterator::_process_sparse_column(
                                                                       lower_bound_index);
                         }
                         // Case 2: subcolumn not created yet and we still have quota → create it and insert.
-                        else if (subcolumns_from_sparse_column.size() < count) {
+                        else if (subcolumns_from_sparse_column.size() < count ||
+                                 container_variant.max_subcolumns_count() == 0) {
                             // Initialize subcolumn with current logical row index i to align sizes.
                             ColumnVariant::Subcolumn subcolumn(/*size*/ i, /*is_nullable*/ true,
                                                                false);
@@ -477,9 +470,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(
         return Status::OK();
     }));
     container->clear();
-    if (_binary_column_reader) {
-        _binary_column_reader->column->clear();
-    }
+    _binary_column_reader->column->clear();
     if (_root_reader) {
         if (_root_reader->column->is_nullable()) {
             // fill nullmap

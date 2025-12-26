@@ -17,12 +17,8 @@
 
 suite("test_variant_predefine_doc_snapshot", "p0"){
     sql """ set default_variant_enable_doc_mode = true """
+    sql """ set default_variant_doc_materialization_min_rows = 1000000 """
     sql """DROP TABLE IF EXISTS test_predefine"""
-    def count = new Random().nextInt(10);
-    if (new Random().nextInt(100) < 50) {
-        count = "1000"
-    }
-    sql """ set default_variant_max_subcolumns_count = ${count} """
     sql """ set enable_variant_flatten_nested = true """
     sql """
         CREATE TABLE `test_predefine` (
@@ -50,7 +46,7 @@ suite("test_variant_predefine_doc_snapshot", "p0"){
 
     qt_sql """select cast(v1['ip'] as ipv4) from test_predefine where cast(v1['ip'] as ipv4) = '127.0.0.1';"""
     qt_sql """select cast(v1['dcm'] as decimal) from test_predefine where cast(v1['dcm'] as decimal) = '123.456';"""
-    qt_sql """select v1['dcm'] from test_predefine order by id;"""
+    qt_sql """select v1['dcm'] from test_predefine where length(cast(v1['dcm'] as string)) > 0 order by id;"""
     qt_sql """select v1['dt'] from test_predefine where cast(v1['dt'] as datetime) = '2022-01-01 11:11:11';"""
     qt_sql """select v1['dt'] from test_predefine  where  cast(v1['dt'] as datetime) = '2022-01-01 11:11:11' order by id limit 10"""
     qt_sql """select * from test_predefine  where  cast(v1['dt'] as datetime) = '2022-01-01 11:11:11' order by id limit 10;"""

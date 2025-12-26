@@ -66,13 +66,10 @@ using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataIterator : public ColumnIterator {
 public:
-    // Currently three types of read, merge sparse columns with root columns, merge doc columns with root columns, or read directly
     enum class ReadType {
-        MERGE_ROOT_SPARSE = 0,
-        MERGE_ROOT_DOC = 1,
-        READ_DIRECT = 2,
+        SUBCOLUMNS_AND_SPARSE = 0,
+        DOC_VALUE_COLUMN = 1,
     };
-
     static Status create(ColumnIteratorUPtr* reader, int32_t col_uid, vectorized::PathInData path,
                          const SubcolumnColumnMetaInfo::Node* target_node,
                          std::unique_ptr<SubstreamIterator>&& sparse_reader,
@@ -101,9 +98,9 @@ private:
     size_t _rows_read = 0;
     vectorized::PathInData _path;
     OlapReaderStatistics* _stats = nullptr;
-    ReadType _read_type = ReadType::READ_DIRECT;
-
-    HierarchicalDataIterator(const vectorized::PathInData& path) : _path(path) {}
+    ReadType _read_type = ReadType::SUBCOLUMNS_AND_SPARSE;
+    HierarchicalDataIterator(const vectorized::PathInData& path, ReadType read_type)
+            : _path(path), _read_type(read_type) {}
 
     template <typename NodeFunction>
     Status tranverse(NodeFunction&& node_func) {

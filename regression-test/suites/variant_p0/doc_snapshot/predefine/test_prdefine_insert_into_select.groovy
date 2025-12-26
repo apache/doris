@@ -19,8 +19,12 @@ suite("predefine_insert_into_select_doc_snashot", "p0"){
 
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = true """
-    def count = new Random().nextInt(5);
-    sql """ set default_variant_doc_materialization_min_rows = ${count} """
+    boolean minrowszero = new Random().nextBoolean();
+    if (minrowszero) {
+        sql """ set default_variant_doc_materialization_min_rows = 0 """
+    } else {
+        sql """ set default_variant_doc_materialization_min_rows = 1000000 """
+    }
 
     sql "DROP TABLE IF EXISTS fromTable"
     sql """CREATE TABLE fromTable (
@@ -92,7 +96,11 @@ suite("predefine_insert_into_select_doc_snashot", "p0"){
     sql """insert into toTable values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
 
 
-    sql """ set enable_match_without_inverted_index = false """
+    if (minrowszero) {
+        sql """ set enable_match_without_inverted_index = false """
+    } else {
+        sql """ set enable_match_without_inverted_index = true """
+    }
     sql """ set enable_common_expr_pushdown = true """
     order_qt_sql """ select count() from toTable where cast (var['d'] as string) match '123' """
 }

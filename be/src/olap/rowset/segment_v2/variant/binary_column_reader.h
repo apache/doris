@@ -36,6 +36,7 @@ enum class BinaryColumnType {
     SINGLE_SPARSE = 0,
     MULTIPLE_SPARSE = 1,
     MULTIPLE_DOC_VALUE = 2,
+    DUMMY = 3,
 };
 
 // Combine multiple bucket binary iterators into one logical iterator.
@@ -58,6 +59,19 @@ public:
     virtual uint32_t num_buckets() const = 0;
 
     virtual BinaryColumnType get_type() const = 0;
+};
+
+// Dummy binary column reader for variant column without any binary data.
+// for example, old version variant column without any binary data.
+class DummyBinaryColumnReader : public BinaryColumnReader {
+public:
+    Status new_binary_column_iterator(ColumnIteratorUPtr* iter) const override;
+    Status add_binary_column_reader(std::shared_ptr<ColumnReader> reader, uint32_t index) override;
+    std::pair<std::shared_ptr<ColumnReader>, std::string> select_reader_and_cache_key(
+            const std::string& relative_path) const override;
+    std::shared_ptr<ColumnReader> select_reader(uint32_t index) const override;
+    uint32_t num_buckets() const override;
+    BinaryColumnType get_type() const override;
 };
 
 class SingleSparseColumnReader : public BinaryColumnReader {

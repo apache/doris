@@ -31,6 +31,7 @@
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/variant/binary_column_reader.h"
+#include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
 #include "olap/rowset/segment_v2/variant/variant_external_meta_reader.h"
 #include "olap/rowset/segment_v2/variant/variant_statistics.h"
 #include "olap/tablet_schema.h"
@@ -263,16 +264,15 @@ private:
     // Describe how a variant sub-path should be read. This is a logical plan only and
     // does not create any concrete ColumnIterator.
     enum class ReadKind {
-        ROOT_FLAT,      // root variant using `VariantRootColumnIterator`
-        HIERARCHICAL,   // hierarchical merge (root + subcolumns + sparse)
-        LEAF,           // direct leaf reader
-        SPARSE_EXTRACT, // extract single path from sparse column
-        SPARSE_MERGE,   // merge subcolumns into sparse column
-        DEFAULT_NESTED, // fill nested subcolumn using sibling nested column
-        DEFAULT_FILL,   // default iterator when path not exist
-        DOC_COMPACT,    // read from doc value column when compaction read
-        DOC_EXTRACT,    // extract single path from doc value column when read
-        DOC_ALL,        // read all paths from doc value column when read
+        ROOT_FLAT,        // root variant using `VariantRootColumnIterator`
+        HIERARCHICAL,     // hierarchical merge (root + subcolumns + sparse)
+        HIERARCHICAL_DOC, // hierarchical merge (root + doc)
+        LEAF,             // direct leaf reader
+        BINARY_EXTRACT,   // extract single path from sparse column
+        SPARSE_MERGE,     // merge subcolumns into sparse column
+        DEFAULT_NESTED,   // fill nested subcolumn using sibling nested column
+        DEFAULT_FILL,     // default iterator when path not exist
+        DOC_COMPACT,      // read from doc value column when compaction read
     };
 
     struct ReadPlan {
@@ -320,7 +320,8 @@ private:
                                        const SubcolumnColumnMetaInfo::Node* node,
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
-                                       OlapReaderStatistics* stats);
+                                       OlapReaderStatistics* stats,
+                                       HierarchicalDataIterator::ReadType read_type);
     // Create a reader that merges subcolumns into the destination sparse column.
     // If bucket_index is set, only subcolumns whose path belongs to this bucket will be merged.
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,

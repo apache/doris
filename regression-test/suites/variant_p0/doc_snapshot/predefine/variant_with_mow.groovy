@@ -17,7 +17,6 @@
 
 suite("variant_predefine_with_mow_doc_snapshot", "p0") {
     sql """ set default_variant_enable_doc_mode = true """
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
     sql "DROP TABLE IF EXISTS var_mow"
     sql """
         CREATE TABLE `var_mow` (

@@ -2047,6 +2047,11 @@ bool ColumnVariant::only_have_default_values() const {
             return false;
         }
     }
+    const auto& sparse_offsets = serialized_sparse_column_offsets();
+    const auto& doc_value_offsets = serialized_doc_value_column_offsets();
+    if (sparse_offsets[num_rows - 1] != 0 || doc_value_offsets[num_rows - 1] != 0) {
+        return false;
+    }
     return true;
 }
 

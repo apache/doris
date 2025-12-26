@@ -60,12 +60,16 @@ struct VariantStatistics {
         return false;
     }
 
-    bool has_prefix_path(const std::string& dot_prefix) const {
+    bool has_prefix_path_in_sparse_column(const std::string& dot_prefix) const {
         auto find_sparse = sparse_column_non_null_size.lower_bound(dot_prefix);
         if (find_sparse != sparse_column_non_null_size.end() &&
             find_sparse->first.starts_with(dot_prefix)) {
             return true;
         }
+        return false;
+    }
+
+    bool has_prefix_path_in_doc_column(const std::string& dot_prefix) const {
         auto find_doc = doc_column_non_null_size.lower_bound(dot_prefix);
         if (find_doc != doc_column_non_null_size.end() && find_doc->first.starts_with(dot_prefix)) {
             return true;

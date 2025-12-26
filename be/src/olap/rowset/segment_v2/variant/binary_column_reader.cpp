@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <tuple>
 
+#include "olap/rowset/segment_v2/segment.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_string.h"
@@ -31,6 +32,49 @@
 namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
+
+Status DummyBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr* iter) const {
+    static const TabletColumn binary_column = []() {
+        TabletColumn binary_column;
+        binary_column.set_name("binary_column");
+        binary_column.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
+        binary_column.set_default_value("NULL");
+        TabletColumn child_tcolumn;
+        child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+        binary_column.add_sub_column(child_tcolumn);
+        binary_column.add_sub_column(child_tcolumn);
+        binary_column.set_is_nullable(false);
+        return binary_column;
+    }();
+    RETURN_IF_ERROR(Segment::new_default_iterator(binary_column, iter));
+    return Status::OK();
+}
+
+Status DummyBinaryColumnReader::add_binary_column_reader(std::shared_ptr<ColumnReader> reader,
+                                                         uint32_t index) {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "DummyBinaryColumnReader does not support add_binary_column_reader");
+}
+
+std::pair<std::shared_ptr<ColumnReader>, std::string>
+DummyBinaryColumnReader::select_reader_and_cache_key(const std::string& relative_path) const {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "DummyBinaryColumnReader does not support select_reader_and_cache_key");
+}
+
+std::shared_ptr<ColumnReader> DummyBinaryColumnReader::select_reader(uint32_t index) const {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "DummyBinaryColumnReader does not support select_reader");
+}
+
+uint32_t DummyBinaryColumnReader::num_buckets() const {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "DummyBinaryColumnReader does not support num_buckets");
+}
+
+BinaryColumnType DummyBinaryColumnReader::get_type() const {
+    return BinaryColumnType::DUMMY;
+}
 
 Status SingleSparseColumnReader::add_binary_column_reader(std::shared_ptr<ColumnReader> reader,
                                                           uint32_t /*index*/) {

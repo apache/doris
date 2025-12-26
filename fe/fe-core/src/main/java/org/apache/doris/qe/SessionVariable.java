@@ -3264,8 +3264,6 @@ public class SessionVariable implements Serializable, Writable {
         if (this.defaultVariantEnableDocMode) {
             this.defaultVariantMaxSubcolumnsCount = 0;
             this.defaultEnableTypedPathsToSparse = false;
-            this.defaultVariantMaxSparseColumnStatisticsSize = 0;
-            this.defaultVariantSparseHashShardCount = 0;
         } else {
             this.defaultVariantDocMaterializationMinRows = 0L;
             this.defaultVariantDocHashShardCount = 0;

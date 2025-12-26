@@ -155,26 +155,28 @@ public class VariantType extends ScalarType {
         }
 
         sb.append("PROPERTIES (");
-        sb.append("\"variant_max_subcolumns_count\" = \"")
-                                    .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
-        sb.append(",");
-        sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
-                                    .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
-        sb.append(",");
-        sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
-                                    .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
-        sb.append(",");
-        sb.append("\"variant_sparse_hash_shard_count\" = \"")
-                                    .append(String.valueOf(variantSparseHashShardCount)).append("\"");
-        sb.append(",");
-        sb.append("\"variant_enable_doc_mode\" = \"")
+        if (enableVariantDocSnapshotMode) {
+            sb.append("\"variant_enable_doc_mode\" = \"")
                                     .append(String.valueOf(enableVariantDocSnapshotMode)).append("\"");
-        sb.append(",");
-        sb.append("\"variant_doc_materialization_min_rows\" = \"")
-                                    .append(String.valueOf(variantDocSnapshotMinRows)).append("\"");
-        sb.append(",");
-        sb.append("\"variant_doc_hash_shard_count\" = \"")
-                                    .append(String.valueOf(variantDocSnapshotShardCount)).append("\"");
+            sb.append(",");
+            sb.append("\"variant_doc_materialization_min_rows\" = \"")
+                                        .append(String.valueOf(variantDocSnapshotMinRows)).append("\"");
+            sb.append(",");
+            sb.append("\"variant_doc_hash_shard_count\" = \"")
+                                        .append(String.valueOf(variantDocSnapshotShardCount)).append("\"");
+        } else {
+            sb.append("\"variant_max_subcolumns_count\" = \"")
+                                    .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
+            sb.append(",");
+            sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
+                                        .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
+            sb.append(",");
+            sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
+                                        .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
+            sb.append(",");
+            sb.append("\"variant_sparse_hash_shard_count\" = \"")
+                                        .append(String.valueOf(variantSparseHashShardCount)).append("\"");
+        }
         sb.append(")>");
         return sb.toString();
     }
