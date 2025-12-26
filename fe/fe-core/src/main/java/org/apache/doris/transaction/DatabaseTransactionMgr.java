@@ -774,6 +774,7 @@ public class DatabaseTransactionMgr {
     public void commitTransaction(List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
                                   TxnCommitAttachment txnCommitAttachment, Boolean is2PC)
             throws UserException {
+        env.debugBlockAllOnGlobalLock("FE.BLOCK_IMPORT_LOCK");
         // check status
         // the caller method already own tables' write lock
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);

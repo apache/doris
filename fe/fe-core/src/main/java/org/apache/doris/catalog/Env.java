@@ -68,6 +68,7 @@ import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
@@ -1089,6 +1090,29 @@ public class Env {
     private void unlock() {
         if (lock.isHeldByCurrentThread()) {
             this.lock.unlock();
+        }
+    }
+
+    // Block the caller while holding the global env lock when the given debug point is enabled.
+    // Used to simulate a stuck import path that drags other operations waiting on the same lock.
+    public void debugBlockAllOnGlobalLock(String debugPointName) {
+        if (!DebugPointUtil.isEnable(debugPointName)) {
+            return;
+        }
+        try {
+            lock.lock();
+            LOG.info("debug point {} enabled, block and hold env lock", debugPointName);
+            while (DebugPointUtil.isEnable(debugPointName)) {
+                Thread.sleep(1000);
+            }
+            LOG.info("debug point {} cleared, release env lock", debugPointName);
+        } catch (InterruptedException e) {
+            LOG.warn("debug point {} interrupted while blocking env lock", debugPointName);
+            Thread.currentThread().interrupt();
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
     }
 
@@ -7370,4 +7394,3 @@ public class Env {
 
     protected void cloneClusterSnapshot() throws Exception {}
 }
-
