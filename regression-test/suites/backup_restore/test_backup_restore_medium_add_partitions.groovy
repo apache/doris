@@ -25,7 +25,7 @@ suite("test_backup_restore_medium_add_partitions", "backup_restore") {
         try {
             def (host, port) = context.config.feHttpAddress.split(":")
             def url = "http://${host}:${port}/rest/v1/log?add_verbose=org.apache.doris.backup"
-            def result = curl("POST", url)
+            def result = org.apache.doris.regression.util.Http.POST(url, null, true)
             logger.info("Enabled debug logging for org.apache.doris.backup: ${result}")
         } catch (Exception e) {
             logger.warn("Failed to enable debug logging: ${e.message}")
@@ -36,7 +36,7 @@ suite("test_backup_restore_medium_add_partitions", "backup_restore") {
         try {
             def (host, port) = context.config.feHttpAddress.split(":")
             def url = "http://${host}:${port}/rest/v1/log?del_verbose=org.apache.doris.backup"
-            def result = curl("POST", url)
+            def result = org.apache.doris.regression.util.Http.POST(url, null, true)
             logger.info("Disabled debug logging: ${result}")
         } catch (Exception e) {
             logger.warn("Failed to disable debug logging: ${e.message}")
