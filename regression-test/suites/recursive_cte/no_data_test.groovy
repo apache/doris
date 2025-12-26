@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("no_data_test") {
+suite("no_data_test", "rec_cte") {
 
     String db = context.config.getDbNameByFile(context.file)
     def prefix_str = "no_data_"

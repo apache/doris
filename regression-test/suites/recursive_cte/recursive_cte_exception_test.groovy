@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("exception_test") {
+suite("exception_test", "rec_cte") {
     String db = context.config.getDbNameByFile(context.file)
     def prefix_str = "exception_"
     def tb_name = prefix_str + "recursive_cte_tb"

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("mv_and_cte_test") {
+suite("mv_and_cte_test", "rec_cte") {
 
     String db = context.config.getDbNameByFile(context.file)
     def prefix_str = "mv_and_cte_"
