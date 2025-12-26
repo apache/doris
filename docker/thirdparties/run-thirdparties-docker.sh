@@ -40,11 +40,11 @@ Usage: $0 <options>
      --load-parallel <num>  set the parallel number to load data, default is the 50% of CPU cores
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris
   "
     exit 1
 }
-DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
+DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
 ALL_COMPONENTS="${DEFAULT_COMPONENTS},trino,kafka,spark,lakesoul,ranger,polaris"
 COMPONENTS=$2
 HELP=0
@@ -156,6 +156,7 @@ RUN_HIVE3=0
 RUN_ES=0
 RUN_ICEBERG=0
 RUN_ICEBERG_REST=0
+RUN_HUDI=0
 RUN_TRINO=0
 RUN_KAFKA=0
 RUN_SPARK=0
@@ -194,6 +195,9 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ICEBERG=1
     elif [[ "${element}"x == "iceberg-rest"x ]]; then
         RUN_ICEBERG_REST=1
+    elif [[ "${element}"x == "hudi"x ]]; then
+        RUN_HUDI=1
+        RESERVED_PORTS="${RESERVED_PORTS},19083,19100,19101,18080"
     elif [[ "${element}"x == "trino"x ]]; then
         RUN_TRINO=1
     elif [[ "${element}"x == "spark"x ]]; then
@@ -455,6 +459,19 @@ start_iceberg() {
         fi
 
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d --wait
+    fi
+}
+
+start_hudi() {
+    HUDI_DIR=${ROOT}/docker-compose/hudi
+    cp "${HUDI_DIR}"/hudi.yaml.tpl "${HUDI_DIR}"/hudi.yaml
+    cp "${HUDI_DIR}"/hudi.env.tpl "${HUDI_DIR}"/hudi.env
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${HUDI_DIR}"/hudi.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${HUDI_DIR}"/hudi.env
+    sudo chmod +x "${HUDI_DIR}"/scripts/init.sh
+    sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env down --remove-orphans
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env up -d --wait
     fi
 }
 
@@ -758,6 +775,11 @@ fi
 if [[ "${RUN_ICEBERG_REST}" -eq 1 ]]; then
     start_iceberg_rest > start_iceberg_rest.log 2>&1 &
     pids["iceberg-rest"]=$!
+fi
+
+if [[ "${RUN_HUDI}" -eq 1 ]]; then
+    start_hudi > start_hudi.log 2>&1 &
+    pids["hudi"]=$!
 fi
 
 if [[ "${RUN_TRINO}" -eq 1 ]]; then
