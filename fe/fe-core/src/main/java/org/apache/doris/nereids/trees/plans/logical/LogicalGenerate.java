@@ -35,7 +35,9 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -119,7 +121,10 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     @Override
     public Set<Slot> getInputSlots() {
-        return PlanUtils.fastGetInputSlots(generators);
+        Set<Slot> slots = new HashSet<>();
+        slots.addAll(PlanUtils.fastGetInputSlots(generators));
+        slots.addAll(PlanUtils.fastGetInputSlots(conjuncts));
+        return Sets.difference(slots, Sets.newHashSet(generatorOutput));
     }
 
     /**

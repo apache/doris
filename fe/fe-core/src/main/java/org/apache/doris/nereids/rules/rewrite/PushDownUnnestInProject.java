@@ -116,6 +116,9 @@ public class PushDownUnnestInProject extends OneRewriteRuleFactory {
             }
             Expression expr = unnest.child(0);
             DataType dataType = expr.getDataType();
+            // we only care about generic type info are same
+            // so ARRAY<INT>, ARRAY<DOUBLE> will be treated as same type
+            // we use 1, 2, 3 as some mark value for array, map and bitmap type separately
             if (dataType.isArrayType()) {
                 typeCounter += 1;
             } else if (dataType.isMapType()) {
@@ -130,7 +133,7 @@ public class PushDownUnnestInProject extends OneRewriteRuleFactory {
             throw new AnalysisException("multiple UNNEST functions in same place must have ARRAY argument type");
         }
         if (typeCounter == 1 * size || typeCounter == 2 * size || typeCounter == 3 * size) {
-            return new Unnest(false, false, expressions);
+            return new Unnest(expressions, false, false);
         } else {
             throw new AnalysisException("UNNEST functions must have same argument type");
         }

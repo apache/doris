@@ -66,7 +66,7 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
         this.generators = ImmutableList.copyOf(Objects.requireNonNull(generators, "predicates can not be null"));
         this.generatorOutput = ImmutableList.copyOf(Objects.requireNonNull(generatorOutput,
                 "generatorOutput can not be null"));
-        this.conjuncts = ImmutableList.copyOf(conjuncts);
+        this.conjuncts = ImmutableList.copyOf(Objects.requireNonNull(conjuncts));
     }
 
     @Override
