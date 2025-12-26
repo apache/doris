@@ -17,6 +17,7 @@
 
 package org.apache.doris.cluster;
 
+import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
@@ -29,6 +30,7 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -48,6 +50,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 public class SystemInfoServiceTest {
 
@@ -315,6 +319,47 @@ public class SystemInfoServiceTest {
         dis.close();
 
         deleteDir(dir);
+    }
+
+    @Test
+    public void testModifyBackendTagMap() throws Exception {
+        clearAllBackend();
+        // 场景1: 相同的 tag entries - 不应该修改
+        Backend backend1 = new Backend(10001, "192.168.1.1", 9050);
+        systemInfoService.addBackend(backend1);
+        Backend be1 = systemInfoService.getBackend(10001);
+        Map<String, String> initialTags = Maps.newHashMap();
+        initialTags.put("tag.location", "zone1");
+        initialTags.put("other.property", "value");
+        be1.setTagMap(initialTags);
+
+        ModifyBackendOp op1 = new ModifyBackendOp(
+                Lists.newArrayList("192.168.1.1:9050"),
+                Maps.newHashMap()
+        );
+
+        Map<String, String> originalMap = new HashMap<>(be1.getTagMap());
+        systemInfoService.modifyBackends(op1);
+        // tag map 不应该被修改
+        Assert.assertEquals(originalMap, be1.getTagMap());
+
+        // 场景2: 不同的 tag entries - 应该修改
+        Backend backend2 = new Backend(10002, "192.168.1.2", 9050);
+        systemInfoService.addBackend(backend2);
+        Backend be2 = systemInfoService.getBackend(10002);
+        Map<String, String> tags2 = Maps.newHashMap();
+        tags2.put("tag.location", "zone1");
+        be2.setTagMap(tags2);
+
+        Map<String, String> differentTagMap = Maps.newHashMap();
+        differentTagMap.put("tag.location", "zone2");
+
+        ModifyBackendOp op2 = new ModifyBackendOp(
+                Lists.newArrayList("192.168.1.2:9050"),
+                differentTagMap
+        );
+        systemInfoService.modifyBackends(op2);
+        Assert.assertEquals("zone2", be2.getTagMap().get("tag.location"));
     }
 
 }
