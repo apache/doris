@@ -833,6 +833,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR = "skew_rewrite_join_salt_explode_factor";
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
+    public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VariableMgr.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -840,6 +841,7 @@ public class SessionVariable implements Serializable, Writable {
                         "When collecting column statistics, collect the top values ranked by their "
                                 + "proportion as hot values, up to HOT_VALUE_COLLECT_COUNT."})
     public int hotValueCollectCount = 10; // Select the values that account for at least 10% of the column
+
 
     public void setHotValueCollectCount(int count) {
         this.hotValueCollectCount = count;
@@ -2737,6 +2739,9 @@ public class SessionVariable implements Serializable, Writable {
                             + "Smaller values reduce network traffic but may not fully resolve skew. "
             }, checker = "checkSkewRewriteAggBucketNum")
     public int skewRewriteAggBucketNum = 1024;
+
+    @VariableMgr.VarAttr(name = AGG_SHUFFLE_USE_PARENT_KEY, needForward = false)
+    public boolean aggShuffleUseParentKey = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
