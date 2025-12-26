@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -138,6 +139,10 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder("PhysicalDistribute");
         builder.append("[").append(getDistributionSpec().shapeInfo()).append("]");
+        builder.append(" Columns:");
+        if (distributionSpec instanceof DistributionSpecHash) {
+            builder.append(((DistributionSpecHash) distributionSpec).getOrderedShuffledColumns());
+        }
         return builder.toString();
     }
 }

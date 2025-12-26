@@ -229,7 +229,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         return new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(), globalOutput,
                 Optional.ofNullable(aggregate.getGroupByExpressions()), inputToResultParamSecond,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), inputToResultParamSecond),
-                aggregate.getLogicalProperties(), child);
+                aggregate.getLogicalProperties(), aggregate.getSourceRepeat().isPresent(), child);
     }
 
     /**
@@ -257,7 +257,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         boolean maybeUsingStreamAgg = AggregateUtils.maybeUsingStreamAgg(localAggGroupBy, localParam);
         PhysicalHashAggregate<Plan> localAgg = new PhysicalHashAggregate<>(localAggGroupBy, localAggOutput,
                 Optional.empty(), localParam, maybeUsingStreamAgg,
-                null, logicalAgg.child());
+                null, logicalAgg.getSourceRepeat().isPresent(), logicalAgg.child());
         // add shuffle expr in project
         ImmutableList.Builder<NamedExpression> projections = ImmutableList.builderWithExpectedSize(
                 localAgg.getOutputs().size() + 1);
@@ -290,7 +290,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         PhysicalHashAggregate<Plan> secondPhaseAgg = new PhysicalHashAggregate<>(
                 secondPhaseAggGroupBy, secondPhaseAggOutput.build(),
                 Optional.of(secondPhaseAggGroupBy), secondParam, false,
-                null, physicalProject);
+                null, logicalAgg.getSourceRepeat().isPresent(), physicalProject);
 
         // 3. third phase agg
         List<Expression> thirdPhaseAggGroupBy = Utils.fastToImmutableList(logicalAgg.getGroupByExpressions());
@@ -304,7 +304,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         PhysicalHashAggregate<Plan> thirdPhaseAgg = new PhysicalHashAggregate<>(
                 thirdPhaseAggGroupBy, thirdPhaseAggOutput.build(),
                 Optional.empty(), thirdParam, false,
-                null, secondPhaseAgg);
+                null, logicalAgg.getSourceRepeat().isPresent(), secondPhaseAgg);
 
         // 4. fourth phase agg
         ImmutableList.Builder<NamedExpression> fourthPhaseAggOutput = ImmutableList.builderWithExpectedSize(
@@ -317,7 +317,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         fourthPhaseAggOutput.add(sumAliasFour);
         return new PhysicalHashAggregate<>(thirdPhaseAggGroupBy,
                 fourthPhaseAggOutput.build(), Optional.of(logicalAgg.getGroupByExpressions()), fourthParam,
-                false, logicalAgg.getLogicalProperties(), thirdPhaseAgg);
+                false, logicalAgg.getLogicalProperties(), logicalAgg.getSourceRepeat().isPresent(), thirdPhaseAgg);
     }
 
     private static AggregateFunction getAggregateFunction(AggregateFunction aggFunc, Slot child) {

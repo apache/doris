@@ -82,7 +82,7 @@ public abstract class SplitAggBaseRule {
         }
         return new PhysicalHashAggregate<>(localAggGroupBy, localAggOutput, Optional.ofNullable(partitionExpressions),
                 inputToBufferParam, AggregateUtils.maybeUsingStreamAgg(localAggGroupBy, inputToBufferParam),
-                null, child);
+                null, aggregate.getSourceRepeat().isPresent(), child);
     }
 
     /**
@@ -125,7 +125,7 @@ public abstract class SplitAggBaseRule {
         return new PhysicalHashAggregate<>(localAgg.getGroupByExpressions(), middleAggOutput,
                 Optional.ofNullable(partitionExpressions), bufferToResultParam,
                 AggregateUtils.maybeUsingStreamAgg(localAgg.getGroupByExpressions(), bufferToResultParam),
-                null, localAgg);
+                null, aggregate.getSourceRepeat().isPresent(), localAgg);
     }
 
     /**
@@ -167,7 +167,8 @@ public abstract class SplitAggBaseRule {
                 .addAll(aggFuncToAliasThird.values())
                 .build();
         Plan thirdAgg = new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(), thirdAggOutput, thirdParam,
-                AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), thirdParam), null, child);
+                AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), thirdParam), null,
+                aggregate.getSourceRepeat().isPresent(), child);
 
         // fourth phase
         AggregateParam fourthParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT);
@@ -197,6 +198,6 @@ public abstract class SplitAggBaseRule {
         return new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(), globalOutput,
                 Optional.ofNullable(aggregate.getGroupByExpressions()), fourthParam,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), fourthParam),
-                aggregate.getLogicalProperties(), thirdAgg);
+                aggregate.getLogicalProperties(), aggregate.getSourceRepeat().isPresent(), thirdAgg);
     }
 }

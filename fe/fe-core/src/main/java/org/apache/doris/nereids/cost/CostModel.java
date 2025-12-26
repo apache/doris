@@ -98,8 +98,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             beNumber = sessionVariable.getBeNumberForTest();
             parallelInstance = 8;
         } else {
-            beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
-            parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
+            beNumber = ConnectContext.getAliveBeNumber(connectContext);
+            parallelInstance = ConnectContext.getParallelInstanceNum(connectContext);
         }
         this.hboPlanStatisticsProvider = Objects.requireNonNull(Env.getCurrentEnv().getHboPlanStatisticsManager()
                 .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
