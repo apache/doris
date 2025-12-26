@@ -267,13 +267,48 @@ struct RegrInterceptFunc : AggregateFunctionRegrData<T, true, 2, 2> {
     }
 };
 
+template <PrimitiveType T>
+struct RegrSxxFunc : AggregateFunctionRegrData<T, false, 2, 0> {
+    static constexpr const char* name = "regr_sxx";
+
+    Float64 get_result() const {
+        if (this->n < 1) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        return this->sxx();
+    }
+};
+
+template <PrimitiveType T>
+struct RegrSyyFunc : AggregateFunctionRegrData<T, false, 0, 2> {
+    static constexpr const char* name = "regr_syy";
+
+    Float64 get_result() const {
+        if (this->n < 1) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        return this->syy();
+    }
+};
+
+template <PrimitiveType T>
+struct RegrSxyFunc : AggregateFunctionRegrData<T, true, 1, 1> {
+    static constexpr const char* name = "regr_sxy";
+
+    Float64 get_result() const {
+        if (this->n < 1) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        return this->sxy();
+    }
+};
+
 template <typename RegrFunc, bool y_nullable, bool x_nullable>
 class AggregateFunctionRegrSimple
         : public IAggregateFunctionDataHelper<
                   RegrFunc, AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>> {
 public:
-    using XInputCol = typename PrimitiveTypeTraits<RegrFunc::Type>::ColumnType;
-    using YInputCol = XInputCol;
+    using InputCol = typename PrimitiveTypeTraits<RegrFunc::Type>::ColumnType;
     using ResultCol = ColumnFloat64;
 
     explicit AggregateFunctionRegrSimple(const DataTypes& argument_types_)
@@ -291,39 +326,20 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        bool y_null = false;
-        bool x_null = false;
-        const YInputCol* y_nested_column = nullptr;
-        const XInputCol* x_nested_column = nullptr;
-
+        const auto* y_col = nested_or_null<y_nullable>(columns[0], row_num);
         if constexpr (y_nullable) {
-            const auto& y_column_nullable =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            y_null = y_column_nullable.is_null_at(row_num);
-            y_nested_column = assert_cast<const YInputCol*, TypeCheckOnRelease::DISABLE>(
-                    y_column_nullable.get_nested_column_ptr().get());
-        } else {
-            y_nested_column = assert_cast<const YInputCol*, TypeCheckOnRelease::DISABLE>(
-                    (*columns[0]).get_ptr().get());
+            if (y_col == nullptr) {
+                return;
+            }
         }
-
+        const auto* x_col = nested_or_null<x_nullable>(columns[1], row_num);
         if constexpr (x_nullable) {
-            const auto& x_column_nullable =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-            x_null = x_column_nullable.is_null_at(row_num);
-            x_nested_column = assert_cast<const XInputCol*, TypeCheckOnRelease::DISABLE>(
-                    x_column_nullable.get_nested_column_ptr().get());
-        } else {
-            x_nested_column = assert_cast<const XInputCol*, TypeCheckOnRelease::DISABLE>(
-                    (*columns[1]).get_ptr().get());
+            if (x_col == nullptr) {
+                return;
+            }
         }
 
-        if (x_null || y_null) {
-            return;
-        }
-
-        this->data(place).add(y_nested_column->get_data()[row_num],
-                              x_nested_column->get_data()[row_num]);
+        this->data(place).add(y_col->get_data()[row_num], x_col->get_data()[row_num]);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
@@ -353,6 +369,21 @@ public:
         } else {
             dst_column_with_nullable.get_null_map_data().push_back(0);
             dst_column.get_data().push_back(result);
+        }
+    }
+
+private:
+    template <bool Nullable>
+    static ALWAYS_INLINE const InputCol* nested_or_null(const IColumn* col, ssize_t row_num) {
+        if constexpr (Nullable) {
+            const auto& c = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*col);
+            if (c.is_null_at(row_num)) {
+                return nullptr;
+            }
+            return assert_cast<const InputCol*, TypeCheckOnRelease::DISABLE>(
+                    c.get_nested_column_ptr().get());
+        } else {
+            return assert_cast<const InputCol*, TypeCheckOnRelease::DISABLE>(col->get_ptr().get());
         }
     }
 };
