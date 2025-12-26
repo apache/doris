@@ -67,7 +67,7 @@ public class CloudReplica extends Replica {
     @SerializedName(value = "idx")
     private long idx = -1;
 
-    private Random rand = new Random();
+    private static final Random rand = new Random();
 
     private Map<String, List<Long>> memClusterToBackends = new ConcurrentHashMap<String, List<Long>>();
 
