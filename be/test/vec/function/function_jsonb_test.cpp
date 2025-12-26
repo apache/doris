@@ -914,4 +914,113 @@ TEST(FunctionJsonbTEST, JsonContains) {
     ASSERT_TRUE(st.ok()) << "execute failed: " << st.to_string();
 }
 
+TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharTest) {
+    std::string func_name = "jsonb_extract_string";
+    InputTypeSet input_types = {Nullable {TypeIndex::String}, Nullable {TypeIndex::String}};
+
+    DataSet data_set = {
+            {{Null(), STRING("$.k1")}, Null()},
+            {{STRING("{}"), STRING("$.k1")}, Null()},
+            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$.k1")}, STRING("v31")},
+            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$.k2")}, STRING("300")},
+            {{STRING(R"({"k1":null})"), STRING("$.k1")}, STRING("null")},
+            {{STRING(R"({"k1":true})"), STRING("$.k1")}, STRING("true")},
+            {{STRING(R"({"k1":false})"), STRING("$.k1")}, STRING("false")},
+            {{STRING(R"({"k1":123})"), STRING("$.k1")}, STRING("123")},
+            {{STRING(R"({"k1":3.14})"), STRING("$.k1")}, STRING("3.14")},
+            {{STRING(R"({"k1":[1,2,3]})"), STRING("$.k1")}, STRING("[1,2,3]")},
+            {{STRING(R"({"k1":{"nested":"value"}})"), STRING("$.k1")},
+             STRING(R"({"nested":"value"})")},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // json_extract_string from varchar - nested path extraction
+    data_set = {
+            {{STRING(R"({"k1":{"k2":"v2"}})"), STRING("$.k1.k2")}, STRING("v2")},
+            {{STRING(R"({"k1":{"k2":123}})"), STRING("$.k1.k2")}, STRING("123")},
+            {{STRING(R"({"k1":{"k2":true}})"), STRING("$.k1.k2")}, STRING("true")},
+            {{STRING(R"({"k1":{"k2":null}})"), STRING("$.k1.k2")}, STRING("null")},
+            {{STRING(R"({"k1":{"k2":[1,2,3]}})"), STRING("$.k1.k2")}, STRING("[1,2,3]")},
+            {{STRING(R"({"k1":{"k2":[1,2,3]}})"), STRING("$.k1.k2[0]")}, STRING("1")},
+            {{STRING(R"({"k1":{"k2":[1,2,3]}})"), STRING("$.k1.k2[1]")}, STRING("2")},
+            {{STRING(R"({"k1":{"k2":[1,2,3]}})"), STRING("$.k1.k2[2]")}, STRING("3")},
+            {{STRING(R"({"k1":[{"k2":"v1"},{"k2":"v2"}]})"), STRING("$.k1[0].k2")}, STRING("v1")},
+            {{STRING(R"({"k1":[{"k2":"v1"},{"k2":"v2"}]})"), STRING("$.k1[1].k2")}, STRING("v2")},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // json_extract_string from varchar - array access within object
+    // Note: simdjson preserves original JSON formatting (including spaces)
+    data_set = {
+            {{STRING(R"({"arr":[123, 456]})"), STRING("$.arr[0]")}, STRING("123")},
+            {{STRING(R"({"arr":[123, 456]})"), STRING("$.arr[1]")}, STRING("456")},
+            {{STRING(R"({"arr":[123, 456]})"), STRING("$.arr[2]")}, Null()},
+            {{STRING(R"({"arr":["abc", "def"]})"), STRING("$.arr[0]")}, STRING("abc")},
+            {{STRING(R"({"arr":["abc", "def"]})"), STRING("$.arr[1]")}, STRING("def")},
+            {{STRING(R"({"arr":[null, true, false, 100, 6.18, "abc"]})"), STRING("$.arr[0]")},
+             STRING("null")},
+            {{STRING(R"({"arr":[null, true, false, 100, 6.18, "abc"]})"), STRING("$.arr[1]")},
+             STRING("true")},
+            {{STRING(R"({"arr":[null, true, false, 100, 6.18, "abc"]})"), STRING("$.arr[2]")},
+             STRING("false")},
+            {{STRING(R"({"arr":[null, true, false, 100, 6.18, "abc"]})"), STRING("$.arr[3]")},
+             STRING("100")},
+            {{STRING(R"({"arr":[null, true, false, 100, 6.18, "abc"]})"), STRING("$.arr[4]")},
+             STRING("6.18")},
+            {{STRING(R"({"arr":[null, true, false, 100, 6.18, "abc"]})"), STRING("$.arr[5]")},
+             STRING("abc")},
+            {{STRING(R"({"arr":[{"k1":"v41", "k2": 400}, 1, "a", 3.14]})"), STRING("$.arr[0]")},
+             STRING(R"({"k1":"v41", "k2": 400})")},
+            {{STRING(R"({"arr":[{"k1":"v41", "k2": 400}, 1, "a", 3.14]})"), STRING("$.arr[1]")},
+             STRING("1")},
+            {{STRING(R"({"arr":[{"k1":"v41", "k2": 400}, 1, "a", 3.14]})"), STRING("$.arr[2]")},
+             STRING("a")},
+            {{STRING(R"({"arr":[{"k1":"v41", "k2": 400}, 1, "a", 3.14]})"), STRING("$.arr[3]")},
+             STRING("3.14")},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // json_extract_string from varchar - empty json string input
+    data_set = {
+            {{STRING(""), STRING("$")}, Null()},
+            {{STRING(""), STRING("$.k1")}, Null()},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // json_extract_string from varchar - invalid json input (should return null)
+    data_set = {
+            {{STRING("invalid"), STRING("$")}, Null()},
+            {{STRING("{invalid}"), STRING("$")}, Null()},
+            {{STRING("[1,2,"), STRING("$")}, Null()},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // json_extract_string from varchar - non-object root JSON returns null
+    // The implementation uses get_object() which requires root to be an object
+    data_set = {
+            {{STRING("null"), STRING("$")}, Null()},
+            {{STRING("true"), STRING("$")}, Null()},
+            {{STRING("false"), STRING("$")}, Null()},
+            {{STRING("100"), STRING("$")}, Null()},
+            {{STRING("6.18"), STRING("$")}, Null()},
+            {{STRING(R"("abcd")"), STRING("$")}, Null()},
+            {{STRING("[]"), STRING("$")}, Null()},
+            {{STRING("[123, 456]"), STRING("$")}, Null()},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // json_extract_string from varchar - null path
+    data_set = {
+            {{STRING(R"({"k1":"v1"})"), Null()}, Null()},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
 } // namespace doris::vectorized
