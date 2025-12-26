@@ -41,11 +41,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * PushdownAggregationThroughJoinV2
+ * sum(if t1.a then t2.b)
  */
 public class PushdownSumIfAggregation extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private final Set<Class> pushDownAggFunctionSet = Sets.newHashSet(
-            Sum.class);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
