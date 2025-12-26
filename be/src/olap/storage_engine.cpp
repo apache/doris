@@ -164,8 +164,9 @@ void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
     root.SetObject();
 
     auto add_node = [&root](const std::string& name, const Registry& registry) {
-        rapidjson::Value key;
-        key.SetString(name.c_str(), cast_set<uint32_t>(name.length()), root.GetAllocator());
+        rapidjson::Value compaction_name;
+        compaction_name.SetString(name.c_str(), cast_set<uint32_t>(name.length()),
+                                  root.GetAllocator());
         rapidjson::Document path_obj;
         path_obj.SetObject();
         for (const auto& it : registry) {
@@ -177,15 +178,16 @@ void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
             arr.SetArray();
 
             for (const auto& tablet : it.second) {
-                rapidjson::Value temp_key;
-                auto key_str = std::to_string(tablet->tablet_id());
-                temp_key.SetString(key_str.c_str(), cast_set<uint32_t>(key_str.length()),
-                                   root.GetAllocator());
-                arr.PushBack(key, root.GetAllocator());
+                rapidjson::Value tablet_id;
+                auto tablet_id_str = std::to_string(tablet->tablet_id());
+                tablet_id.SetString(tablet_id_str.c_str(),
+                                    cast_set<uint32_t>(tablet_id_str.length()),
+                                    root.GetAllocator());
+                arr.PushBack(tablet_id, root.GetAllocator());
             }
             path_obj.AddMember(path_key, arr, root.GetAllocator());
         }
-        root.AddMember(key, path_obj, root.GetAllocator());
+        root.AddMember(compaction_name, path_obj, root.GetAllocator());
     };
 
     std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
