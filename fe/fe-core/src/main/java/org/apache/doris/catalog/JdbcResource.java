@@ -26,6 +26,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.plugin.CloudPluginDownloader;
 import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 
@@ -46,8 +47,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -203,7 +202,7 @@ public class JdbcResource extends Resource {
         this.configs = Maps.newHashMap(properties);
         validateProperties(this.configs);
         applyDefaultProperties();
-        String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
+        String currentDateTime = TimeUtils.longToTimeString(System.currentTimeMillis());
         configs.put(CREATE_TIME, currentDateTime);
         // check properties
         for (String property : ALL_PROPERTIES) {
