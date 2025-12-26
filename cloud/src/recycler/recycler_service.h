@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cpp/s3_rate_limiter.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include "meta-service/txn_lazy_committer.h"
@@ -54,5 +55,8 @@ private:
     Checker* checker_;   // Ref
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
+
+extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
+                                 size_t limit);
 
 } // namespace doris::cloud

@@ -183,7 +183,7 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF=OFF
 fi
 
-if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_AZURE='OFF'
 fi
 
