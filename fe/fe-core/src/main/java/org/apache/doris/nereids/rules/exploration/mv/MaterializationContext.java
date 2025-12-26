@@ -108,9 +108,10 @@ public abstract class MaterializationContext {
     // for one materialization query may be multi when nested materialized view.
     protected final Multimap<ObjectId, Pair<String, String>> failReason = HashMultimap.create();
     protected List<String> identifier;
-    // The common table id set which is used in materialization
+    // The common table id set which is used in materialization, added for performance consideration
     private BitSet commonTableIdSet;
-    // The relation id set which is used in query and matched by this materialization
+    // The relation id set which is used in query and matched by this materialization,
+    // added for performance consideration
     private BitSet queryRelationIdSet;
 
     /**
@@ -416,6 +417,14 @@ public abstract class MaterializationContext {
             commonTableIdToRelationIdMap.get(i).forEach(this.queryRelationIdSet::set);
         }
         return this.queryRelationIdSet;
+    }
+
+    /**
+     * If the mv in materialization is rewritten successfully, should clear the query relation id set for later
+     * nested rewrite.
+     */
+    public void clearQueryRelationIdSet() {
+        this.queryRelationIdSet = null;
     }
 
     @Override
