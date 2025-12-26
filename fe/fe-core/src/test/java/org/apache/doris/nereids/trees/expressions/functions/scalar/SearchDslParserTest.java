@@ -686,14 +686,17 @@ public class SearchDslParserTest {
     @Test
     public void testLuceneModeNotOperator() {
         // Test: "NOT a" in Lucene mode
-        // In Lucene mode, single NOT produces a TERM with occur=MUST_NOT (not a NOT wrapper)
+        // In Lucene mode, single NOT produces OCCUR_BOOLEAN with a MUST_NOT child
+        // (wrapped for BE to handle the negation properly)
         String dsl = "NOT field:a";
         String options = "{\"mode\":\"lucene\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, null, null, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals(QsOccur.MUST_NOT, plan.root.occur);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(1, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.children.get(0).type);
+        Assertions.assertEquals(QsOccur.MUST_NOT, plan.root.children.get(0).occur);
     }
 
     @Test
@@ -754,5 +757,170 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+    }
+
+    // ============ Tests for Escape Handling ============
+
+    @Test
+    public void testEscapedSpaceInTerm() {
+        // Test: "First\ Value" should be treated as a single term "First Value"
+        // The escape sequence is processed: \ + space -> space
+        String dsl = "field:First\\ Value";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals("field", plan.root.field);
+        // After unescape: "First\ Value" -> "First Value"
+        Assertions.assertEquals("First Value", plan.root.value);
+    }
+
+    @Test
+    public void testEscapedParentheses() {
+        // Test: \( and \) should be treated as literal characters, not grouping
+        // The escape sequence is processed: \( -> ( and \) -> )
+        String dsl = "field:hello\\(world\\)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals("field", plan.root.field);
+        // After unescape: "hello\(world\)" -> "hello(world)"
+        Assertions.assertEquals("hello(world)", plan.root.value);
+    }
+
+    @Test
+    public void testEscapedColon() {
+        // Test: \: should be treated as literal colon, not field separator
+        // The escape sequence is processed: \: -> :
+        String dsl = "field:value\\:with\\:colons";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals("field", plan.root.field);
+        // After unescape: "value\:with\:colons" -> "value:with:colons"
+        Assertions.assertEquals("value:with:colons", plan.root.value);
+    }
+
+    @Test
+    public void testEscapedBackslash() {
+        // Test: \\ should be treated as a literal backslash
+        // The escape sequence is processed: \\ -> \
+        String dsl = "field:path\\\\to\\\\file";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals("field", plan.root.field);
+        // After unescape: "path\\to\\file" -> "path\to\file"
+        Assertions.assertEquals("path\\to\\file", plan.root.value);
+    }
+
+    @Test
+    public void testUppercaseAndOperator() {
+        // Test: uppercase AND should be treated as operator
+        String dsl = "field:a AND field:b";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+        Assertions.assertEquals(2, plan.root.children.size());
+    }
+
+    @Test
+    public void testLowercaseAndOperator() {
+        // Test: Currently lowercase 'and' is also treated as operator
+        // According to PDF requirement, only uppercase should be operators
+        // This test documents current behavior - may need to change
+        String dsl = "field:a and field:b";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        // Current behavior: lowercase 'and' IS an operator
+        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+        // TODO: If PDF requires only uppercase, this should fail and return OR or different structure
+    }
+
+    @Test
+    public void testUppercaseOrOperator() {
+        // Test: uppercase OR should be treated as operator
+        String dsl = "field:a OR field:b";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
+        Assertions.assertEquals(2, plan.root.children.size());
+    }
+
+    @Test
+    public void testLowercaseOrOperator() {
+        // Test: Currently lowercase 'or' is also treated as operator
+        // According to PDF requirement, only uppercase should be operators
+        String dsl = "field:a or field:b";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        // Current behavior: lowercase 'or' IS an operator
+        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
+        // TODO: If PDF requires only uppercase, this should fail
+    }
+
+    @Test
+    public void testUppercaseNotOperator() {
+        // Test: uppercase NOT should be treated as operator
+        String dsl = "NOT field:spam";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
+    }
+
+    @Test
+    public void testLowercaseNotOperator() {
+        // Test: Currently lowercase 'not' is also treated as operator
+        // According to PDF requirement, only uppercase should be operators
+        String dsl = "not field:spam";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        // Current behavior: lowercase 'not' IS an operator
+        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
+        // TODO: If PDF requires only uppercase, this should fail
+    }
+
+    @Test
+    public void testExclamationNotOperator() {
+        // Test: ! should be treated as NOT operator
+        String dsl = "!field:spam";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        // Current behavior: ! IS a NOT operator
+        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
+    }
+
+    @Test
+    public void testEscapedSpecialCharactersInQuoted() {
+        // Test: escaped characters inside quoted strings
+        // Note: For PHRASE queries, escape handling is preserved as-is for now
+        // The backend will handle escape processing for phrase queries
+        String dsl = "field:\"hello\\\"world\"";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.PHRASE, plan.root.type);
+        Assertions.assertEquals("hello\\\"world", plan.root.value);
+    }
+
+    @Test
+    public void testNoEscapeWithoutBackslash() {
+        // Test: normal term without escape characters
+        String dsl = "field:normalterm";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals("normalterm", plan.root.value);
     }
 }

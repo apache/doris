@@ -233,14 +233,19 @@ public class SearchDslParser {
     }
 
     /**
-     * Check if DSL contains field references (has colon not in quoted strings)
+     * Check if DSL contains field references (has colon not in quoted strings or escaped)
      */
     private static boolean containsFieldReference(String dsl) {
         boolean inQuotes = false;
         boolean inRegex = false;
         for (int i = 0; i < dsl.length(); i++) {
             char c = dsl.charAt(i);
-            if (c == '"' && (i == 0 || dsl.charAt(i - 1) != '\\')) {
+            // Handle escape sequences - skip the escaped character
+            if (c == '\\' && i + 1 < dsl.length()) {
+                i++; // Skip next character (it's escaped)
+                continue;
+            }
+            if (c == '"') {
                 inQuotes = !inQuotes;
             } else if (c == '/' && !inQuotes) {
                 inRegex = !inRegex;
@@ -276,6 +281,7 @@ public class SearchDslParser {
     /**
      * Add field prefix to expressions with explicit operators
      * Example: "foo AND bar" → "field:foo AND field:bar"
+     * Handles escape sequences properly (e.g., "First\ Value" stays as single term)
      */
     private static String addFieldPrefixToOperatorExpression(String dsl, String defaultField) {
         StringBuilder result = new StringBuilder();
@@ -283,12 +289,20 @@ public class SearchDslParser {
         int i = 0;
 
         while (i < dsl.length()) {
-            // Skip whitespace
+            // Skip whitespace (but not escaped whitespace)
             while (i < dsl.length() && Character.isWhitespace(dsl.charAt(i))) {
                 i++;
             }
             if (i >= dsl.length()) {
                 break;
+            }
+
+            // Handle escape sequences - include both backslash and next char
+            if (dsl.charAt(i) == '\\' && i + 1 < dsl.length()) {
+                currentTerm.append(dsl.charAt(i));
+                currentTerm.append(dsl.charAt(i + 1));
+                i += 2;
+                continue;
             }
 
             // Try to match operators
@@ -362,7 +376,7 @@ public class SearchDslParser {
     }
 
     /**
-     * Tokenize DSL into terms (split by whitespace, respecting quotes and functions)
+     * Tokenize DSL into terms (split by whitespace, respecting quotes, escapes, and functions)
      */
     private static List<String> tokenizeDsl(String dsl) {
         List<String> terms = new ArrayList<>();
@@ -387,8 +401,13 @@ public class SearchDslParser {
                     inParens = false;
                 }
                 currentTerm.append(c);
+            } else if (c == '\\' && i + 1 < dsl.length()) {
+                // Escape sequence - include both backslash and next char in term
+                currentTerm.append(c);
+                currentTerm.append(dsl.charAt(i + 1));
+                i++; // Skip next character
             } else if (Character.isWhitespace(c) && !inQuotes && !inParens) {
-                // End of term
+                // End of term (only if not escaped - handled above)
                 if (currentTerm.length() > 0) {
                     terms.add(currentTerm.toString());
                     currentTerm = new StringBuilder();
@@ -408,6 +427,7 @@ public class SearchDslParser {
 
     /**
      * Check if a term contains wildcard characters (* or ?)
+     * Escaped wildcards (\* or \?) are not counted.
      */
     private static boolean containsWildcard(String term) {
         // Ignore wildcards in quoted strings or regex
@@ -417,7 +437,19 @@ public class SearchDslParser {
         if (term.startsWith("/") && term.endsWith("/")) {
             return false;
         }
-        return term.contains("*") || term.contains("?");
+        // Check for unescaped wildcards
+        for (int i = 0; i < term.length(); i++) {
+            char c = term.charAt(i);
+            if (c == '\\' && i + 1 < term.length()) {
+                // Skip escaped character
+                i++;
+                continue;
+            }
+            if (c == '*' || c == '?') {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -640,15 +672,15 @@ public class SearchDslParser {
         }
 
         private QsNode createTermNode(String fieldName, String value) {
-            return new QsNode(QsClauseType.TERM, fieldName, value);
+            return new QsNode(QsClauseType.TERM, fieldName, unescapeTermValue(value));
         }
 
         private QsNode createPrefixNode(String fieldName, String value) {
-            return new QsNode(QsClauseType.PREFIX, fieldName, value);
+            return new QsNode(QsClauseType.PREFIX, fieldName, unescapeTermValue(value));
         }
 
         private QsNode createWildcardNode(String fieldName, String value) {
-            return new QsNode(QsClauseType.WILDCARD, fieldName, value);
+            return new QsNode(QsClauseType.WILDCARD, fieldName, unescapeTermValue(value));
         }
 
         private QsNode createRegexpNode(String fieldName, String regexpText) {
@@ -1096,11 +1128,15 @@ public class SearchDslParser {
             }
 
             if (terms.size() == 1) {
-                // Single term - set occur if negated, then return without OCCUR_BOOLEAN wrapper
                 TermWithOccur singleTerm = terms.get(0);
                 if (singleTerm.isNegated) {
+                    // Single negated term - must wrap in OCCUR_BOOLEAN for BE to handle MUST_NOT
                     singleTerm.node.occur = QsOccur.MUST_NOT;
+                    List<QsNode> children = new ArrayList<>();
+                    children.add(singleTerm.node);
+                    return new QsNode(QsClauseType.OCCUR_BOOLEAN, children, 0);
                 }
+                // Single non-negated term - return directly without wrapper
                 return singleTerm.node;
             }
 
@@ -1132,7 +1168,15 @@ public class SearchDslParser {
             }
 
             if (terms.size() == 1) {
-                return terms.get(0).node;
+                TermWithOccur remainingTerm = terms.get(0);
+                if (remainingTerm.occur == QsOccur.MUST_NOT) {
+                    // Single MUST_NOT term - must wrap in OCCUR_BOOLEAN for BE to handle
+                    remainingTerm.node.occur = QsOccur.MUST_NOT;
+                    List<QsNode> children = new ArrayList<>();
+                    children.add(remainingTerm.node);
+                    return new QsNode(QsClauseType.OCCUR_BOOLEAN, children, 0);
+                }
+                return remainingTerm.node;
             }
 
             // Build OCCUR_BOOLEAN node
@@ -1329,13 +1373,13 @@ public class SearchDslParser {
             String fieldName = currentFieldName != null ? currentFieldName : "_all";
 
             if (ctx.TERM() != null) {
-                return new QsNode(QsClauseType.TERM, fieldName, ctx.TERM().getText());
+                return new QsNode(QsClauseType.TERM, fieldName, unescapeTermValue(ctx.TERM().getText()));
             }
             if (ctx.PREFIX() != null) {
-                return new QsNode(QsClauseType.PREFIX, fieldName, ctx.PREFIX().getText());
+                return new QsNode(QsClauseType.PREFIX, fieldName, unescapeTermValue(ctx.PREFIX().getText()));
             }
             if (ctx.WILDCARD() != null) {
-                return new QsNode(QsClauseType.WILDCARD, fieldName, ctx.WILDCARD().getText());
+                return new QsNode(QsClauseType.WILDCARD, fieldName, unescapeTermValue(ctx.WILDCARD().getText()));
             }
             if (ctx.REGEXP() != null) {
                 String regexp = ctx.REGEXP().getText();
@@ -1388,7 +1432,7 @@ public class SearchDslParser {
                 return new QsNode(QsClauseType.EXACT, fieldName, innerContent);
             }
 
-            return new QsNode(QsClauseType.TERM, fieldName, ctx.getText());
+            return new QsNode(QsClauseType.TERM, fieldName, unescapeTermValue(ctx.getText()));
         }
 
         private String extractParenthesesContent(String text) {
@@ -1427,5 +1471,46 @@ public class SearchDslParser {
             this.node = node;
             this.occur = occur;
         }
+    }
+
+    /**
+     * Process escape sequences in a term value.
+     * Converts escape sequences to their literal characters:
+     * - \  (backslash space) -> space
+     * - \( -> (
+     * - \) -> )
+     * - \: -> :
+     * - \\ -> \
+     * - \* -> *
+     * - \? -> ?
+     * - etc.
+     *
+     * @param value The raw term value with escape sequences
+     * @return The unescaped value
+     */
+    private static String unescapeTermValue(String value) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+
+        // Quick check: if no backslash, return as-is
+        if (value.indexOf('\\') < 0) {
+            return value;
+        }
+
+        StringBuilder result = new StringBuilder(value.length());
+        int i = 0;
+        while (i < value.length()) {
+            char c = value.charAt(i);
+            if (c == '\\' && i + 1 < value.length()) {
+                // Escape sequence - take the next character literally
+                result.append(value.charAt(i + 1));
+                i += 2;
+            } else {
+                result.append(c);
+                i++;
+            }
+        }
+        return result.toString();
     }
 }
