@@ -49,17 +49,17 @@ suite("test_paimon_ro_read", "p0,external,doris,external_docker,external_docker_
 
         test {
             sql """select * from paimon_incr@ro('startSnapshotId'='0')"""
-            exception "Please use '@ro' for Paimon"
+            exception "Paimon read-optimized tables must be used without arguments"
         }
 
         test {
             sql """select * from paimon_incr@ro('name'='branch1')"""
-            exception "Please use '@ro' for Paimon"
+            exception "Paimon read-optimized tables must be used without arguments"
         }
 
         test {
             sql """select * from paimon_incr@ro(tag1)"""
-            exception "Please use '@ro' for Paimon"
+            exception "Paimon read-optimized tables must be used without arguments"
         }
     } finally {
         sql """drop catalog if exists ${catalog_name}"""
