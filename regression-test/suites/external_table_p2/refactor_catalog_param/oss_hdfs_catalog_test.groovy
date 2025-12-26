@@ -144,7 +144,20 @@ suite("oss_hdfs_catalog_test", "p2,external,new_catalog_property") {
               'oss.hdfs.endpoint' = '${oss_hdfs_endpoint}',
               'oss.hdfs.region'='${oss_hdfs_region}'
     """
+    //**************** Paimon DLF ON OSS_HDFS *******************/
 
+    String query_table_paimon_dlf = context.config.otherConfigs.get("paimonDlfWarehouseOnOssHdfsQueryTable")
+    String query_count_paimon_dlf = context.config.otherConfigs.get("paimonDlfWarehouseOnOssHdfsQueryCount")
+    String paimon_dlf_old_catalog_properties = context.config.otherConfigs.get("paimonDlfOnOssHdfsCatalogOldProperties")
+    String paimon_dlf_new_catalog_properties1 = context.config.otherConfigs.get("paimonDlfOnOssHdfsCatalogNewProperties1")
+    String paimon_dlf_new_catalog_properties2 = context.config.otherConfigs.get("paimonDlfOnOssHdfsCatalogNewProperties2")
+
+    testQuery("paimon_dlf_oss_hdfs_old_catalog",paimon_dlf_old_catalog_properties ,query_table_paimon_dlf,query_count_paimon_dlf,true)
+    testQuery("paimon_dlf_oss_hdfs_old_catalog",paimon_dlf_old_catalog_properties ,query_table_paimon_dlf,query_count_paimon_dlf,false)
+    testQuery("paimon_dlf_oss_hdfs_new_catalog1",paimon_dlf_new_catalog_properties1 ,query_table_paimon_dlf,query_count_paimon_dlf,true)
+    testQuery("paimon_dlf_oss_hdfs_new_catalog1",paimon_dlf_new_catalog_properties1 ,query_table_paimon_dlf,query_count_paimon_dlf,false)
+    testQuery("paimon_dlf_oss_hdfs_new_catalog2",paimon_dlf_new_catalog_properties2 ,query_table_paimon_dlf,query_count_paimon_dlf,true)
+    testQuery("paimon_dlf_oss_hdfs_new_catalog2",paimon_dlf_new_catalog_properties2 ,query_table_paimon_dlf,query_count_paimon_dlf,false)
 
     //**************** Paimon FILESYSTEM ON OSS_HDFS *******************/
     String paimon_fs_warehouse = context.config.otherConfigs.get("paimonFsWarehouseOnOssHdfs")
@@ -161,6 +174,7 @@ suite("oss_hdfs_catalog_test", "p2,external,new_catalog_property") {
     testQuery("paimon_fs_oss_hdfs_region_catalog",paimon_file_system_catalog_properties + usingOSSHDFSProps + old_oss_hdfs_storage_properties,query_table_paimon_fs,query_count_paimon_fs,false)
     testQuery("paimon_fs_oss_hdfs_new_catalog",paimon_file_system_catalog_properties + new_oss_hdfs_storage_properties,query_table_paimon_fs,query_count_paimon_fs,true)
     testQuery("paimon_fs_oss_hdfs_new_catalog",paimon_file_system_catalog_properties + new_oss_hdfs_storage_properties,query_table_paimon_fs,query_count_paimon_fs,false)
+
     //**************** ICEBERG FILESYSTEM ON OSS_HDFS *******************/
     String iceberg_file_system_catalog_properties = """
      'type'='iceberg',
