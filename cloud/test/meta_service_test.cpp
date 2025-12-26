@@ -3671,9 +3671,8 @@ TEST(MetaServiceTest, CopyJobTest) {
             copy_file_key(key_info0, &key0);
             copy_file_key(key_info1, &key1);
             std::unique_ptr<RangeGetIterator> it;
-            ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
             int file_cnt = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
                 while (it->has_next()) {
                     auto [k, v] = it->next();
@@ -3686,7 +3685,7 @@ TEST(MetaServiceTest, CopyJobTest) {
                     }
                 }
                 key0.push_back('\x00');
-            } while (it->more());
+            }
             ASSERT_EQ(file_cnt, 20);
         }
         // 1 copy job with finish status
@@ -3699,7 +3698,7 @@ TEST(MetaServiceTest, CopyJobTest) {
             copy_job_key(key_info1, &key1);
             std::unique_ptr<RangeGetIterator> it;
             int job_cnt = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
                 while (it->has_next()) {
                     auto [k, v] = it->next();
@@ -3713,7 +3712,7 @@ TEST(MetaServiceTest, CopyJobTest) {
                     }
                 }
                 key0.push_back('\x00');
-            } while (it->more());
+            }
             ASSERT_EQ(job_cnt, 1);
         }
     }
@@ -4160,9 +4159,8 @@ TEST(MetaServiceTest, StageTest) {
             std::string get_val;
             ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
             std::unique_ptr<RangeGetIterator> it;
-            ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
             int stage_cnt = 0;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 ASSERT_EQ(txn->get(key0, key1, &it), TxnErrorCode::TXN_OK);
                 while (it->has_next()) {
                     auto [k, v] = it->next();
@@ -4172,7 +4170,7 @@ TEST(MetaServiceTest, StageTest) {
                     }
                 }
                 key0.push_back('\x00');
-            } while (it->more());
+            }
             ASSERT_EQ(stage_cnt, 1);
         }
 
