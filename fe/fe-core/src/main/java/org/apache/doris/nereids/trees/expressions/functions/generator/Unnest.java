@@ -53,23 +53,23 @@ public class Unnest extends TableGeneratingFunction implements CustomSignature, 
      * constructor with one argument.
      */
     public Unnest(Expression argument) {
-        this(false, false, ImmutableList.of(argument));
+        this(ImmutableList.of(argument), false, false);
     }
 
     /**
      * constructor with more argument.
      */
-    public Unnest(boolean isOuter, boolean needOrdinality, List<Expression> arguments) {
+    public Unnest(List<Expression> arguments, boolean needOrdinality, boolean isOuter) {
         super("unnest", arguments);
-        this.isOuter = isOuter;
         this.needOrdinality = needOrdinality;
+        this.isOuter = isOuter;
     }
 
     /** constructor for withChildren and reuse signature */
-    private Unnest(boolean isOuter, boolean needOrdinality, GeneratorFunctionParams functionParams) {
+    private Unnest(GeneratorFunctionParams functionParams, boolean needOrdinality, boolean isOuter) {
         super(functionParams);
-        this.isOuter = isOuter;
         this.needOrdinality = needOrdinality;
+        this.isOuter = isOuter;
     }
 
     /**
@@ -78,11 +78,11 @@ public class Unnest extends TableGeneratingFunction implements CustomSignature, 
     @Override
     public Unnest withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new Unnest(isOuter, needOrdinality, getFunctionParams(children));
+        return new Unnest(getFunctionParams(children), needOrdinality, isOuter);
     }
 
     public Unnest withOuter(boolean isOuter) {
-        return new Unnest(isOuter, needOrdinality, getFunctionParams(children));
+        return new Unnest(getFunctionParams(children), needOrdinality, isOuter);
     }
 
     public boolean isOuter() {

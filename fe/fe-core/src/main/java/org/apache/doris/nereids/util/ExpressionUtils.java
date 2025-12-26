@@ -606,8 +606,8 @@ public class ExpressionUtils {
      * set ignore unique id for unique functions
      */
     public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
-        return expression.rewriteDownShortCircuit(
-                e -> e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
+        return expression.rewriteDownShortCircuit(e ->
+                e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
@@ -682,9 +682,10 @@ public class ExpressionUtils {
          * the mark slot can be non-nullable boolean
          * and in semi join, we can safely change the mark conjunct to hash conjunct
          */
-        ImmutableList<Literal> literals = ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
-        List<MarkJoinSlotReference> markJoinSlotReferenceList = new ArrayList<>(
-                (predicate.collect(MarkJoinSlotReference.class::isInstance)));
+        ImmutableList<Literal> literals =
+                ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
+        List<MarkJoinSlotReference> markJoinSlotReferenceList =
+                new ArrayList<>((predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
         int maxMarkSlotCount = 4;
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
@@ -711,7 +712,8 @@ public class ExpressionUtils {
                 }
                 Expression evalResult = FoldConstantRule.evaluate(
                         ExpressionUtils.replace(predicate, replaceMap),
-                        ctx);
+                        ctx
+                );
 
                 if (evalResult.equals(BooleanLiteral.TRUE)) {
                     if (meetNullOrFalse) {
@@ -750,7 +752,8 @@ public class ExpressionUtils {
                 replaceMap.put(slot, nullLiteral);
                 Expression evalExpr = FoldConstantRule.evaluate(
                         ExpressionUtils.replace(predicate, replaceMap),
-                        new ExpressionRewriteContext(cascadesContext));
+                        new ExpressionRewriteContext(cascadesContext)
+                );
                 if (evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr)) {
                     notNullSlots.add(slot);
                 }
@@ -944,8 +947,7 @@ public class ExpressionUtils {
     public static <E> List<E> collectAll(Collection<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         switch (expressions.size()) {
-            case 0:
-                return ImmutableList.of();
+            case 0: return ImmutableList.of();
             default: {
                 ImmutableList.Builder<E> result = ImmutableList.builder();
                 for (Expression expr : expressions) {
@@ -1054,13 +1056,14 @@ public class ExpressionUtils {
      */
     public static boolean checkSlotConstant(Slot slot, Set<Expression> predicates) {
         return predicates.stream().anyMatch(predicate -> {
-            if (predicate instanceof EqualTo) {
-                EqualTo equalTo = (EqualTo) predicate;
-                return (equalTo.left() instanceof Literal && equalTo.right().equals(slot))
-                        || (equalTo.right() instanceof Literal && equalTo.left().equals(slot));
-            }
-            return false;
-        });
+                    if (predicate instanceof EqualTo) {
+                        EqualTo equalTo = (EqualTo) predicate;
+                        return (equalTo.left() instanceof Literal && equalTo.right().equals(slot))
+                                || (equalTo.right() instanceof Literal && equalTo.left().equals(slot));
+                    }
+                    return false;
+                }
+        );
     }
 
     /**
@@ -1178,7 +1181,8 @@ public class ExpressionUtils {
         }
         ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
         ExpressionRuleExecutor executor = new ExpressionRuleExecutor(ImmutableList.of(
-                ExpressionRewrite.bottomUp(ReplaceVariableByLiteral.INSTANCE)));
+                ExpressionRewrite.bottomUp(ReplaceVariableByLiteral.INSTANCE)
+        ));
         Expression rewrittenExpression = executor.rewrite(analyzedExpr, context);
         Expression foldExpression = FoldConstantRule.evaluate(rewrittenExpression, context);
         if (foldExpression instanceof Literal) {
@@ -1253,8 +1257,8 @@ public class ExpressionUtils {
     public static Optional<List<Expression>> getCaseWhenLikeBranchResults(Expression expression) {
         if (expression instanceof CaseWhen) {
             CaseWhen caseWhen = (CaseWhen) expression;
-            ImmutableList.Builder<Expression> builder = ImmutableList
-                    .builderWithExpectedSize(caseWhen.getWhenClauses().size() + 1);
+            ImmutableList.Builder<Expression> builder
+                    = ImmutableList.builderWithExpectedSize(caseWhen.getWhenClauses().size() + 1);
             for (WhenClause whenClause : caseWhen.getWhenClauses()) {
                 builder.add(whenClause.getResult());
             }
@@ -1309,34 +1313,29 @@ public class ExpressionUtils {
 
     /**
      * convert unnest to explode_* functions
+     * because we have import java.util.function.Function, so use full-qualified package name here
      */
-    public static org.apache.doris.nereids.trees.expressions.functions.Function convertUnnest(
-            org.apache.doris.nereids.trees.expressions.functions.Function function) {
-        if (function instanceof Unnest) {
-            Unnest unnest = (Unnest) function;
-            DataType dataType = unnest.child(0).getDataType();
-            List<Expression> args = unnest.getArguments();
-            if (dataType.isArrayType()) {
-                Expression[] arrayArgs = args.toArray(new Expression[0]);
-                return unnest.isOuter()
-                        ? unnest.needOrdinality() ? new PosExplodeOuter(arrayArgs) : new ExplodeOuter(arrayArgs)
-                        : unnest.needOrdinality() ? new PosExplode(arrayArgs) : new Explode(arrayArgs);
-            } else {
-                if (unnest.needOrdinality()) {
-                    throw new AnalysisException(String.format("only ARRAY support WITH ORDINALITY,"
-                            + " but argument's type is %s", dataType));
-                }
-                if (dataType.isMapType()) {
-                    return unnest.isOuter() ? new ExplodeMapOuter(args.get(0)) : new ExplodeMap(args.get(0));
-                } else if (dataType.isBitmapType()) {
-                    return unnest.isOuter() ? new ExplodeBitmapOuter(args.get(0)) : new ExplodeBitmap(args.get(0));
-                } else {
-                    throw new AnalysisException(String.format("UNNEST function doesn't support %s argument type, "
-                            + "please try to use lateral view and explode_* function set instead", dataType.toSql()));
-                }
-            }
+    public static org.apache.doris.nereids.trees.expressions.functions.Function convertUnnest(Unnest unnest) {
+        DataType dataType = unnest.child(0).getDataType();
+        List<Expression> args = unnest.getArguments();
+        if (dataType.isArrayType()) {
+            Expression[] arrayArgs = args.toArray(new Expression[0]);
+            return unnest.isOuter()
+                    ? unnest.needOrdinality() ? new PosExplodeOuter(arrayArgs) : new ExplodeOuter(arrayArgs)
+                    : unnest.needOrdinality() ? new PosExplode(arrayArgs) : new Explode(arrayArgs);
         } else {
-            return function;
+            if (unnest.needOrdinality()) {
+                throw new AnalysisException(String.format("only ARRAY support WITH ORDINALITY,"
+                        + " but argument's type is %s", dataType));
+            }
+            if (dataType.isMapType()) {
+                return unnest.isOuter() ? new ExplodeMapOuter(args.get(0)) : new ExplodeMap(args.get(0));
+            } else if (dataType.isBitmapType()) {
+                return unnest.isOuter() ? new ExplodeBitmapOuter(args.get(0)) : new ExplodeBitmap(args.get(0));
+            } else {
+                throw new AnalysisException(String.format("UNNEST function doesn't support %s argument type, "
+                        + "please try to use lateral view and explode_* function set instead", dataType.toSql()));
+            }
         }
     }
 }

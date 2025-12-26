@@ -161,6 +161,9 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             }
             expr.foreachUp(e -> {
                 for (Class<? extends Expression> type : unexpectedExpressionTypes) {
+                    // PushDownUnnestInProject will push down Unnest in Project list in rewrite phase
+                    // it relays on many rules like normalizeXXX to separate Unnest into LogicalProject first
+                    // here, we allow Unnest in analysis phase and deal with it in rewrite phase
                     if (type.isInstance(e) && !(e instanceof Unnest)) {
                         throw new AnalysisException(plan.getType() + " can not contains "
                                 + type.getSimpleName() + " expression: " + ((Expression) e).toSql());

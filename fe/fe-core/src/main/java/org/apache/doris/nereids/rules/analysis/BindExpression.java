@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -94,6 +95,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.logical.ProjectProcessor;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -283,7 +285,29 @@ public class BindExpression implements AnalysisRuleFactory {
             if (!(boundGenerator instanceof TableGeneratingFunction)) {
                 throw new AnalysisException(boundGenerator.toSql() + " is not a TableGeneratingFunction");
             }
-            Function generator = ExpressionUtils.convertUnnest((Function) boundGenerator);
+            Function generator = (Function) boundGenerator;
+            if (boundGenerator instanceof Unnest) {
+                Unnest unnest = (Unnest) boundGenerator;
+                DataType dataType = unnest.child(0).getDataType();
+                int columnNamesSize = generate.getExpandColumnAlias().get(0).size();
+                int argumentsSize = boundGenerator.getArguments().size() + (unnest.needOrdinality() ? 1 : 0);
+                String generateName = generate.getGeneratorOutput().get(0).getQualifier().get(0);
+                if (dataType.isArrayType() || dataType.isBitmapType()) {
+                    if (columnNamesSize > argumentsSize) {
+                        throw new AnalysisException(
+                                String.format("table %s has %d columns available but %d columns specified",
+                                generateName, argumentsSize, columnNamesSize));
+                    }
+                } else if (dataType.isMapType()) {
+                    if (columnNamesSize > 2) {
+                        throw new AnalysisException(
+                                String.format("table %s has 2 columns available but %d columns specified",
+                                        generateName, columnNamesSize));
+                    }
+                }
+
+                generator = ExpressionUtils.convertUnnest(unnest);
+            }
             boundGenerators.add(generator);
 
             Slot boundSlot = new SlotReference(slot.getNameParts().get(1), generator.getDataType(),
@@ -324,7 +348,7 @@ public class BindExpression implements AnalysisRuleFactory {
          *
          */
         int conjunctSize = generate.getConjuncts().size();
-        List<Expression> newConjuncts = new ArrayList<>(conjunctSize);
+        ImmutableList.Builder<Expression> newConjuncts = new Builder();
         if (conjunctSize > 0) {
             List<Slot> childOutputs = generate.child().getOutput();
             List<Slot> conjunctsScopeSlots = new ArrayList<>(expandAlias.size() + childOutputs.size());
@@ -346,16 +370,15 @@ public class BindExpression implements AnalysisRuleFactory {
         }
 
         LogicalGenerate<Plan> logicalGenerate = new LogicalGenerate<>(
-                boundGenerators.build(), outputSlots.build(), ImmutableList.of(), newConjuncts, generate.child());
+                boundGenerators.build(), outputSlots.build(), ImmutableList.of(), newConjuncts.build(),
+                generate.child());
         if (!expandAlias.isEmpty()) {
             // project should contain: generator.child slot + expandAlias
             List<NamedExpression> allProjectSlots = new ArrayList<>(generate.child().getOutput().size()
                     + expandAlias.size());
             if (!(generate.child() instanceof LogicalOneRowRelation)) {
                 // project should contain: generator.child slot + expandAlias except:
-                allProjectSlots.addAll(generate.child().getOutput().stream()
-                        .map(NamedExpression.class::cast)
-                        .collect(Collectors.toList()));
+                allProjectSlots.addAll(new ArrayList<>(generate.child().getOutput()));
             } else {
                 // unnest with literal argument as unnest([1,2,3])
                 // we should not add LogicalOneRowRelation's output slot in this case

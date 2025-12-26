@@ -37,7 +37,7 @@ public class TableFunctionNode extends PlanNode {
     // The output slot ids of TableFunctionNode
     // Only the slot whose id is in this list will be output by TableFunctionNode
     private List<SlotId> outputSlotIds = Lists.newArrayList();
-    private List<Expr> expandConjuncts = Lists.newArrayList();
+    private List<Expr> expandConjuncts;
 
     public TableFunctionNode(PlanNodeId id, PlanNode inputNode, TupleId lateralViewTupleId,
             ArrayList<Expr> fnCallExprList, List<SlotId> outputSlotIds, List<Expr> expandConjuncts) {
@@ -57,7 +57,7 @@ public class TableFunctionNode extends PlanNode {
         this.fnCallExprList = fnCallExprList;
         this.outputSlotIds = outputSlotIds;
         this.children.add(inputNode);
-        this.expandConjuncts.addAll(expandConjuncts);
+        this.expandConjuncts = expandConjuncts;
     }
 
     public void setOutputSlotIds(List<SlotId> outputSlotIds) {

@@ -1116,6 +1116,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private static String JOB_NAME = "jobName";
     private static String TASK_ID = "taskId";
 
+    private static String DEFAULT_NESTED_COLUMN_NAME = "unnest";
+    private static String DEFAULT_ORDINALITY_COLUMN_NAME = "ordinality";
+
     // Sort the parameters with token position to keep the order with original placeholders
     // in prepared statement.Otherwise, the order maybe broken
     private final Map<Token, Placeholder> tokenPosToParameters = Maps.newTreeMap((pos1, pos2) -> {
@@ -2726,15 +2729,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withUnnest(DorisParser.UnnestContext ctx) {
-        String defaultNestedColumnName = "unnest";
-        String defaultOrdinalityColumnName = "ordinality";
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
                 .collect(ImmutableList.toImmutableList());
         boolean needOrdinality = ctx.ORDINALITY() != null;
         int size = arguments.size();
 
-        String generateName = ctx.tableName != null ? ctx.tableName.getText() : defaultNestedColumnName;
+        String generateName = ctx.tableName != null ? ctx.tableName.getText() : DEFAULT_NESTED_COLUMN_NAME;
         // do same thing as later view explode map type, we need to add a project to convert map to struct
         int argumentsSize = size + (needOrdinality ? 1 : 0);
         List<String> nestedColumnNames = new ArrayList<>(argumentsSize);
@@ -2744,25 +2745,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 nestedColumnNames.add(ctx.columnNames.get(i).getText());
             }
             for (int i = 0; i < size - columnNamesSize; ++i) {
-                nestedColumnNames.add(defaultNestedColumnName);
+                nestedColumnNames.add(DEFAULT_NESTED_COLUMN_NAME);
             }
             if (needOrdinality && columnNamesSize < argumentsSize) {
-                nestedColumnNames.add(defaultOrdinalityColumnName);
+                nestedColumnNames.add(DEFAULT_ORDINALITY_COLUMN_NAME);
             }
         } else {
             if (size == 1) {
                 nestedColumnNames.add(generateName);
             } else {
                 for (int i = 0; i < size; ++i) {
-                    nestedColumnNames.add(defaultNestedColumnName);
+                    nestedColumnNames.add(DEFAULT_NESTED_COLUMN_NAME);
                 }
             }
             if (needOrdinality) {
-                nestedColumnNames.add(defaultOrdinalityColumnName);
+                nestedColumnNames.add(DEFAULT_ORDINALITY_COLUMN_NAME);
             }
         }
         String columnName = nestedColumnNames.get(0);
-        Unnest unnest = new Unnest(false, needOrdinality, arguments);
+        Unnest unnest = new Unnest(arguments, needOrdinality, false);
         // only unnest use LogicalOneRowRelation as LogicalGenerate's child,
         // so we can check LogicalGenerate's child to know if it's unnest function
         return new LogicalGenerate<>(ImmutableList.of(unnest),
@@ -4413,8 +4414,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ids == null) {
                 LogicalPlan right = plan(join.relationPrimary());
                 if (right instanceof LogicalGenerate
-                        && right.child(0) instanceof LogicalOneRowRelation
                         && ((LogicalGenerate<?>) right).getGenerators().get(0) instanceof Unnest) {
+                    /*
+                        SELECT
+                            id,
+                            scores,
+                            unnest
+                        FROM
+                            student_unnest_t
+                            LEFT JOIN unnest(scores) AS unnest ON TRUE
+
+                     above sql will be converted to:
+                        UnboundResultSink[6]
+                        +--LogicalProject[5] ( distinct=false, projects=['id, 'scores, 'unnest] )
+                           +--LogicalGenerate ( generators=[unnest('scores)], generatorOutput=['unnest.unnest],...
+                              +--LogicalCheckPolicy
+                                 +--UnboundRelation ( id=RelationId#0, nameParts=student_unnest_t )
+                     */
                     if (joinType.isLeftJoin() || joinType.isInnerJoin() || joinType.isCrossJoin()) {
                         LogicalGenerate oldRight = (LogicalGenerate<?>) right;
                         Unnest oldGenerator = (Unnest) oldRight.getGenerators().get(0);
@@ -4656,7 +4672,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         for (RelationContext relation : relations) {
             // build left deep join tree
             LogicalPlan right = withJoinRelations(visitRelation(relation), relation);
-            // check if it's unnest
+            /*
+                SELECT
+                    items_dict_unnest_t.id,
+                    items_dict_unnest_t.name,
+                    t.tag,
+                    t.ord
+                FROM
+                    items_dict_unnest_t,
+                    unnest(items_dict_unnest_t.tags) AS t(tag, ord)
+
+                there is unnest in from clause, we should not generate plan like items_dict_unnest_t join unnest...
+                instead, we should put items_dict_unnest_t as LogicalGenerate's child like bellow:
+
+                UnboundResultSink[6]
+                +--LogicalProject[5] ( distinct=false, projects=['items_dict_unnest_t.id, 'items_dict_unnest_t.name,.. )
+                   +--LogicalGenerate ( generators=[unnest('items_dict_unnest_t.tags)], generatorOutput=['t.tag],... )
+                      +--LogicalCheckPolicy
+                         +--UnboundRelation ( id=RelationId#0, nameParts=items_dict_unnest_t )
+             */
             boolean shouldBeParent = right instanceof LogicalGenerate
                     && right.child(0) instanceof LogicalOneRowRelation;
             left = (left == null) ? right
