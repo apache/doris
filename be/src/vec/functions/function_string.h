@@ -5099,7 +5099,7 @@ public:
         bool col_const[5];
         ColumnPtr arg_cols[5];
         bool all_const = true;
-        for (int i = 0; i < arg_size; ++i) {
+        for (int i = 1; i < arg_size; ++i) {
             col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
             all_const = all_const && col_const[i];
         }

@@ -1108,4 +1108,34 @@ public class NumericArithmetic {
     public static Expression boolxor(BooleanLiteral first) {
         return first;
     }
+
+    /**
+     * interval
+     */
+    @ExecFunction(name = "interval")
+    public static Expression interval(NullLiteral compareValue, Literal... thresholds) {
+        return new IntegerLiteral(-1);
+    }
+
+    /**
+     * interval
+     */
+    @ExecFunction(name = "interval")
+    public static Expression interval(BigIntLiteral compareValue, BigIntLiteral... thresholds) {
+        long value = compareValue.getValue();
+        if (value < thresholds[0].getValue()) {
+            return new IntegerLiteral(0);
+        }
+        int l = 0;
+        int r = thresholds.length;
+        while (l < r) {
+            int mid = (l + r) >> 1;
+            if (thresholds[mid].getValue() <= value) {
+                l = mid + 1;
+            } else {
+                r = mid;
+            }
+        }
+        return new IntegerLiteral(l);
+    }
 }
