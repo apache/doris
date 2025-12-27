@@ -133,9 +133,7 @@ public:
     ~ScannerContext() override;
     Status init();
 
-    vectorized::BlockUPtr get_free_block(bool force);
-    void return_free_block(vectorized::BlockUPtr block);
-    void clear_free_blocks();
+    vectorized::BlockUPtr create_output_block(bool force);
     inline void inc_block_usage(size_t usage) { _block_memory_usage += usage; }
 
     int64_t block_memory_usage() { return _block_memory_usage; }
@@ -242,7 +240,6 @@ protected:
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     // This counter refers to scan operator's local state
     RuntimeProfile::Counter* _scanner_memory_used_counter = nullptr;
-    RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     std::shared_ptr<ResourceContext> _resource_ctx;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;

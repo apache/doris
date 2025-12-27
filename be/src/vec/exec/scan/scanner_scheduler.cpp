@@ -103,7 +103,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
 void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
                                    const Status& st, size_t reserve_size) {
-    ctx->clear_free_blocks();
     auto* local_state = ctx->local_state();
 
     auto debug_msg = fmt::format(
@@ -172,9 +171,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     bool eos = false;
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
-            // scanner->open may alloc plenty amount of memory(read blocks of data),
-            // so better to also check low memory and clear free blocks here.
-            if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }
 
             if (!scanner->has_prepared()) {
                 status = scanner->prepare();
@@ -199,7 +195,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
             if (ctx->low_memory_mode()) {
-                ctx->clear_free_blocks();
                 if (raw_bytes_threshold > ctx->low_memory_mode_scan_bytes_per_scanner()) {
                     raw_bytes_threshold = ctx->low_memory_mode_scan_bytes_per_scanner();
                 }
@@ -227,7 +222,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 DEFER_RELEASE_RESERVED();
                 BlockUPtr free_block;
                 if (first_read) {
-                    free_block = ctx->get_free_block(first_read);
+                    free_block = ctx->create_output_block(first_read);
                 } else {
                     if (state->get_query_ctx()
                                 ->resource_ctx()
@@ -241,7 +236,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                             break;
                         }
                     }
-                    free_block = ctx->get_free_block(first_read);
+                    free_block = ctx->create_output_block(first_read);
                 }
                 if (free_block == nullptr) {
                     break;
@@ -276,7 +271,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
                     // Return block succeed or not, this free_block is not used by this scan task any more.
                     // If block can be reused, its memory usage will be added back.
-                    ctx->return_free_block(std::move(free_block));
                     ctx->inc_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
                                          block_size);
                 } else {
@@ -307,7 +301,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     scanner->update_block_avg_bytes(block_avg_bytes);
                 }
                 if (ctx->low_memory_mode()) {
-                    ctx->clear_free_blocks();
                     if (raw_bytes_threshold > ctx->low_memory_mode_scan_bytes_per_scanner()) {
                         raw_bytes_threshold = ctx->low_memory_mode_scan_bytes_per_scanner();
                     }

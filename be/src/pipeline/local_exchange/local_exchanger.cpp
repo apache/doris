@@ -196,11 +196,8 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         }
     }
 
-    vectorized::Block data_block;
+    vectorized::Block data_block = block->clone_empty();
     std::shared_ptr<BlockWrapper> new_block_wrapper;
-    if (!_free_blocks.try_dequeue(data_block)) {
-        data_block = block->clone_empty();
-    }
     data_block.swap(*block);
     new_block_wrapper =
             BlockWrapper::create_shared(std::move(data_block), local_state->_shared_state, -1);
@@ -262,11 +259,8 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         }
     }
 
-    vectorized::Block data_block;
+    vectorized::Block data_block = block->clone_empty();
     std::shared_ptr<BlockWrapper> new_block_wrapper;
-    if (!_free_blocks.try_dequeue(data_block)) {
-        data_block = block->clone_empty();
-    }
     data_block.swap(*block);
     new_block_wrapper = BlockWrapper::create_shared(std::move(data_block), nullptr, -1);
     if (new_block_wrapper->_data_block.empty()) {
@@ -288,10 +282,7 @@ Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_blo
     if (in_block->empty()) {
         return Status::OK();
     }
-    vectorized::Block new_block;
-    if (!_free_blocks.try_dequeue(new_block)) {
-        new_block = {in_block->clone_empty()};
-    }
+    vectorized::Block new_block = in_block->clone_empty();
     new_block.swap(*in_block);
     auto channel_id = ((*sink_info.channel_id)++) % _num_partitions;
     BlockWrapperSPtr wrapper = BlockWrapper::create_shared(
@@ -340,10 +331,7 @@ Status PassToOneExchanger::sink(RuntimeState* state, vectorized::Block* in_block
     if (in_block->empty()) {
         return Status::OK();
     }
-    vectorized::Block new_block;
-    if (!_free_blocks.try_dequeue(new_block)) {
-        new_block = {in_block->clone_empty()};
-    }
+    vectorized::Block new_block = in_block->clone_empty();
     new_block.swap(*in_block);
 
     BlockWrapperSPtr wrapper = BlockWrapper::create_shared(
@@ -370,10 +358,6 @@ Status PassToOneExchanger::get_block(RuntimeState* state, vectorized::Block* blo
 
 void ExchangerBase::finalize() {
     DCHECK(_running_source_operators == 0);
-    vectorized::Block block;
-    while (_free_blocks.try_dequeue(block)) {
-        // do nothing
-    }
 }
 
 Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
@@ -381,10 +365,7 @@ Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block
     if (in_block->empty()) {
         return Status::OK();
     }
-    vectorized::Block new_block;
-    if (!_free_blocks.try_dequeue(new_block)) {
-        new_block = {in_block->clone_empty()};
-    }
+    vectorized::Block new_block = in_block->clone_empty();
     new_block.swap(*in_block);
     auto wrapper = BlockWrapper::create_shared(
             std::move(new_block),
@@ -430,10 +411,7 @@ Status BroadcastExchanger::get_block(RuntimeState* state, vectorized::Block* blo
 Status AdaptivePassthroughExchanger::_passthrough_sink(RuntimeState* state,
                                                        vectorized::Block* in_block,
                                                        SinkInfo&& sink_info) {
-    vectorized::Block new_block;
-    if (!_free_blocks.try_dequeue(new_block)) {
-        new_block = {in_block->clone_empty()};
-    }
+    vectorized::Block new_block = in_block->clone_empty();
     new_block.swap(*in_block);
     auto channel_id = ((*sink_info.channel_id)++) % _num_partitions;
     _enqueue_data_and_set_ready(

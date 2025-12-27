@@ -32,8 +32,6 @@ namespace pipeline {
 DataQueue::DataQueue(int child_count)
         : _queue_blocks_lock(child_count),
           _queue_blocks(child_count),
-          _free_blocks_lock(child_count),
-          _free_blocks(child_count),
           _child_count(child_count),
           _is_finished(child_count),
           _is_canceled(child_count),
@@ -42,7 +40,6 @@ DataQueue::DataQueue(int child_count)
           _flag_queue_idx(0) {
     for (int i = 0; i < child_count; ++i) {
         _queue_blocks_lock[i].reset(new std::mutex());
-        _free_blocks_lock[i].reset(new std::mutex());
         _is_finished[i] = false;
         _is_canceled[i] = false;
         _cur_bytes_in_queue[i] = 0;
@@ -50,36 +47,6 @@ DataQueue::DataQueue(int child_count)
     }
     _un_finished_counter = child_count;
     _sink_dependencies.resize(child_count, nullptr);
-}
-
-std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
-    {
-        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]));
-        if (!_free_blocks[child_idx].empty()) {
-            auto block = std::move(_free_blocks[child_idx].front());
-            _free_blocks[child_idx].pop_front();
-            return block;
-        }
-    }
-
-    return vectorized::Block::create_unique();
-}
-
-void DataQueue::push_free_block(std::unique_ptr<vectorized::Block> block, int child_idx) {
-    DCHECK(block->rows() == 0);
-
-    if (!_is_low_memory_mode) {
-        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]));
-        _free_blocks[child_idx].emplace_back(std::move(block));
-    }
-}
-
-void DataQueue::clear_free_blocks() {
-    for (size_t child_idx = 0; child_idx < _free_blocks.size(); ++child_idx) {
-        std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]);
-        std::deque<std::unique_ptr<vectorized::Block>> tmp_queue;
-        _free_blocks[child_idx].swap(tmp_queue);
-    }
 }
 
 void DataQueue::terminate() {
@@ -93,7 +60,6 @@ void DataQueue::terminate() {
             _sink_dependencies[i]->set_always_ready();
         }
     }
-    clear_free_blocks();
 }
 
 //check which queue have data, and save the idx in _flag_queue_idx,

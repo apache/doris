@@ -68,10 +68,6 @@ public:
     /**
      * `BlockWrapper` is used to wrap a data block with a reference count.
      *
-     * In function `unref()`, if `ref_count` decremented to 0, which means this block is not needed by
-     * operators, so we put it into `_free_blocks` to reuse its memory if needed and refresh memory usage
-     * in current queue.
-     *
      * Note: `ref_count` will be larger than 1 only if this block is shared between multiple queues in
      * shuffle exchanger.
      */
@@ -93,15 +89,6 @@ public:
                 // `_channel_ids` may be empty if exchanger is shuffled exchanger and channel id is
                 // not used by `sub_total_mem_usage`. So we just pass -1 here.
                 _shared_state->sub_total_mem_usage(_allocated_bytes);
-                if (_shared_state->exchanger->_free_block_limit == 0 ||
-                    _shared_state->exchanger->_free_blocks.size_approx() <
-                            _shared_state->exchanger->_free_block_limit *
-                                    _shared_state->exchanger->_num_sources) {
-                    _data_block.clear_column_data();
-                    // Free blocks is used to improve memory efficiency. Failure during pushing back
-                    // free block will not incur any bad result so just ignore the return value.
-                    _shared_state->exchanger->_free_blocks.enqueue(std::move(_data_block));
-                }
             };
         }
         void record_channel_id(int channel_id) {
@@ -131,16 +118,14 @@ public:
               _running_source_operators(num_partitions),
               _num_partitions(num_partitions),
               _num_senders(running_sink_operators),
-              _num_sources(num_partitions),
-              _free_block_limit(free_block_limit) {}
+              _num_sources(num_partitions) {}
     ExchangerBase(int running_sink_operators, int num_sources, int num_partitions,
                   int free_block_limit)
             : _running_sink_operators(running_sink_operators),
               _running_source_operators(num_sources),
               _num_partitions(num_partitions),
               _num_senders(running_sink_operators),
-              _num_sources(num_sources),
-              _free_block_limit(free_block_limit) {}
+              _num_sources(num_sources) {}
     virtual ~ExchangerBase() = default;
     virtual Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                              Profile&& profile, SourceInfo&& source_info) = 0;
@@ -149,16 +134,12 @@ public:
     virtual ExchangeType get_type() const = 0;
     // Called if a local exchanger source operator are closed. Free the unused data block in data_queue.
     virtual void close(SourceInfo&& source_info) = 0;
-    // Called if all local exchanger source operators are closed. We free the memory in
-    // `_free_blocks` here.
+
     virtual void finalize();
 
     virtual std::string data_queue_debug_string(int i) = 0;
 
-    void set_low_memory_mode() {
-        _free_block_limit = 0;
-        clear_blocks(_free_blocks);
-    }
+    void set_low_memory_mode() {}
 
 protected:
     friend struct LocalExchangeSharedState;
@@ -170,8 +151,6 @@ protected:
     const int _num_partitions;
     const int _num_senders;
     const int _num_sources;
-    std::atomic_int _free_block_limit = 0;
-    moodycamel::ConcurrentQueue<vectorized::Block> _free_blocks;
 };
 
 struct PartitionedRowIdxs {

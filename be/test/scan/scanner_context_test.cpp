@@ -661,7 +661,7 @@ TEST_F(ScannerContextTest, scan_queue_mem_limit) {
     ASSERT_EQ(scanner_context->_max_bytes_in_queue, (1024 * 1024 * 10) * (1 / 300 + 1));
 }
 
-TEST_F(ScannerContextTest, get_free_block) {
+TEST_F(ScannerContextTest, create_output_block) {
     const int parallel_tasks = 1;
     auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
             obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
@@ -688,74 +688,26 @@ TEST_F(ScannerContextTest, get_free_block) {
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
             scanners, limit, scan_dependency, parallel_tasks);
-    scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
-    scanner_context->_newly_create_free_blocks_num->set(0L);
     scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
     scanner_context->_scanner_memory_used_counter->set(0L);
-    BlockUPtr block = scanner_context->get_free_block(/*force=*/true);
+    BlockUPtr block = scanner_context->create_output_block(/*force=*/true);
     ASSERT_NE(block, nullptr);
-    ASSERT_TRUE(scanner_context->_newly_create_free_blocks_num->value() == 1);
 
     scanner_context->_max_bytes_in_queue = 200;
     // no free block
     // force is false, _block_memory_usage < _max_bytes_in_queue
-    block = scanner_context->get_free_block(/*force=*/false);
+    block = scanner_context->create_output_block(/*force=*/false);
     ASSERT_NE(block, nullptr);
-    ASSERT_TRUE(scanner_context->_newly_create_free_blocks_num->value() == 2);
 
     std::unique_ptr<MockBlock> return_block = std::make_unique<MockBlock>();
     EXPECT_CALL(*return_block, allocated_bytes()).WillRepeatedly(testing::Return(100));
     EXPECT_CALL(*return_block, mem_reuse()).WillRepeatedly(testing::Return(true));
     scanner_context->_free_blocks.enqueue(std::move(return_block));
     // get free block from queue
-    block = scanner_context->get_free_block(/*force=*/false);
+    block = scanner_context->create_output_block(/*force=*/false);
     ASSERT_NE(block, nullptr);
-    ASSERT_EQ(scanner_context->_block_memory_usage, -100);
-    ASSERT_EQ(scanner_context->_scanner_memory_used_counter->value(), -100);
-}
-
-TEST_F(ScannerContextTest, return_free_block) {
-    const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
-
-    auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
-
-    const int64_t limit = 100;
-
-    OlapScanner::Params scanner_params;
-    scanner_params.state = state.get();
-    scanner_params.profile = profile.get();
-    scanner_params.limit = limit;
-    scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
-
-    std::shared_ptr<Scanner> scanner =
-            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
-
-    std::list<std::shared_ptr<ScannerDelegate>> scanners;
-    for (int i = 0; i < 11; ++i) {
-        scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
-    }
-
-    std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
-            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
-    scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
-    scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
-    scanner_context->_max_bytes_in_queue = 200;
-    scanner_context->_block_memory_usage = 0;
-
-    std::unique_ptr<MockBlock> return_block = std::make_unique<MockBlock>();
-    EXPECT_CALL(*return_block, allocated_bytes()).WillRepeatedly(testing::Return(100));
-    EXPECT_CALL(*return_block, mem_reuse()).WillRepeatedly(testing::Return(true));
-    EXPECT_CALL(*return_block, clear_column_data(testing::_)).WillRepeatedly(testing::Return());
-
-    scanner_context->return_free_block(std::move(return_block));
-    ASSERT_EQ(scanner_context->_block_memory_usage, 100);
-    ASSERT_EQ(scanner_context->_scanner_memory_used_counter->value(), 100);
-    // free_block queue is stabilized, so size_approx is accurate.
-    ASSERT_EQ(scanner_context->_free_blocks.size_approx(), 1);
+    ASSERT_EQ(scanner_context->_block_memory_usage, 0);
+    ASSERT_EQ(scanner_context->_scanner_memory_used_counter->value(), 0);
 }
 
 TEST_F(ScannerContextTest, get_block_from_queue) {
@@ -785,7 +737,6 @@ TEST_F(ScannerContextTest, get_block_from_queue) {
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
             scanners, limit, scan_dependency, parallel_tasks);
-    scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
     scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
     scanner_context->_max_bytes_in_queue = 200;
     scanner_context->_block_memory_usage = 0;
