@@ -173,19 +173,15 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     DCHECK(!_probe_expr_ctxs.empty());
 
     size_t key_size = _probe_expr_ctxs.size();
-    vectorized::ColumnRawPtrs key_columns(key_size);
-    std::vector<int> result_idxs(key_size);
+    vectorized::Columns key_columns(key_size);
+    vectorized::ColumnRawPtrs key_columns_raw_ptr(key_size);
     {
         SCOPED_TIMER(_expr_timer);
         for (size_t i = 0; i < key_size; ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(in_block, &result_column_id));
-            in_block->get_by_position(result_column_id).column =
-                    in_block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
-            key_columns[i] = in_block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
-            result_idxs[i] = result_column_id;
+            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(in_block, key_columns[i]));
+            key_columns[i] = key_columns[i]->convert_to_full_column_if_const();
+            key_columns_raw_ptr[i] = key_columns[i].get();
+            key_columns_raw_ptr[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
@@ -201,7 +197,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         // _emplace_into_hash_table_to_distinct will determine whether to continue inserting data into the hashmap
         // If it decides not to insert data, it will set _stop_emplace_flag = true and _distinct_row will be empty
         _distinct_row.reserve(rows);
-        _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows);
+        _emplace_into_hash_table_to_distinct(_distinct_row, key_columns_raw_ptr, rows);
         DCHECK_LE(_distinct_row.size(), rows)
                 << "_distinct_row size should be less than or equal to rows";
     }
@@ -221,11 +217,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         if (_stop_emplace_flag && _distinct_row.empty()) {
             // If _stop_emplace_flag is true and _distinct_row is also empty, it means it is in streaming mode, outputting what is input
             // swap the column directly, to solve Check failed: d.column->use_count() == 1 (2 vs. 1)
-            for (int i = 0; i < key_size; ++i) {
-                auto output_column = out_block->get_by_position(i).column;
-                out_block->replace_by_position(i, key_columns[i]->assume_mutable());
-                in_block->replace_by_position(result_idxs[i], output_column);
-            }
+            // now this check has been removed
         } else {
             DCHECK_EQ(_cache_block.rows(), 0);
             // is output row > batch_size, split some to cache_block
@@ -233,17 +225,17 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
                 size_t split_size = batch_size - out_block->rows();
                 for (int i = 0; i < key_size; ++i) {
                     auto output_dst = out_block->get_by_position(i).column->assume_mutable();
-                    key_columns[i]->append_data_by_selector(output_dst, _distinct_row, 0,
-                                                            split_size);
+                    key_columns_raw_ptr[i]->append_data_by_selector(output_dst, _distinct_row, 0,
+                                                                    split_size);
                     auto cache_dst = _cache_block.get_by_position(i).column->assume_mutable();
-                    key_columns[i]->append_data_by_selector(cache_dst, _distinct_row, split_size,
-                                                            _distinct_row.size());
+                    key_columns_raw_ptr[i]->append_data_by_selector(
+                            cache_dst, _distinct_row, split_size, _distinct_row.size());
                 }
             } else {
                 for (int i = 0; i < key_size; ++i) {
                     auto output_column = out_block->get_by_position(i).column;
                     auto dst = output_column->assume_mutable();
-                    key_columns[i]->append_data_by_selector(dst, _distinct_row);
+                    key_columns_raw_ptr[i]->append_data_by_selector(dst, _distinct_row);
                 }
             }
         }
@@ -257,7 +249,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
                                                  _probe_expr_ctxs[i]->root()->expr_name());
             } else {
                 auto distinct_column = key_columns[i]->clone_empty();
-                key_columns[i]->append_data_by_selector(distinct_column, _distinct_row);
+                key_columns_raw_ptr[i]->append_data_by_selector(distinct_column, _distinct_row);
                 columns_with_schema.emplace_back(std::move(distinct_column),
                                                  _probe_expr_ctxs[i]->root()->data_type(),
                                                  _probe_expr_ctxs[i]->root()->expr_name());
