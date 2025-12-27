@@ -288,10 +288,33 @@ Status OlapScanner::prepare() {
     }
 
     if (_tablet_reader_params.score_runtime) {
+        SCOPED_TIMER(local_state->_statistics_collect_timer);
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+
+        int64_t ttl_seconds = tablet->ttl_seconds();
+        int64_t expiration_time = 0;
+        if (ttl_seconds > 0 && !_tablet_reader_params.rs_splits.empty()) {
+            auto rowset = _tablet_reader_params.rs_splits[0].rs_reader->rowset();
+            int64_t newest_ts = rowset->rowset_meta()->newest_write_timestamp();
+            if (newest_ts > 0) {
+                expiration_time = newest_ts + ttl_seconds;
+                if (expiration_time <= UnixSeconds()) {
+                    expiration_time = 0;
+                }
+            }
+        }
+
+        io::IOContext io_ctx {
+                .reader_type = ReaderType::READER_QUERY,
+                .expiration_time = expiration_time,
+                .query_id = &_state->query_id(),
+                .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
+                .is_inverted_index = true,
+        };
+
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                 _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down));
+                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
     }
 
     _has_prepared = true;
