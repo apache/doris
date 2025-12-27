@@ -834,8 +834,7 @@ public:
                 auto src_column =
                         block.get_by_position(col).column->convert_to_full_column_if_const();
                 if (src_column->is_nullable()) {
-                    auto nullable_column =
-                            assert_cast<const ColumnNullable*>(src_column.get());
+                    auto nullable_column = assert_cast<const ColumnNullable*>(src_column.get());
                     map_column =
                             check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
                 } else {

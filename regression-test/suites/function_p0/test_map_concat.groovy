@@ -126,6 +126,12 @@ suite("test_map_concat") {
     """
 
     qt_sql """
+        select id, map_concat(map3, map1) as merged_different_key_types
+        from ${testTable}
+        order by id;
+    """
+
+    qt_sql """
         select id, map_concat(map1, map2) as merged
         from ${testTable}
         where map_size(map_concat(map1, map2)) > 0
