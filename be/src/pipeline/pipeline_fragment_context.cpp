@@ -1139,8 +1139,9 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             OperatorPtr source_op;
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op = std::make_shared<MultiCastDataStreamerSourceOperatorX>(
-                    multi_cast_node_id, i, pool, thrift_sink.multi_cast_stream_sink.sinks[i],
-                    row_desc, /*operator_id=*/source_id);
+                    /*node_id*/ source_id, /*consumer_id*/ i, pool,
+                    thrift_sink.multi_cast_stream_sink.sinks[i], row_desc,
+                    /*operator_id=*/source_id);
             RETURN_IF_ERROR(new_pipeline->add_operator(
                     source_op, params.__isset.parallel_instances ? params.parallel_instances : 0));
             // 2. create and set sink operator of data stream sender for new pipeline
