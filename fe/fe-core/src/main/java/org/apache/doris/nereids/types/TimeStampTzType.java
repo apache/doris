@@ -35,13 +35,14 @@ public class TimeStampTzType extends DateLikeType implements ScaleTimeType {
     public static final int MAX_SCALE = 6;
     public static final TimeStampTzType SYSTEM_DEFAULT = new TimeStampTzType(0);
     public static final TimeStampTzType MAX = new TimeStampTzType(MAX_SCALE);
+    public static final TimeStampTzType WILDCARD = new TimeStampTzType(-1);
 
     private static final int WIDTH = 8;
 
     private final int scale;
 
     private TimeStampTzType(int scale) {
-        Preconditions.checkArgument(0 <= scale && scale <= MAX_SCALE);
+        Preconditions.checkArgument(scale == -1 || (0 <= scale && scale <= MAX_SCALE));
         this.scale = scale;
     }
 

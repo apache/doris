@@ -1870,6 +1870,17 @@ public:
             auto tv2 = static_cast<TimeValue::TimeType>(arg2);
             double res = TimeValue::limit_with_bound(Impl::is_negative() ? tv1 - tv2 : tv1 + tv2);
             return res;
+        } else if constexpr (PType == TYPE_TIMESTAMPTZ) {
+            DateV2Value<DateTimeV2ValueType> dtv1 =
+                    binary_cast<InputType1, DateV2Value<DateTimeV2ValueType>>(arg1);
+            auto tv2 = static_cast<TimeValue::TimeType>(arg2);
+            TimeInterval interval(TimeUnit::MICROSECOND, tv2, Impl::is_negative());
+            bool out_range = dtv1.template date_add_interval<TimeUnit::MICROSECOND>(interval);
+            if (UNLIKELY(!out_range)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "timestamptz value is out of range in function {}", name);
+            }
+            return binary_cast<DateV2Value<DateTimeV2ValueType>, ReturnNativeType>(dtv1);
         } else {
             throw Exception(ErrorCode::FATAL_ERROR, "not support type for function {}", name);
         }
