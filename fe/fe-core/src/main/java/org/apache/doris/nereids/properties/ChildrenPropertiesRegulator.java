@@ -281,8 +281,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         DistributionSpec distributionSpec = originChildrenProperties.get(0).getDistributionSpec();
         // process must shuffle
         if (distributionSpec instanceof DistributionSpecMustShuffle) {
-            Plan child = filter.child();
-            Plan realChild = getChildPhysicalPlan(child);
+            Plan realChild = children.get(0).getPlan();
             if (realChild instanceof PhysicalProject
                     || realChild instanceof PhysicalFilter
                     || realChild instanceof PhysicalLimit) {
@@ -317,19 +316,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int paraNum = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
                 return totalBucketNum < backEndNum * paraNum * 0.8;
             }
-        }
-    }
-
-    private Plan getChildPhysicalPlan(Plan plan) {
-        if (!(plan instanceof GroupPlan)) {
-            return null;
-        }
-        GroupPlan groupPlan = (GroupPlan) plan;
-        if (groupPlan == null || groupPlan.getGroup() == null
-                || groupPlan.getGroup().getPhysicalExpressions().isEmpty()) {
-            return null;
-        } else {
-            return groupPlan.getGroup().getPhysicalExpressions().get(0).getPlan();
         }
     }
 
@@ -602,8 +588,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         DistributionSpec distributionSpec = originChildrenProperties.get(0).getDistributionSpec();
         // process must shuffle
         if (distributionSpec instanceof DistributionSpecMustShuffle) {
-            Plan child = project.child();
-            Plan realChild = getChildPhysicalPlan(child);
+            Plan realChild = children.get(0).getPlan();
             if (realChild instanceof PhysicalLimit) {
                 visit(project, context);
             } else if (realChild instanceof PhysicalProject) {
