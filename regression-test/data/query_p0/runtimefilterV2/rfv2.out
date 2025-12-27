@@ -2,9 +2,8 @@
 -- !1 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalIntersect RFV2: RF0[a1->b1] RF1[a1->b1] RF2[a1->c1] RF3[a1->c1]
-------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[a]
+----PhysicalIntersect[bucketShuffle] RFV2: RF0[a1->b1] RF1[a1->b1] RF2[a1->c1] RF3[a1->c1]
+------PhysicalOlapScan[a]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalOlapScan[b] RFV2: RF0 RF1
 ------PhysicalDistribute[DistributionSpecHash]
@@ -38,9 +37,8 @@ PhysicalResultSink
 -- !except --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept RFV2: RF0[a1->b1] RF1[a1->b1]
-------PhysicalDistribute[DistributionSpecHash]
---------PhysicalOlapScan[a]
+----PhysicalExcept[bucketShuffle] RFV2: RF0[a1->b1] RF1[a1->b1]
+------PhysicalOlapScan[a]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalOlapScan[b] RFV2: RF0 RF1
 

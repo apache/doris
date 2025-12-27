@@ -65,6 +65,12 @@ public abstract class SetOperationNode extends PlanNode {
 
     private boolean isColocate = false;
 
+    private DistributionMode distributionMode = DistributionMode.SHUFFLE;
+
+    public enum DistributionMode {
+        SHUFFLE, BUCKET_SHUFFLE
+    }
+
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
         super(id, tupleId.asList(), planNodeName);
         this.setOpResultExprs = Lists.newArrayList();
@@ -85,6 +91,14 @@ public abstract class SetOperationNode extends PlanNode {
 
     public void setColocate(boolean colocate) {
         this.isColocate = colocate;
+    }
+
+    public DistributionMode getDistributionMode() {
+        return distributionMode;
+    }
+
+    public void setDistributionMode(DistributionMode distributionMode) {
+        this.distributionMode = distributionMode;
     }
 
     protected void toThrift(TPlanNode msg, TPlanNodeType nodeType) {
@@ -173,5 +187,9 @@ public abstract class SetOperationNode extends PlanNode {
         }
         numInstances = Math.max(1, numInstances);
         return numInstances;
+    }
+
+    public boolean isBucketShuffle() {
+        return distributionMode.equals(DistributionMode.BUCKET_SHUFFLE);
     }
 }
