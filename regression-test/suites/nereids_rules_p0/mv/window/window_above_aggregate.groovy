@@ -138,6 +138,9 @@ suite("window_above_aggregate") {
     sql """alter table orders3 modify column O_COMMENT set stats ('row_count'='18');"""
     sql """alter table partsupp3 modify column ps_comment set stats ('row_count'='2');"""
 
+    // Added for position the problem mv refresh task is running
+    sql """set global insert_timeout = 480;"""
+
     // multi table or single table
     // top filter(project) + window + middle filter(project) + aggregate + bottom filter(project) + scan
     // query has only top filter, view has both top and middle filter

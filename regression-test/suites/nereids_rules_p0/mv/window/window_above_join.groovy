@@ -138,6 +138,8 @@ suite("window_above_join") {
     sql """alter table orders2 modify column O_COMMENT set stats ('row_count'='18');"""
     sql """alter table partsupp2 modify column ps_comment set stats ('row_count'='2');"""
 
+    // Added for position the problem mv refresh task is running
+    sql """set global insert_timeout = 600;"""
 
     // top filter(project) + window + bottom filter(project) + join
     // query has only top filter, view has both top and bottom filter
@@ -243,7 +245,7 @@ suite("window_above_join") {
     order_qt_query1_1_before "${query1_1}"
     async_mv_rewrite_fail(db, mv1_1, query1_1, "join_mv1_1")
     order_qt_query1_1_after "${query1_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv1_1"""
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv1_1"""
 
 
     // query has only top filter, view has only top filter
