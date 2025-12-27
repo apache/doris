@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
+import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TQueryCacheParam;
 import org.apache.doris.thrift.TResultSinkType;
@@ -164,6 +165,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public TQueryCacheParam queryCacheParam;
     private int numBackends = 0;
     private boolean forceSingleInstance = false;
+    private Supplier<TPlan> thriftPlanCache;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -177,6 +179,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.builderRuntimeFilterIds = new HashSet<>();
         this.targetRuntimeFilterIds = new HashSet<>();
         this.hasBucketShuffleJoin = buildHasBucketShuffleJoin();
+        this.thriftPlanCache = buildTPlanCache();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
     }
@@ -203,6 +206,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             }
             return false;
         });
+    }
+
+    private Supplier<TPlan> buildTPlanCache() {
+        return Suppliers.memoize(planRoot::treeToThrift);
     }
 
     /**
@@ -319,10 +326,19 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return parallelExecNum;
     }
 
+    public TPlan cacheThriftPlan() {
+        if (thriftPlanCache == null) {
+            thriftPlanCache = buildTPlanCache();
+        }
+        return thriftPlanCache.get();
+    }
+
     public TPlanFragment toThrift() {
+        cacheThriftPlan();
+
         TPlanFragment result = new TPlanFragment();
         if (planRoot != null) {
-            result.setPlan(planRoot.treeToThrift());
+            result.setPlan(thriftPlanCache.get());
         }
         if (outputExprs != null) {
             result.setOutputExprs(Expr.treesToThrift(outputExprs));
