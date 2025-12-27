@@ -59,16 +59,6 @@ public class ScheduleRule {
                 && jobRoutine.pauseReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR
                 && jobRoutine.pauseReason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
                 && jobRoutine.pauseReason.getCode() != InternalErrorCode.CANNOT_RESUME_ERR) {
-            int dead = deadBeCount();
-            if (dead > Config.max_tolerable_backend_down_num) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("dead backend num {} is larger than config {}, "
-                                    + "routine load job {} can not be auto rescheduled",
-                            dead, Config.max_tolerable_backend_down_num, jobRoutine.id);
-                }
-                return false;
-            }
-
             if (jobRoutine.latestResumeTimestamp == 0) { //the first resume
                 jobRoutine.latestResumeTimestamp = System.currentTimeMillis();
                 jobRoutine.autoResumeCount = 1;

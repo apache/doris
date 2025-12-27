@@ -1382,12 +1382,6 @@ public class Config extends ConfigBase {
     public static boolean check_java_version = true;
 
     /**
-     * it can't auto-resume routine load job as long as one of the backends is down
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_tolerable_backend_down_num = 0;
-
-    /**
      * a period for auto resume routine load
      */
     @ConfField(mutable = true, masterOnly = true)
