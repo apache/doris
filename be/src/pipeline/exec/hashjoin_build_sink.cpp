@@ -107,6 +107,12 @@ Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
+
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    if (p._use_shared_hash_table && _should_build_hash_table) {
+        p._shared_terminated = true;
+    }
+
     RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
     return JoinBuildSinkLocalState::terminate(state);
 }
@@ -234,25 +240,37 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
+    auto st = Status::OK();
     try {
         if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
-            RETURN_IF_ERROR(_runtime_filter_producer_helper->build(
-                    state, _shared_state->build_block.get(), p._use_shared_hash_table,
-                    p._runtime_filters));
-            RETURN_IF_ERROR(_runtime_filter_producer_helper->publish(state));
+            if (!_should_build_hash_table && p._use_shared_hash_table && !p._signaled) {
+                if (!p._shared_terminated) {
+                    st = Status::InternalError(
+                            "shared hash table build sink operator wake up before signaled");
+                } else {
+                    LOG(WARNING) << "build_hash_table-instance have terminated, but non-build "
+                                    "instance not terminated";
+                }
+            } else {
+                st = _runtime_filter_producer_helper->build(state, _shared_state->build_block.get(),
+                                                            p._use_shared_hash_table,
+                                                            p._runtime_filters);
+                if (st.ok()) {
+                    st = _runtime_filter_producer_helper->publish(state);
+                }
+            }
         }
     } catch (Exception& e) {
-        bool blocked_by_shared_hash_table_signal =
-                !_should_build_hash_table && p._use_shared_hash_table && !p._signaled;
-
+        st = e.to_status();
+    }
+    if (!st) {
         return Status::InternalError(
-                "rf process meet error: {}, _terminated: {}, should_build_hash_table: "
-                "{}, _finish_dependency: {}, "
-                "blocked_by_shared_hash_table_signal: "
-                "{}",
-                e.to_string(), _terminated, _should_build_hash_table,
-                _finish_dependency ? _finish_dependency->debug_string() : "null",
-                blocked_by_shared_hash_table_signal);
+                "rf process meet error: {}, terminated: {}, shared_terminated: {}, "
+                "should_build_hash_table: {}, "
+                "use_shared_hash_table: {}, signaled: {}, cancelled: {}, finish_dependency: {}",
+                st.to_string(), _terminated, p._shared_terminated, _should_build_hash_table,
+                p._use_shared_hash_table, p._signaled, state->is_cancelled(),
+                _finish_dependency ? _finish_dependency->debug_string() : "null");
     }
     if (_runtime_filter_producer_helper) {
         _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
