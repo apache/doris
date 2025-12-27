@@ -93,7 +93,7 @@ private:
 private:
     int64_t _partition_key;
     PCacheValue* _cache_value = nullptr;
-    size_t _data_size;
+    int64_t _data_size;
     CacheStat _cache_stat;
 };
 
@@ -175,7 +175,7 @@ private:
     UniqueId _sql_key;
     ResultNode* _prev = nullptr;
     ResultNode* _next = nullptr;
-    size_t _data_size;
+    int64_t _data_size;
     PartitionRowBatchList _partition_list;
     PartitionRowBatchMap _partition_map;
 };
