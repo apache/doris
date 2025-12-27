@@ -179,10 +179,15 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
         if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
-        mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+        mutable_columns[i] = column_ptr->assume_mutable();
     }
-    DCHECK(mutable_block.rows() == rows);
+
     output_block->set_columns(std::move(mutable_columns));
+
+    // origin columns was moved into output_block, so we need to set origin_block to empty columns
+    auto empty_columns = origin_block->clone_empty_columns();
+    origin_block->set_columns(std::move(empty_columns));
+    DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
 }
