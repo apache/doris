@@ -652,6 +652,10 @@ const ColumnsWithTypeAndName& Block::get_columns_with_type_and_name() const {
     return data;
 }
 
+ColumnsWithTypeAndName& Block::get_columns_with_type_and_name() {
+    return data;
+}
+
 std::vector<std::string> Block::get_names() const {
     std::vector<std::string> res;
     res.reserve(columns());
@@ -710,6 +714,16 @@ void Block::clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags
             auto first_column = data[0].column->clone_empty();
             first_column->resize(origin_rows);
             data[0].column = std::move(first_column);
+        }
+    }
+}
+
+void Block::clear_columns(std::vector<uint32_t>& column_ids) {
+    for (const auto& column_id : column_ids) {
+        if (data[column_id].column->is_exclusive()) {
+            data[column_id].column->assume_mutable()->clear();
+        } else {
+            data[column_id].column = data[column_id].column->clone_empty();
         }
     }
 }

@@ -25,6 +25,9 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/exception.h"
+#include "common/status.h"
+
 namespace doris {
 #include "common/compile_check_begin.h"
 
@@ -317,6 +320,23 @@ public:
     MutablePtr assume_mutable() const { return const_cast<COW*>(this)->get_ptr(); }
 
     Derived& assume_mutable_ref() const { return const_cast<Derived&>(*derived()); }
+
+    MutablePtr assert_mutable() const {
+        if (use_count() != 1) {
+            throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                   "COW::assert_mutable failed, use_count={} != 1", use_count());
+        }
+        return const_cast<COW*>(this)->get_ptr();
+    }
+
+    Derived& assert_mutable_ref() const {
+        if (use_count() != 1) {
+            throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                   "COW::assert_mutable_ref failed, use_count={} != 1",
+                                   use_count());
+        }
+        return const_cast<Derived&>(*derived());
+    }
 
 protected:
     /// It works as immutable_ptr if it is const and as mutable_ptr if it is non const.
