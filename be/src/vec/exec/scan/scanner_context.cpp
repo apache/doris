@@ -104,7 +104,6 @@ ScannerContext::ScannerContext(
 Status ScannerContext::init() {
 #ifndef BE_TEST
     _scanner_profile = _local_state->_scanner_profile;
-    _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
     _scanner_memory_used_counter = _local_state->_memory_used_counter;
 
     // 3. get thread token
@@ -180,9 +179,6 @@ ScannerContext::~ScannerContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
     _tasks_queue.clear();
     vectorized::BlockUPtr block;
-    while (_free_blocks.try_dequeue(block)) {
-        // do nothing
-    }
     block.reset();
     DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
     if (_task_handle) {
@@ -194,33 +190,11 @@ ScannerContext::~ScannerContext() {
     }
 }
 
-vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
-    vectorized::BlockUPtr block = nullptr;
-    if (_free_blocks.try_dequeue(block)) {
-        DCHECK(block->mem_reuse());
-        _block_memory_usage -= block->allocated_bytes();
-        _scanner_memory_used_counter->set(_block_memory_usage);
-        // A free block is reused, so the memory usage should be decreased
-        // The caller of get_free_block will increase the memory usage
-    } else if (_block_memory_usage < _max_bytes_in_queue || force) {
-        _newly_create_free_blocks_num->update(1);
-        block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0);
+vectorized::BlockUPtr ScannerContext::create_output_block(bool force) {
+    if (_block_memory_usage < _max_bytes_in_queue || force) {
+        return vectorized::Block::create_unique(_output_tuple_desc->slots(), 0);
     }
-    return block;
-}
-
-void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
-    // If under low memory mode, should not return the freeblock, it will occupy too much memory.
-    if (!_local_state->low_memory_mode() && block->mem_reuse() &&
-        _block_memory_usage < _max_bytes_in_queue) {
-        size_t block_size_to_reuse = block->allocated_bytes();
-        _block_memory_usage += block_size_to_reuse;
-        _scanner_memory_used_counter->set(_block_memory_usage);
-        block->clear_column_data();
-        // Free blocks is used to improve memory efficiency. Failure during pushing back
-        // free block will not incur any bad result so just ignore the return value.
-        _free_blocks.enqueue(std::move(block));
-    }
+    return {};
 }
 
 Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task,
@@ -232,10 +206,6 @@ Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task,
     // see ScannerScheduler::_scanner_scan.
     _num_scheduled_scanners++;
     return _scanner_scheduler->submit(shared_from_this(), scan_task);
-}
-
-void ScannerContext::clear_free_blocks() {
-    clear_blocks(_free_blocks);
 }
 
 void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
@@ -299,7 +269,6 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             _block_memory_usage -= block_size;
             // consume current block
             block->swap(*current_block);
-            return_free_block(std::move(current_block));
         }
 
         VLOG_DEBUG << fmt::format(
@@ -434,12 +403,12 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
 std::string ScannerContext::debug_string() {
     return fmt::format(
             "id: {}, total scanners: {}, pending tasks: {},"
-            " _should_stop: {}, _is_finished: {}, free blocks: {},"
+            " _should_stop: {}, _is_finished: {}, "
             " limit: {}, _num_running_scanners: {}, _max_thread_num: {},"
             " _max_bytes_in_queue: {}, query_id: {}",
-            ctx_id, _all_scanners.size(), _tasks_queue.size(), _should_stop, _is_finished,
-            _free_blocks.size_approx(), limit, _num_scheduled_scanners, _max_scan_concurrency,
-            _max_bytes_in_queue, print_id(_query_id));
+            ctx_id, _all_scanners.size(), _tasks_queue.size(), _should_stop, _is_finished, limit,
+            _num_scheduled_scanners, _max_scan_concurrency, _max_bytes_in_queue,
+            print_id(_query_id));
 }
 
 void ScannerContext::_set_scanner_done() {
