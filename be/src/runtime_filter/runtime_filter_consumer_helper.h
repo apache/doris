@@ -52,6 +52,8 @@ public:
     // parent_operator_profile is owned by LocalState so update it is safe at here.
     void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
 
+    size_t runtime_filter_nums() const { return _runtime_filter_descs.size(); }
+
 private:
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(RuntimeState* state,
