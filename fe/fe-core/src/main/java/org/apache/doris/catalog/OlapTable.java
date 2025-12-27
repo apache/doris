@@ -234,6 +234,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // Ensures only one creation task runs for a given partition at a time.
     private ConcurrentHashMap<String, CompletableFuture<Void>> partitionCreationFutures = new ConcurrentHashMap<>();
 
+    // Cache for table version in cloud mode
+    // This value is set when get the table version from meta-service, 0 means version is not cached yet
+    private long lastTableVersionCachedTimeMs = 0;
+    private long cachedTableVersion = -1;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -3280,9 +3285,41 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
+    public boolean isCachedTableVersionExpired() {
+        // -1 means no cache yet, need to fetch from MS
+        if (cachedTableVersion == -1) {
+            return true;
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return true;
+        }
+        long cacheExpirationMs = ctx.getSessionVariable().cloudTableVersionCacheTtlMs;
+        if (cacheExpirationMs <= 0) { // always expired
+            return true;
+        }
+        return System.currentTimeMillis() - lastTableVersionCachedTimeMs > cacheExpirationMs;
+    }
+
+    public void setCachedTableVersion(long version) {
+        if (version > cachedTableVersion) {
+            cachedTableVersion = version;
+            lastTableVersionCachedTimeMs = System.currentTimeMillis();
+        }
+    }
+
+    public long getCachedTableVersion() {
+        return cachedTableVersion;
+    }
+
     public long getVisibleVersion() throws RpcException {
         if (Config.isNotCloudMode()) {
             return tableAttributes.getVisibleVersion();
+        }
+
+        // check if cache is not expired
+        if (!isCachedTableVersionExpired()) {
+            return getCachedTableVersion();
         }
 
         // get version rpc
@@ -3309,6 +3346,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             if (version == 0) {
                 version = 1;
             }
+            // update cache
+            setCachedTableVersion(version);
             return version;
         } catch (RpcException e) {
             LOG.warn("get version from meta service failed", e);
