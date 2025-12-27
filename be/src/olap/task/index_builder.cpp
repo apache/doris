@@ -118,6 +118,11 @@ Status IndexBuilder::update_inverted_index_info() {
                 // inverted index
                 auto index_metas = output_rs_tablet_schema->inverted_indexs(column);
                 for (const auto& index_meta : index_metas) {
+                    // Only drop the index that matches the requested index_id,
+                    // not all indexes on this column
+                    if (index_meta->index_id() != t_inverted_index.index_id) {
+                        continue;
+                    }
                     if (output_rs_tablet_schema->get_inverted_index_storage_format() ==
                         InvertedIndexStorageFormatPB::V1) {
                         const auto& fs = io::global_local_filesystem();
@@ -145,6 +150,10 @@ Status IndexBuilder::update_inverted_index_info() {
                 // ann index
                 const auto* ann_index = output_rs_tablet_schema->ann_index(column);
                 if (!ann_index) {
+                    continue;
+                }
+                // Only drop the ann index that matches the requested index_id
+                if (ann_index->index_id() != t_inverted_index.index_id) {
                     continue;
                 }
                 DCHECK(output_rs_tablet_schema->get_inverted_index_storage_format() !=

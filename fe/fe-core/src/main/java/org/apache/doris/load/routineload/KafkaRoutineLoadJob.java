@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.transaction.TransactionState;
@@ -263,7 +264,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void updateCloudProgress() throws UserException {
         Cloud.GetRLTaskCommitAttachRequest.Builder builder =
-                Cloud.GetRLTaskCommitAttachRequest.newBuilder();
+                Cloud.GetRLTaskCommitAttachRequest.newBuilder()
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setCloudUniqueId(Config.cloud_unique_id);
         builder.setDbId(dbId);
         builder.setJobId(id);
@@ -748,7 +750,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             }
 
             if (Config.isCloudMode()) {
-                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder();
+                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 builder.setCloudUniqueId(Config.cloud_unique_id);
                 builder.setDbId(dbId);
                 builder.setJobId(id);

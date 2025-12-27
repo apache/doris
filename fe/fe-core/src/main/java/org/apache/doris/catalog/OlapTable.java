@@ -65,6 +65,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -3286,6 +3287,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(this.getDatabase().getId())
                 .setTableId(this.id)
                 .setBatchMode(false)
@@ -3339,6 +3341,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(-1)
                 .setTableId(-1)
                 .setPartitionId(-1)

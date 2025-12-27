@@ -1127,12 +1127,13 @@ TEST_F(TestDeleteHandler, timestamptz_ValueWithoutQuote) {
 }
 
 TEST_F(TestDeleteHandler, timestamptz) {
+    TimezoneUtils::load_timezones_to_cache();
     Status success_res;
     std::vector<TCondition> conditions;
 
     TCondition condition;
-    std::string condition_str = "2025-12-31 23:59:59";
-    std::string condition_str2 = "2025-12-30 23:59:59";
+    std::string condition_str = "2025-12-31 23:59:59+00:00";
+    std::string condition_str2 = "2025-12-30 23:59:59+00:00";
 
     condition.column_name = "k_tz";
     condition.condition_op = "=";
@@ -1259,8 +1260,7 @@ TEST_F(TestDeleteHandler, timestamptz) {
     add_delete_predicate(del_pred, 2);
 
     auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
-    // FIXME:
-    EXPECT_NE(Status::OK(), res);
+    EXPECT_EQ(Status::OK(), res);
 }
 
 TEST_F(TestDeleteHandler, ValueWithoutQuote) {

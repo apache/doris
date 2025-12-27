@@ -41,9 +41,8 @@ public class ExplodeTest {
     @Test
     public void testGetSignatures() {
         // build explode(array<int>, array<str>) expression
-        Expression[] args = {SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE)),
-            SlotReference.of("str", ArrayType.of(StringType.INSTANCE))};
-        Explode explode = new Explode(args);
+        Expression[] args = {SlotReference.of("str", ArrayType.of(StringType.INSTANCE))};
+        Explode explode = new Explode(SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE)), args);
 
         // check signature
         List<FunctionSignature> signatures = explode.getSignatures();
@@ -64,8 +63,8 @@ public class ExplodeTest {
     @Test
     public void testGetSignaturesWithNull() {
         // build explode(null, array<int>) expression
-        Expression[] args = { SlotReference.of("null", NullType.INSTANCE), SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE))};
-        Explode explode = new Explode(args);
+        Expression[] args = { SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE))};
+        Explode explode = new Explode(SlotReference.of("null", NullType.INSTANCE), args);
 
         // check signature
         List<FunctionSignature> signatures = explode.getSignatures();
@@ -86,8 +85,7 @@ public class ExplodeTest {
     @Test
     public void testGetSignaturesWithInvalidArgument() {
         // build explode(int)
-        Expression[] args = { SlotReference.of("int", IntegerType.INSTANCE) };
-        Explode explode = new Explode(args);
+        Explode explode = new Explode(SlotReference.of("int", IntegerType.INSTANCE));
 
         Assertions.assertThrows(AnalysisException.class, explode::getSignatures);
     }

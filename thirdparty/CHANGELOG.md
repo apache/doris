@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20151222
+
+- Added: timsort (cpp-TimSort 3.x.y)
+
 ## 20251127
 
 - Added: crc32c-1.1.2

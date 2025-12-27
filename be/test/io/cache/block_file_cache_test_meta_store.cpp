@@ -18,7 +18,20 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/tests/gtest_lru_file_cache.cpp
 // and modified by Doris
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+
+#define private public
+#define protected public
 #include "block_file_cache_test_common.h"
+#undef private
+#undef protected
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 namespace doris::io {
 
@@ -495,6 +508,147 @@ TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries)
 
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, estimate_file_count_skips_removed_directory) {
+    std::string test_dir = cache_base_path + "/estimate_file_count_removed_dir";
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
+    }
+    auto keep_dir = fs::path(test_dir) / "keep";
+    auto remove_dir = fs::path(test_dir) / "remove";
+    fs::create_directories(keep_dir);
+    fs::create_directories(remove_dir);
+
+    auto keep_file = keep_dir / "data.bin";
+    std::string one_mb(1024 * 1024, 'd');
+    {
+        std::ofstream ofs(keep_file, std::ios::binary);
+        ASSERT_TRUE(ofs.good());
+        for (int i = 0; i < 3; ++i) {
+            ofs.write(one_mb.data(), one_mb.size());
+            ASSERT_TRUE(ofs.good());
+        }
+    }
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = test_dir;
+
+    const std::string sync_point_name =
+            "FSFileCacheStorage::estimate_file_count_from_statfs::OnDirectory";
+    auto* sync_point = doris::SyncPoint::get_instance();
+    doris::SyncPoint::CallbackGuard guard(sync_point_name);
+    sync_point->set_call_back(
+            sync_point_name,
+            [remove_dir](std::vector<std::any>&& args) {
+                auto* path = doris::try_any_cast<std::filesystem::path*>(args[0]);
+                if (*path == remove_dir) {
+                    fs::remove_all(remove_dir);
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    size_t estimated_files = storage.estimate_file_count_from_statfs();
+
+    sync_point->disable_processing();
+
+    ASSERT_EQ(3, estimated_files);
+    ASSERT_FALSE(fs::exists(remove_dir));
+
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
+    }
+}
+
+TEST_F(BlockFileCacheTest, estimate_file_count_handles_stat_failure) {
+    std::string test_dir = cache_base_path + "/estimate_file_count_stat_failure";
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
+    }
+    fs::create_directories(test_dir);
+
+    auto data_file = fs::path(test_dir) / "data.bin";
+    std::string one_mb(1024 * 1024, 'x');
+    {
+        std::ofstream ofs(data_file, std::ios::binary);
+        ASSERT_TRUE(ofs.good());
+        ofs.write(one_mb.data(), one_mb.size());
+        ASSERT_TRUE(ofs.good());
+    }
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = test_dir;
+
+    const std::string sync_point_name =
+            "FSFileCacheStorage::estimate_file_count_from_statfs::AfterEntryStatus";
+    auto* sync_point = doris::SyncPoint::get_instance();
+    doris::SyncPoint::CallbackGuard guard(sync_point_name);
+    sync_point->set_call_back(
+            sync_point_name,
+            [](std::vector<std::any>&& args) {
+                auto* ec = doris::try_any_cast<std::error_code*>(args[0]);
+                if (ec != nullptr) {
+                    *ec = std::make_error_code(std::errc::io_error);
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    size_t estimated_files = storage.estimate_file_count_from_statfs();
+
+    sync_point->disable_processing();
+
+    ASSERT_EQ(0, estimated_files);
+
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
+    }
+}
+
+TEST_F(BlockFileCacheTest, estimate_file_count_handles_file_size_failure) {
+    std::string test_dir = cache_base_path + "/estimate_file_count_file_size_failure";
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
+    }
+    fs::create_directories(test_dir);
+
+    auto data_file = fs::path(test_dir) / "data.bin";
+    std::string one_mb(1024 * 1024, 'x');
+    {
+        std::ofstream ofs(data_file, std::ios::binary);
+        ASSERT_TRUE(ofs.good());
+        ofs.write(one_mb.data(), one_mb.size());
+        ASSERT_TRUE(ofs.good());
+    }
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = test_dir;
+
+    const std::string sync_point_name =
+            "FSFileCacheStorage::estimate_file_count_from_statfs::AfterFileSize";
+    auto* sync_point = doris::SyncPoint::get_instance();
+    doris::SyncPoint::CallbackGuard guard(sync_point_name);
+    sync_point->set_call_back(
+            sync_point_name,
+            [](std::vector<std::any>&& args) {
+                auto* ec = doris::try_any_cast<std::error_code*>(args[0]);
+                if (ec != nullptr) {
+                    *ec = std::make_error_code(std::errc::io_error);
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    size_t estimated_files = storage.estimate_file_count_from_statfs();
+
+    sync_point->disable_processing();
+
+    ASSERT_EQ(0, estimated_files);
+
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
     }
 }
 
