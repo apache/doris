@@ -19,6 +19,7 @@
 
 #include "common/status.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/functions/complex_hash_map_dictionary.h"
 #include "vec/functions/dictionary_factory.h"
 #include "vec/functions/dictionary_util.h"
@@ -53,20 +54,21 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
 
     for (long key_expr_id : p._key_output_expr_slots) {
         auto key_expr_ctx = _output_vexpr_ctxs[key_expr_id];
-        int key_column_id = -1;
-        RETURN_IF_ERROR(key_expr_ctx->execute(&input_block, &key_column_id));
-        key_data.push_back(input_block.get_by_position(key_column_id));
+        vectorized::ColumnWithTypeAndName key_exec_data;
+        RETURN_IF_ERROR(key_expr_ctx->execute(&input_block, key_exec_data));
+
+        key_data.push_back(key_exec_data);
     }
 
     for (size_t i = 0; i < p._value_output_expr_slots.size(); i++) {
         auto value_expr_id = p._value_output_expr_slots[i];
         auto value_name = p._value_names[i];
         auto value_expr_ctx = _output_vexpr_ctxs[value_expr_id];
-        int value_column_id = -1;
-        RETURN_IF_ERROR(value_expr_ctx->execute(&input_block, &value_column_id));
-        auto att_data = input_block.get_by_position(value_column_id);
-        att_data.name = value_name;
-        value_data.push_back(att_data);
+
+        vectorized::ColumnPtr value_column;
+        RETURN_IF_ERROR(value_expr_ctx->execute(&input_block, value_column));
+        auto value_type = value_expr_ctx->execute_type(&input_block);
+        value_data.push_back({value_column, value_type, value_name});
     }
 
     RETURN_IF_ERROR(check_dict_input_data(key_data, value_data, p._skip_null_key));
