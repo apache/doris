@@ -196,6 +196,7 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
             }
             Context childContext = context.withLazySlots(childLazySlots);
             child = child.accept(this, childContext);
+            context.updateRowIdSlot(childContext.rowIdSlot);
         }
         if (child.getOutput().contains(context.rowIdSlot)) {
             List<NamedExpression> newProjections = new ArrayList<>();
