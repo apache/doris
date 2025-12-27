@@ -120,7 +120,7 @@ public:
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution(state);
+        return {ExchangeType::PASSTHROUGH};
     }
 
     bool require_data_distribution() const override { return _is_colocate; }
