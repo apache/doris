@@ -42,10 +42,9 @@ public:
 
     std::string print_process_profile_no_root() const {
         std::stringstream ss;
-        std::vector<RuntimeProfile*> profiles;
         auto version_ptr = _process_profile.get();
-        auto* process_profile = version_ptr.get();
-        process_profile->get_children(&profiles);
+        const auto* process_profile = version_ptr.get();
+        auto profiles = process_profile->get_children();
         for (auto* profile : profiles) {
             profile->pretty_print(&ss);
         }

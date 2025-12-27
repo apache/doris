@@ -243,8 +243,7 @@ TEST(RuntimeProfileTest, MergeAndupdate) {
     ValidateCounter(merged_profile.get(), "Parent 1 Only", 2);
     ValidateCounter(merged_profile.get(), "Parent 2 Only", 5);
 
-    std::vector<RuntimeProfile*> children;
-    merged_profile->get_children(&children);
+    auto children = merged_profile->get_children();
     EXPECT_EQ(children.size(), 3);
 
     for (int i = 0; i < 3; ++i) {
@@ -277,7 +276,7 @@ TEST(RuntimeProfileTest, MergeAndupdate) {
     ValidateCounter(&profile2, "Parent 1 Only", 2);
     ValidateCounter(&profile2, "Parent 2 Only", 5);
 
-    profile2.get_children(&children);
+    children = profile2.get_children();
     EXPECT_EQ(children.size(), 3);
 
     for (int i = 0; i < 3; ++i) {
@@ -362,8 +361,7 @@ TEST(RuntimeProfileTest, ProtoMergeAndUpdate) {
     ValidateCounter(merged_profile.get(), "Parent 1 Only", 2);
     ValidateCounter(merged_profile.get(), "Parent 2 Only", 5);
 
-    std::vector<RuntimeProfile*> children;
-    merged_profile->get_children(&children);
+    auto children = merged_profile->get_children();
     EXPECT_EQ(children.size(), 3);
 
     for (RuntimeProfile* profile : children) {
@@ -390,7 +388,7 @@ TEST(RuntimeProfileTest, ProtoMergeAndUpdate) {
     ValidateCounter(&profile2, "Parent 1 Only", 2);
     ValidateCounter(&profile2, "Parent 2 Only", 5);
 
-    profile2.get_children(&children);
+    children = profile2.get_children();
     EXPECT_EQ(children.size(), 3);
 
     for (RuntimeProfile* profile : children) {
@@ -441,11 +439,11 @@ TEST(RuntimeProfileTest, DerivedCounters) {
 TEST(RuntimeProfileTest, InfoStringTest) {
     ObjectPool pool;
     RuntimeProfile profile("Profile");
-    EXPECT_TRUE(profile.get_info_string("Key") == nullptr);
+    EXPECT_FALSE(profile.get_info_string("Key").has_value());
 
     profile.add_info_string("Key", "Value");
-    const string* value = profile.get_info_string("Key");
-    EXPECT_TRUE(value != nullptr);
+    auto value = profile.get_info_string("Key");
+    EXPECT_TRUE(value.has_value());
     EXPECT_EQ(*value, "Value");
 
     // Convert it to thrift
@@ -455,14 +453,14 @@ TEST(RuntimeProfileTest, InfoStringTest) {
     // Convert it back
     std::unique_ptr<RuntimeProfile> from_thrift = RuntimeProfile::from_thrift(tprofile);
     value = from_thrift->get_info_string("Key");
-    EXPECT_TRUE(value != nullptr);
+    EXPECT_TRUE(value.has_value());
     EXPECT_EQ(*value, "Value");
 
     // Test update.
     RuntimeProfile update_dst_profile("Profile2");
     update_dst_profile.update(tprofile);
     value = update_dst_profile.get_info_string("Key");
-    EXPECT_TRUE(value != nullptr);
+    EXPECT_TRUE(value.has_value());
     EXPECT_EQ(*value, "Value");
 
     // update the original profile, convert it to thrift and update from the dst
@@ -482,11 +480,11 @@ TEST(RuntimeProfileTest, ProtoInfoStringTest) {
     ObjectPool pool;
     RuntimeProfile profile("Profile");
 
-    EXPECT_TRUE(profile.get_info_string("Key") == nullptr);
+    EXPECT_FALSE(profile.get_info_string("Key").has_value());
 
     profile.add_info_string("Key", "Value");
-    const std::string* value = profile.get_info_string("Key");
-    EXPECT_TRUE(value != nullptr);
+    auto value = profile.get_info_string("Key");
+    EXPECT_TRUE(value.has_value());
     EXPECT_EQ(*value, "Value");
 
     // Convert it to proto
@@ -496,14 +494,14 @@ TEST(RuntimeProfileTest, ProtoInfoStringTest) {
     // Convert it back from proto
     std::unique_ptr<RuntimeProfile> from_proto = RuntimeProfile::from_proto(pprofile);
     value = from_proto->get_info_string("Key");
-    EXPECT_TRUE(value != nullptr);
+    EXPECT_TRUE(value.has_value());
     EXPECT_EQ(*value, "Value");
 
     // Test update
     RuntimeProfile update_dst_profile("Profile2");
     update_dst_profile.update(pprofile);
     value = update_dst_profile.get_info_string("Key");
-    EXPECT_TRUE(value != nullptr);
+    EXPECT_TRUE(value.has_value());
     EXPECT_EQ(*value, "Value");
 
     // Modify original profile, convert again, and update dst
@@ -535,27 +533,37 @@ TEST(RuntimeProfileTest, TestGetChild) {
     RuntimeProfile root("Root");
 
     // Test get non-existing child
-    ASSERT_EQ(nullptr, root.get_child("NonExistingChild"));
+    ASSERT_FALSE(root.get_child("NonExistingChild").has_value());
 
     // Create child1 and verify get_child
     RuntimeProfile* child1 = root.create_child("Child1");
     ASSERT_NE(nullptr, child1);
-    ASSERT_EQ(child1, root.get_child("Child1"));
+    auto child1_opt = root.get_child("Child1");
+    ASSERT_TRUE(child1_opt.has_value());
+    ASSERT_EQ(child1, *child1_opt);
 
     // Create child2 and verify get_child
     RuntimeProfile* child2 = root.create_child("Child2");
     ASSERT_NE(nullptr, child2);
-    ASSERT_EQ(child2, root.get_child("Child2"));
+    auto child2_opt = root.get_child("Child2");
+    ASSERT_TRUE(child2_opt.has_value());
+    ASSERT_EQ(child2, *child2_opt);
 
     // Create nested child and verify get_child
     RuntimeProfile* grandchild = child1->create_child("GrandChild");
     ASSERT_NE(nullptr, grandchild);
-    ASSERT_EQ(grandchild, child1->get_child("GrandChild"));
-    ASSERT_EQ(nullptr, root.get_child("GrandChild")); // Cannot get grandchild directly from root
+    auto grandchild_opt = child1->get_child("GrandChild");
+    ASSERT_TRUE(grandchild_opt.has_value());
+    ASSERT_EQ(grandchild, *grandchild_opt);
+    ASSERT_FALSE(root.get_child("GrandChild").has_value()); // Cannot get grandchild directly from root
 
     // Verify original children still accessible
-    ASSERT_EQ(child1, root.get_child("Child1"));
-    ASSERT_EQ(child2, root.get_child("Child2"));
+    child1_opt = root.get_child("Child1");
+    ASSERT_TRUE(child1_opt.has_value());
+    ASSERT_EQ(child1, *child1_opt);
+    child2_opt = root.get_child("Child2");
+    ASSERT_TRUE(child2_opt.has_value());
+    ASSERT_EQ(child2, *child2_opt);
 }
 
 } // namespace doris
