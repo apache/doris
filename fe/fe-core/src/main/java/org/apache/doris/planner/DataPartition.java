@@ -65,7 +65,8 @@ public class DataPartition {
         Preconditions.checkState(type == TPartitionType.UNPARTITIONED
                 || type == TPartitionType.RANDOM
                 || type == TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED
-                || type == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED);
+                || type == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED
+                || type == TPartitionType.RANDOM_LOCAL_SHUFFLE);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
     }
