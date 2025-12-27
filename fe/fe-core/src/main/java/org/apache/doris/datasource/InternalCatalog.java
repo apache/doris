@@ -2118,7 +2118,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             objectPool, tbl.rowStorePageSize(),
                             tbl.variantEnableFlattenNested(),
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
-                            tbl.storageDictPageSize());
+                            tbl.storageDictPageSize(),
+                            tbl.getColumnSeqMapping());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2757,6 +2758,33 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         BinlogConfig binlogConfigForTask = new BinlogConfig(olapTable.getBinlogConfig());
 
+        Map<String, List<String>> columnSequenceMapping;
+        try {
+            columnSequenceMapping = PropertyAnalyzer.analyzeSeqMapping(properties, baseSchema, keysType);
+            if (columnSequenceMapping != null) {
+                boolean supportSequenceMapping = baseSchema.stream().noneMatch(column -> column.isDeleteSignColumn());
+                if (!supportSequenceMapping) {
+                    // never reach here, we do not add delete sign column when table has seq mapping
+                    // add check here is to prevent others from modifying the logic for adding the delete sign column
+                    throw new AnalysisException("sequence mapping do not support batch delete");
+                }
+                if (enableUniqueKeyMergeOnWrite) {
+                    throw new AnalysisException("sequence mapping do not support merge on write, please set "
+                            + " enable_unique_key_merge_on_write = false");
+                }
+                if (!enableLightSchemaChange) {
+                    throw new AnalysisException("sequence mapping rely on light schema change, "
+                            + "please use light_schema_change = true.");
+                }
+                if (createTableInfo.getAddRollupOps() != null && createTableInfo.getAddRollupOps().size() > 0) {
+                    throw new DdlException("sequence mapping not support rollup yet");
+                }
+            }
+            olapTable.setColumnSeqMapping(columnSequenceMapping);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
             // if this is a partitioned table, there properties are already analyzed
@@ -2887,7 +2915,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
-
         try {
             int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties);
             olapTable.setGroupCommitIntervalMs(groupCommitIntervalMs);

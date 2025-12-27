@@ -678,6 +678,16 @@ public:
         }
         return 0;
     }
+    const std::unordered_map<uint32_t, std::vector<uint32_t>>& seq_col_idx_to_value_cols_idx()
+            const {
+        return _seq_col_idx_to_value_cols_idx;
+    }
+
+    bool has_seq_map() const { return !_seq_col_idx_to_value_cols_idx.empty(); }
+
+    const std::unordered_map<uint32_t, uint32_t>& value_col_idx_to_seq_col_idx() const {
+        return _value_col_idx_to_seq_col_idx;
+    }
 
     void add_pruned_columns_data_type(int32_t col_unique_id, vectorized::DataTypePtr data_type) {
         _pruned_columns_data_type[col_unique_id] = std::move(data_type);
@@ -798,6 +808,14 @@ private:
     bool _integer_type_default_use_plain_encoding {false};
     BinaryPlainEncodingTypePB _binary_plain_encoding_default_impl {
             BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
+    // Sequence column unique id mapping to value columns unique id
+    std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_col_uid_to_value_cols_uid;
+    // Value column unique id mapping to sequence column unique id(also map sequence column it self)
+    std::unordered_map<uint32_t, uint32_t> _value_col_uid_to_seq_col_uid;
+    // Sequence column index mapping to value column index
+    std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_col_idx_to_value_cols_idx;
+    // Value column index mapping to sequence column index(also map sequence column it self)
+    std::unordered_map<uint32_t, uint32_t> _value_col_idx_to_seq_col_idx;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

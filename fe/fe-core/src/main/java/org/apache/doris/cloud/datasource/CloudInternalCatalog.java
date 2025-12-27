@@ -55,6 +55,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.ColumnsUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
@@ -188,7 +189,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
-                        tbl.storageDictPageSize(), true);
+                        tbl.storageDictPageSize(), true,
+                        tbl.getColumnSeqMapping());
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);
@@ -222,7 +224,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-            boolean createInitialRowset) throws DdlException {
+            boolean createInitialRowset, Map<String, List<String>> columnSeqMapping) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -382,6 +384,18 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             schemaBuilder.addAllClusterKeyUids(clusterKeyUids);
         }
+        OlapFile.ColumnGroupsPB.Builder columnGroupsBuilder = OlapFile.ColumnGroupsPB.newBuilder();
+        if (columnSeqMapping != null && !columnSeqMapping.isEmpty()) {
+            ColumnsUtil columnsUtil = new ColumnsUtil(schemaColumns);
+            for (Map.Entry<String, List<String>> entry : columnSeqMapping.entrySet()) {
+                int sequenceColumnId = columnsUtil.getColumnUniqueId(entry.getKey());
+                List<Integer> columnId = columnsUtil.getColumnUniqueId(entry.getValue());
+                OlapFile.ColumnGroupPB.Builder cgBuilder = columnGroupsBuilder.addCgBuilder();
+                cgBuilder.setSequenceColumn(sequenceColumnId);
+                cgBuilder.addAllColumnsInGroup(columnId);
+            }
+        }
+        schemaBuilder.setSeqMap(columnGroupsBuilder.build());
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);

@@ -51,6 +51,7 @@ struct TTabletSchema {
     22: optional bool variant_enable_flatten_nested = false
     23: optional i64 storage_page_size = 65536
     24: optional i64 storage_dict_page_size = 262144
+    25: optional list<Types.TColumnGroup> seq_map
 }
 
 // this enum stands for different storage format in src_backends
