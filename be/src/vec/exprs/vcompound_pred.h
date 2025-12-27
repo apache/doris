@@ -188,6 +188,25 @@ public:
         bool rhs_all_is_not_null = false;
         bool result_is_nullable = _data_type->is_nullable();
 
+        auto check_output_nullable = [&]() -> Status {
+            if (!result_is_nullable) {
+                if (lhs_is_nullable || rhs_is_nullable) {
+                    return Status::InternalError(
+                            "Compound predicate result column is not nullable, but "
+                            "lhs_is_nullable: {}, rhs_is_nullable: {} , debug string: {}",
+                            lhs_is_nullable, rhs_is_nullable, debug_string());
+                }
+            } else {
+                if (!lhs_is_nullable && !rhs_is_nullable) {
+                    return Status::InternalError(
+                            "Compound predicate result column is nullable, but lhs_is_nullable: "
+                            "{}, rhs_is_nullable: {} , debug string: {}",
+                            lhs_is_nullable, rhs_is_nullable, debug_string());
+                }
+            }
+            return Status::OK();
+        };
+
         auto get_rhs_colum = [&]() {
             if (!rhs_column) {
                 RETURN_IF_ERROR(_children[1]->execute_column(context, block, count, rhs_column));
@@ -290,6 +309,7 @@ public:
                 return_result_column_id(lhs_column);
             } else {
                 RETURN_IF_ERROR(get_rhs_colum());
+                RETURN_IF_ERROR(check_output_nullable());
 
                 if ((lhs_all_true && !lhs_is_nullable) ||    //not null column
                     (lhs_all_true && lhs_all_is_not_null)) { //nullable column
@@ -320,6 +340,7 @@ public:
                 return_result_column_id(lhs_column);
             } else {
                 RETURN_IF_ERROR(get_rhs_colum());
+                RETURN_IF_ERROR(check_output_nullable());
                 if ((lhs_all_false && !lhs_is_nullable) || (lhs_all_false && lhs_all_is_not_null)) {
                     // false or any = any, return rhs
                     return_result_column_id(rhs_column);
