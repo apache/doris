@@ -46,10 +46,10 @@ public:
         PUBLISHED = 4 // Publish is complete, entering the final state of rf
     };
 
-    static Status create(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
+    static Status create(const TQueryOptions& query_options, const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterProducer>* res) {
-        *res = std::shared_ptr<RuntimeFilterProducer>(new RuntimeFilterProducer(query_ctx, desc));
-        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &query_ctx->query_options()));
+        *res = std::shared_ptr<RuntimeFilterProducer>(new RuntimeFilterProducer(desc));
+        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &query_options));
         return Status::OK();
     }
 
@@ -132,7 +132,7 @@ public:
     }
 
 private:
-    RuntimeFilterProducer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc)
+    RuntimeFilterProducer(const TRuntimeFilterDesc* desc)
             : RuntimeFilter(desc), _is_broadcast_join(desc->is_broadcast_join) {}
 
     Status _send_to_remote_targets(RuntimeState* state, RuntimeFilter* merger_filter);

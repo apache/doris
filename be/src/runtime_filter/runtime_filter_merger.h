@@ -35,9 +35,9 @@ public:
         READY // Collecting all products(_received_producer_num == _expected_producer_num) will transfer to this state, and filter is already available
     };
 
-    static Status create(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
+    static Status create(const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterMerger>* res) {
-        *res = std::shared_ptr<RuntimeFilterMerger>(new RuntimeFilterMerger(query_ctx, desc));
+        *res = std::shared_ptr<RuntimeFilterMerger>(new RuntimeFilterMerger(desc));
         vectorized::VExprContextSPtr build_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
         (*res)->_wrapper = std::make_shared<RuntimeFilterWrapper>(
@@ -104,7 +104,7 @@ public:
     }
 
 private:
-    RuntimeFilterMerger(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc)
+    RuntimeFilterMerger(const TRuntimeFilterDesc* desc)
             : RuntimeFilter(desc), _rf_state(State::WAITING_FOR_PRODUCT) {}
 
     std::atomic<State> _rf_state;

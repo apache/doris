@@ -168,7 +168,7 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMergeControllerEntity) {
                                 TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build())
                         .add_rid_to_target_paramv2(rid, {TRuntimeFilterTargetParamsV2()})
                         .build();
-        EXPECT_FALSE(entity->init(ctx, param).ok());
+        EXPECT_FALSE(entity->init(param).ok());
 
         param = TRuntimeFilterParamsBuilder()
                         .add_rid_to_runtime_filter(
@@ -177,7 +177,7 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMergeControllerEntity) {
                         .add_runtime_filter_builder_num(rid, 1)
                         .add_rid_to_target_paramv2(rid, {TRuntimeFilterTargetParamsV2()})
                         .build();
-        EXPECT_TRUE(entity->init(ctx, param).ok());
+        EXPECT_TRUE(entity->init(param).ok());
     }
 }
 

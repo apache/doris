@@ -53,6 +53,7 @@ namespace pipeline {
 class PipelineFragmentContext;
 } // namespace pipeline
 class QueryContext;
+class CoordinatorContext;
 class ExecEnv;
 class ThreadPool;
 class PExecPlanFragmentStartRequest;
@@ -209,6 +210,8 @@ private:
 
     // query id -> QueryContext
     ConcurrentContextMap<TUniqueId, std::weak_ptr<QueryContext>, QueryContext> _query_ctx_map;
+    ConcurrentContextMap<TUniqueId, std::shared_ptr<CoordinatorContext>, CoordinatorContext>
+            _coordinator_context_map;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _cancel_thread;
