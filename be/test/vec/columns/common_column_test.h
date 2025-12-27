@@ -34,6 +34,7 @@
 #include "vec/columns/column_map.h"
 #include "vec/common/cow.h"
 #include "vec/core/field.h"
+#include "vec/core/hybrid_sorter.h"
 #include "vec/core/sort_block.h"
 #include "vec/core/sort_description.h"
 #include "vec/core/types.h"
@@ -1996,7 +1997,7 @@ public:
         LOG(INFO) << "expected_permutation size: " << expected_permutation.size() << ", "
                   << join_ints(expected_permutation);
         // step2. get permutation by column
-        column.get_permutation(!ascending, limit, nan_direction_hint, actual_permutation);
+        column.get_permutation_default(!ascending, limit, nan_direction_hint, actual_permutation);
         LOG(INFO) << "actual_permutation size: " << actual_permutation.size() << ", "
                   << join_ints(actual_permutation);
 
@@ -3279,7 +3280,7 @@ auto assert_column_vector_compare_internal_callback = [](auto x,
     auto col_cloned = source_column->clone();
     size_t num_rows = col_cloned->size();
     IColumn::Permutation permutation;
-    col_cloned->get_permutation(false, 0, 1, permutation);
+    col_cloned->get_permutation_default(false, 0, 1, permutation);
     auto col_clone_sorted = col_cloned->permute(permutation, 0);
 
     auto test_func = [&](int direction) {
@@ -3550,7 +3551,9 @@ auto assert_sort_column_callback = [](auto x, const MutableColumnPtr& source_col
         for (size_t i = 0; i != cloned_columns.size(); ++i) {
             ColumnWithSortDescription column_with_sort_desc(cloned_columns[i].get(),
                                                             SortColumnDescription(i, 1, 0));
-            ColumnSorter sorter(column_with_sort_desc, limit);
+
+            HybridSorter hybrid_sorter;
+            ColumnSorter sorter(column_with_sort_desc, hybrid_sorter, limit);
             cloned_columns[i]->sort_column(&sorter, flags, perm, range,
                                            i == cloned_columns.size() - 1);
         }

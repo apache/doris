@@ -87,7 +87,7 @@ TEST(ColumnConstTest, Testget_permutation) {
     auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
     auto column_const = ColumnConst::create(column_data, 3);
     IColumn::Permutation res;
-    column_const->get_permutation(false, 0, 0, res);
+    column_const->get_permutation_default(false, 0, 0, res);
     EXPECT_EQ(res.size(), 3);
     for (size_t i = 0; i < res.size(); ++i) {
         EXPECT_EQ(res[i], i);

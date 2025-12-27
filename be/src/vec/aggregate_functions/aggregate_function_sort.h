@@ -110,7 +110,7 @@ struct AggregateFunctionSortData {
         }
     }
 
-    void sort() { sort_block(block, block, sort_desc, block.rows()); }
+    void sort() { sort_block_default(block, block, sort_desc, block.rows()); }
 };
 
 template <typename Data>
