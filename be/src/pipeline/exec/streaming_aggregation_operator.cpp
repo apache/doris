@@ -98,6 +98,10 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _merge_timer = ADD_TIMER(Base::custom_profile(), "MergeTime");
     _expr_timer = ADD_TIMER(Base::custom_profile(), "ExprTime");
     _insert_values_to_column_timer = ADD_TIMER(Base::custom_profile(), "InsertValuesToColumnTime");
+    _streaming_agg_serialize_to_column =
+            ADD_TIMER(Base::custom_profile(), "StreamingAggSerializeToColumnTime");
+    _serialize_to_column = ADD_TIMER(Base::custom_profile(), "SerializeToColumnTime");
+    _create_value_column_timer = ADD_TIMER(Base::custom_profile(), "CreateValueColumnTime");
     _deserialize_data_timer = ADD_TIMER(Base::custom_profile(), "DeserializeAndMergeTime");
     _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
@@ -382,6 +386,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
 
         for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
             SCOPED_TIMER(_insert_values_to_column_timer);
+            SCOPED_TIMER(_streaming_agg_serialize_to_column);
             RETURN_IF_ERROR(_aggregate_evaluators[i]->streaming_agg_serialize_to_column(
                     in_block, value_columns[i], rows, _agg_arena_pool));
         }
@@ -513,18 +518,28 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
                                 value_data_types[i] =
                                         _aggregate_evaluators[i]->function()->get_serialized_type();
-                                if (mem_reuse) {
-                                    value_columns[i] =
-                                            std::move(*block->get_by_position(i + key_size).column)
-                                                    .mutate();
-                                } else {
-                                    value_columns[i] = _aggregate_evaluators[i]
-                                                               ->function()
-                                                               ->create_serialize_column();
+
+                                {
+                                    SCOPED_TIMER(_create_value_column_timer);
+                                    // maybe it will copy data from block to value_columns,
+                                    if (mem_reuse) {
+                                        value_columns[i] =
+                                                std::move(*block->get_by_position(i + key_size)
+                                                                   .column)
+                                                        .mutate();
+                                    } else {
+                                        value_columns[i] = _aggregate_evaluators[i]
+                                                                   ->function()
+                                                                   ->create_serialize_column();
+                                    }
                                 }
-                                _aggregate_evaluators[i]->function()->serialize_to_column(
-                                        _values, p._offsets_of_aggregate_states[i],
-                                        value_columns[i], num_rows);
+
+                                {
+                                    SCOPED_TIMER(_serialize_to_column);
+                                    _aggregate_evaluators[i]->function()->serialize_to_column(
+                                            _values, p._offsets_of_aggregate_states[i],
+                                            value_columns[i], num_rows);
+                                }
                             }
                         }
                     }},

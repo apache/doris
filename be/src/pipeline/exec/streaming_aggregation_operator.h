@@ -79,6 +79,9 @@ private:
     RuntimeProfile::Counter* _expr_timer = nullptr;
     RuntimeProfile::Counter* _merge_timer = nullptr;
     RuntimeProfile::Counter* _insert_values_to_column_timer = nullptr;
+    RuntimeProfile::Counter* _streaming_agg_serialize_to_column = nullptr;
+    RuntimeProfile::Counter* _serialize_to_column = nullptr;
+    RuntimeProfile::Counter* _create_value_column_timer = nullptr;
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
