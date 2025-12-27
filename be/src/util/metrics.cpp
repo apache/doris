@@ -325,11 +325,10 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
     // Reorder by MetricPrototype
     EntityMetricsByType entity_metrics_by_types;
     std::lock_guard<std::mutex> l1(_lock);
-    
-    // 关键：在这里就确保 _name 不为空
+
     std::string registry_name = _name.empty() ? "unknown" : _name;
     const char* safe_name_ptr = registry_name.c_str();
-    
+
     for (const auto& entity : _entities) {
         if (entity.first->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
             continue;
@@ -359,8 +358,8 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
             continue;
         }
 
-        const std::string& g_str = proto->group_name;  
-        const std::string& n_str = proto->name;       
+        const std::string& g_str = proto->group_name;
+        const std::string& n_str = proto->name;
 
         std::string metric_name = registry_name + "_" + g_str + "_" + n_str;
 
@@ -372,10 +371,9 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
             if (entity_metric.second == nullptr || entity_metric.first == nullptr) {
                 continue;
             }
-        
-            ss << entity_metric.second->to_prometheus(metric_name, 
-                                                 entity_metric.first->_labels,
-                                                 proto->labels);
+
+            ss << entity_metric.second->to_prometheus(metric_name, entity_metric.first->_labels,
+                                                      proto->labels);
         }
     }
 

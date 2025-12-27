@@ -493,14 +493,16 @@ TEST_F(MetricsTest, PrometheusDuplicateTypeFix) {
         // 1. Create the first entity and register a metric with a group name
         auto entity1 = registry.register_entity("entity1");
         // Using MetricPrototype is the "official way" in Doris metrics_test
-        MetricPrototype requests_type(MetricType::COUNTER, MetricUnit::OPERATIONS, "requests_total", "", "engine_requests");
+        MetricPrototype requests_type(MetricType::COUNTER, MetricUnit::OPERATIONS, "requests_total",
+                                      "", "engine_requests");
         IntCounter* m1 = (IntCounter*)entity1->register_metric<IntCounter>(&requests_type);
         m1->increment(1);
 
         // 2. Create the second entity and register a metric with a DIFFERENT name to break continuity
         auto entity2 = registry.register_entity("entity2");
-        MetricPrototype other_type(MetricType::COUNTER, MetricUnit::OPERATIONS, "other_metric", "", "");
-        IntCounter* m2 = (IntCounter*)entity2->register_metric<IntCounter>(&other_type);  // 修复：使用 register_metric
+        MetricPrototype other_type(MetricType::COUNTER, MetricUnit::OPERATIONS, "other_metric", "",
+                                   "");
+        IntCounter* m2 = (IntCounter*)entity2->register_metric<IntCounter>(&other_type);
         m2->increment(5);
 
         // 3. Create the third entity and register the SAME group name metric again
@@ -515,9 +517,9 @@ TEST_F(MetricsTest, PrometheusDuplicateTypeFix) {
         // Verification: Count the occurrences of "# TYPE test_registry_engine_requests counter"
         // In your official snippet, the format is: # TYPE {registry_name}_{group_name} {type}
         std::string target_type_line = "# TYPE test_registry_engine_requests counter";
-        
+
         int occurrences = 0;
-        size_t pos = 0;  // 修复：使用 size_t 而不是 std::string::size_t
+        size_t pos = 0;
         while ((pos = output.find(target_type_line, pos)) != std::string::npos) {
             occurrences++;
             pos += target_type_line.length();
@@ -533,4 +535,3 @@ TEST_F(MetricsTest, PrometheusDuplicateTypeFix) {
     }
 }
 } // namespace doris
-
