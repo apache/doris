@@ -29,6 +29,7 @@ import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -71,6 +72,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -303,11 +305,34 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         int numBackends = backendPolicy.numBackends();
         List<String> pathPartitionKeys = getPathPartitionKeys();
+
+        Boolean fileCacheAdmission = true;
+        if (Config.enable_file_cache_admission_control) {
+            String userIdentity = ConnectContext.get().getUserIdentity();
+            String catalog = ConnectContext.get().getCurrentCatalog().getName();
+            String database = ConnectContext.get().getDatabase();
+            String table = desc.getTable().getName();
+
+            AtomicReference<String> reason = new AtomicReference<>("");
+
+            long startTime = System.nanoTime();
+
+            fileCacheAdmission = FileCacheAdmissionManager.getInstance().isAllowed(userIdentity, catalog,
+                database, table, reason);
+
+            long endTime = System.nanoTime();
+            double durationMs = (double) (endTime - startTime) / 1_000_000;
+
+            LOG.debug("File cache admission control cost {} ms", String.format("%.6f", durationMs));
+
+            addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get(), durationMs);
+        }
+
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
-            splitAssignment = new SplitAssignment(
-                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
+            splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
+                    locationProperties, pathPartitionKeys, fileCacheAdmission);
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
@@ -361,7 +386,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             for (Backend backend : assignment.keySet()) {
                 Collection<Split> splits = assignment.get(backend);
                 for (Split split : splits) {
-                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
+                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys,
+                            fileCacheAdmission));
                     totalFileSize += split.getLength();
                 }
                 scanBackendIds.add(backend.getId());
@@ -386,7 +412,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Backend backend,
             Map<String, String> locationProperties,
             Split split,
-            List<String> pathPartitionKeys) throws UserException {
+            List<String> pathPartitionKeys,
+            Boolean fileCacheAdmission) throws UserException {
         FileSplit fileSplit = (FileSplit) split;
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
@@ -406,6 +433,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // set file format type, and the type might fall back to native format in setScanParams
         rangeDesc.setFormatType(getFileFormatType());
         setScanParams(rangeDesc, fileSplit);
+        rangeDesc.setFileCacheAdmission(fileCacheAdmission);
 
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
         TScanRangeLocation location = new TScanRangeLocation();

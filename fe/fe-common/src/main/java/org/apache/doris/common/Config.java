@@ -3756,6 +3756,30 @@ public class Config extends ConfigBase {
     })
     public static int first_error_msg_max_length = 256;
 
+    @ConfField(mutable = false, description = {
+        "是否启用文件缓存准入控制",
+        "Whether to enable file cache admission control"
+    })
+    public static boolean enable_file_cache_admission_control = false;
+
+    @ConfField(mutable = true, description = {
+        "存储准入规则的JSON文件路径",
+        "JSON file path for storing admission rules"
+    })
+    public static String file_cache_admission_control_json_file_path = "";
+
+    @ConfField(mutable = true, description = {
+        "准入规则自动刷新间隔（秒），设置为0关闭自动刷新",
+        "Auto-refresh interval for admission policies (seconds). Set to 0 to disable auto refresh"
+    })
+    public static int file_cache_admission_control_fresh_interval_s = 300;
+
+    @ConfField(mutable = true, description = {
+        "当没有匹配的准入规则时的默认行为：true=允许，false=拒绝",
+        "Default behavior when no matching admission rule is found: true=allow, false=deny"
+    })
+    public static boolean file_cache_admission_control_default_allow = false;
+
     @ConfField
     public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
     @ConfField

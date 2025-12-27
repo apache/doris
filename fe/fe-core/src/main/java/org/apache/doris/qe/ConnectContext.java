@@ -630,6 +630,11 @@ public class ConnectContext {
         return currentUserIdentity == null ? null : currentUserIdentity.getQualifiedUser();
     }
 
+    public String getUserIdentity() {
+        return currentUserIdentity == null ? null : (currentUserIdentity.getQualifiedUser() + "@"
+            + currentUserIdentity.getHost());
+    }
+
     public boolean getIsTempUser() {
         return isTempUser;
     }
