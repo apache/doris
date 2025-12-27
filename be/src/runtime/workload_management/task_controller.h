@@ -96,7 +96,7 @@ public:
     virtual bool is_pure_load_task() const { return false; }
     void set_low_memory_mode(bool low_memory_mode) { low_memory_mode_ = low_memory_mode; }
     bool low_memory_mode() { return low_memory_mode_; }
-    void disable_reserve_memory() { enable_reserve_memory_ = false; }
+    virtual void disable_reserve_memory() { enable_reserve_memory_ = false; }
     virtual bool is_enable_reserve_memory() const { return enable_reserve_memory_; }
     virtual void set_memory_sufficient(bool sufficient) {};
     virtual int64_t memory_sufficient_time() { return 0; };

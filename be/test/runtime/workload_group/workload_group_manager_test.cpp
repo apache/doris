@@ -231,8 +231,8 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
 
     query_context->query_mem_tracker()->consume(-1024L * 1024 * 4);
 
-    // Query was not cancelled, because the query's limit is bigger than the wg's limit and the wg's policy is NONE.
-    ASSERT_FALSE(query_context->is_cancelled());
+    // In the wg's policy is NONE. If the query reserve memory failed and revocable memory == 0, just cancel it.
+    ASSERT_TRUE(query_context->is_cancelled());
     // Its limit == workload group's limit
     ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), wg->memory_limit());
 

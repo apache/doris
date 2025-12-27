@@ -640,6 +640,14 @@ Status PipelineTask::do_revoke_memory(const std::shared_ptr<SpillContext>& spill
 
 bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBase* op) {
     auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(reserve_size);
+    // If reserve memory failed and the query is not enable spill, just disable reserve memory(this will enable
+    // memory hard limit check, and will cancel the query if allocate memory failed) and let it run.
+    if (!st.ok() && !_state->enable_spill()) {
+        LOG(INFO) << print_id(_query_id) << " reserve memory failed due to " << st
+                  << ", and it is not enable spill, disable reserve memory and let it run";
+        _state->get_query_ctx()->resource_ctx()->task_controller()->disable_reserve_memory();
+        return true;
+    }
     COUNTER_UPDATE(_memory_reserve_times, 1);
     auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
     if (st.ok() && _state->enable_force_spill() && _sink->is_spillable() &&
@@ -656,13 +664,30 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
                 op->node_id(), _state->task_id(),
                 PrettyPrinter::print_bytes(op->revocable_mem_size(_state)),
                 PrettyPrinter::print_bytes(sink_revocable_mem_size), st.to_string());
-        // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
+        // PROCESS_MEMORY_EXCEEDED error msg already contains process_mem_log_str
         if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
             debug_msg +=
                     fmt::format(", debug info: {}", GlobalMemoryArbitrator::process_mem_log_str());
         }
-        LOG_EVERY_N(INFO, 100) << debug_msg;
         // If sink has enough revocable memory, trigger revoke memory
+        LOG(INFO) << fmt::format(
+                "Query: {} sink: {}, node id: {}, task id: "
+                "{}, revocable mem size: {}",
+                print_id(_query_id), _sink->get_name(), _sink->node_id(), _state->task_id(),
+                PrettyPrinter::print_bytes(sink_revocable_mem_size));
+        ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                _state->get_query_ctx()->resource_ctx()->shared_from_this(), reserve_size, st);
+        _spilling = true;
+        return false;
+        // !!! Attention:
+        // In the past, if reserve failed, not add this query to paused list, because it is very small, will not
+        // consume a lot of memory. But need set low memory mode to indicate that the system should
+        // not use too much memory.
+        // But if we only set _state->get_query_ctx()->set_low_memory_mode() here, and return true, the query will
+        // continue to run and not blocked, and this reserve maybe the last block of join sink opertorator, and it will
+        // build hash table directly and will consume a lot of memory. So that should return false directly.
+        // TODO: we should using a global system buffer management logic to deal with low memory mode.
+        /**
         if (sink_revocable_mem_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
             LOG(INFO) << fmt::format(
                     "Query: {} sink: {}, node id: {}, task id: "
@@ -674,11 +699,8 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
             _spilling = true;
             return false;
         } else {
-            // If reserve failed, not add this query to paused list, because it is very small, will not
-            // consume a lot of memory. But need set low memory mode to indicate that the system should
-            // not use too much memory.
             _state->get_query_ctx()->set_low_memory_mode();
-        }
+        } */
     }
     return true;
 }

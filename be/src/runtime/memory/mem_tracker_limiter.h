@@ -126,7 +126,6 @@ public:
     int64_t group_num() const { return _group_num; }
     int64_t limit() const { return _limit; }
     void set_limit(int64_t new_mem_limit) { _limit = new_mem_limit; }
-    bool enable_check_limit() const { return _enable_check_limit; }
     void set_enable_check_limit(bool enable_check_limit) {
         _enable_check_limit = enable_check_limit;
     }
@@ -298,7 +297,7 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
-    if (bytes <= 0 || !enable_check_limit() || _limit <= 0) {
+    if (bytes <= 0 || !_enable_check_limit || _limit <= 0) {
         return Status::OK();
     }
 

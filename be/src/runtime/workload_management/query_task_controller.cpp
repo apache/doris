@@ -120,6 +120,15 @@ size_t QueryTaskController::get_revocable_size() {
     return revocable_size;
 }
 
+void QueryTaskController::disable_reserve_memory() {
+    TaskController::disable_reserve_memory();
+    auto query_ctx = query_ctx_.lock();
+    if (query_ctx == nullptr) {
+        return;
+    }
+    query_ctx->query_mem_tracker()->set_enable_check_limit(true);
+}
+
 Status QueryTaskController::revoke_memory() {
     auto query_ctx = query_ctx_.lock();
     if (query_ctx == nullptr) {
