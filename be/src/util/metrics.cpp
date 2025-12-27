@@ -325,6 +325,11 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
     // Reorder by MetricPrototype
     EntityMetricsByType entity_metrics_by_types;
     std::lock_guard<std::mutex> l1(_lock);
+    
+    // 关键：在这里就确保 _name 不为空
+    std::string registry_name = _name.empty() ? "unknown" : _name;
+    const char* safe_name_ptr = registry_name.c_str();
+    
     for (const auto& entity : _entities) {
         if (entity.first->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
             continue;
@@ -347,16 +352,30 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
     // Output
     std::stringstream ss;
     std::unordered_set<std::string> exported_types;
+
     for (const auto& entity_metrics_by_type : entity_metrics_by_types) {
-        std::string metric_name = entity_metrics_by_type.first->combine_name(_name);
-        if (exported_types.insert(metric_name).second) {
-            ss << entity_metrics_by_type.first->to_prometheus(_name); // metric TYPE line
+        auto* proto = entity_metrics_by_type.first;
+        if (proto == nullptr) {
+            continue;
         }
-        std::string display_name = entity_metrics_by_type.first->combine_name(_name);
+
+        const std::string& g_str = proto->group_name;  
+        const std::string& n_str = proto->name;       
+
+        std::string metric_name = registry_name + "_" + g_str + "_" + n_str;
+
+        if (exported_types.insert(metric_name).second) {
+            ss << proto->to_prometheus(safe_name_ptr);
+        }
+
         for (const auto& entity_metric : entity_metrics_by_type.second) {
-            ss << entity_metric.second->to_prometheus(display_name, // metric key-value line
-                                                      entity_metric.first->_labels,
-                                                      entity_metrics_by_type.first->labels);
+            if (entity_metric.second == nullptr || entity_metric.first == nullptr) {
+                continue;
+            }
+        
+            ss << entity_metric.second->to_prometheus(metric_name, 
+                                                 entity_metric.first->_labels,
+                                                 proto->labels);
         }
     }
 
