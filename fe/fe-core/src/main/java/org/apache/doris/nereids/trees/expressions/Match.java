@@ -27,14 +27,23 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * like expression: a MATCH 'hello'.
  */
 public abstract class Match extends BinaryOperator implements PropagateNullable {
 
+    private final Optional<String> analyzer;
+
     public Match(List<Expression> children, String symbol) {
+        this(children, symbol, null);
+    }
+
+    public Match(List<Expression> children, String symbol, String analyzer) {
         super(children, symbol);
+        this.analyzer = Optional.ofNullable(analyzer).map(String::trim).filter(s -> !s.isEmpty());
     }
 
     /**
@@ -77,15 +86,51 @@ public abstract class Match extends BinaryOperator implements PropagateNullable 
 
     @Override
     public String computeToSql() {
-        return "(" + left().toSql() + " " + symbol + " " + right().toSql() + ")";
+        return "(" + left().toSql() + " " + symbol + " " + right().toSql()
+                + analyzerSqlFragment() + ")";
     }
 
     @Override
     public String toString() {
-        return "(" + left().toString() + " " + symbol + " " + right().toString() + ")";
+        return "(" + left().toString() + " " + symbol + " " + right().toString()
+                + analyzerSqlFragment() + ")";
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMatch(this, context);
+    }
+
+    public Optional<String> getAnalyzer() {
+        return analyzer;
+    }
+
+    protected Optional<String> analyzer() {
+        return analyzer;
+    }
+
+    protected String analyzerSqlFragment() {
+        return analyzer.map(value -> {
+            if (value.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                return " USING ANALYZER " + value;
+            }
+            return " USING ANALYZER '" + value.replace("'", "''") + "'";
+        }).orElse("");
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof Match)) {
+            return false;
+        }
+        if (!super.equals(obj)) {
+            return false;
+        }
+        Match other = (Match) obj;
+        return Objects.equals(analyzer, other.analyzer);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), analyzer);
     }
 }
