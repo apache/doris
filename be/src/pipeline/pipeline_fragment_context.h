@@ -140,7 +140,8 @@ private:
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorPtr& op,
                                                    PipelinePtr& cur_pipe, int parent_idx,
-                                                   int child_idx);
+                                                   int child_idx,
+                                                   bool followed_by_shuffled_operator);
 
     Status _create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                              const std::vector<TExpr>& output_exprs,
