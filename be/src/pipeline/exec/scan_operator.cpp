@@ -1366,6 +1366,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     if (_scanner_ctx) {
         _scanner_ctx->stop_scanners(state);
+        _scanner_ctx.reset();
     }
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
