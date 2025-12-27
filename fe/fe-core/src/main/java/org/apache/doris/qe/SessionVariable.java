@@ -476,6 +476,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
 
+    public static final String FILE_CACHE_QUERY_LIMIT_PERCENT = "file_cache_query_limit_percent";
+
+    public static final String POLICY_FILE_CACHE_QUERY_LIMIT_PERCENT = "policy_file_cache_query_limit_percent";
+
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
@@ -2699,6 +2703,38 @@ public class SessionVariable implements Serializable, Writable {
             "调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
             "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
     public int mergeReadSliceSizeBytes = 8388608;
+
+    @VariableMgr.VarAttr(name = FILE_CACHE_QUERY_LIMIT_PERCENT, needForward = true,
+            checker = "checkFileCacheQueryLimitPercent",
+            description = {"限制用户的单个查询能使用的 FILE_CACHE 比例 "
+                    + "（用户设置，取值范围 1 到 Config.file_cache_query_limit_percent_soft）。",
+                    "Limit the FILE_CACHE percent that a single query of a user can use "
+                    + "(set by user via session variables, range: 1 to Config.file_cache_query_limit_percent_soft)."})
+    public int fileCacheQueryLimitPercent = -1;
+
+    public void checkFileCacheQueryLimitPercent(String fileCacheQueryLimitPercentStr) {
+        int fileCacheQueryLimitPct = Integer.valueOf(fileCacheQueryLimitPercentStr);
+        if (fileCacheQueryLimitPct < 1 || fileCacheQueryLimitPct > Config.file_cache_query_limit_percent_soft) {
+            throw new InvalidParameterException(
+                String.format("file_cache_query_limit_percent should be between 1 and %d",
+                Config.file_cache_query_limit_percent_soft));
+        }
+    }
+
+    @VariableMgr.VarAttr(name = POLICY_FILE_CACHE_QUERY_LIMIT_PERCENT, needForward = true,
+            checker = "checkPolicyFileCacheQueryLimitPercent",
+            description = {"限制用户的单个查询能使用的 FILE_CACHE 比例 "
+                    + "（admin 权限用户通过创建 workload Policy 设置，取值范围 1 到 100）。",
+                    "Limit the FILE_CACHE percent that a single query of a user can use"
+                    + "(set by admin by creating workload Policy, range: 1 to 100)."})
+    public int policyFileCacheQueryLimitPercent = -1;
+
+    public void checkPolicyFileCacheQueryLimitPercent(String policyFileCacheQueryLimitPercentStr) {
+        int policyFileCacheQueryLimitPct = Integer.valueOf(policyFileCacheQueryLimitPercentStr);
+        if (policyFileCacheQueryLimitPct < 1 || policyFileCacheQueryLimitPct > 100) {
+            throw new InvalidParameterException("policy_file_cache_query_limit_percent should be between 1 and 100)");
+        }
+    }
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
@@ -4960,6 +4996,14 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIvfNprobe(ivfNprobe);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
+        if (policyFileCacheQueryLimitPercent > 0) {
+            tResult.setFileCacheQueryLimitPercent(policyFileCacheQueryLimitPercent);
+        } else if (fileCacheQueryLimitPercent > 0) {
+            tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent,
+                    Config.file_cache_query_limit_percent_soft));
+        } else {
+            tResult.setFileCacheQueryLimitPercent(Config.file_cache_query_limit_percent_soft);
+        }
 
         // Set Iceberg write target file size
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);

@@ -3777,6 +3777,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static String aws_credentials_provider_version = "v2";
 
+    @ConfField(mutable = true, description = {
+        "用户的单个查询能使用的 FILE_CACHE 比例的软上限（取值范围 1 到 100），100表示能够使用全量 FILE_CACHE",
+        "The soft upper limit of FILE_CACHE percent that a single query of a user can use, (range: 1 to 100).",
+        "100 indicate that the full FILE_CACHE capacity can be used. "
+    })
+    public static int file_cache_query_limit_percent_soft = 100;
     @ConfField(description = {
             "agent tasks 健康检查的时间间隔，默认五分钟，小于等于 0 时不做健康检查",
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
