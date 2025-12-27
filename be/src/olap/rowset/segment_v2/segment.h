@@ -77,6 +77,11 @@ using SparseColumnCacheSPtr = std::shared_ptr<SparseColumnCache>;
 using PathToSparseColumnCache = std::unordered_map<std::string, SparseColumnCacheSPtr>;
 using PathToSparseColumnCacheUPtr = std::unique_ptr<PathToSparseColumnCache>;
 
+struct BinaryColumnCache;
+using BinaryColumnCacheSPtr = std::shared_ptr<BinaryColumnCache>;
+using PathToBinaryColumnCache = std::unordered_map<std::string, BinaryColumnCacheSPtr>;
+using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
+
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
 // It will prepare all ColumnReader to create ColumnIterator as needed.
