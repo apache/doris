@@ -471,7 +471,8 @@ public:
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const override;
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const override;
 
     void insert_default() override { offsets.push_back(chars.size()); }
 
@@ -488,7 +489,8 @@ public:
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         IColumn::Permutation& res) const override;
+                         IColumn::Permutation& res,
+                         std::pair<uint32_t, uint32_t>& extremum_range) const override;
 
     void reserve(size_t n) override;
 
