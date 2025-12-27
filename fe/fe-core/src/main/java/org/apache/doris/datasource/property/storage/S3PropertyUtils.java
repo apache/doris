@@ -33,6 +33,15 @@ import java.util.Optional;
 public class S3PropertyUtils {
     private static final Logger LOG = LogManager.getLogger(S3PropertyUtils.class);
 
+    private static final String SCHEME_DELIM = "://";
+    private static final String S3_SCHEME_PREFIX = "s3://";
+
+    // S3-compatible schemes that can be converted to s3:// with simple string replacement
+    // Format: scheme://bucket/key -> s3://bucket/key
+    private static final String[] SIMPLE_S3_COMPATIBLE_SCHEMES = {
+            "s3a", "s3n", "oss", "cos", "cosn", "obs", "bos", "gs"
+    };
+
     /**
      * Constructs the S3 endpoint from a given URI in the props map.
      *
@@ -113,7 +122,8 @@ public class S3PropertyUtils {
 
     /**
      * Validates and normalizes the given path into a standard S3 URI.
-     * If the input already starts with "s3://", it is returned as-is.
+     * If the input already starts with a known S3-compatible scheme (s3://, s3a://, oss://, etc.),
+     * it is returned as-is to avoid expensive regex parsing.
      * Otherwise, it is parsed and converted into an S3-compatible URI format.
      *
      * @param path                            the raw S3-style path or full URI
@@ -132,14 +142,52 @@ public class S3PropertyUtils {
         if (StringUtils.isBlank(path)) {
             throw new StoragePropertiesException("path is null");
         }
-        if (path.startsWith("s3://")) {
+
+        // Fast path 1: s3:// paths are already in the normalized format expected by BE
+        if (path.startsWith(S3_SCHEME_PREFIX)) {
             return path;
         }
 
+        // Fast path 2: simple S3-compatible schemes (oss://, cos://, s3a://, etc.)
+        // can be converted with simple string replacement: scheme://bucket/key -> s3://bucket/key
+        String normalized = trySimpleSchemeConversion(path);
+        if (normalized != null) {
+            return normalized;
+        }
+
+        // Full parsing path: for HTTP URLs and other complex formats
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
         boolean forceParsingByStandardUri = Boolean.parseBoolean(stringForceParsingByStandardUri);
         S3URI s3uri = S3URI.create(path, usePathStyle, forceParsingByStandardUri);
         return "s3" + S3URI.SCHEME_DELIM + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
+    }
+
+    /**
+     * Try to convert simple S3-compatible scheme URIs to s3:// format using string replacement.
+     * This avoids expensive regex parsing for common cases like oss://bucket/key, s3a://bucket/key, etc.
+     *
+     * @param path the input path
+     * @return converted s3:// path if successful, null if the path doesn't match simple pattern
+     */
+    private static String trySimpleSchemeConversion(String path) {
+        int delimIndex = path.indexOf(SCHEME_DELIM);
+        if (delimIndex <= 0) {
+            return null;
+        }
+
+        String scheme = path.substring(0, delimIndex).toLowerCase();
+        for (String compatibleScheme : SIMPLE_S3_COMPATIBLE_SCHEMES) {
+            if (compatibleScheme.equals(scheme)) {
+                String rest = path.substring(delimIndex + SCHEME_DELIM.length());
+                if (rest.isEmpty() || rest.startsWith(S3URI.PATH_DELIM) || rest.contains(SCHEME_DELIM)) {
+                    return null;
+                }
+                // Simple conversion: replace scheme with "s3"
+                // e.g., "oss://bucket/key" -> "s3://bucket/key"
+                return S3_SCHEME_PREFIX + rest;
+            }
+        }
+        return null;
     }
 
     /**
