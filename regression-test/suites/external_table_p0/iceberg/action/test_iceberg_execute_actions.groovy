@@ -395,6 +395,86 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     qt_after_fast_forword_branch """SELECT * FROM test_fast_forward@branch(feature_branch) ORDER BY id"""
 
 
+    // =====================================================================================
+    // Test Case 6: ancestors_of action
+    // Tests the ability to report snapshot ancestry for an Iceberg table
+    // =====================================================================================
+    logger.info("Starting ancestors_of test case")
+
+    // Test ancestors_of with default (current snapshot)
+    List<List<Object>> ancestorsDefaultResult = sql """
+        ALTER TABLE ${catalog_name}.${db_name}.test_rollback
+        EXECUTE ancestors_of()
+    """
+    logger.info("Ancestors of current snapshot: ${ancestorsDefaultResult}")
+    assertTrue(ancestorsDefaultResult.size() >= 1, "Expected at least 1 ancestor snapshot")
+    
+    // Verify each result row has snapshot_id and timestamp
+    for (int i = 0; i < ancestorsDefaultResult.size(); i++) {
+        assertTrue(ancestorsDefaultResult[i].size() == 2, "Each ancestor row should have 2 columns (snapshot_id, timestamp)")
+        Long snapshotId = ancestorsDefaultResult[i][0] as Long
+        Long timestamp = ancestorsDefaultResult[i][1] as Long
+        assertTrue(snapshotId > 0, "Snapshot ID should be positive")
+        assertTrue(timestamp > 0, "Timestamp should be positive")
+    }
+
+    // Test ancestors_of with specific snapshot_id
+    String firstSnapshotId = rollbackSnapshotList[0][1]
+    List<List<Object>> ancestorsSpecificResult = sql """
+        ALTER TABLE ${catalog_name}.${db_name}.test_rollback
+        EXECUTE ancestors_of("snapshot_id" = "${firstSnapshotId}")
+    """
+    logger.info("Ancestors of snapshot ${firstSnapshotId}: ${ancestorsSpecificResult}")
+    // The first snapshot should have itself as the only ancestor (or be included in the result)
+    assertTrue(ancestorsSpecificResult.size() >= 1, "Expected at least 1 ancestor for the first snapshot")
+
+    // Test ancestors_of with middle snapshot
+    String middleSnapshotId = rollbackSnapshotList[1][1]
+    List<List<Object>> ancestorsMiddleResult = sql """
+        ALTER TABLE ${catalog_name}.${db_name}.test_rollback
+        EXECUTE ancestors_of("snapshot_id" = "${middleSnapshotId}")
+    """
+    logger.info("Ancestors of middle snapshot ${middleSnapshotId}: ${ancestorsMiddleResult}")
+    // Middle snapshot should have more ancestors than the first one
+    assertTrue(ancestorsMiddleResult.size() >= 2, "Expected at least 2 ancestors for the middle snapshot")
+
+    // Test ancestors_of with non-existent snapshot_id
+    test {
+        sql """
+            ALTER TABLE ${catalog_name}.${db_name}.test_rollback
+            EXECUTE ancestors_of("snapshot_id" = "999999999999")
+        """
+        exception "Snapshot 999999999999 not found in table"
+    }
+
+    // Test ancestors_of with invalid snapshot_id format
+    test {
+        sql """
+            ALTER TABLE ${catalog_name}.${db_name}.test_rollback
+            EXECUTE ancestors_of("snapshot_id" = "not-a-number")
+        """
+        exception "Invalid snapshot_id format: not-a-number"
+    }
+
+    // Test ancestors_of with negative snapshot_id
+    test {
+        sql """
+            ALTER TABLE ${catalog_name}.${db_name}.test_rollback
+            EXECUTE ancestors_of("snapshot_id" = "-123")
+        """
+        exception "snapshot_id must be positive, got: -123"
+    }
+
+    // Test ancestors_of does not support partition specification
+    test {
+        sql """
+            ALTER TABLE ${catalog_name}.${db_name}.test_rollback
+            EXECUTE ancestors_of() PARTITIONS (p1)
+        """
+        exception "Action 'ancestors_of' does not support partition specification"
+    }
+
+
     // Test expire_snapshots action
     test {
         sql """

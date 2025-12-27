@@ -165,14 +165,14 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<List<String>> executeAction(TableIf table) throws UserException {
         try {
             Table icebergTable = IcebergUtils.getIcebergTable((IcebergExternalTable) table);
 
             if (icebergTable.currentSnapshot() == null) {
                 LOG.info("Table {} has no data, skipping rewrite", table.getName());
                 // return empty result
-                return Lists.newArrayList("0", "0", "0", "0");
+                return Lists.newArrayList(Lists.newArrayList("0", "0", "0", "0"));
             }
 
             RewriteDataFilePlanner.Parameters parameters = buildRewriteParameters();
@@ -194,7 +194,7 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                     (IcebergExternalTable) table, connectContext);
             long targetFileSizeBytes = namedArguments.getLong(TARGET_FILE_SIZE_BYTES);
             RewriteResult totalResult = executor.executeGroupsConcurrently(groupsList, targetFileSizeBytes);
-            return totalResult.toStringList();
+            return Lists.newArrayList(totalResult.toStringList());
         } catch (Exception e) {
             LOG.warn("Failed to rewrite data files for table: " + table.getName(), e);
             throw new UserException("Rewrite data files failed: " + e.getMessage());
