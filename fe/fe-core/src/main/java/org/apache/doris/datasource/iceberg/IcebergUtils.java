@@ -573,7 +573,7 @@ public class IcebergUtils {
             case STRING:
                 return Type.STRING;
             case UUID:
-                return ScalarType.createVarbinaryType(16);
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(16) : Type.STRING;
             case BINARY:
                 return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
                         : Type.STRING;
