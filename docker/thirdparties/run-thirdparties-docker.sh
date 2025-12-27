@@ -44,8 +44,8 @@ Usage: $0 <options>
   "
     exit 1
 }
-DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},hudi,trino,kafka,spark,lakesoul,ranger,polaris"
+DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},trino,kafka,spark,lakesoul,ranger,polaris"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -197,6 +197,7 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ICEBERG_REST=1
     elif [[ "${element}"x == "hudi"x ]]; then
         RUN_HUDI=1
+        RESERVED_PORTS="${RESERVED_PORTS},19083,19100,19101,18080"
     elif [[ "${element}"x == "trino"x ]]; then
         RUN_TRINO=1
     elif [[ "${element}"x == "spark"x ]]; then
@@ -462,24 +463,17 @@ start_iceberg() {
 }
 
 start_hudi() {
-    # hudi
-    cp "${ROOT}"/docker-compose/hudi/hudi.yaml.tpl "${ROOT}"/docker-compose/hudi/hudi.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hudi/hudi.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env down
+    HUDI_DIR=${ROOT}/docker-compose/hudi
+    export CONTAINER_UID=${CONTAINER_UID}
+    envsubst <"${HUDI_DIR}"/hudi.env.tpl >"${HUDI_DIR}"/hudi.env
+    set -a
+    . "${HUDI_DIR}"/hudi.env
+    set +a
+    envsubst <"${HUDI_DIR}"/hudi.yaml.tpl >"${HUDI_DIR}"/hudi.yaml
+    sudo chmod +x "${HUDI_DIR}"/scripts/init.sh
+    sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env down --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm -rf "${ROOT}"/docker-compose/hudi/historyserver
-        sudo mkdir "${ROOT}"/docker-compose/hudi/historyserver
-        sudo rm -rf "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
-        sudo mkdir "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
-        if [[ ! -d "${ROOT}/docker-compose/hudi/scripts/hudi_docker_compose_attached_file" ]]; then
-            echo "Attached files does not exist, please download the https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/load/hudi/hudi_docker_compose_attached_file.zip file to the docker-compose/hudi/scripts/ directory and unzip it."
-            exit 1
-        fi
-        sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env up -d
-        echo "sleep 15, wait server start"
-        sleep 15
-        docker exec -it adhoc-1 /bin/bash /var/scripts/setup_demo_container_adhoc_1.sh
-        docker exec -it adhoc-2 /bin/bash /var/scripts/setup_demo_container_adhoc_2.sh
+        sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env up -d --wait
     fi
 }
 

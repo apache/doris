@@ -1,0 +1,100 @@
+-- Create user_activity_log tables (COW/MOR, partitioned/non-partitioned) and insert demo data
+USE regression_hudi;
+
+-- Create COW partitioned table
+CREATE TABLE IF NOT EXISTS user_activity_log_cow_partition (
+  user_id BIGINT,
+  event_time BIGINT,
+  action STRING,
+  dt STRING
+) USING hudi
+TBLPROPERTIES (
+  type = 'cow',
+  primaryKey = 'user_id',
+  preCombineField = 'event_time',
+  hoodie.datasource.hive_sync.enable = 'true',
+  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
+  hoodie.datasource.hive_sync.mode = 'hms',
+  hoodie.datasource.hive_sync.support_timestamp = 'true'
+)
+PARTITIONED BY (dt)
+LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/user_activity_log_cow_partition';
+
+-- Create COW non-partitioned table
+CREATE TABLE IF NOT EXISTS user_activity_log_cow_non_partition (
+  user_id BIGINT,
+  event_time BIGINT,
+  action STRING
+) USING hudi
+TBLPROPERTIES (
+  type = 'cow',
+  primaryKey = 'user_id',
+  preCombineField = 'event_time',
+  hoodie.datasource.hive_sync.enable = 'true',
+  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
+  hoodie.datasource.hive_sync.mode = 'hms',
+  hoodie.datasource.hive_sync.support_timestamp = 'true'
+)
+LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/user_activity_log_cow_non_partition';
+
+-- Create MOR partitioned table
+CREATE TABLE IF NOT EXISTS user_activity_log_mor_partition (
+  user_id BIGINT,
+  event_time BIGINT,
+  action STRING,
+  dt STRING
+) USING hudi
+TBLPROPERTIES (
+  type = 'mor',
+  primaryKey = 'user_id',
+  preCombineField = 'event_time',
+  hoodie.compact.inline = 'true',
+  hoodie.compact.inline.max.delta.commits = '1',
+  hoodie.datasource.hive_sync.enable = 'true',
+  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
+  hoodie.datasource.hive_sync.mode = 'hms',
+  hoodie.datasource.hive_sync.support_timestamp = 'true'
+)
+PARTITIONED BY (dt)
+LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/user_activity_log_mor_partition';
+
+-- Create MOR non-partitioned table
+CREATE TABLE IF NOT EXISTS user_activity_log_mor_non_partition (
+  user_id BIGINT,
+  event_time BIGINT,
+  action STRING
+) USING hudi
+TBLPROPERTIES (
+  type = 'mor',
+  primaryKey = 'user_id',
+  preCombineField = 'event_time',
+  hoodie.compact.inline = 'true',
+  hoodie.compact.inline.max.delta.commits = '1',
+  hoodie.datasource.hive_sync.enable = 'true',
+  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
+  hoodie.datasource.hive_sync.mode = 'hms',
+  hoodie.datasource.hive_sync.support_timestamp = 'true'
+)
+LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/user_activity_log_mor_non_partition';
+
+-- Insert demo data into tables
+INSERT OVERWRITE TABLE user_activity_log_cow_partition VALUES
+  (1, 1710000000000, 'login', '2024-03-01'),
+  (2, 1710000001000, 'click', '2024-03-01'),
+  (3, 1710000002000, 'logout', '2024-03-02');
+
+INSERT OVERWRITE TABLE user_activity_log_cow_non_partition VALUES
+  (1, 1710000000000, 'login'),
+  (2, 1710000001000, 'click'),
+  (3, 1710000002000, 'logout');
+
+INSERT OVERWRITE TABLE user_activity_log_mor_partition VALUES
+  (1, 1710000000000, 'login', '2024-03-01'),
+  (2, 1710000001000, 'click', '2024-03-01'),
+  (3, 1710000002000, 'logout', '2024-03-02');
+
+INSERT OVERWRITE TABLE user_activity_log_mor_non_partition VALUES
+  (1, 1710000000000, 'login'),
+  (2, 1710000001000, 'click'),
+  (3, 1710000002000, 'logout');
+
