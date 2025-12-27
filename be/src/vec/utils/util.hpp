@@ -30,28 +30,80 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+
+// We will create a MutableBlock, whose columns may or may not point to the same memory as the block.
+// To ensure this, we need to guarantee that after the MutableBlock is processed, the data can be correctly written back to the block.
+// In the past, we forgot to write back in some places, but since we can mostly ensure that the use_count of the column in the block is 1
+// (MutableBlock's column and block point to the same memory):
+/*
+    MutableColumns Block::mutate_columns() {
+    size_t num_columns = data.size();
+    MutableColumns columns(num_columns);
+    for (size_t i = 0; i < num_columns; ++i) {
+        DCHECK(data[i].type);
+        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
+                                    : data[i].type->create_column();
+    }
+    return columns;
+}
+*/
+// However, as the code complexity increases, this implicit assumption is no longer reliable.
+// Therefore, we introduce this struct to force the caller to call the set_columns method to write the data back to the block after processing the MutableBlock.
+// Alternatively, you can manually call the set_columns() method to write the data back to the block.
+
+struct MemReuseBlockWrapper {
+    MutableBlock mutable_block;
+    Block* block = nullptr;
+
+    void set_columns() {
+        block->set_columns(std::move(mutable_block.mutable_columns()));
+        block = nullptr;
+    }
+    ~MemReuseBlockWrapper() {
+        if (block) {
+            block->set_columns(std::move(mutable_block.mutable_columns()));
+        }
+    }
+};
+
 class VectorizedUtils {
 public:
     static Block create_empty_columnswithtypename(const RowDescriptor& row_desc) {
         // Block block;
         return create_columns_with_type_and_name(row_desc);
     }
-    static MutableBlock build_mutable_mem_reuse_block(Block* block, const RowDescriptor& row_desc) {
+
+    static MemReuseBlockWrapper build_mutable_mem_reuse_block(Block* block,
+                                                              const RowDescriptor& row_desc) {
         if (!block->mem_reuse()) {
             MutableBlock tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc));
             block->swap(tmp.to_block());
         }
-        return MutableBlock::build_mutable_block(block);
+
+        return MemReuseBlockWrapper {.mutable_block = MutableBlock::build_mutable_block(block),
+                                     .block = block};
     }
-    static MutableBlock build_mutable_mem_reuse_block(Block* block, const Block& other) {
+    static MemReuseBlockWrapper build_mutable_mem_reuse_block(Block* block, const Block& other) {
         if (!block->mem_reuse()) {
             MutableBlock tmp(other.clone_empty());
             block->swap(tmp.to_block());
         }
-        return MutableBlock::build_mutable_block(block);
+        return MemReuseBlockWrapper {.mutable_block = MutableBlock::build_mutable_block(block),
+                                     .block = block};
     }
-    static MutableBlock build_mutable_mem_reuse_block(Block* block,
-                                                      const std::vector<SlotDescriptor*>& slots) {
+
+    static void build_mutable_mem_reuse_block(Block* block, const Block& other,
+                                              MemReuseBlockWrapper& mem_reuse_block) {
+        if (!block->mem_reuse()) {
+            MutableBlock tmp(other.clone_empty());
+            block->swap(tmp.to_block());
+        }
+        mem_reuse_block.mutable_block = MutableBlock::build_mutable_block(block);
+        mem_reuse_block.block = block;
+    }
+
+    static MemReuseBlockWrapper build_mutable_mem_reuse_block(
+            Block* block, const std::vector<SlotDescriptor*>& slots) {
         if (!block->mem_reuse()) {
             size_t column_size = slots.size();
             MutableColumns columns(column_size);
@@ -65,7 +117,8 @@ public:
                                                     slot_desc->col_name()));
             }
         }
-        return MutableBlock(block);
+        return MemReuseBlockWrapper {.mutable_block = MutableBlock::build_mutable_block(block),
+                                     .block = block};
     }
 
     static ColumnsWithTypeAndName create_columns_with_type_and_name(const RowDescriptor& row_desc) {

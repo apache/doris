@@ -114,9 +114,9 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* input_block, int 
     size_t input_column_size = input_block->columns();
     size_t output_column_size = p._output_slots.size();
     DCHECK_LT(input_column_size, output_column_size);
-    auto m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                              p._output_slots);
-    auto& output_columns = m_block.mutable_columns();
+    auto mem_reuse_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
+            output_block, p._output_slots);
+    auto& output_columns = mem_reuse_block.mutable_block.mutable_columns();
     /* Fill all slots according to child, for example:select tc1,tc2,sum(tc3) from t1 group by grouping sets((tc1),(tc2));
      * insert into t1 values(1,2,1),(1,3,1),(2,1,1),(3,1,1);
      * slot_id_set_list=[[0],[1]],repeat_id_idx=0,
@@ -238,10 +238,10 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
                 _repeat_id_idx = 0;
             }
         } else if (local_state._expr_ctxs.empty()) {
-            auto m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
+            auto mem_reuse_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
                     output_block, _output_slots);
             auto rows = _child_block.rows();
-            auto& columns = m_block.mutable_columns();
+            auto& columns = mem_reuse_block.mutable_block.mutable_columns();
 
             std::size_t cur_col = 0;
             RETURN_IF_ERROR(
