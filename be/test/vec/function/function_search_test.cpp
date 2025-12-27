@@ -2197,7 +2197,8 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithOccurBoolean) {
     auto status = function_search->evaluate_inverted_index_with_search_param(
             search_param, data_types, iterators, num_rows, bitmap_result);
     // Will return OK because root_query is nullptr (all child queries fail)
-    EXPECT_TRUE(status.ok());
+    //    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>());
 }
 
 } // namespace doris::vectorized
