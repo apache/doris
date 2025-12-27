@@ -195,7 +195,7 @@ Status CloudRowsetWriter::_collect_packed_slice_location(io::FileWriter* file_wr
     }
 
     rowset_meta->add_packed_slice_location(file_path, index.packed_file_path, index.offset,
-                                           index.size);
+                                           index.size, index.packed_file_size);
     LOG(INFO) << "collect packed file index: " << file_path << " -> " << index.packed_file_path
               << ", offset: " << index.offset << ", size: " << index.size;
     return Status::OK();

@@ -426,12 +426,13 @@ public:
 
     void add_packed_slice_location(const std::string& segment_path,
                                    const std::string& packed_file_path, int64_t offset,
-                                   int64_t size) {
+                                   int64_t size, int64_t packed_file_size) {
         auto* index_map = _rowset_meta_pb.mutable_packed_slice_locations();
         auto& index_pb = (*index_map)[segment_path];
         index_pb.set_packed_file_path(packed_file_path);
         index_pb.set_offset(offset);
         index_pb.set_size(size);
+        index_pb.set_packed_file_size(packed_file_size);
     }
 
 private:
