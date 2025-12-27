@@ -107,7 +107,8 @@ void VExplodeBitmapTableFunction::process_close() {
 }
 
 int VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column, int max_step) {
-    max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
+    max_step = std::min(static_cast<int64_t>(max_step), (_cur_size - _cur_offset));
+    assert(max_step >= 0);
     // should dispose the empty status, forward one step
     if (current_empty()) {
         column->insert_default();
