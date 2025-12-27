@@ -253,8 +253,8 @@ void AggSharedState::build_limit_heap(size_t hash_table_size) {
     limit_columns_min = limit_heap.top()._row_id;
 }
 
-bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
-                                     const std::vector<int>* key_locs) {
+bool AggSharedState::do_limit_filter(const vectorized::ColumnRawPtrs& key_columns_raw_ptr,
+                                     size_t num_rows) {
     if (num_rows) {
         cmp_res.resize(num_rows);
         need_computes.resize(num_rows);
@@ -262,11 +262,11 @@ bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
         memset(cmp_res.data(), 0, cmp_res.size());
 
         const auto key_size = null_directions.size();
+
         for (int i = 0; i < key_size; i++) {
-            block->get_by_position(key_locs ? key_locs->operator[](i) : i)
-                    .column->compare_internal(limit_columns_min, *limit_columns[i],
-                                              null_directions[i], order_directions[i], cmp_res,
-                                              need_computes.data());
+            key_columns_raw_ptr[i]->compare_internal(limit_columns_min, *limit_columns[i],
+                                                     null_directions[i], order_directions[i],
+                                                     cmp_res, need_computes.data());
         }
 
         auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, size_t rows) {
