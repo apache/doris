@@ -96,6 +96,8 @@ LRUQueue& LRUQueueRecorder::get_shadow_queue(FileCacheType type) {
         return _shadow_normal_queue;
     case FileCacheType::TTL:
         return _shadow_ttl_queue;
+    case FileCacheType::COLD_NORMAL:
+        return _shadow_cold_normal_queue;
     default:
         LOG(WARNING) << "invalid shadow queue type";
         DCHECK(false);
@@ -113,6 +115,8 @@ CacheLRULogQueue& LRUQueueRecorder::get_lru_log_queue(FileCacheType type) {
         return _normal_lru_log_queue;
     case FileCacheType::TTL:
         return _ttl_lru_log_queue;
+    case FileCacheType::COLD_NORMAL:
+        return _cold_normal_lru_log_queue;
     default:
         LOG(WARNING) << "invalid lru log queue type";
         DCHECK(false);
