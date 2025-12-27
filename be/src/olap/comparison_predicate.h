@@ -35,8 +35,9 @@ class ComparisonPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(ComparisonPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
-    ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, Type, opposite), _value(value) {}
+    ComparisonPredicateBase(uint32_t column_id, std::string col_name, const T& value,
+                            bool opposite = false)
+            : ColumnPredicate(column_id, col_name, Type, opposite), _value(value) {}
     ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other, uint32_t col_id)
             : ColumnPredicate(other, col_id), _value(other._value) {}
     ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other) = delete;

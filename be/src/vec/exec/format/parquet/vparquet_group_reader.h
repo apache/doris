@@ -84,6 +84,9 @@ public:
     // table name
     struct LazyReadContext {
         VExprContextSPtrs conjuncts;
+        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>
+                slot_id_to_predicates;
+        std::vector<std::shared_ptr<MutilColumnBlockPredicate>> or_predicates;
         bool can_lazy_read = false;
         // block->rows() returns the number of rows of the first column,
         // so we should check and resize the first column

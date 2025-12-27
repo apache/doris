@@ -32,6 +32,72 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
+PushDownType FileScanLocalState::_should_push_down_binary_predicate(
+        vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
+        StringRef* constant_val, const std::set<std::string> fn_name) const {
+    if (!fn_name.contains(fn_call->fn().name.function_name)) {
+        return PushDownType::UNACCEPTABLE;
+    }
+    DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
+    const auto& children = fn_call->children();
+    DCHECK(children.size() == 2);
+    DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
+    if (children[1]->is_constant()) {
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+        THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
+        const auto* const_column =
+                assert_cast<const vectorized::ColumnConst*>(const_col_wrapper->column_ptr.get());
+        *constant_val = const_column->get_data_at(0);
+        return PushDownType::PARTIAL_ACCEPTABLE;
+    } else {
+        // only handle constant value
+        return PushDownType::UNACCEPTABLE;
+    }
+}
+
+bool FileScanLocalState::_should_push_down_or_predicate_recursively(
+        const vectorized::VExprSPtr& expr) const {
+    if (expr->node_type() == TExprNodeType::COMPOUND_PRED &&
+        expr->op() == TExprOpcode::COMPOUND_OR) {
+        return std::ranges::all_of(expr->children(), [this](const vectorized::VExprSPtr& it) {
+            return _should_push_down_or_predicate_recursively(it);
+        });
+    } else if (expr->node_type() == TExprNodeType::COMPOUND_PRED &&
+               expr->op() == TExprOpcode::COMPOUND_AND) {
+        return std::ranges::any_of(expr->children(), [this](const vectorized::VExprSPtr& it) {
+            return _should_push_down_or_predicate_recursively(it);
+        });
+    } else {
+        auto children = expr->children();
+        if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
+            // not a slot ref(column)
+            return false;
+        }
+        std::shared_ptr<vectorized::VSlotRef> slot_ref =
+                std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
+        auto entry = _slot_id_to_predicates.find(slot_ref->slot_id());
+        if (_slot_id_to_predicates.end() == entry) {
+            return false;
+        }
+        if (is_complex_type(slot_ref->data_type()->get_primitive_type())) {
+            return false;
+        }
+        return true;
+    }
+}
+
+PushDownType FileScanLocalState::_should_push_down_or_predicate(
+        const vectorized::VExprContext* expr_ctx) const {
+    auto expr = expr_ctx->root()->get_impl() ? expr_ctx->root()->get_impl() : expr_ctx->root();
+    if (expr->node_type() == TExprNodeType::COMPOUND_PRED &&
+        expr->op() == TExprOpcode::COMPOUND_OR) {
+        if (_should_push_down_or_predicate_recursively(expr)) {
+            return PushDownType::PARTIAL_ACCEPTABLE;
+        }
+    }
+    return PushDownType::UNACCEPTABLE;
+}
+
 int FileScanLocalState::max_scanners_concurrency(RuntimeState* state) const {
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {

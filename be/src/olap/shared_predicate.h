@@ -36,8 +36,8 @@ class SharedPredicate final : public ColumnPredicate {
     ENABLE_FACTORY_CREATOR(SharedPredicate);
 
 public:
-    SharedPredicate(uint32_t column_id)
-            : ColumnPredicate(column_id, PrimitiveType::INVALID_TYPE),
+    SharedPredicate(uint32_t column_id, std::string col_name)
+            : ColumnPredicate(column_id, col_name, PrimitiveType::INVALID_TYPE),
               _mtx(std::make_shared<std::shared_mutex>()) {}
     SharedPredicate(const ColumnPredicate& other) = delete;
     SharedPredicate(const SharedPredicate& other, uint32_t column_id)

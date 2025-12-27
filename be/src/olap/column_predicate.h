@@ -197,9 +197,12 @@ struct PredicateTypeTraits {
 
 class ColumnPredicate : public std::enable_shared_from_this<ColumnPredicate> {
 public:
-    explicit ColumnPredicate(uint32_t column_id, PrimitiveType primitive_type,
+    explicit ColumnPredicate(uint32_t column_id, std::string col_name, PrimitiveType primitive_type,
                              bool opposite = false)
-            : _column_id(column_id), _primitive_type(primitive_type), _opposite(opposite) {
+            : _column_id(column_id),
+              _col_name(col_name),
+              _primitive_type(primitive_type),
+              _opposite(opposite) {
         reset_judge_selectivity();
     }
     ColumnPredicate(const ColumnPredicate& other, uint32_t col_id) : ColumnPredicate(other) {
@@ -316,6 +319,7 @@ public:
         DCHECK(false) << "should not reach here";
     }
     uint32_t column_id() const { return _column_id; }
+    std::string col_name() const { return _col_name; }
 
     bool opposite() const { return _opposite; }
 
@@ -421,6 +425,7 @@ protected:
     }
 
     uint32_t _column_id;
+    const std::string _col_name;
     PrimitiveType _primitive_type;
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
