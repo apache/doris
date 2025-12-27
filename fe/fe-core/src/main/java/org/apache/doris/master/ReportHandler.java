@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -1533,7 +1534,7 @@ public class ReportHandler extends Daemon {
                 if (backendTabletInfo.isSetCooldownMetaId()) {
                     // replica has cooldowned data
                     do {
-                        Pair<Long, Long> cooldownConf = tablet.getCooldownConf();
+                        Pair<Long, Long> cooldownConf = ((LocalTablet) tablet).getCooldownConf();
                         if (backendTabletInfo.getCooldownTerm() > cooldownConf.second) {
                             // should not be here
                             LOG.warn("report cooldownTerm({}) > cooldownTerm in TabletMeta({}), tabletId={}",

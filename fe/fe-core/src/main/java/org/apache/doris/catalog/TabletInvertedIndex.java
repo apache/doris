@@ -672,14 +672,14 @@ public class TabletInvertedIndex {
 
     private void handleCooldownConf(TabletMeta tabletMeta, TTabletInfo beTabletInfo,
             List<CooldownConf> cooldownConfToPush, List<CooldownConf> cooldownConfToUpdate) {
-        Tablet tablet;
+        LocalTablet tablet;
         try {
             OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
                     .getTable(tabletMeta.getTableId())
                     .get();
             table.readLock();
             try {
-                tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                tablet = (LocalTablet) table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
                         .getTablet(beTabletInfo.tablet_id);
             } finally {
                 table.readUnlock();

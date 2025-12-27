@@ -32,6 +32,7 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -559,8 +560,8 @@ public class OlapScanNode extends ScanNode {
                 }
             }
 
-            if (isEnableCooldownReplicaAffinity(context)) {
-                final long coolDownReplicaId = tablet.getCooldownReplicaId();
+            if (Config.isNotCloudMode() && isEnableCooldownReplicaAffinity(context)) {
+                final long coolDownReplicaId = ((LocalTablet) tablet).getCooldownReplicaId();
                 // we prefer to query using cooldown replica to make sure the cache is fully utilized
                 // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
                 // is now under cooldown

@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
@@ -136,7 +137,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                     path,
                     metaUrl,
                     compactionUrl,
-                    String.valueOf(tablet.getCooldownConf().first),
+                    String.valueOf(tablet instanceof LocalTablet ? ((LocalTablet) tablet).getCooldownConf().first : ""),
                     cooldownMetaId,
                     String.valueOf(queryHits));
             if (Config.isCloudMode()) {

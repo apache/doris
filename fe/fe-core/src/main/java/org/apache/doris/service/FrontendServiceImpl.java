@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -394,7 +395,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return;
             }
             // check cooldownReplicaId
-            Pair<Long, Long> cooldownConf = tablet.getCooldownConf();
+            Pair<Long, Long> cooldownConf = ((LocalTablet) tablet).getCooldownConf();
             if (cooldownConf.first != info.cooldown_replica_id) {
                 LOG.info("cooldown replica id not match({} vs {}), tablet={}", cooldownConf.first,
                         info.cooldown_replica_id, info.tablet_id);

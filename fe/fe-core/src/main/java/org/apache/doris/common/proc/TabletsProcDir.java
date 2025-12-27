@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
@@ -178,7 +179,8 @@ public class TabletsProcDir implements ProcDirInterface {
                         String compactionUrl = String.format(
                                 "http://" + hostPort + "/api/compaction/show?tablet_id=%d", tabletId);
                         tabletInfo.add(compactionUrl);
-                        tabletInfo.add(tablet.getCooldownConf().first);
+                        tabletInfo.add(
+                                tablet instanceof LocalTablet ? ((LocalTablet) tablet).getCooldownConf().first : "");
                         if (replica.getCooldownMetaId() == null) {
                             tabletInfo.add("");
                         } else {
