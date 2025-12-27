@@ -60,9 +60,7 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
                                                                OperatorXBase* parent)
         : PipelineXLocalState<FakeSharedState>(state, parent),
           batch_size(state->batch_size()),
-          _agg_arena_pool(std::make_unique<vectorized::Arena>()),
           _agg_data(std::make_unique<DistinctDataVariants>()),
-          _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
           _aggregated_block(vectorized::Block::create_unique()) {}
 
@@ -459,6 +457,8 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
         }
     }
     _cache_block.clear();
+
+    _arena.clear();
     return Base::close(state);
 }
 
