@@ -319,13 +319,49 @@ public class HiveScanNode extends FileQueryScanNode {
             int parallelNum = sessionVariable.getParallelExecInstanceNum();
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
+
+        if (!needSplit) {
+            // No need to split, process files directly
+            for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
+                if (fileCacheValue.getFiles() != null) {
+                    boolean isSplittable = fileCacheValue.isSplittable();
+                    for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                        allFiles.addAll(FileSplitter.splitFile(status.getPath(),
+                                Long.MAX_VALUE,
+                                status.getBlockLocations(), status.getLength(), status.getModificationTime(),
+                                isSplittable, fileCacheValue.getPartitionValues(),
+                                new HiveSplitCreator(fileCacheValue.getAcidInfo())));
+                    }
+                }
+            }
+            return;
+        }
+
+        // Collect file sizes for split size adjustment
+        List<Long> fileSizes = Lists.newArrayList();
+        long representativeBlockSize = 0;
+        for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
+            if (fileCacheValue.getFiles() != null) {
+                for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                    fileSizes.add(status.getLength());
+                    if (representativeBlockSize == 0 && status.getBlockSize() > 0) {
+                        representativeBlockSize = status.getBlockSize();
+                    }
+                }
+            }
+        }
+
+        // Calculate base split size and adjust if needed to limit total split count
+        long baseSplitSize = getRealFileSplitSize(representativeBlockSize);
+        long adjustedSplitSize = adjustSplitSizeForTotalLimit(fileSizes, baseSplitSize);
+
+        // Split files using the adjusted split size
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             if (fileCacheValue.getFiles() != null) {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                     allFiles.addAll(FileSplitter.splitFile(status.getPath(),
-                            // set block size to Long.MAX_VALUE to avoid splitting the file.
-                            getRealFileSplitSize(needSplit ? status.getBlockSize() : Long.MAX_VALUE),
+                            adjustedSplitSize,
                             status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                             isSplittable, fileCacheValue.getPartitionValues(),
                             new HiveSplitCreator(fileCacheValue.getAcidInfo())));
@@ -336,8 +372,24 @@ public class HiveScanNode extends FileQueryScanNode {
 
     private void splitAllFiles(List<Split> allFiles,
                                List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses) throws IOException {
+        // Collect file sizes for split size adjustment
+        List<Long> fileSizes = Lists.newArrayList();
+        long representativeBlockSize = 0;
         for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
-            allFiles.addAll(FileSplitter.splitFile(status.getPath(), getRealFileSplitSize(status.getBlockSize()),
+            fileSizes.add(status.getLength());
+            if (representativeBlockSize == 0 && status.getBlockSize() > 0) {
+                representativeBlockSize = status.getBlockSize();
+            }
+        }
+
+        // Calculate base split size and adjust if needed to limit total split count
+        long baseSplitSize = getRealFileSplitSize(representativeBlockSize);
+        long adjustedSplitSize = adjustSplitSizeForTotalLimit(fileSizes, baseSplitSize);
+
+        // Split files using the adjusted split size
+        for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
+            allFiles.addAll(FileSplitter.splitFile(status.getPath(),
+                    adjustedSplitSize,
                     status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                     status.isSplittable(), status.getPartitionValues(),
                     new HiveSplitCreator(status.getAcidInfo())));

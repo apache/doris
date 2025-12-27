@@ -364,6 +364,119 @@ public class PaimonScanNodeTest {
         }
     }
 
+    @Test
+    public void testMaxFileSplitsNum() throws UserException {
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
+        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv);
+        paimonScanNode.setSource(new PaimonSource());
+
+        // Create large files that would generate many splits with small file_split_size
+        // Total size: 1GB = 1024 * 1024 * 1024 bytes (smaller for faster test)
+        long totalFileSize = 1024L * 1024 * 1024;
+        long fileSize1 = 400L * 1024 * 1024; // 400MB
+        long fileSize2 = 300L * 1024 * 1024; // 300MB
+        long fileSize3 = 324L * 1024 * 1024; // 324MB
+
+        DataFileMeta dfm1 = DataFileMeta.forAppend("f1.parquet", fileSize1, 1, SimpleStats.EMPTY_STATS, 1, 1, 1,
+                Collections.emptyList(), null, null, null, null);
+        DataFileMeta dfm2 = DataFileMeta.forAppend("f2.parquet", fileSize2, 2, SimpleStats.EMPTY_STATS, 1, 1, 1,
+                Collections.emptyList(), null, null, null, null);
+        DataFileMeta dfm3 = DataFileMeta.forAppend("f3.parquet", fileSize3, 3, SimpleStats.EMPTY_STATS, 1, 1, 1,
+                Collections.emptyList(), null, null, null, null);
+
+        BinaryRow binaryRow = BinaryRow.singleColumn(1);
+        DataSplit ds1 = DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(binaryRow)
+                .withBucket(1)
+                .withBucketPath("file://b1")
+                .withDataFiles(Collections.singletonList(dfm1))
+                .build();
+
+        DataSplit ds2 = DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(binaryRow)
+                .withBucket(1)
+                .withBucketPath("file://b1")
+                .withDataFiles(Collections.singletonList(dfm2))
+                .build();
+
+        DataSplit ds3 = DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(binaryRow)
+                .withBucket(1)
+                .withBucketPath("file://b1")
+                .withDataFiles(Collections.singletonList(dfm3))
+                .build();
+
+        PaimonScanNode spyPaimonScanNode = Mockito.spy(paimonScanNode);
+        Mockito.doReturn(new ArrayList<org.apache.paimon.table.source.Split>() {
+            {
+                add(ds1);
+                add(ds2);
+                add(ds3);
+            }
+        }).when(spyPaimonScanNode).getPaimonSplitFromAPI();
+
+        // Mock SessionVariable behavior
+        Mockito.when(sv.isForceJniScanner()).thenReturn(false);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+        long baseSplitSize = 10L * 1024 * 1024; // 10MB, small split size
+        Mockito.when(sv.getFileSplitSize()).thenReturn(baseSplitSize);
+        mockNativeReader(spyPaimonScanNode);
+
+        // Test case 1: max_file_splits_num = 50 (should limit split count)
+        Mockito.when(sv.getMaxFileSplitsNum()).thenReturn(50);
+        List<org.apache.doris.spi.Split> splits1 = spyPaimonScanNode.getSplits(1);
+        // With 1GB total and 10MB split size, would generate ~102 splits without limit
+        // With limit of 50, should generate at most 50 splits (allow small tolerance due to split algorithm)
+        Assert.assertTrue("Split count should be limited to around 50, actual: " + splits1.size(),
+                splits1.size() <= 52); // Allow small tolerance for split algorithm boundary cases
+        // Verify split size was adjusted: minSplitSize = ceil(1GB / 50) = ~20MB
+        long minExpectedSplitSize1 = (totalFileSize + 50 - 1) / 50;
+        for (org.apache.doris.spi.Split split : splits1) {
+            PaimonSplit paimonSplit = (PaimonSplit) split;
+            Assert.assertNotNull("Split should have target split size", paimonSplit.getTargetSplitSize());
+            // Adjusted split size should be at least ceil(totalFileSize / maxFileSplitsNum)
+            Assert.assertTrue("Split size should be adjusted to limit split count. Expected at least: "
+                            + minExpectedSplitSize1 + ", got: " + paimonSplit.getTargetSplitSize(),
+                    paimonSplit.getTargetSplitSize() >= minExpectedSplitSize1);
+        }
+
+        // Test case 2: max_file_splits_num = 20 (should further limit split count)
+        Mockito.when(sv.getMaxFileSplitsNum()).thenReturn(20);
+        List<org.apache.doris.spi.Split> splits2 = spyPaimonScanNode.getSplits(1);
+        Assert.assertTrue("Split count should be limited to around 20, actual: " + splits2.size(),
+                splits2.size() <= 22); // Allow small tolerance for split algorithm boundary cases
+        // Adjusted split size should be at least ceil(1GB / 20) = ~50MB
+        long minExpectedSplitSize2 = (totalFileSize + 20 - 1) / 20;
+        for (org.apache.doris.spi.Split split : splits2) {
+            PaimonSplit paimonSplit = (PaimonSplit) split;
+            Assert.assertTrue("Split size should be adjusted to limit split count. Expected at least: "
+                            + minExpectedSplitSize2 + ", got: " + paimonSplit.getTargetSplitSize(),
+                    paimonSplit.getTargetSplitSize() >= minExpectedSplitSize2);
+        }
+
+        // Test case 3: max_file_splits_num = 0 (no limit)
+        Mockito.when(sv.getMaxFileSplitsNum()).thenReturn(0);
+        List<org.apache.doris.spi.Split> splits3 = spyPaimonScanNode.getSplits(1);
+        // Without limit, should generate splits based on file_split_size (10MB)
+        // Expected: approximately ceil(1GB / 10MB) = 102 splits
+        long expectedSplitsWithoutLimit = (totalFileSize + baseSplitSize - 1) / baseSplitSize;
+        Assert.assertTrue("Without limit, should generate more splits. Expected around: "
+                        + expectedSplitsWithoutLimit + ", got: " + splits3.size(),
+                splits3.size() >= expectedSplitsWithoutLimit - 5); // Allow some tolerance
+
+        // Test case 4: max_file_splits_num = 200 (large limit, should not adjust)
+        Mockito.when(sv.getMaxFileSplitsNum()).thenReturn(200);
+        List<org.apache.doris.spi.Split> splits4 = spyPaimonScanNode.getSplits(1);
+        // With large limit, should use original split size (10MB)
+        // Should generate approximately the same number of splits as case 3
+        Assert.assertTrue("With large limit, should generate similar number of splits. Expected around: "
+                        + expectedSplitsWithoutLimit + ", got: " + splits4.size(),
+                splits4.size() >= expectedSplitsWithoutLimit - 5);
+    }
+
     private void mockJniReader(PaimonScanNode spyNode) {
         Mockito.doReturn(false).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }
