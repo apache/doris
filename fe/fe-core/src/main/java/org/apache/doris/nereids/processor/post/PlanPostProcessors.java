@@ -88,13 +88,9 @@ public class PlanPostProcessors {
         builder.add(new FragmentProcessor());
         if (!cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()
                         .toUpperCase().equals(TRuntimeFilterMode.OFF.name())) {
-            builder.add(new RegisterParent());
             builder.add(new org.apache.doris.nereids.processor.post.RuntimeFilterGenerator());
             if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
                 builder.add(new RuntimeFilterPruner());
-                if (ConnectContext.get().getSessionVariable().runtimeFilterPruneForExternal) {
-                    builder.add(new RuntimeFilterPrunerForExternalTable());
-                }
             }
             builder.add(new RuntimeFilterV2Generator());
         }
