@@ -468,6 +468,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
+        rowset_writer_context.write_type = DataWriteType::TYPE_COMPACTION;
         inc_id++;
         return rowset_writer_context;
     };
@@ -540,7 +541,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     sparse_typed_col.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     sparse_typed_col.set_unique_id(-1);
     sparse_typed_col.set_parent_unique_id(1);
-    sparse_typed_col.set_path_info(PathInData(std::string("v1.") + BeConsts::SPARSE_COLUMN_PATH));
+    sparse_typed_col.set_path_info(PathInData(std::string("v1.") + SPARSE_COLUMN_PATH));
     sparse_typed_col.set_variant_max_subcolumns_count(3);
     sparse_typed_col.set_is_nullable(true);
     // add key/value subcolumns for MAP to satisfy DataTypeFactory checks
@@ -809,6 +810,7 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
+        rowset_writer_context.write_type = DataWriteType::TYPE_COMPACTION;
         inc_id++;
         return rowset_writer_context;
     };

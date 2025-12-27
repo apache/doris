@@ -287,6 +287,10 @@ private:
     RuntimeProfile::Counter* _variant_subtree_hierarchical_iter_count = nullptr;
     // Variant subtree: times selecting sparse iterator (iterate over sparse subcolumn)
     RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
+    // Variant subtree: times selecting doc snapshot extract iterator (extract path from doc snapshot)
+    RuntimeProfile::Counter* _variant_subtree_doc_snapshot_extract_iter_count = nullptr;
+    // Variant subtree: times selecting doc snapshot all iterator (merge doc snapshot into root)
+    RuntimeProfile::Counter* _variant_subtree_doc_snapshot_all_iter_count = nullptr;
 
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;

@@ -172,27 +172,7 @@ Status ExternalColMetaUtil::write_external_column_meta(
     // 2) write pointers via proto fields
     footer->set_col_meta_region_start(meta_region_start);
 
-    // 3) clear inline columns to enable true on-demand meta loading
-    // Note: footer->columns has already been pruned to only Top Level Columns in externalize_from_footer
-    // But for full externalization, we might want to clear them all or keep only necessary info?
-    // The original logic was footer->clear_columns().
-    // If we clear columns, the Reader needs to know how to reconstruct the schema.
-    // Currently, SegmentFooterPB.columns is used as the schema source if present.
-    // If we clear it, Reader must rely on External Meta.
-    // However, the Reader typically reads footer first. If columns is empty, it assumes V3 and reads external.
-    // So yes, we should clear it.
-    // But wait, in externalize_from_footer we carefully put Top Level columns back into footer->columns.
-    // Why? Because in previous logic, we might want to keep roots in footer?
-    // The previous logic: "replace Footer.columns with only the kept top-level columns".
-    // BUT then `write_external_column_meta` calls `footer->clear_columns()` at the end!
-    // So `footer->columns` will be empty anyway.
-    // The only reason to reconstruct `footer->columns` in `externalize_from_footer` is if `write_external_column_meta` logic depended on it.
-    // In my updated `write_external_column_meta`, I iterate over `all_metas` which is returned by `externalize_from_footer`.
-    // So I don't strictly need `footer->columns` to be correct in between.
-    // However, strictly following protocol: `externalize_from_footer` modifies footer to reflect "logical" columns (Top Level).
-    // And then `write_external_column_meta` finalizes it by clearing them and setting pointers.
-
-    footer->clear_columns();
+    // Note: footer->columns has already been pruned in externalize_from_footer
     return Status::OK();
 }
 

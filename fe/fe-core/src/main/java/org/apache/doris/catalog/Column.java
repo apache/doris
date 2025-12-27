@@ -656,6 +656,9 @@ public class Column implements GsonPostProcessable {
         tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
         tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
         tColumn.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
+        tColumn.setVariantEnableDocMode(this.getVariantEnableDocSnapshotMode());
+        tColumn.setVariantDocMaterializationMinRows(this.getVariantDocSnapshotMinRows());
+        tColumn.setVariantDocHashShardCount(this.getVariantDocSnapshotShardCount());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -880,6 +883,9 @@ public class Column implements GsonPostProcessable {
             builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
             builder.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
             builder.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
+            builder.setVariantEnableDocMode(this.getVariantEnableDocSnapshotMode());
+            builder.setVariantDocMaterializationMinRows(this.getVariantDocSnapshotMinRows());
+            builder.setVariantDocHashShardCount(this.getVariantDocSnapshotShardCount());
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -961,6 +967,15 @@ public class Column implements GsonPostProcessable {
             }
             if (this.getVariantSparseHashShardCount() != other.getVariantSparseHashShardCount()) {
                 throw new DdlException("Can not change variant sparse bucket num");
+            }
+            if (this.getVariantEnableDocSnapshotMode() != other.getVariantEnableDocSnapshotMode()) {
+                throw new DdlException("Can not change variant enable doc snapshot mode");
+            }
+            if (this.getVariantDocSnapshotMinRows() != other.getVariantDocSnapshotMinRows()) {
+                throw new DdlException("Can not change variant doc snapshot min rows");
+            }
+            if (this.getVariantDocSnapshotShardCount() != other.getVariantDocSnapshotShardCount()) {
+                throw new DdlException("Can not change variant doc snapshot shard count");
             }
             if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
                 throw new DdlException("Can not change variant schema templates");
@@ -1307,6 +1322,18 @@ public class Column implements GsonPostProcessable {
 
     public int getVariantSparseHashShardCount() {
         return type.isVariantType() ? ((ScalarType) type).getVariantSparseHashShardCount() : -1;
+    }
+
+    public boolean getVariantEnableDocSnapshotMode() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantEnableDocSnapshotMode() : false;
+    }
+
+    public long getVariantDocSnapshotMinRows() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantDocSnapshotMinRows() : 0L;
+    }
+
+    public int getVariantDocSnapshotShardCount() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantDocSnapshotShardCount() : 128;
     }
 
     public void setFieldPatternType(TPatternType type) {

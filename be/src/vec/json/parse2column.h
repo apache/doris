@@ -42,4 +42,6 @@ void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
 // parse a single json, throws doris::Execption when failed
 void parse_json_to_variant(IColumn& column, const StringRef& jsons, JsonParser* parser,
                            const ParseConfig& config);
+
+void parse_binary_to_variant(ColumnVariant& column_variant, const ParseConfig& config);
 } // namespace doris::vectorized

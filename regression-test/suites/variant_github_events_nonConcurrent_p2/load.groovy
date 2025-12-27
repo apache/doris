@@ -75,6 +75,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     if ((rand_subcolumns_count % 2) == 0) {
         rand_subcolumns_count = 0
     }
+    sql """ set default_variant_enable_doc_mode = false """
     sql "set enable_variant_flatten_nested = true"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (

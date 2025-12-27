@@ -76,7 +76,7 @@ suite("regression_test_variant", "p0"){
     }
     sql "set experimental_enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
-
+    sql """ set default_variant_enable_doc_mode = false """
     try {
         def key_types = ["DUPLICATE", "UNIQUE"]
         for (int i = 0; i < key_types.size(); i++) {

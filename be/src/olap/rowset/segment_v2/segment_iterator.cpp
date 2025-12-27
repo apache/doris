@@ -411,7 +411,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             if (int32_t uid = col->get_unique_id(); !_variant_sparse_column_cache.contains(uid)) {
                 DCHECK(uid >= 0);
                 _variant_sparse_column_cache.emplace(uid,
-                                                     std::make_unique<PathToSparseColumnCache>());
+                                                     std::make_unique<PathToBinaryColumnCache>());
             }
         }
     }

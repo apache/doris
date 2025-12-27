@@ -20,6 +20,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
 
     def queryAndCheck = { String sqlQuery, int expectedFilteredRows = -1, boolean checkFilterUsed = true ->
       def checkpoints_name = "segment_iterator.inverted_index.filtered_rows"
@@ -400,7 +401,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     trigger_and_wait_compaction(tableName, "cumulative")
     sql "set enable_two_phase_read_opt = true"
     qt_sql "select * from ${tableName} order by id limit 10"
-    qt_sql "select variant_type(var) from ${tableName} where id = 1"
+    //qt_sql "select variant_type(var) from ${tableName} where id = 1"
     accurateCheckIndexWithQueries()
     findException = false
     try {

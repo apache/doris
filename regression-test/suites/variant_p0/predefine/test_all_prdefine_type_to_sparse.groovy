@@ -18,6 +18,7 @@
 suite("test_all_prdefine_type_to_sparse", "p0"){ 
 
     sql """ set describe_extend_variant_column = true """
+    sql """ set default_variant_enable_doc_mode = false """
 
     def tableName = "test_all_prdefine_type_to_sparse"
     sql "set enable_decimal256 = true"

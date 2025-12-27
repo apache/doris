@@ -23,6 +23,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
+#include "olap/rowset/segment_v2/variant/variant_util.h"
 #include "testutil/variant_util.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_variant.h"
@@ -741,10 +742,11 @@ TEST_F(SchemaUtilTest, TestParseVariantColumns) {
 
     block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
 
-    std::vector<int> variant_pos {0};
+    std::vector<uint32_t> variant_pos {0};
     ParseConfig config;
 
-    auto status = schema_util::parse_variant_columns(block, variant_pos, config);
+    std::vector<ParseConfig> configs {config};
+    auto status = variant_util::parse_variant_columns(block, variant_pos, configs);
     EXPECT_TRUE(status.ok());
 
     // Check the parsed variant column
@@ -1255,10 +1257,11 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
     block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
 
-    std::vector<int> variant_pos {0};
+    std::vector<uint32_t> variant_pos {0};
     ParseConfig config;
 
-    auto status = schema_util::parse_variant_columns(block, variant_pos, config);
+    std::vector<ParseConfig> configs {config};
+    auto status = variant_util::parse_variant_columns(block, variant_pos, configs);
     EXPECT_TRUE(status.ok());
 
     // Test parsing from JSONB to variant
@@ -1272,7 +1275,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     Block block2;
     block2.insert({variant_column2->get_ptr(), variant_type, "variant_col2"});
 
-    status = schema_util::parse_variant_columns(block2, {0}, config);
+    status = variant_util::parse_variant_columns(block2, {0}, configs);
     EXPECT_TRUE(status.ok());
 
     // Test parsing already parsed variant
@@ -1282,7 +1285,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     Block block3;
     block3.insert({variant_column3->get_ptr(), variant_type, "variant_col3"});
 
-    status = schema_util::parse_variant_columns(block3, {0}, config);
+    status = variant_util::parse_variant_columns(block3, {0}, configs);
     EXPECT_TRUE(status.ok());
 }
 
@@ -1303,10 +1306,11 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
 
     block.insert({nullable_variant, variant_type, "nullable_variant"});
 
-    std::vector<int> variant_pos {0};
+    std::vector<uint32_t> variant_pos {0};
     ParseConfig config;
 
-    auto status = schema_util::parse_variant_columns(block, variant_pos, config);
+    std::vector<ParseConfig> configs {config};
+    auto status = variant_util::parse_variant_columns(block, variant_pos, configs);
     EXPECT_TRUE(status.ok());
 
     const auto& result_column = block.get_by_position(0).column;
@@ -1910,12 +1914,12 @@ TEST_F(SchemaUtilTest, parse_variant_columns_ambiguous_paths) {
             vectorized::ColumnWithTypeAndName(variant_col->assume_mutable(), variant_type, "v"));
 
     // The variant column is at index 0
-    std::vector<int> variant_pos = {0};
+    std::vector<uint32_t> variant_pos = {0};
     ParseConfig config;
     config.enable_flatten_nested = true;
 
     // Should throw due to ambiguous paths
-    Status st = schema_util::parse_variant_columns(block, variant_pos, config);
+    Status st = variant_util::parse_variant_columns(block, variant_pos, {config});
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.to_string().find("Ambiguous paths") != std::string::npos);
 }

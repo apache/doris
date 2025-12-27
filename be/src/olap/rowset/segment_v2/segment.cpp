@@ -650,7 +650,7 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
                                     const StorageReadOptions* opt,
-                                    const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
+                                    const std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr>*
                                             variant_sparse_column_cache) {
     if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
@@ -675,7 +675,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     }
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
-        PathToSparseColumnCache* sparse_column_cache_ptr = nullptr;
+        PathToBinaryColumnCache* sparse_column_cache_ptr = nullptr;
         if (variant_sparse_column_cache) {
             auto it = variant_sparse_column_cache->find(unique_id);
             if (it != variant_sparse_column_cache->end()) {

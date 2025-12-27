@@ -56,6 +56,7 @@
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/variant/variant_ext_meta_writer.h"
+#include "olap/rowset/segment_v2/variant/variant_util.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -528,6 +529,11 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
     }
 
+    if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
+        _tablet_schema->num_variant_columns() > 0) {
+        RETURN_IF_ERROR(
+                variant_util::parse_variant_columns(full_block, *_tablet_schema, including_cids));
+    }
     bool have_input_seq_column = false;
     // write including columns
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
@@ -800,6 +806,16 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // 7. fill row store column
     _serialize_block_to_row_column(full_block);
 
+    std::vector<uint32_t> column_ids;
+    for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
+        column_ids.emplace_back(i);
+    }
+    if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
+        _tablet_schema->num_variant_columns() > 0) {
+        RETURN_IF_ERROR(
+                variant_util::parse_variant_columns(full_block, *_tablet_schema, column_ids));
+    }
+
     // 8. encode and write all non-primary key columns(including sequence column if exists)
     for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
         if (cid != _tablet_schema->sequence_col_idx()) {
@@ -988,6 +1004,18 @@ Status VerticalSegmentWriter::write_batch() {
         for (auto& data : _batched_blocks) {
             // TODO: maybe we should pass range to this method
             _serialize_block_to_row_column(*data.block);
+        }
+    }
+
+    std::vector<uint32_t> column_ids;
+    for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
+        column_ids.emplace_back(i);
+    }
+    if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
+        _tablet_schema->num_variant_columns() > 0) {
+        for (auto& data : _batched_blocks) {
+            RETURN_IF_ERROR(variant_util::parse_variant_columns(
+                    const_cast<vectorized::Block&>(*data.block), *_tablet_schema, column_ids));
         }
     }
 

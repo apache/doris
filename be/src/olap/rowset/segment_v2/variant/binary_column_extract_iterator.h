@@ -55,10 +55,10 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
 // Base class for sparse column processors with common functionality
-class BaseSparseColumnProcessor : public ColumnIterator {
+class BaseBinaryColumnProcessor : public ColumnIterator {
 protected:
     const StorageReadOptions* _read_opts;
-    SparseColumnCacheSPtr _sparse_column_cache;
+    BinaryColumnCacheSPtr _sparse_column_cache;
     // Pure virtual method for data processing when encounter existing sparse columns(to be implemented by subclasses)
     virtual void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
                                                            size_t num_rows) = 0;
@@ -68,7 +68,7 @@ protected:
                                                      size_t num_rows) = 0;
 
 public:
-    BaseSparseColumnProcessor(SparseColumnCacheSPtr sparse_column_cache,
+    BaseBinaryColumnProcessor(BinaryColumnCacheSPtr sparse_column_cache,
                               const StorageReadOptions* opts)
             : _read_opts(opts), _sparse_column_cache(std::move(sparse_column_cache)) {}
 
@@ -99,7 +99,7 @@ public:
 
         SCOPED_RAW_TIMER(&_read_opts->stats->variant_fill_path_from_sparse_column_timer_ns);
         const auto& offsets =
-                assert_cast<const vectorized::ColumnMap&>(*_sparse_column_cache->sparse_column)
+                assert_cast<const vectorized::ColumnMap&>(*_sparse_column_cache->binary_column)
                         .get_offsets();
         if (offsets.back() == offsets[-1]) {
             // no sparse column in this batch
@@ -113,11 +113,11 @@ public:
 };
 
 // Implementation for path extraction processor
-class SparseColumnExtractIterator : public BaseSparseColumnProcessor {
+class SparseColumnExtractIterator : public BaseBinaryColumnProcessor {
 public:
-    SparseColumnExtractIterator(std::string_view path, SparseColumnCacheSPtr sparse_column_cache,
+    SparseColumnExtractIterator(std::string_view path, BinaryColumnCacheSPtr sparse_column_cache,
                                 const StorageReadOptions* opts)
-            : BaseSparseColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {}
+            : BaseBinaryColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {}
 
     // Batch processing using template method
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
@@ -157,10 +157,11 @@ private:
                 nullable_column ? &nullable_column->get_null_map_data() : nullptr;
         vectorized::ColumnVariant::fill_path_column_from_sparse_data(
                 *var.get_subcolumn({}) /*root*/, null_map, StringRef {_path.data(), _path.size()},
-                _sparse_column_cache->sparse_column->get_ptr(), 0,
-                _sparse_column_cache->sparse_column->size());
-        var.incr_num_rows(_sparse_column_cache->sparse_column->size());
+                _sparse_column_cache->binary_column->get_ptr(), 0,
+                _sparse_column_cache->binary_column->size());
+        var.incr_num_rows(_sparse_column_cache->binary_column->size());
         var.get_sparse_column()->assume_mutable()->resize(var.rows());
+        var.get_doc_value_column()->assume_mutable()->resize(var.rows());
         ENABLE_CHECK_CONSISTENCY(&var);
     }
 

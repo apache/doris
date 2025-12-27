@@ -394,7 +394,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             type = new VariantType(new ArrayList<>(), maxSubcolumns,
                     /*enableTypedPathsToSparse*/ false,
                     /*variantMaxSparseColumnStatisticsSize*/ 10000,
-                    /*variantSparseHashShardCount*/ 0);
+                    /*variantSparseHashShardCount*/ 0,
+                    /*variantEnableDocSnapshotMode*/ false,
+                    /*variantDocSnapshotMinRows*/ 0,
+                    /*variantDocSnapshotShardCount*/ 0);
             parsedNodes = 1;
         } else {
             type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
