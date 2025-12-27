@@ -282,6 +282,7 @@ public class Column implements GsonPostProcessable {
                 addChildrenColumn(c);
             }
             this.isAllowNull = false;
+            this.defaultValue = new String(new byte[] {0});
             this.aggregationType = AggregateType.GENERIC;
         }
     }
