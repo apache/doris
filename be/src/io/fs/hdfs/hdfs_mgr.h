@@ -20,11 +20,13 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/status.h"
 #include "io/fs/hdfs.h"
@@ -79,6 +81,8 @@ private:
 
 private:
     std::mutex _mutex;
+    std::condition_variable _creation_cv;
+    std::unordered_set<uint64_t> _creating_fs;
     std::unordered_map<uint64_t, std::shared_ptr<HdfsHandler>> _fs_handlers;
 
     std::atomic<bool> _should_stop_cleanup_thread;
