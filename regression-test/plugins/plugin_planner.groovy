@@ -60,7 +60,7 @@ def convertPlanRow = { row, showFieldMap ->
         if (!s.isEmpty()) {
             s += "\n"
         }
-        def p1 = line.findIndexOf { !Character.isLetter(it as char) }
+        def p1 = line.findIndexOf { Character.isLetter(it as char) }
         if (p1 == -1) {
             s += line
             continue

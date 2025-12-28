@@ -162,7 +162,7 @@ PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------filter((any_value(c) > 10))
+----------filter((c > 10))
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
