@@ -107,6 +107,45 @@ void StreamLoadAction::handle(HttpRequest* req) {
         return;
     }
 
+    // Mark handle as called, indicating all client data has been received
+    // This is safe to send response now without broken pipe
+    // Use mutex to protect the critical section and avoid race conditions
+    std::optional<std::string> response_to_send;
+    {
+        std::lock_guard<std::mutex> lock(ctx->response_mutex);
+
+        ctx->handle_called = true;
+
+        // If using async mode, check if fragment execution has completed
+        // If fragment completed before handle was called, response info was saved
+        // Now that handle is called, we can safely send the response
+        if (ctx->event_base != nullptr && ctx->http_request != nullptr &&
+            ctx->stream_load_action != nullptr) {
+            // Check if there's a pending response to send
+            // This happens when fragment execution completed before handle was called
+            if (ctx->pending_response.has_value()) {
+                // Fragment execution completed before handle was called
+                // Now handle is called (data received), safe to send response
+                response_to_send = std::move(ctx->pending_response.value());
+                ctx->pending_response.reset();
+            }
+        }
+    }
+
+    // Send response outside of lock to avoid holding lock during I/O
+    if (response_to_send.has_value()) {
+        HttpChannel::send_reply(req, response_to_send.value());
+        _finalize_request_cleanup(ctx);
+        return;
+    }
+
+    // No pending response, fragment execution not completed yet
+    // Continue with normal handle logic, response will be sent in callback
+    if (ctx->event_base != nullptr && ctx->http_request != nullptr &&
+        ctx->stream_load_action != nullptr) {
+        // Continue with normal handle logic, response will be sent in callback
+    }
+
     // status already set to fail
     if (ctx->status.ok()) {
         ctx->status = _handle(ctx, req);
@@ -116,10 +155,10 @@ void StreamLoadAction::handle(HttpRequest* req) {
         }
     }
 
-    // If using async mode, response will be sent in callback, return here
+    // If using async mode and no pending response, response will be sent in callback
     if (ctx->event_base != nullptr && ctx->http_request != nullptr &&
         ctx->stream_load_action != nullptr && ctx->status.ok()) {
-        // Async mode, response will be sent in callback
+        // Async mode, response will be sent in callback when fragment execution completes
         return;
     }
 
@@ -441,17 +480,6 @@ void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
     ctx->http_request = nullptr;
     ctx->stream_load_action = nullptr;
     ctx->event_base = nullptr;
-
-    // If promise hasn't been set, set it to avoid other code waiting forever
-    try {
-        auto future_status = ctx->future.wait_for(std::chrono::milliseconds(0));
-        if (future_status == std::future_status::timeout) {
-            // promise hasn't been set, set a cancelled status
-            ctx->promise.set_value(Status::Cancelled("Request closed by client"));
-        }
-    } catch (...) {
-        // promise already set, ignore
-    }
 
     // sender is gone, make receiver know it
     if (ctx->body_sink != nullptr) {
@@ -1053,11 +1081,33 @@ void StreamLoadAction::_finalize_request(HttpRequest* req, std::shared_ptr<Strea
 
     auto str = ctx->to_json();
     str = str + '\n';
-    HttpChannel::send_reply(req, str);
 
+    // Check if handle() has been called (data received completely)
+    // If handle() has been called, safe to send response immediately
+    // Otherwise, save response string and wait for handle() to be called
+    // Use mutex to protect the critical section and avoid race conditions
+    std::lock_guard<std::mutex> lock(ctx->response_mutex);
+
+    if (ctx->handle_called) {
+        // handle() has been called, data received completely, safe to send response
+        HttpChannel::send_reply(req, str);
+        _finalize_request_cleanup(ctx);
+    } else {
+        // handle() not called yet, data still being received
+        // Save response string to send when handle() is called
+        ctx->pending_response = str;
+        LOG(INFO) << "Fragment execution completed before handle() was called, "
+                  << "saving response to send when handle() is called, ctx=" << ctx->id.to_string();
+    }
+}
+
+void StreamLoadAction::_finalize_request_cleanup(std::shared_ptr<StreamLoadContext> ctx) {
 #ifndef BE_TEST
     if (config::enable_stream_load_record || config::enable_stream_load_record_to_audit_log_table) {
-        if (req->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
+        if (ctx->http_request != nullptr &&
+            ctx->http_request->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
+            auto str = ctx->to_json();
+            str = str + '\n';
             str = ctx->prepare_stream_load_record(str);
             _save_stream_load_record(ctx, str);
         }

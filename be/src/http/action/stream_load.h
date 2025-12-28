@@ -59,8 +59,9 @@ private:
 
     // Finalize request and send response
     void _finalize_request(HttpRequest* req, std::shared_ptr<StreamLoadContext> ctx);
+    // Cleanup after finalizing request (for statistics and logging)
+    void _finalize_request_cleanup(std::shared_ptr<StreamLoadContext> ctx);
 
-private:
     ExecEnv* _exec_env;
 
     std::shared_ptr<MetricEntity> _stream_load_entity;

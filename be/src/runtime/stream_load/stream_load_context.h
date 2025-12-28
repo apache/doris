@@ -28,6 +28,7 @@
 #include <future>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -267,6 +268,12 @@ public:
     struct event_base* event_base = nullptr;        // libevent event loop
     HttpRequest* http_request = nullptr;            // HTTP request reference
     StreamLoadAction* stream_load_action = nullptr; // StreamLoadAction instance pointer
+    bool handle_called {
+            false}; // Flag to indicate if handle() has been called (data received completely)
+    std::optional<std::string>
+            pending_response; // Pending response string to send when handle() is called
+    mutable std::mutex
+            response_mutex; // Mutex to protect pending_response and handle_called check/set
 
 public:
     ExecEnv* exec_env() { return _exec_env; }

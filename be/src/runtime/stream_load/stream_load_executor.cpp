@@ -87,7 +87,6 @@ struct StreamLoadAsyncCallbackWrapper {
         data->ctx->stream_load_action->continue_handle_after_future(
                 data->ctx, data->fragment_status, data->need_rollback, data->need_commit_self,
                 data->body_sink_cancelled);
-
     }
 };
 #endif
@@ -196,11 +195,12 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             // If event_base_once fails, unique_ptr will automatically clean up
             // If event_base_once succeeds, release ownership to callback
             int ret = event_base_once(ctx->event_base, -1, EV_TIMEOUT,
-                                      StreamLoadAsyncCallbackWrapper::invoke, callback_data.get(), &tv);
+                                      StreamLoadAsyncCallbackWrapper::invoke, callback_data.get(),
+                                      &tv);
             if (ret != 0) {
                 // event_base_once failed, unique_ptr will automatically clean up
                 LOG(WARNING) << "event_base_once failed, cannot send async callback, ctx="
-                           << ctx->id.to_string() << ", errno=" << errno;
+                             << ctx->id.to_string() << ", errno=" << errno;
             } else {
                 // event_base_once succeeded, release ownership to callback
                 callback_data.release();
