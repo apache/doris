@@ -17,19 +17,21 @@
 
 package org.apache.doris.datasource.fluss;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableType;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.thrift.TFlussTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
+
+import java.util.List;
 
 public class FlussExternalTableTest {
 
@@ -63,11 +65,13 @@ public class FlussExternalTableTest {
 
     @Test
     public void testToThrift() {
-        Mockito.when(table.getDbName()).thenReturn("test_db");
-        Mockito.when(table.getName()).thenReturn("test_table");
-        Mockito.when(table.getFullSchema()).thenReturn(new java.util.ArrayList<>());
+        FlussExternalTable spyTable = Mockito.spy(table);
+        Mockito.when(spyTable.getDbName()).thenReturn("test_db");
+        Mockito.when(spyTable.getName()).thenReturn("test_table");
+        List<Column> emptySchema = Lists.newArrayList();
+        Mockito.when(spyTable.getFullSchema()).thenReturn(emptySchema);
 
-        TTableDescriptor descriptor = table.toThrift();
+        TTableDescriptor descriptor = spyTable.toThrift();
         Assert.assertNotNull(descriptor);
         Assert.assertEquals(TTableType.FLUSS_EXTERNAL_TABLE, descriptor.getTableType());
         Assert.assertEquals("test_table", descriptor.getTableName());
@@ -77,15 +81,17 @@ public class FlussExternalTableTest {
 
     @Test
     public void testGetRemoteDbName() {
-        Mockito.when(table.getRemoteDbName()).thenReturn("remote_db");
-        String remoteDbName = table.getRemoteDbName();
+        FlussExternalTable spyTable = Mockito.spy(table);
+        Mockito.when(spyTable.getRemoteDbName()).thenReturn("remote_db");
+        String remoteDbName = spyTable.getRemoteDbName();
         Assert.assertEquals("remote_db", remoteDbName);
     }
 
     @Test
     public void testGetRemoteName() {
-        Mockito.when(table.getRemoteName()).thenReturn("remote_table");
-        String remoteName = table.getRemoteName();
+        FlussExternalTable spyTable = Mockito.spy(table);
+        Mockito.when(spyTable.getRemoteName()).thenReturn("remote_table");
+        String remoteName = spyTable.getRemoteName();
         Assert.assertEquals("remote_table", remoteName);
     }
 }
