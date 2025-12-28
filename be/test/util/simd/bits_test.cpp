@@ -76,7 +76,6 @@ TEST(BitsTest, Bytes32MaskToBits32Mask) {
             res += static_cast<uint32_t>(data[j]) << j;
         }
         EXPECT_EQ(bytes32_mask_to_bits32_mask(data.data()), res);
-        EXPECT_EQ(res, res);
     }
 }
 
