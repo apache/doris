@@ -63,6 +63,7 @@
 #include "vec/exec/format/table/hive_reader.h"
 #include "vec/exec/format/table/hudi_jni_reader.h"
 #include "vec/exec/format/table/hudi_reader.h"
+#include "vec/exec/format/table/fluss_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/lakesoul_jni_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
@@ -1227,6 +1228,16 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
         RETURN_IF_ERROR(paimon_reader->init_row_filters());
         _cur_reader = std::move(paimon_reader);
     } else if (range.__isset.table_format_params &&
+               range.table_format_params.table_format_type == "fluss") {
+        std::unique_ptr<FlussParquetReader> fluss_reader = FlussParquetReader::create_unique(
+                std::move(parquet_reader), _profile, _state, *_params, range, _io_ctx.get(),
+                file_meta_cache_ptr);
+        init_status = fluss_reader->init_reader(
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
+                _default_val_row_desc.get(), _col_name_to_slot_id,
+                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+        _cur_reader = std::move(fluss_reader);
+    } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hudi") {
         std::unique_ptr<HudiParquetReader> hudi_reader = HudiParquetReader::create_unique(
                 std::move(parquet_reader), _profile, _state, *_params, range, _io_ctx.get(),
@@ -1336,6 +1347,17 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
                 &_slot_id_to_filter_conjuncts);
         RETURN_IF_ERROR(paimon_reader->init_row_filters());
         _cur_reader = std::move(paimon_reader);
+    } else if (range.__isset.table_format_params &&
+               range.table_format_params.table_format_type == "fluss") {
+        std::unique_ptr<FlussOrcReader> fluss_reader =
+                FlussOrcReader::create_unique(std::move(orc_reader), _profile, _state, *_params,
+                                              range, _io_ctx.get(), file_meta_cache_ptr);
+
+        init_status = fluss_reader->init_reader(
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
+                _default_val_row_desc.get(), &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts);
+        _cur_reader = std::move(fluss_reader);
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hudi") {
         std::unique_ptr<HudiOrcReader> hudi_reader =
