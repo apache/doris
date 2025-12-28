@@ -57,6 +57,7 @@
 namespace doris {
 using namespace ErrorCode;
 
+#ifndef BE_TEST
 // Callback data structure for async stream load processing
 struct StreamLoadAsyncCallbackData {
     std::shared_ptr<StreamLoadContext> ctx;
@@ -66,31 +67,30 @@ struct StreamLoadAsyncCallbackData {
     bool body_sink_cancelled;
 };
 
-// C-style callback function for event_base_once
-static void stream_load_async_callback(evutil_socket_t, short, void* arg) {
-    auto* data = static_cast<StreamLoadAsyncCallbackData*>(arg);
-    // This callback executes in libevent thread
-    // Check validity again (request may have been closed during wait)
-    if (data->ctx->stream_load_action == nullptr || data->ctx->http_request == nullptr) {
-        LOG(WARNING) << "stream_load_action or http_request is null in callback, "
-                     << "request may be closed, ctx=" << data->ctx->id.to_string();
-        // Note: No need to set promise here because:
-        // 1. If request is closed, free_handler_ctx should have set promise (to Cancelled)
-        // 2. In async mode, _handle() has returned, won't wait for promise
-        // 3. If promise is already set, setting again will throw exception
-        // 4. Even if promise is not set, setting here is meaningless since request is closed
-        delete data;
-        return;
+// C-style callback function for event_base_once (must be static function, not lambda)
+struct StreamLoadAsyncCallbackWrapper {
+    static void invoke(evutil_socket_t, short, void* arg) {
+        // Use unique_ptr with custom deleter to ensure memory is always cleaned up
+        // This handles the case where event_base is destroyed before callback executes
+        auto* data_ptr = static_cast<StreamLoadAsyncCallbackData*>(arg);
+        std::unique_ptr<StreamLoadAsyncCallbackData> data(data_ptr);
+
+        // This callback executes in libevent thread
+        // Check validity again (request may have been closed during wait)
+        if (data->ctx->stream_load_action == nullptr || data->ctx->http_request == nullptr) {
+            LOG(WARNING) << "stream_load_action or http_request is null in callback, "
+                         << "request may be closed, ctx=" << data->ctx->id.to_string();
+            return;
+        }
+
+        // Continue with subsequent logic
+        data->ctx->stream_load_action->continue_handle_after_future(
+                data->ctx, data->fragment_status, data->need_rollback, data->need_commit_self,
+                data->body_sink_cancelled);
+
     }
-
-    // Continue with subsequent logic
-    data->ctx->stream_load_action->continue_handle_after_future(
-            data->ctx, data->fragment_status, data->need_rollback, data->need_commit_self,
-            data->body_sink_cancelled);
-
-    // Clean up callback data after execution
-    delete data;
-}
+};
+#endif
 
 #ifdef BE_TEST
 TLoadTxnBeginResult k_stream_load_begin_result;
@@ -177,31 +177,34 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             bool need_commit_self = ctx->need_commit_self;
             bool body_sink_cancelled = (ctx->body_sink != nullptr && ctx->body_sink->cancelled());
 
-            // Allocate callback data on heap since event_base_once may not execute immediately
-            auto* callback_data =
-                    new StreamLoadAsyncCallbackData {.ctx = ctx,
-                                                     .fragment_status = fragment_status,
-                                                     .need_rollback = need_rollback,
-                                                     .need_commit_self = need_commit_self,
-                                                     .body_sink_cancelled = body_sink_cancelled};
+            // Use unique_ptr to manage callback data memory safely
+            // If event_base_once fails, unique_ptr will automatically clean up
+            // If event_base_once succeeds, we release ownership to the callback
+            auto callback_data = std::make_unique<StreamLoadAsyncCallbackData>(
+                    StreamLoadAsyncCallbackData {.ctx = ctx,
+                                                 .fragment_status = fragment_status,
+                                                 .need_rollback = need_rollback,
+                                                 .need_commit_self = need_commit_self,
+                                                 .body_sink_cancelled = body_sink_cancelled});
 
             // Use event_base_once to trigger callback in libevent thread
             // This is a one-shot event, no timer needed
             struct timeval tv {};
             tv.tv_sec = 0;
             tv.tv_usec = 0; // Trigger immediately
-            int ret = event_base_once(ctx->event_base, -1, EV_TIMEOUT, stream_load_async_callback,
-                                      callback_data, &tv);
+            // Pass raw pointer to event_base_once, but keep unique_ptr alive
+            // If event_base_once fails, unique_ptr will automatically clean up
+            // If event_base_once succeeds, release ownership to callback
+            int ret = event_base_once(ctx->event_base, -1, EV_TIMEOUT,
+                                      StreamLoadAsyncCallbackWrapper::invoke, callback_data.get(), &tv);
             if (ret != 0) {
-                // event_base_once failed, log error
-                // Note: In async mode, no code is waiting for promise (_handle() has returned),
-                // so no need to set promise
-                LOG(ERROR) << "event_base_once failed, cannot send async callback, ctx="
+                // event_base_once failed, unique_ptr will automatically clean up
+                LOG(WARNING) << "event_base_once failed, cannot send async callback, ctx="
                            << ctx->id.to_string() << ", errno=" << errno;
-                // Note: Cannot send HTTP response in this case, request may be invalid
-                // No need to set promise, as no code is waiting in async mode
+            } else {
+                // event_base_once succeeded, release ownership to callback
+                callback_data.release();
             }
-            // On success, don't call promise.set_value, as subsequent logic is handled in callback
 
         } else {
             // event_base not set, not triggered via HTTP request (e.g., routine load)
