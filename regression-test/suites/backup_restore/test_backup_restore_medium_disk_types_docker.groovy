@@ -31,9 +31,11 @@ suite("test_backup_restore_medium_disk_types_docker", "docker,backup_restore") {
         "HDD=1,SSD=1" // Third BE: 1 HDD + 1 SSD (mixed)
     ]
     
-    // Enable debug logging for backup module
+    // Enable debug logging for org.apache.doris.backup package
+    // Setting both sys_log_verbose_modules (for the package) and sys_log_level (to ensure DEBUG is enabled)
     options.feConfigs += [
-        'sys_log_verbose_modules=org.apache.doris.backup'
+        'sys_log_verbose_modules=org.apache.doris.backup',
+        'sys_log_level=DEBUG'
     ]
 
     docker(options) {

@@ -34,9 +34,11 @@ suite("test_backup_restore_medium_capacity_docker", "docker,backup_restore") {
     ]
     options.enableDebugPoints()
     
-    // Enable debug logging
+    // Enable debug logging for org.apache.doris.backup package
+    // Setting both sys_log_verbose_modules (for the package) and sys_log_level (to ensure DEBUG is enabled)
     options.feConfigs += [
-        'sys_log_verbose_modules=org.apache.doris.backup'
+        'sys_log_verbose_modules=org.apache.doris.backup',
+        'sys_log_level=DEBUG'
     ]
 
     docker(options) {

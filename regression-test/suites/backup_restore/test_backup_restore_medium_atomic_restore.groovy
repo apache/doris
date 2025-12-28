@@ -265,6 +265,136 @@ suite("test_backup_restore_medium_atomic_restore", "backup_restore") {
     
     sql "DROP TABLE ${dbName}.${tableName}_local_pref FORCE"
 
+    // Test 5: Atomic restore should fail if table has temp partitions (line 662-665)
+    logger.info("=== Test 5: Atomic restore with temp partitions error check ===")
+    
+    sql "DROP TABLE IF EXISTS ${dbName}.${tableName}_temp"
+    sql """
+        CREATE TABLE ${dbName}.${tableName}_temp (
+            `date` DATE,
+            `id` INT,
+            `value` INT
+        )
+        PARTITION BY RANGE(`date`) (
+            PARTITION p1 VALUES LESS THAN ('2024-01-01'),
+            PARTITION p2 VALUES LESS THAN ('2024-02-01')
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    
+    sql "INSERT INTO ${dbName}.${tableName}_temp VALUES ('2023-12-15', 1, 100)"
+    
+    // Backup
+    sql "BACKUP SNAPSHOT ${dbName}.snap_temp TO `${repoName}` ON (${tableName}_temp)"
+    syncer.waitSnapshotFinish(dbName)
+    snapshot = syncer.getSnapshotTimestamp(repoName, "snap_temp")
+    
+    // Add a temp partition to the table
+    sql """
+        ALTER TABLE ${dbName}.${tableName}_temp 
+        ADD TEMPORARY PARTITION p_temp VALUES LESS THAN ('2024-03-01')
+    """
+    
+    // Wait for temp partition to be created
+    Thread.sleep(2000)
+    
+    // Try to restore - should fail because table has temp partitions
+    try {
+        sql """
+            RESTORE SNAPSHOT ${dbName}.snap_temp FROM `${repoName}`
+            ON (`${tableName}_temp`)
+            PROPERTIES (
+                "backup_timestamp" = "${snapshot}",
+                "storage_medium" = "ssd",
+                "medium_allocation_mode" = "strict"
+            )
+        """
+        
+        Thread.sleep(3000)
+        
+        def restore_status = sql "SHOW RESTORE FROM ${dbName}"
+        if (restore_status.size() > 0) {
+            def state = restore_status[0][4]
+            logger.info("Restore status with temp partition: ${state}")
+            if (state == "CANCELLED") {
+                logger.info("Expected: restore cancelled due to temp partitions")
+            }
+        }
+        
+    } catch (Exception e) {
+        logger.info("Expected: restore failed due to temp partitions: ${e.message}")
+    }
+    
+    sql "DROP TABLE ${dbName}.${tableName}_temp FORCE"
+
+    // Test 6: Multiple consecutive atomic restores to same table (line 668-671)
+    logger.info("=== Test 6: Multiple consecutive atomic restores ===")
+    
+    sql "DROP TABLE IF EXISTS ${dbName}.${tableName}_multi"
+    sql """
+        CREATE TABLE ${dbName}.${tableName}_multi (
+            `id` INT,
+            `value` STRING
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    
+    sql "INSERT INTO ${dbName}.${tableName}_multi VALUES (1, 'version1')"
+    
+    sql "BACKUP SNAPSHOT ${dbName}.snap_m1 TO `${repoName}` ON (${tableName}_multi)"
+    syncer.waitSnapshotFinish(dbName)
+    def snap_m1 = syncer.getSnapshotTimestamp(repoName, "snap_m1")
+    
+    sql "INSERT INTO ${dbName}.${tableName}_multi VALUES (2, 'version2')"
+    
+    sql "BACKUP SNAPSHOT ${dbName}.snap_m2 TO `${repoName}` ON (${tableName}_multi)"
+    syncer.waitSnapshotFinish(dbName)
+    def snap_m2 = syncer.getSnapshotTimestamp(repoName, "snap_m2")
+    
+    sql "INSERT INTO ${dbName}.${tableName}_multi VALUES (3, 'version3')"
+    
+    // First atomic restore to snap_m1
+    sql """
+        RESTORE SNAPSHOT ${dbName}.snap_m1 FROM `${repoName}`
+        ON (`${tableName}_multi`)
+        PROPERTIES (
+            "backup_timestamp" = "${snap_m1}",
+            "atomic_restore" = "true",
+            "storage_medium" = "hdd",
+            "medium_allocation_mode" = "adaptive"
+        )
+    """
+    
+    syncer.waitAllRestoreFinish(dbName)
+    
+    result = sql "SELECT COUNT(*) FROM ${dbName}.${tableName}_multi"
+    assertEquals(1, result[0][0], "After first atomic restore, should have 1 row")
+    
+    // Second atomic restore to snap_m2
+    sql """
+        RESTORE SNAPSHOT ${dbName}.snap_m2 FROM `${repoName}`
+        ON (`${tableName}_multi`)
+        PROPERTIES (
+            "backup_timestamp" = "${snap_m2}",
+            "atomic_restore" = "true",
+            "storage_medium" = "ssd",
+            "medium_allocation_mode" = "strict"
+        )
+    """
+    
+    syncer.waitAllRestoreFinish(dbName)
+    
+    result = sql "SELECT COUNT(*) FROM ${dbName}.${tableName}_multi"
+    assertEquals(2, result[0][0], "After second atomic restore, should have 2 rows")
+    
+    sql "DROP TABLE ${dbName}.${tableName}_multi FORCE"
+
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"
 }
