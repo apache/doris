@@ -474,6 +474,15 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             }
         }
     } else if (_part_type == TPartitionType::RANDOM) {
+        const auto& ids = local_state.local_channel_ids;
+        // Find the first channel ID >= current_channel_idx
+        auto it = std::lower_bound(ids.begin(), ids.end(), local_state.current_channel_idx);
+        if (it != ids.end()) {
+            local_state.current_channel_idx = *it;
+        } else {
+            // All IDs are < current_channel_idx; wrap around to the first one
+            local_state.current_channel_idx = ids[0];
+        }
         RETURN_IF_ERROR(send_to_current_channel());
         local_state.current_channel_idx =
                 (local_state.current_channel_idx + 1) % local_state.channels.size();
