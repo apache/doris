@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
-import org.apache.doris.thrift.THiveTable;
+import org.apache.doris.thrift.TFlussTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -45,11 +45,10 @@ public class FlussExternalTable extends ExternalTable {
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
-        // Use THiveTable as placeholder until TFlussTable is added to Thrift definitions
-        THiveTable tHiveTable = new THiveTable(getDbName(), getName(), new HashMap<>());
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE,
+        TFlussTable tFlussTable = new TFlussTable(getDbName(), getName(), new HashMap<>());
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.FLUSS_EXTERNAL_TABLE,
                 schema.size(), 0, getName(), getDbName());
-        tTableDescriptor.setHiveTable(tHiveTable);
+        tTableDescriptor.setFlussTable(tFlussTable);
         return tTableDescriptor;
     }
 }

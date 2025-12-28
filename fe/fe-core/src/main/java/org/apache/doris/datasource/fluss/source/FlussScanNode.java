@@ -27,6 +27,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFlussFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -70,9 +71,16 @@ public class FlussScanNode extends FileQueryScanNode {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(TableFormatType.FLUSS.value());
         
-        // For MVP, we'll pass basic file information
-        // BE will use Rust bindings to read actual data
-        String fileFormat = getFileFormat(flussSplit.getPathString());
+        TFlussFileDesc flussFileDesc = new TFlussFileDesc();
+        flussFileDesc.setDatabaseName(flussSplit.getDatabaseName());
+        flussFileDesc.setTableName(flussSplit.getTableName());
+        flussFileDesc.setTableId(flussSplit.getTableId());
+        
+        // For MVP, default to parquet format
+        // BE will use Rust bindings to determine actual file format from Fluss metadata
+        String fileFormat = "parquet";
+        flussFileDesc.setFileFormat(fileFormat);
+        
         if (fileFormat.equals("orc")) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
         } else if (fileFormat.equals("parquet")) {
@@ -81,7 +89,7 @@ public class FlussScanNode extends FileQueryScanNode {
             throw new RuntimeException("Unsupported file format: " + fileFormat);
         }
         
-        // TODO: Add Fluss-specific parameters to TFlussFileDesc when Thrift definitions are added
+        tableFormatFileDesc.setFlussParams(flussFileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 

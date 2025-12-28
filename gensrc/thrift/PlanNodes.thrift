@@ -399,6 +399,14 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+struct TFlussFileDesc {
+    1: optional string database_name
+    2: optional string table_name
+    3: optional i64 table_id
+    4: optional string file_format
+    5: optional map<string, string> fluss_options
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -410,6 +418,7 @@ struct TTableFormatFileDesc {
     8: optional TLakeSoulFileDesc lakesoul_params
     9: optional i64 table_level_row_count = -1
     10: optional TRemoteDorisFileDesc remote_doris_params
+    11: optional TFlussFileDesc fluss_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
