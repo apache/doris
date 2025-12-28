@@ -15,28 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.fluss;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector"),
-    TVF("tvf"),
-    REMOTE_DORIS("remote_doris"),
-    FLUSS("fluss");
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.InitDatabaseLog;
 
-    private final String tableFormatType;
+public class FlussExternalDatabase extends ExternalDatabase<FlussExternalTable> {
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
+    public FlussExternalDatabase(ExternalCatalog extCatalog, Long id, String name, String remoteName) {
+        super(extCatalog, id, name, remoteName, InitDatabaseLog.Type.FLUSS);
     }
 
-    public String value() {
-        return tableFormatType;
+    @Override
+    public FlussExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+            ExternalCatalog catalog, ExternalDatabase db) {
+        return new FlussExternalTable(tblId, localTableName, remoteTableName, (FlussExternalCatalog) extCatalog,
+                (FlussExternalDatabase) db);
     }
 }
+
