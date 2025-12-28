@@ -40,6 +40,8 @@ import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
+import org.apache.doris.thrift.TRestoreSnapshotRequest;
+import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
@@ -47,6 +49,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import mockit.Mocked;
+import org.apache.thrift.TException;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -58,6 +61,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -246,5 +250,67 @@ public class FrontendServiceImplTest {
         TShowUserRequest request = new TShowUserRequest();
         TShowUserResult result = impl.showUser(request);
         System.out.println(result);
+    }
+
+    @Test
+    public void testRestoreSnapshotWithStorageMedium() throws TException {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TRestoreSnapshotRequest request = new TRestoreSnapshotRequest();
+
+        // Test with storage_medium parameter in properties
+        Map<String, String> properties = new HashMap<>();
+        properties.put("storage_medium", "ssd");
+        request.setProperties(properties);
+
+        TRestoreSnapshotResult result = impl.restoreSnapshot(request);
+        Assert.assertNotNull(result);
+        Assert.assertNotNull(result.getStatus());
+    }
+
+    @Test
+    public void testRestoreSnapshotWithMediumAllocationMode() throws TException {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TRestoreSnapshotRequest request = new TRestoreSnapshotRequest();
+
+        // Test with medium_allocation_mode parameter in properties
+        Map<String, String> properties = new HashMap<>();
+        properties.put("medium_allocation_mode", "adaptive");
+        request.setProperties(properties);
+
+        TRestoreSnapshotResult result = impl.restoreSnapshot(request);
+        Assert.assertNotNull(result);
+        Assert.assertNotNull(result.getStatus());
+    }
+
+    @Test
+    public void testRestoreSnapshotWithBothParameters() throws TException {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TRestoreSnapshotRequest request = new TRestoreSnapshotRequest();
+
+        // Test with both storage_medium and medium_allocation_mode in properties
+        Map<String, String> properties = new HashMap<>();
+        properties.put("storage_medium", "hdd");
+        properties.put("medium_allocation_mode", "strict");
+        request.setProperties(properties);
+
+        TRestoreSnapshotResult result = impl.restoreSnapshot(request);
+        Assert.assertNotNull(result);
+        Assert.assertNotNull(result.getStatus());
+    }
+
+    @Test
+    public void testRestoreSnapshotWithSameWithUpstream() throws TException {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TRestoreSnapshotRequest request = new TRestoreSnapshotRequest();
+
+        // Test with same_with_upstream storage medium in properties
+        Map<String, String> properties = new HashMap<>();
+        properties.put("storage_medium", "same_with_upstream");
+        properties.put("medium_allocation_mode", "adaptive");
+        request.setProperties(properties);
+
+        TRestoreSnapshotResult result = impl.restoreSnapshot(request);
+        Assert.assertNotNull(result);
+        Assert.assertNotNull(result.getStatus());
     }
 }

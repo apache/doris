@@ -24,12 +24,21 @@ suite("test_backup_restore_state_and_error_docker", "docker,backup_restore") {
     def options = new ClusterOptions()
     options.feNum = 1
     options.beNum = 3
-    options.beDisks = ["HDD=2", "SSD=1", "HDD=1,SSD=1"]
+    
+    // Configure BEs with different disk types
+    options.beDisks = [
+        "HDD=2",      // First BE: 2 HDD disks
+        "SSD=1",      // Second BE: 1 SSD disk
+        "HDD=1,SSD=1" // Third BE: 1 HDD + 1 SSD (mixed)
+    ]
+    
     options.enableDebugPoints()
     
-    // Enable debug logging
+    // Enable debug logging for org.apache.doris.backup package
+    // Setting both sys_log_verbose_modules (for the package) and sys_log_level (to ensure DEBUG is enabled)
     options.feConfigs += [
-        'sys_log_verbose_modules=org.apache.doris.backup'
+        'sys_log_verbose_modules=org.apache.doris.backup',
+        'sys_log_level=DEBUG'
     ]
 
     docker(options) {
