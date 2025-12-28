@@ -147,31 +147,66 @@ public class HudiJniScanner extends JniScanner {
 
     @Override
     public void open() throws IOException {
+        // Use timeout mechanism to prevent stuck process
         Future<?> avroFuture = avroReadPool.submit(() -> {
             Thread.currentThread().setContextClassLoader(classLoader);
             initTableInfo(split.requiredTypes(), split.requiredFields(), predicates, fetchSize);
             long startTime = System.nanoTime();
-            // RecordReader will use ProcessBuilder to start a hotspot process, which may be stuck,
-            // so use another process to kill this stuck process.
-            // TODO(gaoxin): better way to solve the stuck process?
-            AtomicBoolean isKilled = new AtomicBoolean(false);
-            ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
-            executorService.scheduleAtFixedRate(() -> {
-                if (!isKilled.get()) {
-                    synchronized (HudiJniScanner.class) {
-                        List<Long> pids = Utils.getChildProcessIds(
-                                Utils.getCurrentProcId());
-                        for (long pid : pids) {
-                            String cmd = Utils.getCommandLine(pid);
-                            if (cmd != null && cmd.contains("org.openjdk.jol.vm.sa.AttachMain")) {
-                                Utils.killProcess(pid);
-                                isKilled.set(true);
-                                LOG.info("Kill hotspot debugger process " + pid);
+            
+            // Improved stuck process handling:
+            // 1. Record child processes before RecordReader initialization
+            // 2. Monitor for new AttachMain processes with timeout
+            // 3. Kill stuck processes automatically after reasonable timeout
+            long currentPid = Utils.getCurrentProcId();
+            List<Long> childPidsBefore = Utils.getChildProcessIds(currentPid);
+            AtomicBoolean processKilled = new AtomicBoolean(false);
+            AtomicLong targetPid = new AtomicLong(-1);
+            
+            // Configuration: timeout for stuck process detection (10 seconds)
+            final long STUCK_PROCESS_TIMEOUT_SECONDS = 10;
+            // Configuration: grace period to allow normal process completion (5 seconds)
+            final long PROCESS_GRACE_PERIOD_SECONDS = 5;
+            
+            // Start monitoring thread before RecordReader initialization
+            ScheduledExecutorService monitorService = Executors.newScheduledThreadPool(1);
+            Future<?> monitorFuture = monitorService.schedule(() -> {
+                if (!processKilled.get()) {
+                    try {
+                        List<Long> childPidsAfter = Utils.getChildProcessIds(currentPid);
+                        // Find new processes that match AttachMain pattern
+                        for (long pid : childPidsAfter) {
+                            if (!childPidsBefore.contains(pid)) {
+                                String cmd = Utils.getCommandLine(pid);
+                                if (cmd != null && cmd.contains("org.openjdk.jol.vm.sa.AttachMain")) {
+                                    targetPid.set(pid);
+                                    LOG.debug("Detected AttachMain process " + pid + ", monitoring for stuck behavior");
+                                    
+                                    // Wait grace period to see if process completes normally
+                                    Thread.sleep(PROCESS_GRACE_PERIOD_SECONDS * 1000);
+                                    
+                                    // Check if process is still running (stuck)
+                                    List<Long> currentChildPids = Utils.getChildProcessIds(currentPid);
+                                    if (currentChildPids.contains(pid)) {
+                                        Utils.killProcess(pid);
+                                        processKilled.set(true);
+                                        LOG.warn("Killed stuck hotspot debugger process " + pid + 
+                                                " after " + PROCESS_GRACE_PERIOD_SECONDS + 
+                                                " seconds grace period. Split info: " + debugString);
+                                    } else {
+                                        LOG.debug("AttachMain process " + pid + " completed normally");
+                                    }
+                                    break;
+                                }
                             }
                         }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        LOG.debug("Process monitor interrupted");
+                    } catch (Exception e) {
+                        LOG.warn("Error monitoring child processes", e);
                     }
                 }
-            }, 100, 1000, TimeUnit.MILLISECONDS);
+            }, STUCK_PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
             cleanResolverLock.readLock().lock();
             try {
@@ -195,12 +230,23 @@ public class HudiJniScanner extends JniScanner {
             } finally {
                 cleanResolverLock.readLock().unlock();
             }
-            isKilled.set(true);
-            executorService.shutdownNow();
+            
+            // Cancel monitor if RecordReader initialized successfully
+            processKilled.set(true);
+            monitorFuture.cancel(true);
+            monitorService.shutdownNow();
             getRecordReaderTimeNs += System.nanoTime() - startTime;
         });
+        
         try {
-            avroFuture.get();
+            // Set timeout for the entire initialization (default 60 seconds)
+            // This prevents the scanner from hanging indefinitely
+            long timeoutSeconds = 60;
+            avroFuture.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            avroFuture.cancel(true);
+            throw new IOException("Hudi scanner initialization timeout after " + timeoutSeconds + 
+                    " seconds. This may be caused by stuck hotspot debugger process.", e);
         } catch (Exception e) {
             throw new IOException(e.getMessage(), e);
         }
