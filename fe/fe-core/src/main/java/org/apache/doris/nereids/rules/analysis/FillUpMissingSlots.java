@@ -236,7 +236,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                         if (!SqlModeHelper.hasOnlyFullGroupBy()) {
                             // ATTN: we should add any_value to agg's output here, but not add slot directly.
                             //   because normalize agg cannot replace upper slot with new output.
-                            Alias alias = new Alias(new AnyValue(expression));
+                            Alias alias = new Alias(new AnyValue(false, groupByExpressions.isEmpty(), expression),
+                                    ((SlotReference) expression).getName());
                             newOutputSlots.add(alias);
                             substitution.put(expression, alias.toSlot());
                         } else {

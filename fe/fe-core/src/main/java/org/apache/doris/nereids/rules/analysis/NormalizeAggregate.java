@@ -307,10 +307,22 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     // aggregate's output list and slot itself into bottom project's output list
                     bottomProjects = Sets.union(bottomProjects, missingSlotsInAggregate);
                     Map<Expression, Expression> replaceMap = Maps.newHashMap();
+                    Map<String, Alias> normalizedAggExistingAlias = Maps.newHashMap();
+                    for (NamedExpression output : normalizedAggOutputBuilder.build()) {
+                        if (output instanceof Alias) {
+                            normalizedAggExistingAlias.put(output.getName(), (Alias) output);
+                        }
+                    }
                     for (Slot slot : missingSlotsInAggregate) {
-                        Alias anyValue = new Alias(new AnyValue(slot), slot.getName());
-                        replaceMap.put(slot, anyValue.toSlot());
-                        normalizedAggOutputBuilder.add(anyValue);
+                        AnyValue anyValue = new AnyValue(false, normalizedGroupExprs.isEmpty(), slot);
+                        Alias exisitingAlias = normalizedAggExistingAlias.get(slot.getName());
+                        if (exisitingAlias != null && anyValue.equals(exisitingAlias.child())) {
+                            replaceMap.put(slot, exisitingAlias.toSlot());
+                        } else {
+                            Alias anyValueAlias = new Alias(anyValue, slot.getName());
+                            replaceMap.put(slot, anyValueAlias.toSlot());
+                            normalizedAggOutputBuilder.add(anyValueAlias);
+                        }
                     }
                     upperProjects = upperProjects.stream()
                             .map(e -> (NamedExpression) ExpressionUtils.replace(e, replaceMap))
