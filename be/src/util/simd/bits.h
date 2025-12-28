@@ -26,6 +26,10 @@
 #include <arm_neon.h>
 #endif
 
+#if defined(__ARM_FEATURE_SVE)
+#include <arm_sve.h>
+#endif
+
 #include "util/sse_util.hpp"
 
 namespace doris::simd {
@@ -81,6 +85,38 @@ inline uint32_t bytes32_mask_to_bits32_mask(const uint8_t* data) {
                       _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16)), zero16)))
               << 16) &
              0xffff0000);
+#elif defined(__ARM_FEATURE_SVE)
+    /*
+    * Assume the input data is [1 (repeated 16 times), 0 (repeated 16 times)].
+    *
+    * 1. Comparison produces a predicate mask: is_one = [1 (repeated 16 times), 0 (repeated 16 times)].
+    *
+    * 2. Construct a new vector: masked = [1, 2, 4, 8, 16, 32, 64, 128,1, 2, 4, 8, 16, 32, 64, 128, 0 (repeated 16 times)].
+    * For each position, if the corresponding element in is_one is 1, take the value from the mask array (mask_arr); otherwise, take 0.
+    *
+    * 3. Rearorder the elements: res = [1, 1, 0, 0, 2, 2, 0, 0, 4, 4, 0, 0, ...], where the index mapping is: j = (i % 4) * 8 + (i / 4).
+    *
+    * 4. Perform a horizontal sum to obtain the final result:
+    *    mask = sum_{i=0}^{7} ( res[i*4] + (res[i*4 + 1] << 8) + (res[i*4 + 2] << 16) + (res[i*4 + 3] << 24)).
+    *    This works because we use svreinterpret_u32_u8, treating every group of four u8 elements as a single u32.
+    */
+    static constexpr uint8_t mask_arr[32] = {1,  2,   4,  8,  16,  32, 64, 128, 1,  2,  4,
+                                             8,  16,  32, 64, 128, 1,  2,  4,   8,  16, 32,
+                                             64, 128, 1,  2,  4,   8,  16, 32,  64, 128};
+    svbool_t pg = svwhilelt_b8(0, 32);
+    svuint8_t mask_vec = svld1_u8(pg, mask_arr);
+    svbool_t is_one = svcmpeq_n_u8(pg, svld1_u8(pg, data), 1);
+    svuint8_t masked = svsel_u8(is_one, mask_vec, svdup_u8(0));
+
+    // j = i % 4 * 8 + i / 4
+    svuint8_t idx = svindex_u8(0, 1);
+    svuint8_t mod4 = svand_n_u8_z(pg, idx, 3);
+    svuint8_t div4 = svlsr_n_u8_z(pg, idx, 2);
+    svuint8_t base = svlsl_n_u8_z(pg, mod4, 3);
+    svuint8_t src = svadd_u8_x(pg, base, div4);
+    svuint8_t res = svtbl_u8(masked, src);
+
+    uint32_t mask = static_cast<uint32_t>(svaddv_u32(pg, svreinterpret_u32_u8(res)));
 #else
     uint32_t mask = 0;
     for (std::size_t i = 0; i < 32; ++i) {

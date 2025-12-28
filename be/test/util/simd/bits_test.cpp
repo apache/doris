@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <random>
 
 #include "gtest/gtest_pred_impl.h"
 
@@ -61,6 +62,22 @@ TEST(BitsTest, BytesMaskToBitsMask) {
     std::vector<uint8_t> ones(len, 1);
     auto full_mask = bytes_mask_to_bits_mask(ones.data());
     EXPECT_EQ(full_mask, bits_mask_all());
+}
+
+TEST(BitsTest, Bytes32MaskToBits32Mask) {
+    std::mt19937 rng(123);
+
+    for (int i = 0; i < 50; i++) {
+        std::vector<uint8_t> data;
+        data.resize(32);
+        uint32_t res = 0;
+        for (int j = 0; j < 32; ++j) {
+            data[j] = rng() & 1;
+            res += static_cast<uint32_t>(data[j]) << j;
+        }
+        EXPECT_EQ(bytes32_mask_to_bits32_mask(data.data()), res);
+        EXPECT_EQ(res, res);
+    }
 }
 
 TEST(BitsTest, CountZeroNum) {
