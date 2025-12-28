@@ -38,8 +38,8 @@ public class FlussExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        // TODO: Implement schema loading from Fluss
-        return Optional.empty();
+        makeSureInitialized();
+        return FlussUtils.loadSchemaCacheValue(this);
     }
 
     @Override
