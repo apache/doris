@@ -699,7 +699,6 @@ Status RowGroupReader::_fill_partition_columns(
 Status RowGroupReader::_fill_missing_columns(
         Block* block, size_t rows,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    std::set<size_t> positions_to_erase;
     for (const auto& kv : missing_columns) {
         if (!_col_name_to_block_idx->contains(kv.first)) {
             return Status::InternalError("Missing column: {} not found in block {}", kv.first,
@@ -714,16 +713,13 @@ Status RowGroupReader::_fill_missing_columns(
         } else {
             // fill with default value
             const auto& ctx = kv.second;
-            auto origin_column_num = block->columns();
-            int result_column_id = -1;
+            ColumnPtr result_column_ptr;
             // PT1 => dest primitive type
-            RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
-            bool is_origin_column = result_column_id < origin_column_num;
-            if (!is_origin_column) {
+            RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
+            if (result_column_ptr->use_count() == 1) {
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                auto result_column_ptr = block->get_by_position(result_column_id).column;
                 auto mutable_column = result_column_ptr->assume_mutable();
                 mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
@@ -734,11 +730,9 @@ Status RowGroupReader::_fill_missing_columns(
                 block->replace_by_position(
                         (*_col_name_to_block_idx)[kv.first],
                         is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-                positions_to_erase.insert(result_column_id);
             }
         }
     }
-    block->erase(positions_to_erase);
     return Status::OK();
 }
 
