@@ -300,6 +300,9 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
 // `func1` used by RPC1, RPC2 and RPC3 judge it or just give func1 a pointer
 #define RPC_PREPROCESS(func_name, ...)                                                        \
     StopWatch sw;                                                                             \
+    [[maybe_unused]] std::string instance_id;                                                 \
+    AnnotateTag tag_log_id("log_id", get_log_id(controller));                                 \
+    AnnotateTag tag_instance_id("instance_id", instance_id);                                  \
     auto ctrl = static_cast<brpc::Controller*>(controller);                                   \
     begin_rpc(#func_name, ctrl, request, response);                                           \
     brpc::ClosureGuard closure_guard(done);                                                   \
@@ -307,7 +310,6 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     [[maybe_unused]] MetaServiceCode code = MetaServiceCode::OK;                              \
     [[maybe_unused]] std::unique_ptr<Transaction> txn;                                        \
     [[maybe_unused]] std::string msg;                                                         \
-    [[maybe_unused]] std::string instance_id;                                                 \
     [[maybe_unused]] bool drop_request = false;                                               \
     [[maybe_unused]] KVStats stats;                                                           \
     DORIS_CLOUD_DEFER {                                                                       \

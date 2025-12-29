@@ -20,30 +20,76 @@
 #include <butil/containers/linked_list.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
+#include <google/protobuf/service.h>
 
+#include <cstdint>
+#include <ostream>
+#include <string>
 #include <string_view>
 #include <type_traits>
+#include <variant>
 
 namespace doris::cloud {
 
 bool init_glog(const char* basename);
+uint64_t get_log_id(google::protobuf::RpcController* controller);
 
 /// Wrap a glog stream and tag on the log. usage:
 ///   LOG_INFO("here is an info for a {} query", query_type).tag("query_id", queryId);
+///   LOG_INFO("msg") << "query_id" << query_id;
+///   LOG_INFO("msg {}", msg) << "query_id" << query_id;
 #define LOG_INFO(...) ::doris::cloud::TaggableLogger(LOG(INFO), ##__VA_ARGS__)
 #define LOG_WARNING(...) ::doris::cloud::TaggableLogger(LOG(WARNING), ##__VA_ARGS__)
 #define LOG_ERROR(...) ::doris::cloud::TaggableLogger(LOG(ERROR), ##__VA_ARGS__)
 #define LOG_FATAL(...) ::doris::cloud::TaggableLogger(LOG(FATAL), ##__VA_ARGS__)
 
-class AnnotateTag final : public butil::LinkNode<AnnotateTag> {
-    struct default_tag_t {};
-    constexpr static default_tag_t default_tag {};
+// If you want to use AnnotateTag but the parameters do not match AnnotateTagAllowType, causing the compile fail
+// you need to add the supported types using the following syntax:
+// such as you want add a `ClassA a; AnnotateTag tag_a("a", a);`
+// 1. add type to AnnotateTagAllowType: `std::is_same_v<ClassA, T>` connect with `||` with other is_same_v
+// 2. add ClassA type to `ValueType<..., ClassA> data_;`
+// 3. if is a complex type (class A,B...) maybe you need rewrite `AnnotateTagValue::to_string()`
+//      +- you need prove a lambda to AnnotateTagValueHelper{[](const A&)...} make sure return std::string
+template <typename T>
+concept AnnotateTagAllowType = requires {
+    std::is_arithmetic<T>() || std::is_same_v<std::string, T> ||
+            std::is_same_v<std::string_view, T>;
+};
+
+class AnnotateTagValue {
+    template <typename... Ts>
+    struct ValueType {
+        using Type = std::variant<Ts..., Ts*...>;
+    };
 
 public:
-    template <typename T, typename = std::enable_if_t<std::is_arithmetic_v<T>, T>>
-    AnnotateTag(std::string_view key, T value)
-            : AnnotateTag(default_tag, key, std::to_string(value)) {}
-    AnnotateTag(std::string_view key, std::string_view value);
+    template <AnnotateTagAllowType T>
+    explicit AnnotateTagValue(T&& val) {
+        // rvalue store origin value, lvalue store pointer
+        if constexpr (std::is_rvalue_reference_v<decltype(val)>) {
+            data_ = std::move(val);
+        } else {
+            data_ = &val;
+        }
+    };
+    AnnotateTagValue(std::string& str) : data_(&str) {};
+    AnnotateTagValue(const char*& str) : data_(std::string(str)) {};
+    AnnotateTagValue(const std::string& str) : data_(str) {};
+
+    std::string to_string() const;
+
+private:
+    ValueType<char, bool, int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t,
+              std::string, std::string_view>::Type data_;
+};
+
+class AnnotateTag final : public butil::LinkNode<AnnotateTag> {
+public:
+    template <AnnotateTagAllowType T>
+    explicit AnnotateTag(std::string_view key, T&& value)
+            : key_(key), value_(std::forward<T>(value)) {
+        append_to_tag_list();
+    }
     ~AnnotateTag();
 
     static void format_tag_list(std::ostream& stream);
@@ -52,10 +98,9 @@ public:
     static void* operator new[](size_t) = delete;
 
 private:
-    explicit AnnotateTag(default_tag_t, std::string_view key, std::string value);
-
+    void append_to_tag_list();
     std::string_view key_;
-    std::string value_;
+    AnnotateTagValue value_;
 };
 
 class TaggableLogger {
@@ -67,8 +112,9 @@ public:
         } else {
             stream_ << fmt::format(fmt, std::forward<Args>(args)...);
         }
-        AnnotateTag::format_tag_list(stream_);
     };
+
+    ~TaggableLogger() { AnnotateTag::format_tag_list(stream_); };
 
     template <typename V>
     TaggableLogger& tag(std::string_view key, const V& value) {
@@ -79,6 +125,16 @@ public:
             stream_ << value;
         }
         return *this;
+    }
+
+    template <typename V>
+    std::ostream& operator<<(const V& value) {
+        if constexpr (std::is_convertible_v<V, std::string_view>) {
+            stream_ << '"' << value << '"';
+        } else {
+            stream_ << value;
+        }
+        return stream_;
     }
 
 private:
