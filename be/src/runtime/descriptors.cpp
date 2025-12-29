@@ -459,7 +459,7 @@ std::string TupleDescriptor::debug_string() const {
 
 RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl,
                              const std::vector<TTupleId>& row_tuples) {
-    DCHECK_GT(row_tuples.size(), 0);
+    DCHECK_EQ(row_tuples.size(), 1);
     _num_materialized_slots = 0;
     _num_slots = 0;
 
