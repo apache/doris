@@ -933,17 +933,17 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topic("condition function", bottomUp(ImmutableList.of(
                                 new NullableDependentExpressionRewrite())))
                 ));
-                //rewriteJobs.addAll(jobs(
-                //        topic("rewrite rules depend on stats ",
-                //                custom(RuleType.STATS_DERIVE, StatsDerive::new)
-                //                //topDown(DistinctAggregateRewriter.INSTANCE),
-                //                //custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR,
-                //                //        () -> DistinctAggStrategySelector.INSTANCE)
-                //                        )
-                //        //bottomUp(ImmutableList.of(new InitJoinOrder())),
-                //        //topDown(new SkewJoin())
-                //         )
-                //);
+                rewriteJobs.addAll(jobs(
+                        topic("rewrite rules depend on stats ",
+                                custom(RuleType.STATS_DERIVE, StatsDerive::new),
+                                topDown(DistinctAggregateRewriter.INSTANCE),
+                                custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR,
+                                        () -> DistinctAggStrategySelector.INSTANCE)
+                                        ),
+                                bottomUp(ImmutableList.of(new InitJoinOrder())),
+                                topDown(new SkewJoin())
+                         )
+                );
                 return rewriteJobs;
             }
         );
