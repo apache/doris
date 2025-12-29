@@ -74,7 +74,7 @@ public class DebeziumJsonDeserializer
         implements SourceRecordDeserializer<SourceRecord, List<String>> {
     private static final long serialVersionUID = 1L;
     private static final Logger LOG = LoggerFactory.getLogger(DebeziumJsonDeserializer.class);
-    protected static ObjectMapper objectMapper = new ObjectMapper();
+    private static ObjectMapper objectMapper = new ObjectMapper();
     @Setter private ZoneId serverTimeZone = ZoneId.systemDefault();
 
     public DebeziumJsonDeserializer() {}

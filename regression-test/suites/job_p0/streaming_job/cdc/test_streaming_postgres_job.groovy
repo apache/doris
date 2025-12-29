@@ -20,11 +20,11 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_postgres_job", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_docker_pg") {
     def jobName = "test_streaming_postgres_job_name"
     def currentDb = (sql "select database()")[0][0]
-    def table1 = "user_info_normal1"
-    def table2 = "user_info_normal2"
+    def table1 = "user_info_pg_normal1"
+    def table2 = "user_info_pg_normal2"
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
@@ -132,7 +132,7 @@ suite("test_streaming_postgres_job", "p0,external,mysql,external_docker,external
         qt_select_snapshot_table1 """ SELECT * FROM ${table1} order by name asc """
         qt_select_snapshot_table2 """ SELECT * FROM ${table2} order by name asc """
 
-        // mock mysql incremental into
+        // mock incremental into
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Doris',18);"""
             sql """UPDATE ${pgDB}.${pgSchema}.${table1} SET age = 10 WHERE name = 'B1';"""
@@ -151,7 +151,7 @@ suite("test_streaming_postgres_job", "p0,external,mysql,external_docker,external
         assert jobInfo.get(0).get(0) == "{\"scannedRows\":7,\"loadBytes\":337,\"fileNumber\":0,\"fileSize\":0}"
         assert jobInfo.get(0).get(1) == "RUNNING"
 
-        // mock mysql incremental into again
+        // mock incremental into again
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Apache',40);"""
         }

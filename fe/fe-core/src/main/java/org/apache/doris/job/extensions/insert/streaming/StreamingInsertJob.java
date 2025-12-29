@@ -26,7 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -572,6 +571,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void onStreamTaskSuccess(AbstractStreamingTask task) {
         try {
+            resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             AbstractStreamingTask nextTask = createStreamingTask();
@@ -728,7 +728,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(getJobName()));
         trow.addToColumnValue(new TCell().setStringVal(getCreateUser().getQualifiedUser()));
         trow.addToColumnValue(new TCell().setStringVal(getJobConfig().getExecuteType().name()));
-        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(getJobStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(getShowSQL()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
@@ -737,30 +737,30 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getCanceledTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(getComment()));
         trow.addToColumnValue(new TCell().setStringVal(properties != null && !properties.isEmpty()
-                ? GsonUtils.GSON.toJson(properties) : FeConstants.null_string));
+                ? GsonUtils.GSON.toJson(properties) : ""));
 
         if (offsetProvider != null && StringUtils.isNotEmpty(offsetProvider.getShowCurrentOffset())) {
             trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getShowCurrentOffset()));
         } else {
-            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            trow.addToColumnValue(new TCell().setStringVal(""));
         }
 
         if (offsetProvider != null && StringUtils.isNotEmpty(offsetProvider.getShowMaxOffset())) {
             trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getShowMaxOffset()));
         } else {
-            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            trow.addToColumnValue(new TCell().setStringVal(""));
         }
         if (tvfType != null) {
             trow.addToColumnValue(new TCell().setStringVal(
-                    jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
+                    jobStatistic == null ? "" : jobStatistic.toJson()));
         } else {
             trow.addToColumnValue(new TCell().setStringVal(
-                    nonTxnJobStatistic == null ? FeConstants.null_string : nonTxnJobStatistic.toJson()));
+                    nonTxnJobStatistic == null ? "" : nonTxnJobStatistic.toJson()));
         }
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
-                ? FeConstants.null_string : failureReason.getMsg()));
+                ? "" : failureReason.getMsg()));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
-                ? FeConstants.null_string : jobRuntimeMsg));
+                ? "" : jobRuntimeMsg));
         return trow;
     }
 
@@ -1062,7 +1062,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * The current streamingTask times out; create a new streamingTask.
      * Only applies to StreamingMultiTask.
      */
-    public void processTimeoutTasks() {
+    public void processTimeoutTasks() throws JobException {
         if (!(runningStreamTask instanceof StreamingMultiTblTask)) {
             return;
         }
@@ -1071,16 +1071,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) this.runningStreamTask;
             if (TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
                     && runningMultiTask.isTimeout()) {
-                runningMultiTask.cancel(false);
-                runningMultiTask.setErrMsg("task cancelled cause timeout");
-
-                // renew streaming multi task
-                this.runningStreamTask = createStreamingMultiTblTask();
-                Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
-                this.runningStreamTask.setStatus(TaskStatus.PENDING);
-                log.info("create new streaming multi tasks due to timeout, for job {}, task {} ",
-                        getJobId(), runningStreamTask.getTaskId());
-                recordTasks(runningStreamTask);
+                runningMultiTask.onFail("task failed cause timeout");
+                // renew streaming task by auto resume
             }
         } finally {
             writeUnlock();

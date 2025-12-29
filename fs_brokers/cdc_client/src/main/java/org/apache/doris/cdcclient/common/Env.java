@@ -72,8 +72,13 @@ public class Env {
 
     private SourceReader getOrCreateReader(
             Long jobId, DataSource dataSource, Map<String, String> config) {
-        JobContext context = getOrCreateContext(jobId, dataSource, config);
-        return context.getOrCreateReader(dataSource);
+        try {
+            JobContext context = getOrCreateContext(jobId, dataSource, config);
+            return context.getOrCreateReader(dataSource);
+        } catch (Exception ex) {
+            jobContexts.remove(jobId);
+            throw ex;
+        }
     }
 
     public void close(Long jobId) {

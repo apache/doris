@@ -20,14 +20,14 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_postgres_job_all_type", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("test_streaming_postgres_job_all_type", "p0,external,pg,external_docker,external_docker_pg") {
     def jobName = "test_streaming_postgres_job_all_type_name"
     def currentDb = (sql "select database()")[0][0]
     def table1 = "streaming_all_types_nullable_with_pk_pg"
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
-    def pgPassword = "postgres"
+    def pgPassword = "123456"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""
@@ -86,7 +86,7 @@ suite("test_streaming_postgres_job_all_type", "p0,external,mysql,external_docker
         sql """CREATE JOB ${jobName}
                 ON STREAMING
                 FROM POSTGRES (
-                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}?timezone=UTC",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "org.postgresql.Driver",
                     "user" = "${pgUser}",
@@ -123,9 +123,9 @@ suite("test_streaming_postgres_job_all_type", "p0,external,mysql,external_docker
         qt_desc_all_types_null """desc ${currentDb}.${table1};"""
         qt_select_all_types_null """select * from ${currentDb}.${table1} order by 1;"""
 
-        // mock mysql incremental into
+        // mock incremental into
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (2,2,200,2000,7.89,0.12,99999.000001,'char2','varchar2','another text',false,'2025-01-01','23:59:59','23:59:59+00','2025-01-01 23:59:59','2025-01-01 23:59:59+00','2 hours',decode('DEADBEEF', 'hex'),'11111111-2222-3333-4444-555555555556'::uuid,'{"x":10}','{"y":20}','10.0.0.1','10.0.0.0/16','08:00:2b:aa:bb:cc',B'11110000',B'1111',ARRAY[10,20],ARRAY[ARRAY['x','y'],ARRAY['z','w']],'(3,4)');"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (2,2,200,2000,7.89,0.12,99999.000001,'char2','varchar2','another text',false,'2025-01-01','23:59:59','23:59:59+00','2025-01-01 23:59:59','2025-01-01 23:59:59+00','2 hours',decode('DEADBEEF', 'hex'),'11111111-2222-3333-4444-555555555556'::uuid,'{"x":10}','{"y":20}','10.0.0.1','10.0.0.0/16','08:00:2b:aa:bb:cc',B'11110000',B'1111',ARRAY[10,20],ARRAY['x','y'],'(3,4)');"""
         }
 
         sleep(30000); // wait for cdc incremental data

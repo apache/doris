@@ -143,10 +143,13 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
                 return st;
             }
         } else {
+            LOG(INFO) << "CDC client is dead, pid=" << exist_pid;
             // Process is dead, reset PID and continue to start
             _child_pid.store(0);
         }
 #endif
+    } else {
+        LOG(INFO) << "CDC client has never been started";
     }
 
     const char* doris_home = getenv("DORIS_HOME");
@@ -204,7 +207,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
         int out_fd = open(cdc_out_file.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
         if (out_fd < 0) {
             perror("open cdc-client.out file failed");
-            exit(1)
+            exit(1);
         }
         dup2(out_fd, STDOUT_FILENO);
         dup2(out_fd, STDERR_FILENO);
