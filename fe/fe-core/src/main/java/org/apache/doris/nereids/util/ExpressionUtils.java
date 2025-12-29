@@ -1318,11 +1318,15 @@ public class ExpressionUtils {
     public static org.apache.doris.nereids.trees.expressions.functions.Function convertUnnest(Unnest unnest) {
         DataType dataType = unnest.child(0).getDataType();
         List<Expression> args = unnest.getArguments();
+        if (args.isEmpty()) {
+            throw new AnalysisException("UNNEST function's arguments can not be empty");
+        }
         if (dataType.isArrayType()) {
-            Expression[] arrayArgs = args.toArray(new Expression[0]);
+            Expression[] others = args.subList(1, args.size()).toArray(new Expression[0]);
             return unnest.isOuter()
-                    ? unnest.needOrdinality() ? new PosExplodeOuter(arrayArgs) : new ExplodeOuter(arrayArgs)
-                    : unnest.needOrdinality() ? new PosExplode(arrayArgs) : new Explode(arrayArgs);
+                    ? unnest.needOrdinality() ? new PosExplodeOuter(args.get(0), others)
+                            : new ExplodeOuter(args.get(0), others)
+                    : unnest.needOrdinality() ? new PosExplode(args.get(0), others) : new Explode(args.get(0), others);
         } else {
             if (unnest.needOrdinality()) {
                 throw new AnalysisException(String.format("only ARRAY support WITH ORDINALITY,"
