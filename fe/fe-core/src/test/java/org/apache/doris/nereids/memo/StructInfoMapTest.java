@@ -27,6 +27,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.Multimap;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
@@ -105,8 +106,14 @@ class StructInfoMapTest extends SqlTestBase {
         root = c1.getMemo().getRoot();
         // because refresh struct info by targetBitSet when getValidQueryStructInfos, this would cause
         // query struct info version increase twice. so need increase the memo version manually.
-        c1.getMemo().incrementAndGetRefreshVersion();
-        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
+        Multimap<Integer, Integer> commonTableIdToRelationIdMap
+                = c1.getStatementContext().getCommonTableIdToRelationIdMap();
+        BitSet targetBitSet = new BitSet();
+        for (Integer relationId : commonTableIdToRelationIdMap.values()) {
+            targetBitSet.set(relationId);
+        }
+        c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
+        root.getStructInfoMap().refresh(root, c1, targetBitSet, new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         tableMaps = root.getStructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
@@ -178,8 +185,14 @@ class StructInfoMapTest extends SqlTestBase {
         root = c1.getMemo().getRoot();
         // because refresh struct info by targetBitSet when getValidQueryStructInfos, this would cause
         // query struct info version increase twice. so need increase the memo version manually.
-        c1.getMemo().incrementAndGetRefreshVersion();
-        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
+        Multimap<Integer, Integer> commonTableIdToRelationIdMap
+                = c1.getStatementContext().getCommonTableIdToRelationIdMap();
+        BitSet targetBitSet = new BitSet();
+        for (Integer relationId : commonTableIdToRelationIdMap.values()) {
+            targetBitSet.set(relationId);
+        }
+        c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
+        root.getStructInfoMap().refresh(root, c1, targetBitSet, new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         tableMaps = root.getStructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
@@ -238,8 +251,14 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         // because refresh struct info by targetBitSet when getValidQueryStructInfos, this would cause
         // query struct info version increase twice. so need increase the memo version manually.
-        c1.getMemo().incrementAndGetRefreshVersion();
-        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
+        Multimap<Integer, Integer> commonTableIdToRelationIdMap
+                = c1.getStatementContext().getCommonTableIdToRelationIdMap();
+        BitSet targetBitSet = new BitSet();
+        for (Integer relationId : commonTableIdToRelationIdMap.values()) {
+            targetBitSet.set(relationId);
+        }
+        c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
+        root.getStructInfoMap().refresh(root, c1, targetBitSet, new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         StructInfoMap structInfoMap = root.getStructInfoMap();
         Assertions.assertEquals(2, structInfoMap.getTableMaps().size());

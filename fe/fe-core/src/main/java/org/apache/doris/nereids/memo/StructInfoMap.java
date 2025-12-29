@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
 
 /**
@@ -59,7 +60,8 @@ public class StructInfoMap {
      * The map key is the relation id bit set to get corresponding plan accurately
      */
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
-    private long refreshVersion = 0;
+    // The key is the relationIds query used, the value is the refresh version when last refresh
+    private final Map<BitSet, Long> refreshVersion = new HashMap<>();
 
     /**
      * get struct info according to table map
@@ -77,7 +79,7 @@ public class StructInfoMap {
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
             refresh(group, cascadesContext, tableMap, new HashSet<>(),
                     forceRefresh);
-            group.getStructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
+            group.getStructInfoMap().setRefreshVersion(tableMap, cascadesContext.getMemo().getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(tableMap);
@@ -104,8 +106,31 @@ public class StructInfoMap {
         return groupExpressionMap.get(tableMap);
     }
 
-    public void setRefreshVersion(long refreshVersion) {
-        this.refreshVersion = refreshVersion;
+    // Set the refresh version for the given queryRelationIdSet
+    public void setRefreshVersion(BitSet queryRelationIdSet, Map<Integer, AtomicLong> memoRefreshVersionMap) {
+        this.refreshVersion.put(queryRelationIdSet, getMemoVersion(queryRelationIdSet, memoRefreshVersionMap));
+    }
+
+    // Set the refresh version for the given queryRelationIdSet
+    public void setRefreshVersion(BitSet queryRelationIdSet, Long memoRefreshVersion) {
+        this.refreshVersion.put(queryRelationIdSet, memoRefreshVersion);
+    }
+
+    // Get the refresh version for the given queryRelationIdSet, if not exist, return 0
+    public long getRefreshVersion(BitSet queryRelationIdSet) {
+        return refreshVersion.computeIfAbsent(queryRelationIdSet, k -> 0L);
+    }
+
+    /** Get the max memo version among the relation ids in queryRelationIdSet*/
+    public static long getMemoVersion(BitSet queryRelationIdSet, Map<Integer, AtomicLong> memoRefreshVersionMap) {
+        long version = 0L;
+        for (Integer queryMvRelationId : memoRefreshVersionMap.keySet()) {
+            if (queryRelationIdSet.get(queryMvRelationId)) {
+                AtomicLong memoRefreshVersion = memoRefreshVersionMap.get(queryMvRelationId);
+                version = Math.max(memoRefreshVersion.get(), version);
+            }
+        }
+        return version;
     }
 
     private StructInfo constructStructInfo(GroupExpression groupExpression, List<BitSet> children,
@@ -144,8 +169,8 @@ public class StructInfoMap {
             boolean forceRefresh) {
         StructInfoMap structInfoMap = group.getStructInfoMap();
         refreshedGroup.add(group.getGroupId().asInt());
-        long memoVersion = cascadesContext.getMemo().getRefreshVersion();
-        if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
+        long memoVersion = getMemoVersion(targetBitSet, cascadesContext.getMemo().getRefreshVersion());
+        if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.getRefreshVersion(targetBitSet)) {
             return;
         }
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
@@ -166,7 +191,7 @@ public class StructInfoMap {
                 StructInfoMap childStructInfoMap = child.getStructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
                     childStructInfoMap.refresh(child, cascadesContext, targetBitSet, refreshedGroup, forceRefresh);
-                    childStructInfoMap.setRefreshVersion(memoVersion);
+                    childStructInfoMap.setRefreshVersion(targetBitSet, memoVersion);
                 }
                 Set<BitSet> groupTableSet = new HashSet<>();
                 for (BitSet tableMaps : child.getStructInfoMap().getTableMaps()) {

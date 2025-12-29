@@ -51,6 +51,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -74,7 +75,9 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
-    private final AtomicLong refreshVersion = new AtomicLong(1);
+    // The key is the query relationId, the value is the refresh version when last refresh, this is needed
+    // because struct info refresh base on target relationId.
+    private final Map<Integer, AtomicLong> refreshVersion = new HashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckSuccessMap =
             new LinkedHashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckFailMap =
@@ -128,12 +131,27 @@ public class Memo {
         return groupExpressions.size();
     }
 
-    public long getRefreshVersion() {
-        return refreshVersion.get();
+    /** get the refresh version map*/
+    public Map<Integer, AtomicLong> getRefreshVersion() {
+        return refreshVersion;
     }
 
-    public long incrementAndGetRefreshVersion() {
-        return refreshVersion.incrementAndGet();
+    /** return the incremented refresh version for the given relationId*/
+    public long incrementAndGetRefreshVersion(int relationId) {
+        return refreshVersion.compute(relationId, (k, v) -> {
+            if (v == null) {
+                return new AtomicLong(1L);
+            }
+            v.incrementAndGet();
+            return v;
+        }).get();
+    }
+
+    /** return the incremented refresh version for the given relationId set*/
+    public void incrementAndGetRefreshVersion(BitSet relationIdSet) {
+        for (int i = relationIdSet.nextSetBit(0); i >= 0; i = relationIdSet.nextSetBit(i + 1)) {
+            incrementAndGetRefreshVersion(i);
+        }
     }
 
     /**
@@ -467,7 +485,7 @@ public class Memo {
                 && plan instanceof LogicalCatalogRelation
                 && ((CatalogRelation) plan).getTable() instanceof MTMV
                 && !plan.getGroupExpression().isPresent()) {
-            incrementAndGetRefreshVersion();
+            incrementAndGetRefreshVersion(((CatalogRelation) plan).getRelationId().asInt());
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {

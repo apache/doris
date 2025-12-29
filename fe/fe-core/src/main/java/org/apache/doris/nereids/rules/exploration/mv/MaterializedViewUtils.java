@@ -285,7 +285,7 @@ public class MaterializedViewUtils {
             SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
             structInfoMap.refresh(ownerGroup, cascadesContext, targetRelationIdSet, new HashSet<>(),
                     sessionVariable.isEnableMaterializedViewNestRewrite());
-            structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
+            structInfoMap.setRefreshVersion(targetRelationIdSet, cascadesContext.getMemo().getRefreshVersion());
             Set<BitSet> queryRelationIdSets = structInfoMap.getTableMaps();
             ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
             if (!queryRelationIdSets.isEmpty()) {

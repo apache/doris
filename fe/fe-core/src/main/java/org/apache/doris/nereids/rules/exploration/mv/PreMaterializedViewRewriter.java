@@ -89,7 +89,7 @@ public class PreMaterializedViewRewriter {
                 = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
                 cascadesContext.getAllMaterializationContexts());
         // Calc the table id set which is used by physical plan
-        cascadesContext.getMemo().incrementAndGetRefreshVersion();
+        cascadesContext.getMemo().incrementAndGetRefreshVersion(chosenMaterializationAndUsedTable.value());
         // Extract logical plan by table id set by the corresponding best physical plan
         StructInfo structInfo = root.getStructInfoMap().getStructInfo(cascadesContext,
                 chosenMaterializationAndUsedTable.value(), root, null, true);
