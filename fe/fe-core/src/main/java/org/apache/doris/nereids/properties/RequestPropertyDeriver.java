@@ -22,6 +22,7 @@ import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
@@ -63,6 +64,7 @@ import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -463,10 +465,86 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                     return null;
                 }
             }
-            addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
-            return null;
+
+            Optional<Statistics> childStats = getGlobalAggChildStats(agg);
+            if (!childStats.isPresent() || !connectContext.getSessionVariable().chooseOneAggShuffleKey) {
+                addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+                return null;
+            } else {
+                // Select a key with maximum NDV and minimal skew as the GROUP BY key
+                // If the number of GROUP BY keys is relatively large (e.g., 5 or more - configurable),
+                // choose the key with the highest NDV as the primary GROUP BY key.
+                // This approach is only applied when there are no repeated values (could be relaxed later).
+                //
+                // The selection process considers:
+                // 1. NULL skew - whether the key has significant NULL value concentration
+                // 2. Hot values - whether certain values are disproportionately frequent (optional for now)
+                //
+                // Calculation method:
+                // - Obtain total instance count and estimate rows per instance
+                // - For skew evaluation: compute ratio = rows_in_normal_node / rows_in_skewed_node
+                // - A key is considered acceptable if ratio > 2/3 (i.e., rows_in_normal_node / max_skewed_rows > 2)
+                // - Hot value analysis may be added in future iterations
+                if (agg.getGroupByExpressions().size() <= 5 || agg.hasSourceRepeat()) {
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+                    return null;
+                }
+                double childRows = childStats.get().getRowCount();
+                int instanceNum = ConnectContext.getTotalInstanceNum(context.getConnectContext());
+
+                ExprId bestGbyKey = null;
+                double bestNdv = -1L;
+                for (Expression groupByExpr : agg.getGroupByExpressions()) {
+                    if (!(groupByExpr instanceof SlotReference)) {
+                        continue;
+                    }
+                    SlotReference slotRef = (SlotReference) groupByExpr;
+                    ColumnStatistic columnStatistic = childStats.get().findColumnStatistics(slotRef);
+                    if (columnStatistic == null) {
+                        continue;
+                    }
+                    double ndv = columnStatistic.ndv;
+                    if (ndv > bestNdv) {
+                        // check skew
+                        double nullsCount = columnStatistic.numNulls;
+                        double rowsPerInstance = (childRows - nullsCount) / instanceNum;
+                        double maxSkewFactor = nullsCount == 0 ? Double.MAX_VALUE : rowsPerInstance / nullsCount;
+                        if (maxSkewFactor > 2.0 && ndv > instanceNum) {
+                            bestNdv = ndv;
+                            bestGbyKey = slotRef.getExprId();
+                        }
+                    }
+                }
+                if (-1L == bestNdv) {
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+                    return null;
+                }
+                if (bestGbyKey != null) {
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(
+                            ImmutableList.of(bestGbyKey), ShuffleType.REQUIRE));
+                    return null;
+                }
+            }
         }
         return null;
+    }
+
+    // 入参是global agg，返回值是拿到local agg的孩子的统计信息
+    private Optional<Statistics> getGlobalAggChildStats(PhysicalHashAggregate<? extends Plan> agg) {
+        Optional<GroupExpression> groupExpression = agg.getGroupExpression();
+        if (!groupExpression.isPresent()) {
+            return Optional.empty();
+        }
+        Statistics aggChildStats = groupExpression.get().childStatistics(0);
+        // 拿到local AGG孩子的统计信息
+        Group childGroup = groupExpression.get().child(0);
+        Plan childExpression = childGroup.getPhysicalExpressions().get(0).getPlan();
+        if (childExpression instanceof PhysicalHashAggregate
+                && ((PhysicalHashAggregate) childExpression).getAggPhase().isLocal()) {
+            childGroup = childGroup.getPhysicalExpressions().get(0).child(0);
+            aggChildStats = childGroup.getStatistics();
+        }
+        return Optional.of(aggChildStats);
     }
 
     private boolean shouldUseParent(List<ExprId> parentHashExprIds, PhysicalHashAggregate<? extends Plan> agg,

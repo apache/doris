@@ -1630,4 +1630,16 @@ public class ConnectContext {
             tableNameSet.remove(tableName);
         }
     }
+
+    public static int getAliveBeNumber(ConnectContext connectContext) {
+        return Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
+    }
+
+    public static int getParallelInstanceNum(ConnectContext connectContext) {
+        return Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
+    }
+
+    public static int getTotalInstanceNum(ConnectContext connectContext) {
+        return getAliveBeNumber(connectContext) * getParallelInstanceNum(connectContext);
+    }
 }

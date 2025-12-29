@@ -101,7 +101,7 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         List<NamedExpression> aggOutput = changed ? builder.build() : logicalAgg.getOutputExpressions();
         return ImmutableList.of(new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), aggOutput, param,
                 AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), param),
-                null, logicalAgg.child()));
+                null, logicalAgg.getSourceRepeat().isPresent(), logicalAgg.child()));
     }
 
     /**
@@ -129,7 +129,7 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         PhysicalHashAggregate<? extends Plan> localAgg = new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(),
                 localAggOutput, inputToBufferParam,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), inputToBufferParam),
-                null, aggregate.child());
+                null, aggregate.getSourceRepeat().isPresent(), aggregate.child());
 
         // global agg
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
@@ -148,7 +148,7 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         return ImmutableList.of(new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(),
                 globalAggOutput, bufferToResultParam,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), bufferToResultParam),
-                aggregate.getLogicalProperties(), localAgg));
+                aggregate.getLogicalProperties(), aggregate.getSourceRepeat().isPresent(), localAgg));
     }
 
     private boolean shouldUseLocalAgg(LogicalAggregate<? extends Plan> aggregate) {
