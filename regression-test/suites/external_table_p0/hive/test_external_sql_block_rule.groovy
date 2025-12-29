@@ -85,6 +85,8 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
             sql """select * from test_hive2_external_sql_block_rule.`default`.parquet_partition_table order by l_linenumber limit 10;"""
             exception """sql hits sql block rule: external_hive_partition, reach partition_num : 3"""
         }
+        // Test EXPLAIN should not be blocked
+        sql """explain select * from test_hive2_external_sql_block_rule.`default`.parquet_partition_table order by l_linenumber limit 10;"""
     }
     // login as external_block_user2
     def result2 = connect('external_block_user2', '', context.config.jdbcUrl) {
@@ -92,6 +94,8 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
             sql """select * from test_hive2_external_sql_block_rule.`default`.parquet_partition_table order by l_linenumber limit 10;"""
             exception """sql hits sql block rule: external_hive_partition2, reach tablet_num : 3"""
         }
+        // Test EXPLAIN should not be blocked
+        sql """explain select * from test_hive2_external_sql_block_rule.`default`.parquet_partition_table order by l_linenumber limit 10;"""
     }
     // login as external_block_user3
     def result3 = connect('external_block_user3', '', context.config.jdbcUrl) {
@@ -99,6 +103,63 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
             sql """select * from test_hive2_external_sql_block_rule.`default`.parquet_partition_table order by l_linenumber limit 10;"""
             exception """sql hits sql block rule: external_hive_partition3, reach cardinality : 3"""
         }
+        // Test EXPLAIN should not be blocked
+        sql """explain select * from test_hive2_external_sql_block_rule.`default`.parquet_partition_table order by l_linenumber limit 10;"""
     }
-}
 
+    // Test global partition_num rule
+    sql """drop sql_block_rule if exists hive_global_partition_rule"""
+    sql """create sql_block_rule hive_global_partition_rule properties("partition_num" = "3", "global" = "true", "enable" = "true");"""
+    
+    test {
+        sql """select * from parquet_partition_table limit 10;"""
+        exception """sql hits sql block rule: hive_global_partition_rule, reach partition_num : 3"""
+    }
+
+    // Test EXPLAIN should not be blocked
+    sql """explain select * from parquet_partition_table limit 10;"""
+
+    sql """drop sql_block_rule hive_global_partition_rule"""
+
+    // Test global tablet_num (split) rule
+    sql """drop sql_block_rule if exists hive_global_split_rule"""
+    sql """create sql_block_rule hive_global_split_rule properties("tablet_num" = "3", "global" = "true", "enable" = "true");"""
+    
+    test {
+        sql """select * from parquet_partition_table limit 10;"""
+        exception """sql hits sql block rule: hive_global_split_rule, reach tablet_num : 3"""
+    }
+
+    // Test EXPLAIN should not be blocked
+    sql """explain select * from parquet_partition_table limit 10;"""
+
+    sql """drop sql_block_rule hive_global_split_rule"""
+
+    // Test global cardinality rule
+    sql """drop sql_block_rule if exists hive_global_cardinality_rule"""
+    sql """create sql_block_rule hive_global_cardinality_rule properties("cardinality" = "3", "global" = "true", "enable" = "true");"""
+    
+    test {
+        sql """select * from parquet_partition_table limit 10;"""
+        exception """sql hits sql block rule: hive_global_cardinality_rule, reach cardinality : 3"""
+    }
+
+    // Test EXPLAIN should not be blocked
+    sql """explain select * from parquet_partition_table limit 10;"""
+
+    sql """drop sql_block_rule hive_global_cardinality_rule"""
+
+    // Test global regex rule
+    sql """drop sql_block_rule if exists hive_global_regex_rule"""
+    sql """create sql_block_rule hive_global_regex_rule properties("sql" = "SELECT \\\\* FROM parquet_partition_table", "global" = "true", "enable" = "true");"""
+    
+    test {
+        sql """SELECT * FROM parquet_partition_table limit 10;"""
+        exception """sql match regex sql block rule: hive_global_regex_rule"""
+    }
+
+    // Test EXPLAIN should not be blocked by regex rule
+    sql """EXPLAIN SELECT * FROM parquet_partition_table limit 10;"""
+
+    sql """drop sql_block_rule hive_global_regex_rule"""
+}
