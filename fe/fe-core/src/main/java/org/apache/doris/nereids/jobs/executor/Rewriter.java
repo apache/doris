@@ -162,6 +162,7 @@ import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SkewJoin;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
+import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
@@ -740,10 +741,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PushDownProjectThroughLimit(),
                                 new MergeProjectable())
                 ),
-                topic("set initial join order",
-                        bottomUp(ImmutableList.of(new InitJoinOrder())),
-                        bottomUp(ImmutableList.of(new PushDownJoinOnAssertNumRows(), new MergeProjectable())),
-                        topDown(new SkewJoin())),
+                topic("PushDown JoinOnAssertNumRows",
+                        bottomUp(ImmutableList.of(new PushDownJoinOnAssertNumRows(), new MergeProjectable()))),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail
                     topDown(new SumLiteralRewrite(),
@@ -779,7 +778,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new PushDownFilterThroughProject(),
                         new MergeProjectable()
                 )),
-                topDown(DistinctAggregateRewriter.INSTANCE),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topDown(new PushDownVectorTopNIntoOlapScan()),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
@@ -903,9 +901,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
                 }
 
-                rewriteJobs.addAll(jobs(topic("split multi distinct",
-                        custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR, () -> DistinctAggStrategySelector.INSTANCE))));
-
                 // Rewrite search function before VariantSubPathPruning
                 // so that ElementAt expressions from search can be processed
                 rewriteJobs.addAll(jobs(
@@ -938,6 +933,17 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topic("condition function", bottomUp(ImmutableList.of(
                                 new NullableDependentExpressionRewrite())))
                 ));
+                //rewriteJobs.addAll(jobs(
+                //        topic("rewrite rules depend on stats ",
+                //                custom(RuleType.STATS_DERIVE, StatsDerive::new)
+                //                //topDown(DistinctAggregateRewriter.INSTANCE),
+                //                //custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR,
+                //                //        () -> DistinctAggStrategySelector.INSTANCE)
+                //                        )
+                //        //bottomUp(ImmutableList.of(new InitJoinOrder())),
+                //        //topDown(new SkewJoin())
+                //         )
+                //);
                 return rewriteJobs;
             }
         );

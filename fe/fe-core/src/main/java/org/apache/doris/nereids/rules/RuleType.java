@@ -419,6 +419,8 @@ public enum RuleType {
     DISTINCT_AGGREGATE_SPLIT(RuleTypeClass.REWRITE),
     PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT(RuleTypeClass.REWRITE),
 
+    STATS_DERIVE(RuleTypeClass.REWRITE),
+
     // exploration rules
     REORDER_INTERSECT(RuleTypeClass.EXPLORATION),
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),

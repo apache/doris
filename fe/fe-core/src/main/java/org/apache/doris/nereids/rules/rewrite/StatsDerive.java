@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -67,7 +68,6 @@ import java.util.List;
  * stats derive for rbo
  */
 public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveContext> implements CustomRewriter {
-
     // when deepDerive is true, even nodes already have stats, we still derive them.
     private final boolean deepDerive;
 
@@ -76,6 +76,10 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     */
     public static class DeriveContext {
         StatsCalculator calculator = new StatsCalculator(null);
+    }
+
+    public StatsDerive() {
+        this(true);
     }
 
     public StatsDerive(boolean deepDerive) {
