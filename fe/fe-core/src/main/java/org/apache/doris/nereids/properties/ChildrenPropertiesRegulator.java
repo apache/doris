@@ -675,7 +675,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                         ShuffleType.NATURAL,
                         ShuffleType.STORAGE_BUCKETED
                 );
-                // find the most (bucket num, rowCount) side as the basic
                 for (int i = 0; i < originChildrenProperties.size(); i++) {
                     PhysicalProperties originChildrenProperty = originChildrenProperties.get(i);
                     DistributionSpec childDistribution = originChildrenProperty.getDistributionSpec();
