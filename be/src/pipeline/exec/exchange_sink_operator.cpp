@@ -101,6 +101,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     size_t local_size = 0;
     for (int i = 0; i < channels.size(); ++i) {
         if (channels[i]->is_local()) {
+            local_channel_ids.push_back(i);
             local_size++;
             _last_local_channel_idx = i;
         }
@@ -479,6 +480,17 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             }
         }
     } else if (_part_type == TPartitionType::RANDOM) {
+        if (!local_state.local_channel_ids.empty()) {
+            const auto& ids = local_state.local_channel_ids;
+            // Find the first channel ID >= current_channel_idx
+            auto it = std::lower_bound(ids.begin(), ids.end(), local_state.current_channel_idx);
+            if (it != ids.end()) {
+                local_state.current_channel_idx = *it;
+            } else {
+                // All IDs are < current_channel_idx; wrap around to the first one
+                local_state.current_channel_idx = ids[0];
+            }
+        }
         RETURN_IF_ERROR(send_to_current_channel());
         local_state.current_channel_idx =
                 (local_state.current_channel_idx + 1) % local_state.channels.size();
