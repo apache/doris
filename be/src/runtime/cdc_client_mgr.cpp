@@ -18,13 +18,13 @@
 #include "runtime/cdc_client_mgr.h"
 
 #include <brpc/closure_guard.h>
+#include <fcntl.h>
 #include <fmt/core.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <google/protobuf/stubs/callback.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <fcntl.h>
 #include <unistd.h>
 
 #include <cstdio>
@@ -202,7 +202,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
 #ifndef __APPLE__
         prctl(PR_SET_PDEATHSIG, SIGKILL);
 #endif
-         // Redirect stdout and stderr to log file
+        // Redirect stdout and stderr to log out file
         std::string cdc_out_file = std::string(log_dir) + "/cdc-client.out";
         int out_fd = open(cdc_out_file.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
         if (out_fd < 0) {
