@@ -232,7 +232,8 @@ private:
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
                                                  vectorized::MutableColumns* mutable_columns,
-                                                 bool init_condition_cache = false);
+                                                 bool init_condition_cache = false,
+                                                 bool read_for_predicate = false);
 
     Status copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
                                         vectorized::MutableColumnPtr& output_col,
@@ -416,6 +417,9 @@ private:
     bool _is_need_vec_eval = false;
     bool _is_need_short_eval = false;
     bool _is_need_expr_eval = false;
+
+    std::set<ColumnId> _support_lazy_read_pruned_columns;
+    bool _enable_prune_nested_column = false;
 
     // fields for vectorization execution
     std::vector<ColumnId>

@@ -4927,6 +4927,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         tResult.setSerdeDialect(getSerdeDialect());
 
+        tResult.setEnablePruneNestedColumn(enablePruneNestedColumns);
+
         tResult.setEnableMatchWithoutInvertedIndex(enableMatchWithoutInvertedIndex);
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
         tResult.setEnableInvertedIndexSearcherCache(enableInvertedIndexSearcherCache);
