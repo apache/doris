@@ -135,7 +135,7 @@ public class StatisticsRepository {
             return columnStatistic;
         }
         try {
-            columnStatistic = ColumnStatistic.fromResultRow(resultRow, true);
+            columnStatistic = ColumnStatistic.fromResultRow(resultRow);
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), resultRow);
             if (LOG.isDebugEnabled()) {
@@ -361,8 +361,7 @@ public class StatisticsRepository {
         }
         if (ndv != null) {
             try {
-                double avgOccurrences = 1 / Double.parseDouble(ndv);
-                builder.setHotValues(StatisticsUtil.getHotValues(hotValues, column.getType(), avgOccurrences));
+                builder.setHotValues(StatisticsUtil.getHotValues(hotValues, column.getType()));
             } catch (Exception e) {
                 if (SessionVariable.isFeDebug()) {
                     throw e;

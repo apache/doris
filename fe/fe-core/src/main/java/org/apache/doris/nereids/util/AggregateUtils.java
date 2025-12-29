@@ -96,7 +96,7 @@ public class AggregateUtils {
             if (colStats == null) {
                 colStats = ExpressionEstimation.estimate(gbyExpr, inputStatistics);
             }
-            if (colStats == null || colStats.isUnKnown()) {
+            if (colStats == null || colStats.isUnKnown() || colStats.hotValues == null) {
                 return true;
             }
         }

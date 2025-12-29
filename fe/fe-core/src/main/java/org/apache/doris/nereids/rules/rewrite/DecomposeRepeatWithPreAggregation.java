@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.properties.ShuffleKeyPruneUtils;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector.DistinctSelectorContext;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
@@ -548,7 +549,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             if (columnStatistic == null || columnStatistic.isUnKnown()) {
                 continue;
             }
-            if (StatisticsUtil.isBalanced(columnStatistic, inputStats.getRowCount(), totalInstanceNum)) {
+            if (StatisticsUtil.isBalanced(columnStatistic, totalInstanceNum,
+                    ShuffleKeyPruneUtils.shuffleKeyHotValueThreshold, inputStats.getRowCount())) {
                 return Optional.of(candidate);
             }
         }

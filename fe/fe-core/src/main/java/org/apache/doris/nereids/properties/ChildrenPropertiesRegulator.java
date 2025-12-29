@@ -52,6 +52,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -152,7 +153,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             }
             // group by key is skew
             return skewOnShuffleExpr(aggregate);
-
         } else {
             return true;
         }
@@ -183,10 +183,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         for (int i = 0; i < groupBy.size(); ++i) {
             Expression expr = groupBy.get(i);
             ColumnStatistic colStat = inputStatistics.findColumnStatistics(expr);
-            if (colStat == null) {
+            if (colStat == null || colStat.isUnKnown) {
                 continue;
             }
-            if (colStat.getHotValues() == null) {
+            if (StatisticsUtil.getHotValuesWithOriginalThreshold(colStat.getHotValues(), colStat.ndv) == null) {
                 continue;
             }
             List<Expression> otherExpr = excludeElement(groupBy, i);
@@ -292,10 +292,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
                 int totalBucketNum = prunedPartNum * bucketNum;
                 ConnectContext connectContext = ConnectContext.get();
-                int backEndNum = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
-                String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
-                int paraNum = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
-                return totalBucketNum < backEndNum * paraNum * 0.8;
+                return totalBucketNum < connectContext.getTotalInstanceNum() * 0.8;
             }
         }
     }
@@ -324,7 +321,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             DistributionSpecHash rightHashSpec) {
         boolean isJoinTypeInScope = (joinType == JoinType.RIGHT_ANTI_JOIN
                 || joinType == JoinType.RIGHT_OUTER_JOIN
-                || joinType == JoinType.ASOF_RIGHT_OUTER_JOIN
                 || joinType == JoinType.FULL_OUTER_JOIN);
         boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);
