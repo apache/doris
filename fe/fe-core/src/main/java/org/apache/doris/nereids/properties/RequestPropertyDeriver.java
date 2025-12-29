@@ -280,6 +280,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(createHashRequestAccordingToParent(
                     setOperation, distributionSpecHash, context));
         } else {
+            // shuffle all column
+            // TODO: for wide table, may be we should add a upper limit of shuffle columns
+
             // intersect/except always need hash distribution, we use REQUIRE to auto select
             // bucket shuffle or execution shuffle
             addRequestPropertyToChildren(setOperation.getRegularChildrenOutputs().stream()

@@ -65,11 +65,7 @@ public abstract class SetOperationNode extends PlanNode {
 
     private boolean isColocate = false;
 
-    private DistributionMode distributionMode = DistributionMode.SHUFFLE;
-
-    public enum DistributionMode {
-        SHUFFLE, BUCKET_SHUFFLE
-    }
+    private DistributionMode distributionMode = DistributionMode.PARTITIONED;
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
         super(id, tupleId.asList(), planNodeName);

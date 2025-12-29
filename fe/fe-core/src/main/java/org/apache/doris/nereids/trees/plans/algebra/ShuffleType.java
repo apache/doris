@@ -17,30 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-
-import java.util.List;
-
-/**
- * Common interface for logical/physical SetOperation.
- */
-public interface SetOperation {
-    /**
-     * SetOperation qualifier type.
-     */
-    enum Qualifier {
-        ALL,
-        DISTINCT
-    }
-
-    Qualifier getQualifier();
-
-    List<SlotReference> getRegularChildOutput(int i);
-
-    List<NamedExpression> getOutputs();
-
-    List<List<SlotReference>> getRegularChildrenOutputs();
-
-    int getArity();
+/** ShuffleType */
+public enum ShuffleType {
+    shuffle,
+    broadcast,
+    bucketShuffle,
+    shuffleBucket,
+    colocated,
+    unknown
 }
