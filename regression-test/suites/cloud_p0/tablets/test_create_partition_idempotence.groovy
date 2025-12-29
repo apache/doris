@@ -37,6 +37,7 @@ suite('test_create_partition_idempotence', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'enable_debug_points = true',
+        'sys_log_verbose_modules = org.apache.doris',
     ]
     options.cloudMode = true
     options.beNum = 3 
@@ -68,7 +69,7 @@ suite('test_create_partition_idempotence', 'docker') {
                 `value` VARCHAR(100)
             )
             AUTO PARTITION BY RANGE (date_trunc(`date`, 'day')) ()
-            DISTRIBUTED BY HASH(id) BUCKETS 10
+            DISTRIBUTED BY HASH(id) BUCKETS 4
             PROPERTIES (
                 "replication_num" = "1"
             );

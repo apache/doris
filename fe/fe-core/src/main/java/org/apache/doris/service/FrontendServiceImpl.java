@@ -285,6 +285,7 @@ import org.apache.doris.transaction.TxnCommitAttachment;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -3603,6 +3604,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
         }
+        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.DisableCache")) {
+            needUseCache = false;
+        }
         OlapTable olapTable = (OlapTable) table;
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         ArrayList<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
@@ -3719,19 +3723,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
                                     "FE.FrontendServiceImpl.createPartition.MockRebalance");
                             int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+                            Multimap<Long, Long> tmpBePathsMap = HashMultimap.create();
                             if (currentExecuteNum > 1) {
                                 List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                                int choseNum = currentExecuteNum % allBeIds.size();
                                 // (assign different distribution information to tablets)
                                 for (Long beId : bePathsMap.keySet()) {
-                                    Long otherBeId = allBeIds.stream()
-                                            .filter(id -> id != beId)
-                                            .findFirst()
-                                            .orElse(null);
-                                    if (otherBeId != null) {
-                                        LOG.info("Mock rebalance: beId={} otherBeId={}", beId, otherBeId);
-                                        bePathsMap.put(beId, otherBeId);
-                                    }
+                                    Long otherBeId = allBeIds.get(choseNum);
+                                    LOG.info("Mock rebalance: beId={} => otherBeId={}", beId, otherBeId);
+                                    tmpBePathsMap.put(otherBeId, (long) -1);
                                 }
+                                bePathsMap = tmpBePathsMap;
                             }
                         }
                     } catch (UserException ex) {
@@ -3973,10 +3975,32 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
+                        // The purpose of this injected code is to simulate tablet rebalance.
+                        // Before using this code to write tests, you should ensure that your
+                        // configuration is set to single replica.
+                        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.MockRebalance")) {
+                            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                                    "FE.FrontendServiceImpl.replacePartition.MockRebalance");
+                            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+                            if (currentExecuteNum > 1) {
+                                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                                // (assign different distribution information to tablets)
+                                for (Long beId : bePathsMap.keySet()) {
+                                    Long otherBeId = allBeIds.stream()
+                                            .filter(id -> id != beId)
+                                            .findFirst()
+                                            .orElse(null);
+                                    if (otherBeId != null) {
+                                        LOG.info("Mock rebalance: beId={} otherBeId={}", beId, otherBeId);
+                                        bePathsMap.put(beId, otherBeId);
+                                    }
+                                }
+                            }
+                        }
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                         result.setStatus(errorStatus);
-                        LOG.warn("send create partition error status: {}", result);
+                        LOG.warn("send replace partition error status: {}", result);
                         return result;
                     }
                     if (bePathsMap.keySet().size() < quorum) {
