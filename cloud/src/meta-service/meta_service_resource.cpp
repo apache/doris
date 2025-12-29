@@ -1961,6 +1961,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
             instance.set_max_reserved_snapshot(1);
         }
     }
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_READ_WRITE);
 
     if (instance.instance_id().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
