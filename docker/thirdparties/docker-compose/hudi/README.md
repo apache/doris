@@ -51,9 +51,8 @@ This directory contains the Docker Compose configuration for setting up a Hudi t
 ⚠️ **Important**: Hadoop versions must match Spark's built-in Hadoop version
 - **Spark Version**: 3.5.7 (uses Hadoop 3.3.4) - default build for Hudi 1.0.2
 - **Hadoop AWS Version**: 3.3.4 (matching Spark's Hadoop)
-- **Hadoop Common Version**: 3.3.4 (matching Spark's Hadoop)
 - **Hudi Bundle Version**: 1.0.2 Spark 3.5 bundle (default build, matches Spark 3.5.7, matches Doris's Hudi version to avoid versionCode compatibility issues)
-- **AWS SDK Bundle Version**: 1.12.262 (compatible with Hadoop 3.3.4)
+- **AWS SDK v1 Version**: 1.12.262 (required for Hadoop 3.3.4 S3A support, 1.12.x series)
 - **PostgreSQL JDBC Version**: 42.7.1 (compatible with Hive Metastore)
 - **Hudi 1.0.x Compatibility**: Supports Spark 3.5.x (default), 3.4.x, and 3.3.x
 
@@ -61,8 +60,9 @@ This directory contains the Docker Compose configuration for setting up a Hudi t
 All JAR file versions and URLs are configurable:
 - `HUDI_BUNDLE_VERSION` / `HUDI_BUNDLE_URL`: Hudi Spark bundle
 - `HADOOP_AWS_VERSION` / `HADOOP_AWS_URL`: Hadoop S3A filesystem support
-- `HADOOP_COMMON_VERSION` / `HADOOP_COMMON_URL`: Hadoop common library
-- `AWS_SDK_BUNDLE_VERSION` / `AWS_SDK_BUNDLE_URL`: AWS Java SDK
+- `AWS_SDK_BUNDLE_VERSION` / `AWS_SDK_BUNDLE_URL`: AWS Java SDK Bundle v1 (required for Hadoop 3.3.4 S3A support, 1.12.x series)
+
+**Note**: `hadoop-common` is already included in Spark's built-in Hadoop distribution, so it's not configured here.
 - `POSTGRESQL_JDBC_VERSION` / `POSTGRESQL_JDBC_URL`: PostgreSQL JDBC driver
 
 ## Starting the Environment

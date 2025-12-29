@@ -29,9 +29,56 @@ SPARK_HOME=/opt/spark
 CONF_DIR="${SPARK_HOME}/conf"
 JARS_DIR="${SPARK_HOME}/jars"
 CACHE_DIR=/opt/hudi-cache
-HUDI_BUNDLE_JAR="${CACHE_DIR}/hudi-spark3.5-bundle_2.12-${HUDI_BUNDLE_VERSION}.jar"
 
 mkdir -p "${CONF_DIR}" "${CACHE_DIR}"
+
+# Function to download a JAR file if it doesn't exist
+download_jar() {
+  local jar_name="$1"
+  local version="$2"
+  local url="$3"
+  local jar_file="${CACHE_DIR}/${jar_name}-${version}.jar"
+  
+  if [[ ! -f "${jar_file}" ]]; then
+    echo "Downloading ${jar_name} JAR ${version} from ${url} ..."
+    local download_success=false
+    if command -v curl >/dev/null 2>&1; then
+      if curl -sSfL "${url}" -o "${jar_file}"; then
+        download_success=true
+      else
+        echo "Error: Failed to download ${jar_name} from ${url}" >&2
+      fi
+    elif command -v wget >/dev/null 2>&1; then
+      if wget -qO "${jar_file}" "${url}"; then
+        download_success=true
+      else
+        echo "Error: Failed to download ${jar_name} from ${url}" >&2
+      fi
+    else
+      echo "Error: Neither curl nor wget is available in hudi-spark container." >&2
+      exit 1
+    fi
+    
+    if [[ "${download_success}" == "false" ]]; then
+      echo "Error: Failed to download ${jar_name} JAR. Please check the URL: ${url}" >&2
+      exit 1
+    fi
+    
+    if [[ ! -f "${jar_file}" ]]; then
+      echo "Error: Downloaded file ${jar_file} does not exist" >&2
+      exit 1
+    fi
+  fi
+  echo "${jar_file}"
+}
+
+# Function to link a JAR file to Spark jars directory
+link_jar() {
+  local jar_file="$1"
+  local jar_name="$2"
+  local version="$3"
+  ln -sf "${jar_file}" "${JARS_DIR}/${jar_name}-${version}.jar"
+}
 
 # Wait for Hive Metastore to be ready
 echo "Waiting for Hive Metastore to be ready..."
@@ -120,81 +167,23 @@ cat >"${CONF_DIR}/hive-site.xml" <<EOF
 </configuration>
 EOF
 
-# Download Hudi bundle if missing
-if [[ ! -f "${HUDI_BUNDLE_JAR}" ]]; then
-  echo "Downloading Hudi bundle ${HUDI_BUNDLE_VERSION} ..."
-  if command -v curl >/dev/null 2>&1; then
-    curl -sSfL "${HUDI_BUNDLE_URL}" -o "${HUDI_BUNDLE_JAR}"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${HUDI_BUNDLE_JAR}" "${HUDI_BUNDLE_URL}"
-  else
-    echo "Neither curl nor wget is available in hudi-spark container." >&2
-    exit 1
-  fi
-fi
-ln -sf "${HUDI_BUNDLE_JAR}" "${JARS_DIR}/hudi-spark3.5-bundle_2.12-${HUDI_BUNDLE_VERSION}.jar"
+# Download Hudi bundle
+HUDI_BUNDLE_JAR_FILE=$(download_jar "hudi-spark3.5-bundle_2.12" "${HUDI_BUNDLE_VERSION}" "${HUDI_BUNDLE_URL}")
+link_jar "${HUDI_BUNDLE_JAR_FILE}" "hudi-spark3.5-bundle_2.12" "${HUDI_BUNDLE_VERSION}"
 
-# Download Hadoop Common JAR (required dependency for hadoop-aws)
-HADOOP_COMMON_JAR="${CACHE_DIR}/hadoop-common-${HADOOP_COMMON_VERSION}.jar"
-if [[ ! -f "${HADOOP_COMMON_JAR}" ]]; then
-  echo "Downloading hadoop-common JAR ${HADOOP_COMMON_VERSION} ..."
-  if command -v curl >/dev/null 2>&1; then
-    curl -sSfL "${HADOOP_COMMON_URL}" -o "${HADOOP_COMMON_JAR}"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${HADOOP_COMMON_JAR}" "${HADOOP_COMMON_URL}"
-  else
-    echo "Neither curl nor wget is available in hudi-spark container." >&2
-    exit 1
-  fi
-fi
+# Download Hadoop AWS S3A filesystem JAR (required for S3A support)
+# Note: hadoop-common is already included in Spark's built-in Hadoop, no need to download separately
+HADOOP_AWS_JAR=$(download_jar "hadoop-aws" "${HADOOP_AWS_VERSION}" "${HADOOP_AWS_URL}")
+link_jar "${HADOOP_AWS_JAR}" "hadoop-aws" "${HADOOP_AWS_VERSION}"
 
-# Download Hadoop AWS S3A filesystem JARs (required for S3A support)
-HADOOP_AWS_JAR="${CACHE_DIR}/hadoop-aws-${HADOOP_AWS_VERSION}.jar"
-if [[ ! -f "${HADOOP_AWS_JAR}" ]]; then
-  echo "Downloading hadoop-aws JAR ${HADOOP_AWS_VERSION} ..."
-  if command -v curl >/dev/null 2>&1; then
-    curl -sSfL "${HADOOP_AWS_URL}" -o "${HADOOP_AWS_JAR}"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${HADOOP_AWS_JAR}" "${HADOOP_AWS_URL}"
-  else
-    echo "Neither curl nor wget is available in hudi-spark container." >&2
-    exit 1
-  fi
-fi
-
-# Download AWS Java SDK Bundle (required for S3A support)
-AWS_SDK_BUNDLE_JAR="${CACHE_DIR}/aws-java-sdk-bundle-${AWS_SDK_BUNDLE_VERSION}.jar"
-if [[ ! -f "${AWS_SDK_BUNDLE_JAR}" ]]; then
-  echo "Downloading aws-java-sdk-bundle JAR ${AWS_SDK_BUNDLE_VERSION} ..."
-  if command -v curl >/dev/null 2>&1; then
-    curl -sSfL "${AWS_SDK_BUNDLE_URL}" -o "${AWS_SDK_BUNDLE_JAR}"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${AWS_SDK_BUNDLE_JAR}" "${AWS_SDK_BUNDLE_URL}"
-  else
-    echo "Neither curl nor wget is available in hudi-spark container." >&2
-    exit 1
-  fi
-fi
+# Download AWS Java SDK Bundle v1 (required for Hadoop 3.3.6 S3A support)
+# Note: Hadoop 3.3.x uses AWS SDK v1, version 1.12.262 is recommended
+AWS_SDK_BUNDLE_JAR=$(download_jar "aws-java-sdk-bundle" "${AWS_SDK_BUNDLE_VERSION}" "${AWS_SDK_BUNDLE_URL}")
+link_jar "${AWS_SDK_BUNDLE_JAR}" "aws-java-sdk-bundle" "${AWS_SDK_BUNDLE_VERSION}"
 
 # Download PostgreSQL JDBC driver (required for Hive Metastore connection)
-POSTGRESQL_JDBC_JAR="${CACHE_DIR}/postgresql-${POSTGRESQL_JDBC_VERSION}.jar"
-if [[ ! -f "${POSTGRESQL_JDBC_JAR}" ]]; then
-  echo "Downloading PostgreSQL JDBC driver ${POSTGRESQL_JDBC_VERSION} ..."
-  if command -v curl >/dev/null 2>&1; then
-    curl -sSfL "${POSTGRESQL_JDBC_URL}" -o "${POSTGRESQL_JDBC_JAR}"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${POSTGRESQL_JDBC_JAR}" "${POSTGRESQL_JDBC_URL}"
-  else
-    echo "Neither curl nor wget is available in hudi-spark container." >&2
-    exit 1
-  fi
-fi
-
-# Link Hadoop and S3A JARs and PostgreSQL JDBC driver to Spark jars directory
-ln -sf "${HADOOP_COMMON_JAR}" "${JARS_DIR}/hadoop-common-${HADOOP_COMMON_VERSION}.jar"
-ln -sf "${HADOOP_AWS_JAR}" "${JARS_DIR}/hadoop-aws-${HADOOP_AWS_VERSION}.jar"
-ln -sf "${AWS_SDK_BUNDLE_JAR}" "${JARS_DIR}/aws-java-sdk-bundle-${AWS_SDK_BUNDLE_VERSION}.jar"
-ln -sf "${POSTGRESQL_JDBC_JAR}" "${JARS_DIR}/postgresql-${POSTGRESQL_JDBC_VERSION}.jar"
+POSTGRESQL_JDBC_JAR=$(download_jar "postgresql" "${POSTGRESQL_JDBC_VERSION}" "${POSTGRESQL_JDBC_URL}")
+link_jar "${POSTGRESQL_JDBC_JAR}" "postgresql" "${POSTGRESQL_JDBC_VERSION}"
 
 # Process SQL files with environment variable substitution and execute them
 # Similar to iceberg's approach: group SQL files together to reduce client creation overhead
