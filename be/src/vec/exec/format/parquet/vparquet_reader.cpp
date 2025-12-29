@@ -764,6 +764,10 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     }
     SCOPED_RAW_TIMER(&_statistics.page_index_filter_time);
 
+    // Reset column offset index map for this row group. OffsetIndex is per-column-per-rowgroup,
+    // so we must not carry over entries from previous row groups.
+    _col_offsets.clear();
+
     std::function<void()> read_whole_row_group = [&]() {
         candidate_row_ranges.emplace_back(0, row_group.num_rows);
         _statistics.read_rows += row_group.num_rows;
