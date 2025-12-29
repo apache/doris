@@ -77,7 +77,7 @@ private:
                                    "o_comment");
         DescriptorTbl* desc_tbl = builder.build();
         auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-        RowDescriptor row_desc(tuple_desc, false);
+        RowDescriptor row_desc(tuple_desc);
         TFileScanRangeParams params;
         TFileRangeDesc range;
         range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";

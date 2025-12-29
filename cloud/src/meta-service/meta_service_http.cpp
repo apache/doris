@@ -609,9 +609,10 @@ static HttpResponse process_fix_tablet_stats(MetaServiceImpl* service, brpc::Con
     auto& uri = ctrl->http_request().uri();
     std::string_view cloud_unique_id = http_query(uri, "cloud_unique_id");
     std::string_view table_id = http_query(uri, "table_id");
+    std::string_view tablet_id = http_query(uri, "tablet_id");
 
-    MetaServiceResponseStatus st =
-            service->fix_tablet_stats(std::string(cloud_unique_id), std::string(table_id));
+    MetaServiceResponseStatus st = service->fix_tablet_stats(
+            std::string(cloud_unique_id), std::string(table_id), std::string(tablet_id));
     return http_text_reply(st, st.DebugString());
 }
 

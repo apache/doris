@@ -844,7 +844,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 throw new Exception("debug point FE.DynamicPartitionScheduler.before.commitCloudPartition");
             }
             Env.getCurrentInternalCatalog().afterCreatePartitions(db.getId(), olapTable.getId(),
-                    succeedPartitionIds, indexIds, true);
+                    succeedPartitionIds, indexIds, true /* isCreateTable */, false /* isBatchCommit */);
             LOG.info("begin write edit log to add partitions in batch, "
                     + "numPartitions: {}, db: {}, table: {}, tableId: {}",
                     partsInfo.size(), db.getFullName(), tableName, olapTable.getId());

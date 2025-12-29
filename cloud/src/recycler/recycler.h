@@ -131,6 +131,15 @@ enum class RowsetRecyclingState {
     TMP_ROWSET,
 };
 
+// Represents a single rowset deletion task for batch delete
+struct RowsetDeleteTask {
+    RowsetMetaCloudPB rowset_meta;
+    std::string recycle_rowset_key;       // Primary key marking "pending recycle"
+    std::string non_versioned_rowset_key; // Legacy non-versioned rowset meta key
+    std::string versioned_rowset_key;     // Versioned meta rowset key
+    std::string rowset_ref_count_key;
+};
+
 class RecyclerMetricsContext {
 public:
     RecyclerMetricsContext() = default;
@@ -360,6 +369,10 @@ public:
     // returns 0 for success otherwise error
     int recycle_cluster_snapshots();
 
+    // scan and recycle ref rowsets for deleted instance
+    // returns 0 for success otherwise error
+    int recycle_ref_rowsets(bool* has_unrecycled_rowsets);
+
     bool check_recycle_tasks();
 
     int scan_and_statistics_indexes();
@@ -466,12 +479,19 @@ private:
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
-    // Both recycle_rowset_key and secondary_rowset_key will be removed in the same transaction.
+    // Both recycle_rowset_key and non_versioned_rowset_key will be removed in the same transaction.
     //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
     int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
                                      const RowsetMetaCloudPB& rowset_meta,
-                                     std::string_view secondary_rowset_key = "");
+                                     std::string_view non_versioned_rowset_key = "");
+
+    // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
+    int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,
+                                          std::vector<RowsetDeleteTask>& batch_delete_tasks);
+
+    // Cleanup metadata for deleted rowsets, return 0 for success otherwise error
+    int cleanup_rowset_metadata(const std::vector<RowsetDeleteTask>& tasks);
 
     // Whether the instance has any snapshots, return 0 for success otherwise error.
     int has_cluster_snapshots(bool* any);
@@ -548,6 +568,12 @@ private:
     SegmentRecyclerMetricsContext segment_metrics_context_;
 };
 
+struct OperationLogReferenceInfo {
+    bool referenced_by_instance = false;
+    bool referenced_by_snapshot = false;
+    Versionstamp referenced_snapshot_timestamp;
+};
+
 // Helper class to check if operation logs can be recycled based on snapshots and versionstamps
 class OperationLogRecycleChecker {
 public:
@@ -559,9 +585,14 @@ public:
     int init();
 
     // Check if an operation log can be recycled
-    bool can_recycle(const Versionstamp& log_versionstamp, int64_t log_min_timestamp) const;
+    bool can_recycle(const Versionstamp& log_versionstamp, int64_t log_min_timestamp,
+                     OperationLogReferenceInfo* reference_info) const;
 
     Versionstamp max_versionstamp() const { return max_versionstamp_; }
+
+    const std::vector<std::pair<SnapshotPB, Versionstamp>>& get_snapshots() const {
+        return snapshots_;
+    }
 
 private:
     std::string_view instance_id_;
@@ -571,6 +602,35 @@ private:
     Versionstamp source_snapshot_versionstamp_;
     std::map<Versionstamp, size_t> snapshot_indexes_;
     std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots_;
+};
+
+class SnapshotDataSizeCalculator {
+public:
+    SnapshotDataSizeCalculator(std::string_view instance_id, std::shared_ptr<TxnKv> txn_kv)
+            : instance_id_(instance_id), txn_kv_(std::move(txn_kv)) {}
+
+    void init(const std::vector<std::pair<SnapshotPB, Versionstamp>>& snapshots);
+
+    int calculate_operation_log_data_size(const std::string_view& log_key,
+                                          OperationLogPB& operation_log,
+                                          OperationLogReferenceInfo& reference_info);
+
+    int save_snapshot_data_size_with_retry();
+
+private:
+    int get_all_index_partitions(int64_t db_id, int64_t table_id, int64_t index_id,
+                                 std::vector<int64_t>* partition_ids);
+    int get_index_partition_data_size(int64_t db_id, int64_t table_id, int64_t index_id,
+                                      int64_t partition_id, int64_t* data_size);
+    int save_operation_log(const std::string_view& log_key, OperationLogPB& operation_log);
+    int save_snapshot_data_size();
+
+    std::string_view instance_id_;
+    std::shared_ptr<TxnKv> txn_kv_;
+
+    int64_t instance_retained_data_size_ = 0;
+    std::map<Versionstamp, int64_t> retained_data_size_;
+    std::set<std::string> calculated_partitions_;
 };
 
 } // namespace doris::cloud

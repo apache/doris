@@ -26,21 +26,13 @@ suite("test_recycler_clone_instance") {
         return
     }
 
-    def get_instance_id = { host ->
-        def url = "http://${host}/MetaService/http/get_instance?token=${token}&instance_id=${instance_id}"
-        def (code, out, err) = curl('GET', url, null, 180)
-        assert code == 0 : "Failed to get multi version status: ${out} ${err}"
-        def json = parseJson(out)
-        assert json["code"] == "OK" : "Get instance failed: ${out} ${err}"
-        if (json["result"].containsKey("instance_id")) {
-            return json["result"]["instance_id"]
-        }
-        return null
-    }
-
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
 
-    def instanceId = get_instance_id(metaServiceHttpAddress)
+    def instanceId = System.getenv("DORIS_MS_INSTANCE_ID")
+    logger.info("DORIS_MS_INSTANCE_ID: ${instanceId}")
+
+    assert instanceId != null, "DORIS_MS_INSTANCE_ID is not set"
+
     def username = "root"
 
     logger.info("Querying cluster snapshots")
@@ -148,7 +140,7 @@ suite("test_recycler_clone_instance") {
     logger.info("Verified snapshot_info.json content: ${jsonContent}")
 
     logger.info("Starting FE with snapshot_info.json")
-    def startFeCmd = "ssh -o StrictHostKeyChecking=no ${username}@${masterFeHost} \"cd ${dorisHome}/fe/bin && ./start_fe.sh --daemon --cluster_snapshot snapshot_info.json\""
+    def startFeCmd = "ssh -o StrictHostKeyChecking=no ${username}@${masterFeHost} \"cd ${dorisHome}/fe/bin && export JAVA_HOME=${DORIS_JAVA_HOME} && ./start_fe.sh --daemon --cluster_snapshot snapshot_info.json\""
     executeCommand(startFeCmd, true)
     logger.info("Master FE started successfully with cluster snapshot")
     
@@ -160,7 +152,7 @@ suite("test_recycler_clone_instance") {
     logger.info("Starting all BEs")
     for (def beHost : beHosts) {
         logger.info("Starting BE on ${beHost}")
-        def startBeCmd = "ssh -o StrictHostKeyChecking=no ${username}@${beHost} \"cd ${dorisHome}/be/bin && ./start_be.sh --daemon\""
+        def startBeCmd = "ssh -o StrictHostKeyChecking=no ${username}@${beHost} \"cd ${dorisHome}/be/bin && export JAVA_HOME=${DORIS_JAVA_HOME} && ./start_be.sh --daemon\""
         executeCommand(startBeCmd, true)
         logger.info("BE on ${beHost} started successfully")
     }

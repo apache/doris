@@ -55,7 +55,8 @@ public:
         return fmt::to_string(debug_string_buffer);
     }
     std::shared_ptr<ColumnPredicate> clone(uint32_t column_id) const override {
-        return SharedPredicate::create_shared(*this, column_id);
+        // All scanner thread should share the same SharedPredicate object.
+        return std::const_pointer_cast<ColumnPredicate>(shared_from_this());
     }
 
     PredicateType type() const override {

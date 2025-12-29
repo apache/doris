@@ -40,8 +40,6 @@ public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
     @SerializedName("v")
     private String value;
-    // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
-    private String beConverted = "";
 
     private StringLiteral() {
         super();
@@ -52,16 +50,12 @@ public class StringLiteral extends LiteralExpr {
         super();
         this.value = value;
         type = Type.VARCHAR;
-        analysisDone();
+        this.nullable = false;
     }
 
     protected StringLiteral(StringLiteral other) {
         super(other);
         value = other.value;
-    }
-
-    public void setBeConverted(String val) {
-        this.beConverted = val;
     }
 
     @Override

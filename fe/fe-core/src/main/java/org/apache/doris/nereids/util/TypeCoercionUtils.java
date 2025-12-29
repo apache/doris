@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -43,9 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
@@ -942,32 +938,6 @@ public class TypeCoercionUtils {
     }
 
     /**
-     * process timestamp arithmetic type coercion.
-     */
-    public static Expression processTimestampArithmetic(TimestampArithmetic timestampArithmetic) {
-        timestampArithmetic.checkLegalityBeforeTypeCoercion();
-
-        String name = timestampArithmetic.getFuncName().toLowerCase();
-        List<Expression> children = timestampArithmetic.children();
-        Expression left = timestampArithmetic.left();
-        Expression right = timestampArithmetic.right();
-
-        // get right signature by normal function resolution
-        FunctionBuilder functionBuilder = Env.getCurrentEnv().getFunctionRegistry().findFunctionBuilder(name,
-                children);
-        Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair = functionBuilder.build(name,
-                children);
-        FunctionSignature signature = targetExpressionPair.second.getSignature();
-        DataType leftType = signature.getArgType(0);
-        DataType rightType = signature.getArgType(1);
-
-        left = castIfNotSameType(left, leftType);
-        right = castIfNotSameType(right, rightType);
-
-        return timestampArithmetic.withChildren(left, right);
-    }
-
-    /**
      * left type must be DateType or DateV2Type.
      */
     private static Optional<DataType> getCommonDataTypeWithDateType(DataType leftType, DataType rightType) {
@@ -1320,6 +1290,12 @@ public class TypeCoercionUtils {
 
         Expression left = comparisonPredicate.left();
         Expression right = comparisonPredicate.right();
+
+        // TODO: remove this restriction after supporting varbinary comparison in BE
+        if (left.getDataType().isVarBinaryType() || right.getDataType().isVarBinaryType()) {
+            throw new AnalysisException("data type varbinary "
+                    + " could not used in ComparisonPredicate now " + comparisonPredicate.toSql());
+        }
 
         // same type
         if (left.getDataType().equals(right.getDataType())) {

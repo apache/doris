@@ -61,10 +61,13 @@ excludeGroups = "p1,p2"
 
 // this suites will not be executed
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "test_insert_error_url," + // cause stop grace fail
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 // this directories will not be executed
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "cold_heat_separation," + // Save costs, the case is too time-consuming and not used by users
+    "pipeline_p1," + // Save costs
     "variant_github_events_nonConcurrent_p2," +
     "variant_github_events_new_p2," +
     "hdfs_vault_p2," +

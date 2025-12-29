@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
@@ -66,7 +65,6 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -121,7 +119,6 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -290,7 +287,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (bindSlotInOuterScope && !foundInThisScope && outerScope.isPresent()) {
             boundedOpt = Optional.of(bindSlotByScope(unboundSlot, outerScope.get()));
         }
+        // it is heavy to deduplicate slots in scope. So we deduplicates bounded here
         List<? extends Expression> bounded = boundedOpt.get();
+        if (bounded.size() > 1) {
+            bounded = bounded.stream().distinct().collect(Collectors.toList());
+        }
         switch (bounded.size()) {
             case 0:
                 String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
@@ -597,31 +598,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             return windowExpression.withFunction(((NullableAggregateFunction) function).withAlwaysNullable(true));
         }
         return windowExpression;
-    }
-
-    /**
-     * gets the method for calculating the time.
-     * e.g. YEARS_ADD、YEARS_SUB、DAYS_ADD 、DAYS_SUB
-     */
-    @Override
-    public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, ExpressionRewriteContext context) {
-        Expression left = arithmetic.left().accept(this, context);
-        Expression right = arithmetic.right().accept(this, context);
-
-        arithmetic = (TimestampArithmetic) arithmetic.withChildren(left, right);
-        // bind function
-        String funcOpName;
-        if (arithmetic.getFuncName() == null) {
-            // e.g. YEARS_ADD, MONTHS_SUB
-            funcOpName = String.format("%sS_%s", arithmetic.getTimeUnit(),
-                    (arithmetic.getOp() == Operator.ADD) ? "ADD" : "SUB");
-        } else {
-            funcOpName = arithmetic.getFuncName();
-        }
-        arithmetic = (TimestampArithmetic) arithmetic.withFuncName(funcOpName.toLowerCase(Locale.ROOT));
-
-        // type coercion
-        return TypeCoercionUtils.processTimestampArithmetic(arithmetic);
     }
 
     /* ********************************************************************************************

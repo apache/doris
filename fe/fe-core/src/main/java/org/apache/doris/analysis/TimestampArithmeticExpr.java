@@ -70,13 +70,9 @@ public class TimestampArithmeticExpr extends Expr {
         // use for serde only
     }
 
-    // C'tor for function-call like arithmetic, e.g., 'date_add(a, interval b year)'.
+    // only used in JDBC function push down
     public TimestampArithmeticExpr(String funcName, Expr e1, Expr e2, String timeUnitIdent) {
-        this.funcName = funcName;
-        this.timeUnitIdent = timeUnitIdent;
-        this.intervalFirst = false;
-        children.add(e1);
-        children.add(e2);
+        this(funcName, null, e1, e2, timeUnitIdent, Type.DATETIMEV2, false);
     }
 
     /**
@@ -88,9 +84,10 @@ public class TimestampArithmeticExpr extends Expr {
      * @param e2 interval literal child of this function
      * @param timeUnitIdent interval time unit, could be 'year', 'month', 'day', 'hour', 'minute', 'second'.
      * @param dataType the return data type of this expression.
+     * @param nullable result is nullable if true
      */
     public TimestampArithmeticExpr(String funcName, ArithmeticExpr.Operator op,
-            Expr e1, Expr e2, String timeUnitIdent, Type dataType, NullableMode nullableMode) {
+            Expr e1, Expr e2, String timeUnitIdent, Type dataType, boolean nullable) {
         this.funcName = funcName;
         this.timeUnitIdent = timeUnitIdent;
         this.timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase(Locale.ROOT));
@@ -100,13 +97,14 @@ public class TimestampArithmeticExpr extends Expr {
         children.add(e2);
         this.type = dataType;
         fn = new Function(new FunctionName(funcName.toLowerCase(Locale.ROOT)),
-                Lists.newArrayList(e1.getType(), e2.getType()), dataType, false, true, nullableMode);
+                Lists.newArrayList(e1.getType(), e2.getType()), dataType,
+                false, true, NullableMode.DEPEND_ON_ARGUMENT);
+        this.nullable = nullable;
         try {
             opcode = getOpCode();
         } catch (AnalysisException e) {
             throw new RuntimeException(e);
         }
-
     }
 
     protected TimestampArithmeticExpr(TimestampArithmeticExpr other) {

@@ -30,6 +30,10 @@ CONF_Int32(brpc_idle_timeout_sec, "-1");
 CONF_String(hostname, "");
 CONF_String(fdb_cluster, "xxx:yyy@127.0.0.1:4500");
 CONF_String(fdb_cluster_file_path, "./conf/fdb.cluster");
+CONF_Bool(enable_fdb_external_client_directory, "true");
+// The directory path of external foundationdb client library.
+// eg: /path/to/dir1:/path/to/dir2:...
+CONF_String(fdb_external_client_directory, "");
 CONF_String(http_token, "greedisgood9999");
 // use volatile mem kv for test. MUST NOT be `true` in production environment.
 CONF_Bool(use_mem_kv, "false");
@@ -115,6 +119,12 @@ CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
 // log a warning if a recycle task takes longer than this duration
 CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
+CONF_mInt32(decrement_packed_file_ref_counts_retry_times, "10");
+CONF_mInt32(packed_file_txn_retry_times, "10");
+// randomized interval to reduce conflict storms in FoundationDB, default 5-50ms
+CONF_mInt64(packed_file_txn_retry_sleep_min_ms, "5");
+CONF_mInt64(packed_file_txn_retry_sleep_max_ms, "50");
+CONF_mInt32(recycle_txn_delete_max_retry_times, "10");
 
 // force recycler to recycle all useless object.
 // **just for TEST**
@@ -298,7 +308,11 @@ CONF_mInt64(max_txn_commit_byte, "7340032");
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
+CONF_mBool(enable_cloud_parallel_txn_lazy_commit, "true");
+CONF_Int32(parallel_txn_lazy_commit_num_threads, "0"); // hardware concurrency if zero.
 CONF_mInt64(txn_lazy_max_rowsets_per_batch, "1000");
+CONF_mBool(txn_lazy_commit_shuffle_partitions, "true");
+CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
@@ -388,6 +402,18 @@ CONF_Bool(enable_snapshot_data_migrator, "false");
 CONF_Bool(enable_snapshot_chain_compactor, "false");
 CONF_Int32(snapshot_data_migrator_concurrent, "2");
 CONF_Int32(snapshot_chain_compactor_concurrent, "2");
+// Parallelism for snapshot migration and compaction operations
+//
+// When to adjust:
+// - Increase (to 20-50): Large-scale migrations (>10K tablets), sufficient resources
+// - Decrease (to 1-5):  Memory/CPU constrained, high FDB conflict rate
+//
+// Cost of higher parallelism:
+// - Increases memory usage (transaction buffers, caches)
+// - Increases CPU usage (proportional to parallelism)
+// - Increases FDB load and may raise conflict rate
+CONF_Int32(snapshot_migrate_parallelism, "2");
+CONF_Int32(snapshot_compact_parallelism, "2");
 
 CONF_mString(aws_credentials_provider_version, "v2");
 CONF_Validator(aws_credentials_provider_version,
@@ -395,5 +421,8 @@ CONF_Validator(aws_credentials_provider_version,
 
 CONF_mBool(enable_notify_instance_update, "true");
 CONF_Bool(enable_instance_update_watcher, "true");
+
+CONF_mBool(advance_txn_lazy_commit_during_reads, "true");
+CONF_mBool(wait_txn_lazy_commit_during_reads, "true");
 
 } // namespace doris::cloud::config

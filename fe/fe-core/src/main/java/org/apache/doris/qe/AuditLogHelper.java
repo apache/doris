@@ -178,7 +178,7 @@ public class AuditLogHelper {
         }
     }
 
-    private static String truncateByBytes(String str, int maxLen, String suffix) {
+    public static String truncateByBytes(String str, int maxLen, String suffix) {
         // use `getBytes().length` to get real byte length
         if (maxLen >= str.getBytes().length) {
             return str;
@@ -393,9 +393,11 @@ public class AuditLogHelper {
                             MetricRepo.updateClusterQueryLatency(physicalClusterName, elapseMs);
                         }
                         if (elapseMs > Config.qe_slow_log_ms) {
+                            MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
+                        }
+                        if (elapseMs > Config.sql_digest_generation_threshold_ms) {
                             String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                             auditEventBuilder.setSqlDigest(sqlDigest);
-                            MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
                         }
                     }
                 }

@@ -114,6 +114,8 @@ DECLARE_mBool(use_public_endpoint_for_error_log);
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
+DECLARE_Int32(warmup_cache_async_thread);
+
 DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 DECLARE_mInt32(get_delete_bitmap_lock_max_retry_times);
@@ -183,7 +185,6 @@ DECLARE_mInt64(packed_file_try_lock_timeout_ms);
 DECLARE_mInt64(packed_file_small_file_count_threshold);
 DECLARE_mInt64(small_file_threshold_bytes);
 DECLARE_mInt64(uploaded_file_retention_seconds);
-DECLARE_mInt64(index_retention_seconds);
 DECLARE_mInt64(packed_file_cleanup_interval_seconds);
 
 DECLARE_mBool(enable_standby_passive_compaction);

@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TInPredicate;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
@@ -52,8 +51,10 @@ public class InPredicate extends Predicate {
         // use for serde only
     }
 
-    // First child is the comparison expr for which we
-    // should check membership in the inList (the remaining children).
+    /** First child is the comparison expr for which we
+     * should check membership in the inList (the remaining children).
+     * NOTICE: only used in test
+     */
     public InPredicate(Expr compareExpr, List<Expr> inList, boolean isNotIn) {
         children.add(compareExpr);
         children.addAll(inList);
@@ -63,7 +64,7 @@ public class InPredicate extends Predicate {
     /**
      * use for Nereids ONLY
      */
-    public InPredicate(Expr compareExpr, List<Expr> inList, boolean isNotIn, boolean allConstant) {
+    public InPredicate(Expr compareExpr, List<Expr> inList, boolean isNotIn, boolean allConstant, boolean nullable) {
         this(compareExpr, inList, isNotIn);
         type = Type.BOOLEAN;
         if (allConstant) {
@@ -74,6 +75,7 @@ public class InPredicate extends Predicate {
                     Lists.newArrayList(getChild(0).getType(), getChild(1).getType()), Type.BOOLEAN,
                     true, true, NullableMode.DEPEND_ON_ARGUMENT);
         }
+        this.nullable = nullable;
     }
 
     protected InPredicate(InPredicate other) {
@@ -89,15 +91,6 @@ public class InPredicate extends Predicate {
     @Override
     public InPredicate clone() {
         return new InPredicate(this);
-    }
-
-    // C'tor for initializing an [NOT] IN predicate with a subquery child.
-    public InPredicate(Expr compareExpr, Expr subquery, boolean isNotIn) {
-        Preconditions.checkNotNull(compareExpr);
-        Preconditions.checkNotNull(subquery);
-        children.add(compareExpr);
-        children.add(subquery);
-        this.isNotIn = isNotIn;
     }
 
     public List<Expr> getListChildren() {
@@ -166,10 +159,5 @@ public class InPredicate extends Predicate {
             }
         }
         return false;
-    }
-
-    @Override
-    public boolean isNullable() {
-        return hasNullableChild();
     }
 }

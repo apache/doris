@@ -51,6 +51,8 @@ public:
                         "size_hint() method not implemented in base DocSet class");
     }
 
+    virtual uint64_t cost() const { return static_cast<uint64_t>(size_hint()); }
+
     virtual uint32_t freq() const {
         throw Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
                         "freq() method not implemented in base DocSet class");
@@ -61,6 +63,7 @@ public:
                         "norm() method not implemented in base DocSet class");
     }
 };
+
 using DocSetPtr = std::shared_ptr<DocSet>;
 
 class MockDocSet : public DocSet {
@@ -186,6 +189,7 @@ private:
     uint32_t _size_hint_val = 0;
     uint32_t _norm_val = 1;
 };
+
 using MockDocSetPtr = std::shared_ptr<MockDocSet>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

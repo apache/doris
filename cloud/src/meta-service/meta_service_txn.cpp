@@ -1662,6 +1662,20 @@ void MetaServiceImpl::commit_txn_immediately(
                       << " rowset_size=" << rowset_size;
 
             if (is_versioned_write) {
+                auto& rowset_meta = i.second;
+                std::string meta_rowset_key = versioned::meta_rowset_key(
+                        {instance_id, tablet_id, rowset_meta.rowset_id_v2()});
+                if (config::enable_recycle_rowset_strip_key_bounds) {
+                    doris::RowsetMetaCloudPB rowset_meta_copy = rowset_meta;
+                    // Strip key bounds to shrink operation log for ts compaction recycle entries
+                    rowset_meta_copy.clear_segments_key_bounds();
+                    rowset_meta_copy.clear_segments_key_bounds_truncated();
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
+                } else {
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta.SerializeAsString(), 0);
+                }
+                LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
+
                 std::string versioned_rowset_key =
                         versioned::meta_rowset_load_key({instance_id, tablet_id, version});
                 RowsetMetaCloudPB copied_rowset_meta(i.second);
@@ -2356,10 +2370,10 @@ void MetaServiceImpl::commit_txn_eventually(
                       << " txn_id=" << txn_id;
         }
 
-        VLOG_DEBUG << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
-                   << " num_put_keys=" << txn->num_put_keys()
-                   << " num_del_keys=" << txn->num_del_keys()
-                   << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
+        LOG(INFO) << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
+                  << " num_put_keys=" << txn->num_put_keys()
+                  << " num_del_keys=" << txn->num_del_keys()
+                  << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
@@ -2705,6 +2719,20 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                       << " rowset_size=" << rowset_size;
 
             if (is_versioned_write) {
+                auto& rowset_meta = i.second;
+                std::string meta_rowset_key = versioned::meta_rowset_key(
+                        {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
+                if (config::enable_recycle_rowset_strip_key_bounds) {
+                    doris::RowsetMetaCloudPB rowset_meta_copy = rowset_meta;
+                    // Strip key bounds to shrink operation log for ts compaction recycle entries
+                    rowset_meta_copy.clear_segments_key_bounds();
+                    rowset_meta_copy.clear_segments_key_bounds_truncated();
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
+                } else {
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta.SerializeAsString(), 0);
+                }
+                LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
+
                 std::string versioned_rowset_key =
                         versioned::meta_rowset_load_key({instance_id, tablet_id, version});
                 if (!versioned::document_put(txn.get(), versioned_rowset_key,

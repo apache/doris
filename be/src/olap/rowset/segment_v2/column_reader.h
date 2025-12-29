@@ -24,17 +24,14 @@
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
 #include <memory>  // for unique_ptr
-#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
-#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h" // for Status
 #include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
@@ -50,9 +47,7 @@
 #include "util/once.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
-#include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
-#include "vec/json/path_in_data.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -230,6 +225,10 @@ public:
     virtual FieldType get_meta_type() { return _meta_type; }
 
     int64_t get_metadata_size() const override;
+
+#ifdef BE_TEST
+    void check_data_by_zone_map_for_test(const vectorized::MutableColumnPtr& dst) const;
+#endif
 
 private:
     friend class VariantColumnReader;
@@ -658,7 +657,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
         for (size_t i = 0; i < *n; ++i) {
-            rowid_t row_id = cast_set<uint32_t>(_current_rowid + i);
+            const auto row_id = cast_set<uint32_t>(_current_rowid + i);
             GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
             dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
         }
@@ -718,14 +717,12 @@ private:
 // This iterator is used to read default value column
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
-    DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfoPtr type_info, int precision, int scale)
+    DefaultValueColumnIterator(bool has_default_value, std::string default_value, bool is_nullable,
+                               TypeInfoPtr type_info, int precision, int scale)
             : _has_default_value(has_default_value),
-              _default_value(default_value),
+              _default_value(std::move(default_value)),
               _is_nullable(is_nullable),
               _type_info(std::move(type_info)),
-              _is_default_value_null(false),
-              _type_size(0),
               _precision(precision),
               _scale(scale) {}
 
@@ -762,8 +759,8 @@ private:
     std::string _default_value;
     bool _is_nullable;
     TypeInfoPtr _type_info;
-    bool _is_default_value_null;
-    size_t _type_size;
+    bool _is_default_value_null {false};
+    size_t _type_size {0};
     int _precision;
     int _scale;
     std::vector<char> _mem_value;

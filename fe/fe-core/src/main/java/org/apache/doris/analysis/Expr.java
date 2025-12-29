@@ -57,21 +57,14 @@ import java.util.function.Supplier;
  */
 public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
-    public static final String AGG_STATE_SUFFIX = "_state";
-    public static final String AGG_UNION_SUFFIX = "_union";
-    public static final String AGG_MERGE_SUFFIX = "_merge";
-    public static final String AGG_FOREACH_SUFFIX = "_foreach";
     public static final String DEFAULT_EXPR_NAME = "expr";
 
     protected boolean disableTableName = false;
 
-    protected Optional<Boolean> nullableFromNereids = Optional.empty();
-    protected Optional<Boolean> originCastNullable = Optional.empty();
+    protected boolean nullable = false;
 
     @SerializedName("type")
     protected Type type;  // result of analysis
-
-    protected boolean isAnalyzed = false;  // true after analyze() has been called
 
     @SerializedName("opcode")
     protected TExprOpcode opcode;  // opcode for this expr
@@ -81,7 +74,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     protected Function fn;
 
     // Cached value of IsConstant(), set during analyze() and valid if isAnalyzed_ is true.
-    private Supplier<Boolean> isConstant = Suppliers.memoize(() -> false);
+    private Supplier<Boolean> isConstant = Suppliers.memoize(this::isConstantImpl);
 
     protected Optional<String> exprName = Optional.empty();
 
@@ -94,16 +87,11 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     protected Expr(Expr other) {
         super();
         type = other.type;
-        isAnalyzed = other.isAnalyzed;
         opcode = other.opcode;
         isConstant = other.isConstant;
         fn = other.fn;
         children = Expr.cloneList(other.children);
-        nullableFromNereids = other.nullableFromNereids;
-    }
-
-    public boolean isAnalyzed() {
-        return isAnalyzed;
+        nullable = other.nullable;
     }
 
     public void checkValueValid() throws AnalysisException {
@@ -133,17 +121,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
     public Function getFn() {
         return fn;
-    }
-
-    /**
-     * Set the expr to be analyzed and computes isConstant_.
-     */
-    protected void analysisDone() {
-        Preconditions.checkState(!isAnalyzed);
-        // We need to compute the const-ness as the last step, since analysis may change
-        // the result, e.g. by resolving function.
-        isConstant = Suppliers.memoize(this::isConstantImpl);
-        isAnalyzed = true;
     }
 
     /**
@@ -188,20 +165,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
             strings.add(Strings.nullToEmpty(expr.debugString()));
         }
         return "(" + Joiner.on(" ").join(strings) + ")";
-    }
-
-    public static <C extends Expr> HashMap<C, Integer> toCountMap(List<C> list) {
-        HashMap countMap = new HashMap<C, Integer>();
-        for (int i = 0; i < list.size(); i++) {
-            C obj = list.get(i);
-            Integer count = (Integer) countMap.get(obj);
-            if (count == null) {
-                countMap.put(obj, 1);
-            } else {
-                countMap.put(obj, count + 1);
-            }
-        }
-        return countMap;
     }
 
     /**
@@ -319,7 +282,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         }
         // useless parameter, just give a number
         msg.output_scale = -1;
-        msg.setIsNullable(nullableFromNereids.isPresent() ? nullableFromNereids.get() : isNullable());
+        msg.setIsNullable(nullable);
         visitor.visit(this, msg);
         container.addToNodes(msg);
         for (Expr child : children) {
@@ -480,10 +443,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
      * FunctionCallExpr.isConstant()).
      */
     public final boolean isConstant() {
-        if (isAnalyzed) {
-            return isConstant.get();
-        }
-        return isConstantImpl();
+        return isConstant.get();
     }
 
     /**
@@ -571,41 +531,11 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         this.toThrift(msg);
     }
 
-    protected boolean hasNullableChild() {
-        return hasNullableChild(children);
-    }
-
-    protected static boolean hasNullableChild(List<Expr> children) {
-        for (Expr expr : children) {
-            if (expr.isNullable()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * For excute expr the result is nullable
-     * TODO: Now only SlotRef and LiteralExpr overwrite the method, each child of Expr should
-     * overwrite this method to plan correct
      */
     public boolean isNullable() {
-        return isNullable(fn, children);
-    }
-
-    public static boolean isNullable(Function fn, List<Expr> children) {
-        if (fn == null) {
-            return true;
-        }
-        switch (fn.getNullableMode()) {
-            case DEPEND_ON_ARGUMENT:
-                return hasNullableChild(children);
-            case ALWAYS_NOT_NULLABLE:
-                return false;
-            case ALWAYS_NULLABLE:
-            default:
-                return true;
-        }
+        return nullable;
     }
 
     public static AggStateType createAggStateType(String name, List<Type> typeList,
@@ -627,18 +557,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
     public boolean isNullLiteral() {
         return this instanceof NullLiteral;
-    }
-
-    public void setNullableFromNereids(boolean nullable) {
-        nullableFromNereids = Optional.of(nullable);
-    }
-
-    public Optional<Boolean> getNullableFromNereids() {
-        return nullableFromNereids;
-    }
-
-    public void setOriginCastNullable(boolean nullable) {
-        originCastNullable = Optional.of(nullable);
     }
 
     public Set<SlotRef> getInputSlotRef() {

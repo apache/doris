@@ -43,7 +43,7 @@ public class ArrayLiteral extends LiteralExpr {
     public ArrayLiteral(Type type, LiteralExpr... exprs) {
         this.type = type;
         children = new ArrayList<>(Arrays.asList(exprs));
-        analysisDone();
+        this.nullable = false;
     }
 
     protected ArrayLiteral(ArrayLiteral other) {

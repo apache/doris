@@ -216,7 +216,8 @@ import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithEofContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithOrderContext;
 import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
-import org.apache.doris.nereids.DorisParser.FromClauseContext;
+import org.apache.doris.nereids.DorisParser.FromDualContext;
+import org.apache.doris.nereids.DorisParser.FromRelationsContext;
 import org.apache.doris.nereids.DorisParser.FunctionArgumentsContext;
 import org.apache.doris.nereids.DorisParser.FunctionIdentifierContext;
 import org.apache.doris.nereids.DorisParser.GroupConcatContext;
@@ -245,6 +246,7 @@ import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
 import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
 import org.apache.doris.nereids.DorisParser.IsnullContext;
+import org.apache.doris.nereids.DorisParser.JobFromToClauseContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
 import org.apache.doris.nereids.DorisParser.KillQueryContext;
@@ -498,7 +500,6 @@ import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.JoinSkewInfo;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -555,7 +556,6 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -1182,13 +1182,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<Long> interval = ctx.timeInterval == null ? Optional.empty() :
                 Optional.of(Long.valueOf(ctx.timeInterval.getText()));
         Optional<String> intervalUnit = ctx.timeUnit == null ? Optional.empty() : Optional.of(ctx.timeUnit.getText());
-        Map<String, String> properties = ctx.propertyClause() != null
-                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        Map<String, String> jobProperties = ctx.jobProperties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.jobProperties)) : Maps.newHashMap();
         String comment =
                 visitCommentSpec(ctx.commentSpec());
-        String executeSql = getOriginSql(ctx.supportedDmlStatement());
+        String executeSql = ctx.supportedDmlStatement() == null ? "" : getOriginSql(ctx.supportedDmlStatement());
+        JobFromToClauseContext jobFromToClauseCtx = ctx.jobFromToClause();
+        String sourceType = null;
+        String targetDb = null;
+        Map<String, String> sourceProperties = Maps.newHashMap();
+        Map<String, String> targetProperties = Maps.newHashMap();
+        if (jobFromToClauseCtx != null) {
+            sourceType = jobFromToClauseCtx.sourceType.getText();
+            targetDb = jobFromToClauseCtx.targetDb == null ? "" : jobFromToClauseCtx.targetDb.getText();
+            sourceProperties = Maps.newHashMap(visitPropertyItemList(jobFromToClauseCtx.sourceProperties));
+            targetProperties = jobFromToClauseCtx.targetProperties != null
+                    ? Maps.newHashMap(visitPropertyItemList(jobFromToClauseCtx.targetProperties)) : Maps.newHashMap();
+        }
         CreateJobInfo createJobInfo = new CreateJobInfo(label, atTime, interval, intervalUnit, startTime,
-                endsTime, immediateStartOptional, comment, executeSql, ctx.STREAMING() != null, properties);
+                endsTime, immediateStartOptional, comment, executeSql, ctx.STREAMING() != null,
+                jobProperties, sourceType, targetDb, sourceProperties, targetProperties);
         return new CreateJobCommand(createJobInfo);
     }
 
@@ -1203,7 +1216,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
         String executeSql = ctx.supportedDmlStatement() != null ? getOriginSql(ctx.supportedDmlStatement()) : "";
-        return new AlterJobCommand(ctx.jobName.getText(), properties, executeSql);
+        String sourceType = null;
+        String targetDb = null;
+        Map<String, String> sourceProperties = Maps.newHashMap();
+        Map<String, String> targetProperties = Maps.newHashMap();
+        if (ctx.jobFromToClause() != null) {
+            sourceType = ctx.jobFromToClause().sourceType.getText();
+            targetDb = ctx.jobFromToClause().targetDb == null ? "" : ctx.jobFromToClause().targetDb.getText();
+            sourceProperties = Maps.newHashMap(visitPropertyItemList(ctx.jobFromToClause().sourceProperties));
+            targetProperties = ctx.jobFromToClause().targetProperties != null
+                    ? Maps.newHashMap(visitPropertyItemList(ctx.jobFromToClause().targetProperties))
+                    : Maps.newHashMap();
+        }
+        return new AlterJobCommand(ctx.jobName.getText(), properties,
+                executeSql, sourceType, targetDb, sourceProperties, targetProperties);
     }
 
     @Override
@@ -1921,8 +1947,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 )
         );
         query = withTableAlias(query, ctx.tableAlias());
-        if (ctx.fromClause() != null) {
-            query = withRelations(query, ctx.fromClause().relations().relation());
+        if (ctx.fromClause() instanceof FromRelationsContext) {
+            query = withRelations(query, ((FromRelationsContext) ctx.fromClause()).relations().relation());
         }
         query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
         String tableAlias = null;
@@ -2069,10 +2095,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 connectContext.setStatementContext(statementContext);
                 statementContext.setConnectContext(connectContext);
             }
-            Pair<LogicalPlan, StatementContext> planAndContext = Pair.of(
-                    ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext);
-            statementContext.setParsedStatement(new LogicalPlanAdapter(planAndContext.first, statementContext));
-            logicalPlans.add(planAndContext);
+            logicalPlans.add(Pair.of(
+                    ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
             List<Placeholder> params = new ArrayList<>(tokenPosToParameters.values());
             statementContext.setPlaceholders(params);
             tokenPosToParameters.clear();
@@ -2522,11 +2546,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             SelectClauseContext selectCtx = ctx.selectClause();
             LogicalPlan selectPlan;
             LogicalPlan relation;
-            if (ctx.fromClause() == null) {
+            if (ctx.fromClause() == null || ctx.fromClause() instanceof FromDualContext) {
                 relation = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                         ImmutableList.of(new Alias(Literal.of(0))));
             } else {
-                relation = visitFromClause(ctx.fromClause());
+                relation = visitFromRelations((FromRelationsContext) ctx.fromClause());
             }
             selectPlan = withSelectQuerySpecification(
                     ctx, relation,
@@ -2985,20 +3009,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit());
+                String funcOpName = String.format("%sS_ADD", interval.timeUnit());
+                return new UnboundFunction(funcOpName, ImmutableList.of(right, interval.value()));
             }
 
             if (right instanceof Interval) {
-                Operator op;
+                String op;
                 if (type == DorisParser.PLUS) {
-                    op = Operator.ADD;
+                    op = "ADD";
                 } else if (type == DorisParser.SUBTRACT) {
-                    op = Operator.SUBTRACT;
+                    op = "SUB";
                 } else {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit());
+                String funcOpName = String.format("%sS_%s", interval.timeUnit(), op);
+                return new UnboundFunction(funcOpName, ImmutableList.of(left, interval.value()));
             }
 
             return ParserUtils.withOrigin(ctx, () -> {
@@ -3656,7 +3682,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitFromClause(FromClauseContext ctx) {
+    public LogicalPlan visitFromRelations(FromRelationsContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> visitRelations(ctx.relations()));
     }
 

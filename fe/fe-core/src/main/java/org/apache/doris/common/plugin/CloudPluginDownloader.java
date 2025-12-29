@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.obj.S3ObjStorage;
+import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
 
@@ -79,7 +80,9 @@ public class CloudPluginDownloader {
      */
     static Cloud.ObjectStoreInfoPB getCloudStorageInfo() throws Exception {
         Cloud.GetObjStoreInfoResponse response = MetaServiceProxy.getInstance()
-                .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+                .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder()
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                        .build());
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             throw new RuntimeException("Failed to get storage info: " + response.getStatus().getMsg());
