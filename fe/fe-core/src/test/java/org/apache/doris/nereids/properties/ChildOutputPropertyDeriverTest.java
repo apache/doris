@@ -700,6 +700,7 @@ class ChildOutputPropertyDeriverTest {
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -724,6 +725,7 @@ class ChildOutputPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -753,6 +755,7 @@ class ChildOutputPropertyDeriverTest {
                 new AggregateParam(AggPhase.LOCAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
 

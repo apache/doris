@@ -19,15 +19,19 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -35,7 +39,9 @@ import com.google.common.collect.ImmutableList;
 import org.json.JSONObject;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Enforcer plan. Generated when upstream's physical property mismatches downstream's required physical property.
@@ -138,6 +144,24 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder("PhysicalDistribute");
         builder.append("[").append(getDistributionSpec().shapeInfo()).append("]");
+        ConnectContext context = ConnectContext.get();
+        if (context != null
+                && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
+            if (distributionSpec instanceof DistributionSpecHash) {
+                builder.append(" Hash Columns:");
+                DistributionSpecHash hash = (DistributionSpecHash) distributionSpec;
+                Map<ExprId, Slot> outputById = child().getOutput().stream()
+                        .collect(Collectors.toMap(NamedExpression::getExprId, slot -> slot, (a, b) -> a));
+                builder.append(
+                        hash.getOrderedShuffledColumns().stream()
+                                .map(id -> {
+                                    Slot slot = outputById.get(id);
+                                    return slot == null ? String.valueOf(id) : slot.getName();
+                                })
+                                .collect(Collectors.toList())
+                );
+            }
+        }
         return builder.toString();
     }
 }
