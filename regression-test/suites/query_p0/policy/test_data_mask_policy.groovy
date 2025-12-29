@@ -46,7 +46,7 @@ suite("test_data_mask_policy", "query,p0") {
     sql "insert into ${tableName} values(1,'2022-01-01 12:13:14','abcdef','abcdef','abcdef','aBc4E121','abc')"
 
     sql "create user if not exists ${userName}"
-    sql "grant SELECT_PRIV on ${dbName}.${tableName} to '${userName}'@'%';"
+    sql "grant SELECT_PRIV on *.* to '${userName}'@'%';"
 
     sql "drop data mask policy if exists test"
     sql "drop data mask policy if exists test1"
