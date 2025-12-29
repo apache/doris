@@ -202,6 +202,9 @@ private:
         case PrimitiveType::TYPE_DATETIMEV2:                                                  \
             *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);                 \
             break;                                                                            \
+        case PrimitiveType::TYPE_TIMESTAMPTZ:                                                 \
+            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);                 \
+            break;                                                                            \
         case PrimitiveType::TYPE_DECIMAL32:                                                   \
             *dst = _apply_internal<Decimal32, OP>(src_column, src_offsets, cmp);              \
             break;                                                                            \

@@ -131,7 +131,7 @@ public class ListPartitionInfo extends PartitionInfo {
 
     public static void checkPartitionColumn(Column column) throws AnalysisException {
         PrimitiveType type = column.getDataType();
-        if (!type.isFixedPointType() && !type.isDateType()
+        if (!type.isFixedPointType() && !type.isDateLikeType()
                 && !type.isCharFamily() && type != PrimitiveType.BOOLEAN) {
             throw new AnalysisException("Column[" + column.getName() + "] type[" + type
                     + "] cannot be a list partition key.");

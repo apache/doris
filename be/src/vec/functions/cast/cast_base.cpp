@@ -43,6 +43,10 @@ Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
 
     auto tmp_col = ColumnString::create();
     vectorized::DataTypeSerDe::FormatOptions options;
+    auto time_zone = cctz::utc_time_zone();
+    options.timezone =
+            (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
+
     options.escape_char = '\\';
     for (size_t i = 0; i < input_rows_count; i++) {
         // convert to string

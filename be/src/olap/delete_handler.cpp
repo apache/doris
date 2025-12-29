@@ -216,6 +216,7 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
     case FieldType::OLAP_FIELD_TYPE_DATEV2:
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return valid_datetime(value_str, column.frac());
     case FieldType::OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
