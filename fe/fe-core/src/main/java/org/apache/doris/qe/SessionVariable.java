@@ -703,6 +703,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
+    public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
+            "cloud_table_version_cache_ttl_ms";
     // CLOUD_VARIABLES_BEGIN
 
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
@@ -2386,6 +2388,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean disableEmptyPartitionPrune = false;
     @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
     public static long cloudPartitionVersionCacheTtlMs = 0;
+    @VariableMgr.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
+    public long cloudTableVersionCacheTtlMs = 0;
     // CLOUD_VARIABLES_END
 
     @VariableMgr.VarAttr(
