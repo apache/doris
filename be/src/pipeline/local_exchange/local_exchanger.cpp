@@ -22,6 +22,7 @@
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "vec/runtime/partitioner.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -147,16 +148,17 @@ void ShuffleExchanger::close(SourceInfo&& source_info) {
 Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                    Profile&& profile, SourceInfo&& source_info) {
     PartitionedBlock partitioned_block;
-    vectorized::MutableBlock mutable_block;
+    vectorized::MemReuseBlockWrapper mem_reuse_block;
 
     auto get_data = [&]() -> Status {
         do {
             const auto* offset_start = partitioned_block.second.row_idxs->data() +
                                        partitioned_block.second.offset_start;
             auto block_wrapper = partitioned_block.first;
-            RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->_data_block, offset_start,
-                                                   offset_start + partitioned_block.second.length));
-        } while (mutable_block.rows() < state->batch_size() && !*eos &&
+            RETURN_IF_ERROR(mem_reuse_block.mutable_block.add_rows(
+                    &block_wrapper->_data_block, offset_start,
+                    offset_start + partitioned_block.second.length));
+        } while (mem_reuse_block.mutable_block.rows() < state->batch_size() && !*eos &&
                  _dequeue_data(source_info.local_state, partitioned_block, eos, block,
                                source_info.channel_id));
         return Status::OK();
@@ -165,8 +167,8 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
     if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
                       source_info.channel_id)) {
         SCOPED_TIMER(profile.copy_data_timer);
-        mutable_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
-                block, partitioned_block.first->_data_block);
+        vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
+                block, partitioned_block.first->_data_block, mem_reuse_block);
         RETURN_IF_ERROR(get_data());
     }
     return Status::OK();
@@ -415,13 +417,12 @@ Status BroadcastExchanger::get_block(RuntimeState* state, vectorized::Block* blo
     if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
                       source_info.channel_id)) {
         SCOPED_TIMER(profile.copy_data_timer);
-        vectorized::MutableBlock mutable_block =
-                vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
-                        block, partitioned_block.first->_data_block);
+        auto mem_reuse_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
+                block, partitioned_block.first->_data_block);
         auto block_wrapper = partitioned_block.first;
-        RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->_data_block,
-                                               partitioned_block.second.offset_start,
-                                               partitioned_block.second.length));
+        RETURN_IF_ERROR(mem_reuse_block.mutable_block.add_rows(
+                &block_wrapper->_data_block, partitioned_block.second.offset_start,
+                partitioned_block.second.length));
     }
 
     return Status::OK();

@@ -151,9 +151,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         return Status::OK();
     } else {
         size_t num_columns = _priority_queue.top().impl->block->columns();
-        MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(
+        auto mem_reuse_block = VectorizedUtils::build_mutable_mem_reuse_block(
                 output_block, *_priority_queue.top().impl->block);
-        MutableColumns& merged_columns = m_block.mutable_columns();
+        MutableColumns& merged_columns = mem_reuse_block.mutable_block.mutable_columns();
 
         if (num_columns != merged_columns.size()) {
             throw Exception(
@@ -199,8 +199,6 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             }
         }
         do_insert();
-        output_block->set_columns(std::move(merged_columns));
-
         if (merged_rows == 0) {
             *eos = true;
             return Status::OK();

@@ -165,10 +165,10 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
     }
 
     DCHECK_EQ(rows, input_block.rows());
-    MutableBlock mutable_block =
+    auto mem_reuse_block =
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
 
-    auto& mutable_columns = mutable_block.mutable_columns();
+    auto& mutable_columns = mem_reuse_block.mutable_block.mutable_columns();
 
     DCHECK_EQ(mutable_columns.size(), _projections.size());
 
@@ -181,9 +181,7 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
         }
         mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
     }
-    DCHECK(mutable_block.rows() == rows);
-    output_block->set_columns(std::move(mutable_columns));
-
+    DCHECK(mem_reuse_block.mutable_block.rows() == rows);
     return Status::OK();
 }
 

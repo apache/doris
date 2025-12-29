@@ -107,9 +107,9 @@ Status PartitionSorter::_read_row_num(Block* output_block, bool* eos, int batch_
     auto& queue = _state->get_queue();
     size_t num_columns = _state->unsorted_block()->columns();
 
-    MutableBlock m_block =
+    auto mem_reuse_block =
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_state->unsorted_block());
-    MutableColumns& merged_columns = m_block.mutable_columns();
+    MutableColumns& merged_columns = mem_reuse_block.mutable_block.mutable_columns();
     size_t merged_rows = 0;
 
     Defer defer {[&]() {
@@ -132,6 +132,7 @@ Status PartitionSorter::_read_row_num(Block* output_block, bool* eos, int batch_
             }
             // swap and return block directly when we should get all data from cursor
             output_block->swap(*current->impl->block);
+            mem_reuse_block.block = nullptr; // avoid double set_columns in ~MemReuseBlockWrapper
             merged_rows += step;
             _output_total_rows += step;
             queue.remove_top();
@@ -161,9 +162,9 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
     auto& queue = _state->get_queue();
     size_t num_columns = _state->unsorted_block()->columns();
 
-    MutableBlock m_block =
+    auto mem_reuse_block =
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_state->unsorted_block());
-    MutableColumns& merged_columns = m_block.mutable_columns();
+    MutableColumns& merged_columns = mem_reuse_block.mutable_block.mutable_columns();
     size_t merged_rows = 0;
 
     Defer defer {[&]() {
