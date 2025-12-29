@@ -192,6 +192,7 @@ private:
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
         RuntimeProfile::Counter* decode_header_time = nullptr;
+        RuntimeProfile::Counter* read_page_header_time = nullptr;
         RuntimeProfile::Counter* decode_value_time = nullptr;
         RuntimeProfile::Counter* decode_dict_time = nullptr;
         RuntimeProfile::Counter* decode_level_time = nullptr;

@@ -77,7 +77,10 @@ Status PageReader::_parse_page_header() {
             return Status::EndOfFile("stop");
         }
         header_size = std::min(header_size, max_size);
-        RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, header_size, _io_ctx));
+        {
+            SCOPED_RAW_TIMER(&_statistics.read_page_header_time);
+            RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, header_size, _io_ctx));
+        }
         real_header_size = cast_set<uint32_t>(header_size);
         SCOPED_RAW_TIMER(&_statistics.decode_header_time);
         auto st =

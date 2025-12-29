@@ -85,6 +85,7 @@ public:
         int64_t decode_level_time = 0;
         int64_t skip_page_header_num = 0;
         int64_t parse_page_header_num = 0;
+        int64_t read_page_header_time = 0;
     };
 
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
@@ -174,6 +175,7 @@ public:
         _statistics.decode_header_time = _page_reader->statistics().decode_header_time;
         _statistics.skip_page_header_num = _page_reader->statistics().skip_page_header_num;
         _statistics.parse_page_header_num = _page_reader->statistics().parse_page_header_num;
+        _statistics.read_page_header_time = _page_reader->statistics().read_page_header_time;
         return _statistics;
     }
 

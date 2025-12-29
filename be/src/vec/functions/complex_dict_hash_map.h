@@ -92,7 +92,8 @@ struct DictionaryHashMapMethod
             method_variant.emplace<MethodKeysFixed<DictHashMap<UInt96>>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed104:
-            method_variant.emplace<MethodKeysFixed<DictHashMap<UInt104>>>(get_key_sizes(data_types));
+            method_variant.emplace<MethodKeysFixed<DictHashMap<UInt104>>>(
+                    get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
             method_variant.emplace<MethodKeysFixed<DictHashMap<UInt128>>>(
