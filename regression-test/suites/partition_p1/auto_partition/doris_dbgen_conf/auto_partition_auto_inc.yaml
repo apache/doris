@@ -1,0 +1,8 @@
+global-type-constraints:
+        varchar:
+                range: {min: 0, max: 2}
+
+tables:
+        auto_inc_src:
+                dt:
+                        range: {min: "2025-11-16", max: "2025-12-22"}
