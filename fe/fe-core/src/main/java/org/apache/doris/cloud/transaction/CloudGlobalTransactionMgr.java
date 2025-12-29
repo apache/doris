@@ -428,6 +428,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
                     mowTableList, backendToPartitionInfos);
+            // clear signature after commit succeeds
+            clearTxnLastSignature(dbId, transactionId);
         } catch (Exception e) {
             if (!mowTableList.isEmpty()) {
                 LOG.warn("commit txn {} failed, release delete bitmap lock, catch exception {}", transactionId,
@@ -1476,6 +1478,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             commitTransactionWithSubTxns(db.getId(), tableList, transactionId, subTransactionStates, mowTableList,
                     backendToPartitionInfos);
+            // clear signature after commit succeeds
+            clearTxnLastSignature(db.getId(), transactionId);
         } catch (Exception e) {
             if (!mowTableList.isEmpty()) {
                 LOG.warn("commit txn {} failed, release delete bitmap lock, catch exception {}", transactionId,
@@ -1657,6 +1661,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
         try {
             commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+            // Only clear signature after commit succeeds, as BE may retry on failure
+            clearTxnLastSignature(db.getId(), transactionId);
         } finally {
             stopWatch.stop();
             long costTimeMs = stopWatch.getTime();
@@ -1724,6 +1730,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, null);
         } finally {
             handleAfterAbort(abortTxnResponse, txnCommitAttachment, transactionId);
+            clearTxnLastSignature(dbId, transactionId);
         }
     }
 
