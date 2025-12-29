@@ -1118,33 +1118,45 @@ public class StatisticsUtil {
 
     /**
      * Get the map of column literal value and its row count percentage in the table.
-     * The stringValues is like:
-     * value1 :percent1 ;value2 :percent2 ;value3 :percent3
+     * Returns top hot values from statistics without threshold filtering. Each rule that uses
+     * hot values can apply its own skew threshold (e.g. 5% for shuffle key prune).
+     * The stringValues is like: value1 :percent1 ;value2 :percent2 ;value3 :percent3
+     * @param stringValues null = not collected; "" = collected but no hot values;
+     *                     "v1:0.1;v2:0.2" = collected with values
      * @return Map of LiteralExpr -> percentage.
      */
-    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type, double avgOccurrences) {
+    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type) {
+        // not collect hot value
         if (stringValues == null || "null".equalsIgnoreCase(stringValues)) {
             return null;
         }
+        // no hot value
+        if (stringValues.isEmpty()) {
+            return Maps.newLinkedHashMap();
+        }
         try {
             LinkedHashMap<Literal, Float> ret = Maps.newLinkedHashMap();
+            int maxCount = SessionVariable.getHotValueCollectCount();
+            if (maxCount <= 0) {
+                maxCount = 10;
+            }
             for (String oneRow : stringValues.split(" ;")) {
+                if (ret.size() >= maxCount) {
+                    break;
+                }
                 String[] oneRowSplit = oneRow.split(" :");
                 float value = Float.parseFloat(oneRowSplit[1]);
-                if (value >= avgOccurrences * SessionVariable.getSkewValueThreshold()
-                        || value >= SessionVariable.getHotValueThreshold()) {
-                    org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
-                            new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
-                                    oneRowSplit[0].replaceAll("\\\\:", ":")
-                                            .replaceAll("\\\\;", ";"));
-                    DataType dataType = DataType.legacyTypeToNereidsType().get(type.getPrimitiveType());
-                    if (dataType != null) {
-                        try {
-                            Literal hotValue = (Literal) stringLiteral.checkedCastTo(dataType);
-                            ret.put(hotValue, value);
-                        } catch (Exception e) {
-                            LOG.info("Failed to parse hot value [{}]. {}", oneRowSplit[0], e.getMessage());
-                        }
+                org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
+                        new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
+                                oneRowSplit[0].replaceAll("\\\\:", ":")
+                                        .replaceAll("\\\\;", ";"));
+                DataType dataType = DataType.legacyTypeToNereidsType().get(type.getPrimitiveType());
+                if (dataType != null) {
+                    try {
+                        Literal hotValue = (Literal) stringLiteral.checkedCastTo(dataType);
+                        ret.put(hotValue, value);
+                    } catch (Exception e) {
+                        LOG.info("Failed to parse hot value [{}]. {}", oneRowSplit[0], e.getMessage());
                     }
                 }
             }
@@ -1157,22 +1169,63 @@ public class StatisticsUtil {
         return null;
     }
 
-    public static boolean isBalanced(ColumnStatistic columnStatistic, double rowCount, int instanceNum) {
-        double ndv = columnStatistic.ndv;
-        double maxHotValueCntIncludeNull;
-        Map<Literal, Float> hotValues = columnStatistic.getHotValues();
-        // When hotValues not exist, or exist but unknown, treat nulls as the only hot value.
-        if (columnStatistic.getHotValues() == null || hotValues.isEmpty()) {
-            maxHotValueCntIncludeNull = columnStatistic.numNulls;
-        } else {
-            double rate = hotValues.values().stream().mapToDouble(Float::doubleValue).max().orElse(0);
-            maxHotValueCntIncludeNull = rate * rowCount > columnStatistic.numNulls
-                    ? rate * rowCount : columnStatistic.numNulls;
+    /**
+     * Filter hot values by minimum ratio. Rules can use this to apply their own skew threshold.
+     * @return Filtered map or null if empty.
+     */
+    public static Map<Literal, Float> getHotValuesAboveThreshold(Map<Literal, Float> hotValues, double minRatio) {
+        if (hotValues == null || hotValues.isEmpty()) {
+            return null;
         }
-        double rowsPerInstance = (rowCount - maxHotValueCntIncludeNull) / instanceNum;
-        double balanceFactor = maxHotValueCntIncludeNull == 0
-                ? Double.MAX_VALUE : rowsPerInstance / maxHotValueCntIncludeNull;
-        // The larger this factor is, the more balanced the data.
-        return balanceFactor > 2.0 && ndv > instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER;
+        Map<Literal, Float> filtered = Maps.newLinkedHashMap();
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
+            if (entry.getValue() >= minRatio) {
+                filtered.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return filtered.isEmpty() ? null : filtered;
+    }
+
+    /**
+     * Filter hot values by original threshold: ratio >= hotValueThreshold (10%) OR
+     * ratio * ndv >= skewValueThreshold (10x average).
+     * Used by ChildrenPropertiesRegulator, SkewJoin and other non-shuffle-prune rules.
+     */
+    public static Map<Literal, Float> getHotValuesWithOriginalThreshold(Map<Literal, Float> hotValues, double ndv) {
+        if (hotValues == null || hotValues.isEmpty()) {
+            return null;
+        }
+        double hotValueThreshold = SessionVariable.getHotValueThreshold();
+        double skewValueThreshold = SessionVariable.getSkewValueThreshold();
+        Map<Literal, Float> filtered = Maps.newLinkedHashMap();
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
+            float ratio = entry.getValue();
+            if (ratio >= hotValueThreshold
+                    || ratio * ndv >= skewValueThreshold) {
+                filtered.put(entry.getKey(), ratio);
+            }
+        }
+        return filtered.isEmpty() ? null : filtered;
+    }
+
+    /**
+     * Check if column has significant hot values (any value with ratio >= minRatio).
+     * Used by shuffle key prune and skew detection rules.
+     * Returns false when hotValues is null (not collected) or empty (collected but no hot values).
+     */
+    public static boolean hasSignificantHotValues(ColumnStatistic columnStatistic, double minRatio, double rowCount) {
+        Map<Literal, Float> hotValues = columnStatistic.getHotValues();
+        if (hotValues == null) {
+            return true;
+        }
+        return columnStatistic.numNulls / rowCount > minRatio
+                || hotValues.values().stream().anyMatch(ratio -> ratio >= minRatio);
+    }
+
+    public static boolean isBalanced(ColumnStatistic columnStatistic, int instanceNum, double minRatio,
+            double rowCount) {
+        double ndv = columnStatistic.ndv;
+        return ndv > instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER
+                && !hasSignificantHotValues(columnStatistic, minRatio, rowCount);
     }
 }

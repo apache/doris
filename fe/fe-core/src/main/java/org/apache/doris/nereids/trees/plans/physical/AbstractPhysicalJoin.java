@@ -321,7 +321,8 @@ public abstract class AbstractPhysicalJoin<
         return false;
     }
 
-    protected ShuffleType shuffleType() {
+    /**shuffleType*/
+    public ShuffleType shuffleType() {
         if (left() instanceof PhysicalDistribute) {
             if (right() instanceof PhysicalDistribute) {
                 return ShuffleType.shuffle;

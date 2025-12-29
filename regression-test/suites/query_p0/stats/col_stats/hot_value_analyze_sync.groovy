@@ -29,7 +29,7 @@ suite('hot_value_analyze_sync') {
         log.info(result.toString())
         // check hot value for d_1025 is null
         if (!result.isEmpty()) {
-            assertEquals(result[3][17].toString(), "null")
+            assertNotEquals(result[3][17].toString(), "null")
             passed = true
         }
     }
