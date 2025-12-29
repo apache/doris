@@ -62,7 +62,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -298,7 +297,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         return ImmutableList.of(originChildrenProperties);
     }
 
-    private boolean isBucketShuffleDownGrade(Plan oneSidePlan, DistributionSpecHash otherSideSpec) {
+    private boolean isBucketShuffleDownGrade(Plan oneSidePlan) {
         // improper to do bucket shuffle join:
         // oneSide:
         //      - base table and tablets' number is small enough (< paraInstanceNum)
@@ -427,7 +426,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                     ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
-        } else if (isBucketShuffleDownGrade(leftChild, rightHashSpec)) {
+        } else if (isBucketShuffleDownGrade(leftChild)) {
             updatedForLeft = Optional.of(calAnotherSideRequired(
                     ShuffleType.EXECUTION_BUCKETED, leftHashSpec, leftHashSpec,
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
@@ -436,7 +435,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                     ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
-        } else if (isBucketShuffleDownGrade(rightChild, leftHashSpec)) {
+        } else if (isBucketShuffleDownGrade(rightChild)) {
             updatedForLeft = Optional.of(calAnotherSideRequired(
                     ShuffleType.EXECUTION_BUCKETED, rightHashSpec, leftHashSpec,
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
@@ -667,12 +666,12 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         } else if (requiredDistributionSpec instanceof DistributionSpecHash) {
             // TODO: should use the most common hash spec as basic
             DistributionSpecHash basic = (DistributionSpecHash) requiredDistributionSpec;
-            int distributeToChildIndex = -1;
-            double basicBuckets = -1;
+            int bucketShuffleBasicIndex = -1;
             double basicRowCount = -1;
 
+            // find the bucket shuffle basic index
             try {
-                ImmutableSet<ShuffleType> supportedShuffleTypes = ImmutableSet.of(
+                ImmutableSet<ShuffleType> supportBucketShuffleTypes = ImmutableSet.of(
                         ShuffleType.NATURAL,
                         ShuffleType.STORAGE_BUCKETED
                 );
@@ -681,39 +680,36 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                     PhysicalProperties originChildrenProperty = originChildrenProperties.get(i);
                     DistributionSpec childDistribution = originChildrenProperty.getDistributionSpec();
                     if (childDistribution instanceof DistributionSpecHash
-                            && supportedShuffleTypes.contains(
-                                    ((DistributionSpecHash) childDistribution).getShuffleType())) {
-                        int bucketNum = getBucketNum(children.get(i).getPlan());
+                            && supportBucketShuffleTypes.contains(
+                                    ((DistributionSpecHash) childDistribution).getShuffleType())
+                            && !(isBucketShuffleDownGrade(setOperation.child(i)))) {
                         Statistics stats = setOperation.child(i).getStats();
                         double rowCount = stats.getRowCount();
-                        if (bucketNum > basicBuckets) {
-                            basicBuckets = bucketNum;
+                        if (rowCount > basicRowCount) {
                             basicRowCount = rowCount;
-                            distributeToChildIndex = i;
-                        } else if (bucketNum == basicBuckets && rowCount > basicRowCount) {
-                            basicRowCount = rowCount;
-                            distributeToChildIndex = i;
+                            bucketShuffleBasicIndex = i;
                         }
                     }
                 }
             } catch (Throwable t) {
                 // catch stats exception
                 LOG.warn("Can not find the most (bucket num, rowCount): " + t, t);
-                distributeToChildIndex = -1;
+                bucketShuffleBasicIndex = -1;
             }
 
-            if (distributeToChildIndex >= 0) {
+            // use bucket shuffle
+            if (bucketShuffleBasicIndex >= 0) {
                 DistributionSpecHash notShuffleSideRequire
-                        = (DistributionSpecHash) requiredProperties.get(distributeToChildIndex).getDistributionSpec();
+                        = (DistributionSpecHash) requiredProperties.get(bucketShuffleBasicIndex).getDistributionSpec();
 
                 DistributionSpecHash notNeedShuffleOutput
-                        = (DistributionSpecHash) originChildrenProperties.get(distributeToChildIndex)
+                        = (DistributionSpecHash) originChildrenProperties.get(bucketShuffleBasicIndex)
                             .getDistributionSpec();
 
                 for (int i = 0; i < originChildrenProperties.size(); i++) {
                     DistributionSpecHash current
                             = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
-                    if (i == distributeToChildIndex) {
+                    if (i == bucketShuffleBasicIndex) {
                         continue;
                     }
 
@@ -727,7 +723,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                             currentRequire);
                     updateChildEnforceAndCost(i, target);
                 }
-                setOperation.setMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX, distributeToChildIndex);
+                setOperation.setMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX, bucketShuffleBasicIndex);
+            // use partitioned shuffle
             } else {
                 for (int i = 0; i < originChildrenProperties.size(); i++) {
                     DistributionSpecHash current
@@ -912,35 +909,5 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             enforcer.putOutputPropertiesMap(newOutputProperty, newOutputProperty);
         }
         child.getOwnerGroup().setBestPlan(enforcer, totalCost, newOutputProperty);
-    }
-
-    private int getBucketNum(Plan plan) {
-        PhysicalOlapScan candidate = findBucketShuffleCandidate(plan);
-        if (candidate == null || candidate.getTable() == null
-                || candidate.getTable().getDefaultDistributionInfo() == null) {
-            return -1;
-        } else {
-            return candidate.getTable().getDefaultDistributionInfo().getBucketNum();
-        }
-    }
-
-    private boolean equalsAllColumns(DistributionSpecHash required, DistributionSpecHash provided) {
-        List<ExprId> requiredColumnIds = required.getOrderedShuffledColumns();
-        List<ExprId> providedColumnIds = provided.getOrderedShuffledColumns();
-        if (requiredColumnIds.size() != providedColumnIds.size()) {
-            return false;
-        }
-        Map<ExprId, Integer> equalSet = provided.getExprIdToEquivalenceSet();
-        for (int i = 0; i < requiredColumnIds.size(); i++) {
-            ExprId requiredColumnId = requiredColumnIds.get(i);
-            Integer equalId = equalSet.get(requiredColumnId);
-            if (equalId == null) {
-                equalId = requiredColumnId.asInt();
-            }
-            if (providedColumnIds.get(i).asInt() != equalId) {
-                return false;
-            }
-        }
-        return true;
     }
 }

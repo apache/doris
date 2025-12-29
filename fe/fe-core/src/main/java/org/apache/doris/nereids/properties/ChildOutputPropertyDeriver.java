@@ -448,9 +448,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         if (childrenDistribution.stream().allMatch(DistributionSpecGather.class::isInstance)) {
             return PhysicalProperties.GATHER;
         }
+
         int distributeToChildIndex
                 = setOperation.<Integer>getMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX).orElse(-1);
-        if (distributeToChildIndex >= 0 && childrenDistribution instanceof DistributionSpecHash) {
+        if (distributeToChildIndex >= 0
+                && childrenDistribution.get(distributeToChildIndex) instanceof DistributionSpecHash) {
             DistributionSpecHash childDistribution
                     = (DistributionSpecHash) childrenDistribution.get(distributeToChildIndex);
             List<SlotReference> childToIndex = setOperation.getRegularChildrenOutputs().get(distributeToChildIndex);
@@ -493,6 +495,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 }
             }
         }
+
         for (int i = 0; i < childrenDistribution.size(); i++) {
             DistributionSpec childDistribution = childrenDistribution.get(i);
             if (!(childDistribution instanceof DistributionSpecHash)) {
@@ -503,6 +506,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     return new PhysicalProperties(childDistribution);
                 }
             }
+
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
             int[] offsetsOfCurrentChild = new int[distributionSpecHash.getOrderedShuffledColumns().size()];
             for (int j = 0; j < setOperation.getRegularChildOutput(i).size(); j++) {
