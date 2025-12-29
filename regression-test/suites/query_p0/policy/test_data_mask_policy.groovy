@@ -78,9 +78,7 @@ suite("test_data_mask_policy", "query,p0") {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${userName}""";
     }
 
-    def defaultDbUrl = context.config.jdbcUrl.substring(0, context.config.jdbcUrl.lastIndexOf("/"))
-    logger.info("connect to ${defaultDbUrl}".toString())
-    connect(user = userName, password = null, url = defaultDbUrl) {
+    connect(userName, "", context.config.jdbcUrl) {
         qt_sql_1 "select * from ${dbName}.${tableName}"
     }
 
