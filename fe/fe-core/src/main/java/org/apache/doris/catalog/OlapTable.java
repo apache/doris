@@ -65,6 +65,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -471,27 +472,27 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
-                null, null); // indexes is null by default
+                null, null, null); // indexes is null by default
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, List<Index> indexes) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
-                null, indexes);
+                null, indexes, null);
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
-                keysType, origStmt, null); // indexes is null by default
+                keysType, origStmt, null, null); // indexes is null by default
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt,
-            List<Index> indexes) {
+            List<Index> indexes, Map<String, String> sessionVariables) {
         // Nullable when meta comes from schema change log replay.
         // The replay log only save the index id, so we need to get name by id.
         if (indexName == null) {
@@ -514,7 +515,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion, schemaHash,
-                shortKeyColumnCount, storageType, keysType, origStmt, indexes, getQualifiedDbName());
+                shortKeyColumnCount, storageType, keysType, origStmt, indexes, getQualifiedDbName(), sessionVariables);
         try {
             indexMeta.parseStmt();
         } catch (Exception e) {
@@ -3286,6 +3287,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(this.getDatabase().getId())
                 .setTableId(this.id)
                 .setBatchMode(false)
@@ -3339,6 +3341,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(-1)
                 .setTableId(-1)
                 .setPartitionId(-1)

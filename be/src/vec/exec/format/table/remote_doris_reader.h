@@ -58,6 +58,14 @@ public:
 
     Status close() override;
 
+    /**
+     * Set column name to block index map from FileScanner to avoid repeated map creation.
+     */
+    void set_col_name_to_block_idx(
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        _col_name_to_block_idx = col_name_to_block_idx;
+    }
+
 private:
     arrow::Status init_stream();
     const TFileRangeDesc& _range;
@@ -65,6 +73,8 @@ private:
     cctz::time_zone _ctzz;
     std::unique_ptr<arrow::flight::FlightClient> _flight_client;
     std::unique_ptr<arrow::flight::FlightStreamReader> _stream;
+    // Column name to block index map, passed from FileScanner to avoid repeated map creation
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

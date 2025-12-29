@@ -55,6 +55,7 @@ public class DatabaseTest {
 
     @Before
     public void setup() {
+        FeConstants.runningUnitTest = true;
         db = new Database(dbId, "dbTest");
         new Expectations() {
             {

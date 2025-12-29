@@ -78,7 +78,7 @@ Status AnnIndexColumnWriter::init() {
             index_type, build_parameter.dim, metric_type, build_parameter.max_degree,
             build_parameter.ef_construction, quantizer);
 
-    size_t block_size = CHUNK_SIZE * build_parameter.dim;
+    size_t block_size = AnnIndexColumnWriter::chunk_size() * build_parameter.dim;
     _float_array.reserve(block_size);
 
     return Status::OK();
@@ -110,7 +110,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
-    const size_t full_elements = CHUNK_SIZE * dim;
+    const size_t full_elements = AnnIndexColumnWriter::chunk_size() * dim;
     size_t remaining_elements = num_rows * dim;
     size_t src_offset = 0;
     while (remaining_elements > 0) {
@@ -122,8 +122,10 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
         remaining_elements -= elements_to_add;
 
         if (_float_array.size() == full_elements) {
-            RETURN_IF_ERROR(_vector_index->train(CHUNK_SIZE, _float_array.data()));
-            RETURN_IF_ERROR(_vector_index->add(CHUNK_SIZE, _float_array.data()));
+            RETURN_IF_ERROR(
+                    _vector_index->train(AnnIndexColumnWriter::chunk_size(), _float_array.data()));
+            RETURN_IF_ERROR(
+                    _vector_index->add(AnnIndexColumnWriter::chunk_size(), _float_array.data()));
             _float_array.clear();
         }
     }

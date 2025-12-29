@@ -40,11 +40,13 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 class AnnIndexColumnWriter : public IndexColumnWriter {
 public:
+    static inline int64_t chunk_size() {
 #ifdef BE_TEST
-    static constexpr int64_t CHUNK_SIZE = 10;
+        return 10;
 #else
-    static constexpr int64_t CHUNK_SIZE = 1'000'000;
+        return config::ann_index_build_chunk_size;
 #endif
+    }
     static constexpr const char* INDEX_TYPE = "index_type";
     static constexpr const char* METRIC_TYPE = "metric_type";
     static constexpr const char* DIM = "dim";

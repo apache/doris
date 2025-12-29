@@ -19,18 +19,14 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.util.URI;
-import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
-import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Internal representation of an aggregate function.
@@ -413,29 +409,5 @@ public class AggregateFunction extends Function {
         //    agg_fn.setIgnores_distinct(ignoresDistinct);
         fn.setAggregateFn(aggFn);
         return fn;
-    }
-
-    @Override
-    public String getProperties() {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateFunctionCommand.OBJECT_FILE_KEY, getLocation() == null ? "" : getLocation().toString());
-        properties.put(CreateFunctionCommand.MD5_CHECKSUM, checksum);
-        properties.put(CreateFunctionCommand.INIT_KEY, initFnSymbol);
-        properties.put(CreateFunctionCommand.UPDATE_KEY, updateFnSymbol);
-        properties.put(CreateFunctionCommand.MERGE_KEY, mergeFnSymbol);
-        properties.put(CreateFunctionCommand.SERIALIZE_KEY, serializeFnSymbol);
-        properties.put(CreateFunctionCommand.FINALIZE_KEY, finalizeFnSymbol);
-
-        // getValueFn and removeFn may be null if not analytic agg
-        if (getValueFnSymbol != null) {
-            properties.put(CreateFunctionCommand.GET_VALUE_KEY, getValueFnSymbol);
-        }
-        if (removeFnSymbol != null) {
-            properties.put(CreateFunctionCommand.REMOVE_KEY, removeFnSymbol);
-        }
-        if (symbolName != null) {
-            properties.put(CreateFunctionCommand.SYMBOL_KEY, symbolName);
-        }
-        return new Gson().toJson(properties);
     }
 }

@@ -50,6 +50,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -121,7 +122,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         strictCastWhiteList.put(DateType.class, allowedTypes);
         strictCastWhiteList.put(DateV2Type.class, allowedTypes);
 
-        // DateTime
+        // DateTimeV1
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(BigIntType.class);
         allowedTypes.add(LargeIntType.class);
@@ -133,7 +134,27 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(DateTimeType.class, allowedTypes);
+
+        // DateTimeV2
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(BigIntType.class);
+        allowedTypes.add(LargeIntType.class);
+        allowedTypes.add(DateType.class);
+        allowedTypes.add(DateV2Type.class);
+        allowedTypes.add(DateTimeType.class);
+        allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeV2Type.class);
+        allowToStringLikeType(allowedTypes);
+        allowedTypes.add(VariantType.class);
+        allowedTypes.add(TimeStampTzType.class);
         strictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
+
+        // timestamp tz
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampTzType.class);
+        allowToStringLikeType(allowedTypes);
+        strictCastWhiteList.put(TimeStampTzType.class, allowedTypes);
 
         // Time
         allowedTypes = Sets.newHashSet();
@@ -157,6 +178,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(IPv4Type.class);
         allowedTypes.add(IPv6Type.class);
         allowedTypes.add(VarBinaryType.class);
+        allowedTypes.add(TimeStampTzType.class);
         allowToComplexType(allowedTypes);
         allowedTypes.remove(HllType.class);
         allowedTypes.remove(BitmapType.class);

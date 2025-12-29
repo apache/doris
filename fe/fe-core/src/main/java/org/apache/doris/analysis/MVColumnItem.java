@@ -126,7 +126,7 @@ public class MVColumnItem {
         return baseColumnNames;
     }
 
-    public Column toMVColumn(OlapTable olapTable) throws DdlException {
+    public Column toMVColumn(OlapTable olapTable, Map<String, String> sessionVars) throws DdlException {
         Column baseColumn = olapTable.getBaseColumn(name);
         Column result;
         if (baseColumn == null && defineExpr == null) {
@@ -151,6 +151,7 @@ public class MVColumnItem {
         result.setName(name);
         result.setAggregationType(aggregationType, isAggregationTypeImplicit);
         result.setDefineExpr(defineExpr);
+        result.setSessionVariables(sessionVars);
         return result;
     }
 }

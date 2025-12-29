@@ -221,13 +221,13 @@ private:
     std::unique_ptr<PBlock> _pblock;
 };
 
-#define HANDLE_CHANNEL_STATUS(state, channel, status)    \
-    do {                                                 \
-        if (status.is<ErrorCode::END_OF_FILE>()) {       \
-            _handle_eof_channel(state, channel, status); \
-        } else {                                         \
-            RETURN_IF_ERROR(status);                     \
-        }                                                \
+#define HANDLE_CHANNEL_STATUS(state, channel, status)                     \
+    do {                                                                  \
+        if (status.is<ErrorCode::END_OF_FILE>()) {                        \
+            RETURN_IF_ERROR(_handle_eof_channel(state, channel, status)); \
+        } else {                                                          \
+            RETURN_IF_ERROR(status);                                      \
+        }                                                                 \
     } while (0)
 
 } // namespace vectorized

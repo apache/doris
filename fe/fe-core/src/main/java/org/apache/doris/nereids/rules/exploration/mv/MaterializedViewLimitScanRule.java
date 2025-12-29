@@ -71,7 +71,13 @@ public class MaterializedViewLimitScanRule extends AbstractMaterializedViewScanR
         return structInfo.getTopPlan().accept(StructInfo.SCAN_PLAN_PATTERN_CHECKER, checkContext)
                 && !checkContext.isContainsTopAggregate()
                 && !checkContext.isContainsTopTopN()
+                && !checkContext.isContainsTopWindow()
                 && checkContext.isContainsTopLimit() && checkContext.getTopLimitNum() == 1;
+    }
+
+    @Override
+    protected boolean checkMaterializationPattern(StructInfo structInfo, CascadesContext cascadesContext) {
+        return checkQueryPattern(structInfo, cascadesContext);
     }
 
     @Override

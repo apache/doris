@@ -60,6 +60,10 @@ class OffsetIndex;
 class RowGroup;
 } // namespace tparquet
 
+namespace doris::segment_v2 {
+class RowIdColumnIteratorV2;
+}
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
@@ -166,17 +170,23 @@ public:
     int64_t predicate_filter_time() const { return _predicate_filter_time; }
     int64_t dict_filter_rewrite_time() const { return _dict_filter_rewrite_time; }
 
-    ParquetColumnReader::Statistics statistics();
+    ParquetColumnReader::ColumnStatistics merged_column_statistics();
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
     int64_t get_remaining_rows() { return _remaining_rows; }
 
     void set_row_id_column_iterator(
-            const std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int>& iterator_pair) {
+            const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>&
+                    iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
 
     void set_current_row_group_idx(RowGroupIndex row_group_idx) {
         _current_row_group_idx = row_group_idx;
+    }
+
+    void set_col_name_to_block_idx(
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        _col_name_to_block_idx = col_name_to_block_idx;
     }
 
 protected:
@@ -257,9 +267,11 @@ private:
     bool _is_row_group_filtered = false;
 
     RowGroupIndex _current_row_group_idx {0, 0, 0};
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
-                                                                                           -1};
+    std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
+            _row_id_column_iterator_pair = {nullptr, -1};
     std::vector<rowid_t> _current_batch_row_ids;
+
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 };
 #include "common/compile_check_end.h"
 

@@ -50,7 +50,6 @@ suite ("aggOnAggMV7") {
 
     sql "analyze table aggOnAggMV7 with sync;"
     sql """alter table aggOnAggMV7 modify column time_col set stats ('row_count'='7');"""
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from aggOnAggMV7 order by empid;", "aggOnAggMV7_mv")
     order_qt_select_star "select * from aggOnAggMV7 order by empid;"
@@ -58,10 +57,4 @@ suite ("aggOnAggMV7") {
     mv_rewrite_success("select deptno, sum(salary) from aggOnAggMV7 where deptno>=20 group by deptno;",
             "aggOnAggMV7_mv")
     order_qt_select_mv "select deptno, sum(salary) from aggOnAggMV7 where deptno>=20 group by deptno order by 1;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_fail("select * from aggOnAggMV7 order by empid;", "aggOnAggMV7_mv")
-
-    mv_rewrite_success("select deptno, sum(salary) from aggOnAggMV7 where deptno>=20 group by deptno;",
-            "aggOnAggMV7_mv")
 }

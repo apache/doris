@@ -32,8 +32,8 @@
 #include <vector>
 
 #include "common/object_pool.h"
-#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -44,7 +44,6 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/file_scanner.h"
@@ -64,6 +63,10 @@ static void read_orc_line(int64_t line, std::string block_dump) {
 
     std::vector<std::string> column_names = {"col1", "col2", "col3", "col4", "col5",
                                              "col6", "col7", "col8", "col9"};
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"col1", 0}, {"col2", 1}, {"col3", 2}, {"col4", 3}, {"col5", 4},
+            {"col6", 5}, {"col7", 6}, {"col8", 7}, {"col9", 8},
+    };
     ObjectPool object_pool;
     DescriptorTblBuilder builder(&object_pool);
     builder.declare_tuple() << std::make_tuple<vectorized::DataTypePtr, std::string>(
@@ -104,7 +107,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                                        "col9");
     DescriptorTbl* desc_tbl = builder.build();
     auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-    RowDescriptor row_desc(tuple_desc, false);
+    RowDescriptor row_desc(tuple_desc);
     TFileScanRangeParams params;
     params.file_type = TFileType::FILE_LOCAL;
     TFileRangeDesc range;
@@ -133,8 +136,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                            tuple_desc->slots().size());
     reader->set_row_id_column_iterator(iterator_pair);
 
-    auto status =
-            reader->init_reader(&column_names, {}, false, tuple_desc, &row_desc, nullptr, nullptr);
+    auto status = reader->init_reader(&column_names, &col_name_to_block_idx, {}, false, tuple_desc,
+                                      &row_desc, nullptr, nullptr);
 
     EXPECT_TRUE(status.ok());
 

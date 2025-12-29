@@ -46,7 +46,6 @@ suite ("incMVReInSub") {
     sql "analyze table incMVReInSub with sync;"
     sql """alter table incMVReInSub modify column time_col set stats ('row_count'='3');"""
 
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from incMVReInSub order by time_col;", "incMVReInSub_mv")
     order_qt_select_star "select * from incMVReInSub order by time_col, user_id, user_name, tag_id;"
@@ -55,11 +54,4 @@ suite ("incMVReInSub") {
             "incMVReInSub_mv")
 
     order_qt_select_mv "select user_id, bitmap_union(to_bitmap(tag_id)) from incMVReInSub where user_name in (select user_name from incMVReInSub group by user_name having bitmap_union_count(to_bitmap(tag_id)) >1 ) group by user_id order by user_id;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from incMVReInSub order by time_col;", "incMVReInSub_mv")
-
-    mv_rewrite_fail("select user_id, bitmap_union(to_bitmap(tag_id)) from incMVReInSub where user_name in (select user_name from incMVReInSub group by user_name having bitmap_union_count(to_bitmap(tag_id)) >1 ) group by user_id order by user_id;",
-            "incMVReInSub_mv")
 }

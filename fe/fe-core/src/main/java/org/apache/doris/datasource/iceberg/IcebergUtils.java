@@ -56,12 +56,15 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -124,6 +127,8 @@ import java.time.Month;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -568,7 +573,7 @@ public class IcebergUtils {
             case STRING:
                 return Type.STRING;
             case UUID:
-                return ScalarType.createVarbinaryType(16);
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(16) : Type.STRING;
             case BINARY:
                 return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
                         : Type.STRING;
@@ -731,7 +736,7 @@ public class IcebergUtils {
     public static Table getIcebergTable(ExternalTable dorisTable) {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
-                .getIcebergMetadataCache().getIcebergTable(dorisTable);
+                .getIcebergMetadataCache((IcebergExternalCatalog) dorisTable.getCatalog()).getIcebergTable(dorisTable);
     }
 
     public static org.apache.iceberg.types.Type dorisTypeToIcebergType(Type type) {
@@ -801,6 +806,95 @@ public class IcebergUtils {
             default:
                 throw new IllegalArgumentException("Cannot parse unknown type: " + type);
         }
+    }
+
+    /**
+     * Convert human-readable partition value string to appropriate Java type for
+     * Iceberg expression.
+     * This is used for static partition overwrite where user specifies partition
+     * values like PARTITION (dt='2025-01-01', region='bj').
+     *
+     * @param valueStr    Partition value as human-readable string (e.g.,
+     *                    "2025-01-01" for date)
+     * @param icebergType Iceberg type of the partition field
+     * @return Converted value object suitable for Iceberg Expression, or null if
+     *         value is null
+     */
+    public static Object parsePartitionValueFromString(String valueStr, org.apache.iceberg.types.Type icebergType) {
+        if (valueStr == null) {
+            return null;
+        }
+
+        try {
+            switch (icebergType.typeId()) {
+                case STRING:
+                    return valueStr;
+                case INTEGER:
+                    return Integer.parseInt(valueStr);
+                case LONG:
+                    return Long.parseLong(valueStr);
+                case FLOAT:
+                    return Float.parseFloat(valueStr);
+                case DOUBLE:
+                    return Double.parseDouble(valueStr);
+                case BOOLEAN:
+                    return Boolean.parseBoolean(valueStr);
+                case DATE:
+                    // Parse date string (format: yyyy-MM-dd) to epoch day
+                    return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
+                case TIMESTAMP:
+                    return parseTimestampToMicros(valueStr, (TimestampType) icebergType);
+                case DECIMAL:
+                    return new BigDecimal(valueStr);
+                default:
+                    throw new IllegalArgumentException("Unsupported partition value type: " + icebergType);
+            }
+        } catch (Exception e) {
+            throw new IllegalArgumentException(String.format("Failed to convert partition value '%s' to type %s",
+                    valueStr, icebergType), e);
+        }
+    }
+
+    /**
+     * Parse timestamp string to microseconds using Doris's built-in datetime
+     * parser.
+     *
+     * @param valueStr      Timestamp string in various formats
+     * @param timestampType Iceberg timestamp type (with or without timezone)
+     * @return Microseconds since epoch
+     * @throws IllegalArgumentException if the timestamp string cannot be parsed
+     */
+    private static long parseTimestampToMicros(String valueStr, TimestampType timestampType) {
+        // Use Doris's built-in DateLiteral.parseDateTime() which supports multiple formats
+        Result<TemporalAccessor, org.apache.doris.nereids.exceptions.AnalysisException> parseResult =
+                org.apache.doris.nereids.trees.expressions.literal.DateLiteral.parseDateTime(valueStr);
+
+        if (parseResult.isError()) {
+            throw new IllegalArgumentException(
+                    String.format("Failed to parse timestamp string '%s'", valueStr));
+        }
+
+        TemporalAccessor temporal = parseResult.get();
+
+        // Build LocalDateTime from TemporalAccessor using DateUtils helper methods
+        LocalDateTime ldt = LocalDateTime.of(
+                DateUtils.getOrDefault(temporal, ChronoField.YEAR),
+                DateUtils.getOrDefault(temporal, ChronoField.MONTH_OF_YEAR),
+                DateUtils.getOrDefault(temporal, ChronoField.DAY_OF_MONTH),
+                DateUtils.getHourOrDefault(temporal),
+                DateUtils.getOrDefault(temporal, ChronoField.MINUTE_OF_HOUR),
+                DateUtils.getOrDefault(temporal, ChronoField.SECOND_OF_MINUTE),
+                DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND));
+
+        // Convert to microseconds
+        ZoneId zone = timestampType.shouldAdjustToUTC()
+                ? DateUtils.getTimeZone()
+                : ZoneId.of("UTC");
+
+        long epochSecond = ldt.atZone(zone).toInstant().getEpochSecond();
+        long microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 1_000L;
+
+        return epochSecond * 1_000_000L + microSecond;
     }
 
     private static void updateIcebergColumnUniqueId(Column column, Types.NestedField icebergField) {
@@ -896,7 +990,7 @@ public class IcebergUtils {
         // Meanwhile, it will trigger iceberg metadata cache to load the table, so we can get it next time.
         Table icebergTable = Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
-                .getIcebergMetadataCache()
+                .getIcebergMetadataCache((IcebergExternalCatalog) tbl.getCatalog())
                 .getIcebergTable(tbl);
         Snapshot snapshot = icebergTable.currentSnapshot();
         if (snapshot == null) {
@@ -1292,7 +1386,7 @@ public class IcebergUtils {
         }
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         Column c = partitionColumns.get(0);
-        Preconditions.checkState(c.getDataType().isDateType(), "Only support date type partition column");
+        Preconditions.checkState(c.getDataType().isDateLikeType(), "Only support date type partition column");
         if (c.getType().isDate() || c.getType().isDateV2()) {
             formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         }
@@ -1403,7 +1497,8 @@ public class IcebergUtils {
                     new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()));
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
-            return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+            return Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .getIcebergMetadataCache((IcebergExternalCatalog) dorisTable.getCatalog())
                     .getSnapshotCache(dorisTable);
         }
     }
@@ -1427,7 +1522,8 @@ public class IcebergUtils {
     }
 
     public static View getIcebergView(ExternalTable dorisTable) {
-        IcebergMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
+        IcebergMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getIcebergMetadataCache((IcebergExternalCatalog) dorisTable.getCatalog());
         return metadataCache.getIcebergView(dorisTable);
     }
 
@@ -1456,6 +1552,21 @@ public class IcebergUtils {
         return String.format("CREATE VIEW `%s` AS ", icebergExternalTable.getName())
                 +
                 icebergExternalTable.getViewText();
+    }
+
+    public static IcebergManifestCache getManifestCache(ExternalCatalog catalog) {
+        return Env.getCurrentEnv()
+                .getExtMetaCacheMgr()
+                .getIcebergMetadataCache((IcebergExternalCatalog) catalog)
+                .getManifestCache();
+    }
+
+    public static boolean isManifestCacheEnabled(ExternalCatalog catalog) {
+        String enabled = catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE);
+        if (enabled == null) {
+            return IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE;
+        }
+        return Boolean.parseBoolean(enabled);
     }
 
 }

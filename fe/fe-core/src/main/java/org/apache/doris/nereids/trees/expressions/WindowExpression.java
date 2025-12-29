@@ -93,7 +93,7 @@ public class WindowExpression extends Expression {
      */
     public List<Expression> getExpressionsInWindowSpec() {
         List<Expression> expressions = Lists.newArrayList();
-        expressions.addAll(function.children());
+        expressions.addAll(SessionVarGuardExpr.getSessionVarGuardChild(function).children());
         expressions.addAll(partitionKeys);
         expressions.addAll(orderKeys.stream()
                 .map(UnaryNode::child)

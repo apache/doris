@@ -24,6 +24,8 @@
 #include <algorithm>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include <crc32c/crc32c.h>
+
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -62,7 +64,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "util/simd/bits.h"
@@ -214,7 +215,6 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         opts.gram_bf_size = cast_set<uint16_t>(gram_bf_size);
     }
 
-    opts.need_bitmap_index = column.has_bitmap_index();
     bool skip_inverted_index = false;
     if (_opts.rowset_ctx != nullptr) {
         // skip write inverted index for index compaction column
@@ -247,7 +247,6 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opts.need_zone_map = false;                           \
         opts.need_bloom_filter = false;                       \
-        opts.need_bitmap_index = false;                       \
     }
 
     DISABLE_INDEX_IF_FIELD_TYPE(STRUCT, "struct")
@@ -304,6 +303,10 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.rowset_ctx != nullptr) {
         opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
     }
+    opts.encoding_preference = {.integer_type_default_use_plain_encoding =
+                                        _tablet_schema->integer_type_default_use_plain_encoding(),
+                                .binary_plain_encoding_default_impl =
+                                        _tablet_schema->binary_plain_encoding_default_impl()};
 
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
@@ -966,7 +969,6 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
-    RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_inverted_index());
     RETURN_IF_ERROR(_write_ann_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
@@ -1098,13 +1100,6 @@ Status SegmentWriter::_write_zone_map() {
     return Status::OK();
 }
 
-Status SegmentWriter::_write_bitmap_index() {
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->write_bitmap_index());
-    }
-    return Status::OK();
-}
-
 Status SegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
@@ -1165,7 +1160,7 @@ Status SegmentWriter::_write_footer() {
     // footer's size
     put_fixed32_le(&fixed_buf, cast_set<uint32_t>(footer_buf.size()));
     // footer's checksum
-    uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
     // Append magic number. we don't write magic number in the header because
     // that will need an extra seek when reading

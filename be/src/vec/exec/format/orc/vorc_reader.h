@@ -32,19 +32,16 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exec/olap_common.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/tracing_file_reader.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/segment_v2/column_reader.h"
 #include "orc/Reader.hh"
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
 #include "orc/sargs/Literal.hh"
-#include "runtime/types.h"
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_array.h"
@@ -157,9 +154,10 @@ public:
     ~OrcReader() override = default;
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
     Status init_reader(
-            const std::vector<std::string>* column_names, const VExprContextSPtrs& conjuncts,
-            bool is_acid, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const std::vector<std::string>* column_names,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const VExprContextSPtrs& conjuncts, bool is_acid,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
@@ -725,6 +723,9 @@ private:
 
     std::set<uint64_t> _column_ids;
     std::set<uint64_t> _filter_column_ids;
+
+    // Pointer to external column name to block index mapping (from FileScanner)
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
     VExprSPtrs _push_down_exprs;
 };

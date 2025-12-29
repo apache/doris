@@ -60,7 +60,7 @@ public:
     virtual void get_all_column_ids(std::set<ColumnId>& column_id_set) const = 0;
 
     virtual void get_all_column_predicate(
-            std::set<const ColumnPredicate*>& predicate_set) const = 0;
+            std::set<std::shared_ptr<const ColumnPredicate>>& predicate_set) const = 0;
 
     virtual uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                               uint16_t selected_size) const {
@@ -118,13 +118,15 @@ class SingleColumnBlockPredicate : public BlockColumnPredicate {
     ENABLE_FACTORY_CREATOR(SingleColumnBlockPredicate);
 
 public:
-    explicit SingleColumnBlockPredicate(const ColumnPredicate* pre) : _predicate(pre) {}
+    explicit SingleColumnBlockPredicate(const std::shared_ptr<const ColumnPredicate>& pre)
+            : _predicate(pre) {}
 
     void get_all_column_ids(std::set<ColumnId>& column_id_set) const override {
         column_id_set.insert(_predicate->column_id());
     }
 
-    void get_all_column_predicate(std::set<const ColumnPredicate*>& predicate_set) const override {
+    void get_all_column_predicate(
+            std::set<std::shared_ptr<const ColumnPredicate>>& predicate_set) const override {
         predicate_set.insert(_predicate);
     }
 
@@ -154,7 +156,7 @@ public:
     }
 
 private:
-    const ColumnPredicate* _predicate = nullptr;
+    const std::shared_ptr<const ColumnPredicate> _predicate = nullptr;
 };
 
 class MutilColumnBlockPredicate : public BlockColumnPredicate {
@@ -185,7 +187,8 @@ public:
         }
     }
 
-    void get_all_column_predicate(std::set<const ColumnPredicate*>& predicate_set) const override {
+    void get_all_column_predicate(
+            std::set<std::shared_ptr<const ColumnPredicate>>& predicate_set) const override {
         for (auto& child_block_predicate : _block_column_predicate_vec) {
             child_block_predicate->get_all_column_predicate(predicate_set);
         }

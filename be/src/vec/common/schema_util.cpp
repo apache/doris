@@ -251,7 +251,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // datetimev2 needs scale
-    if (type == PrimitiveType::TYPE_DATETIMEV2) {
+    if (type == PrimitiveType::TYPE_DATETIMEV2 || type == PrimitiveType::TYPE_TIMESTAMPTZ) {
         column.set_precision(-1);
         column.set_frac(data_type->get_scale());
         return;
@@ -614,8 +614,7 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     const auto& column_new = new_schema->column(new_col_idx);
     const auto& column_old = old_schema->column(old_col_idx);
 
-    if (column_new.is_bf_column() != column_old.is_bf_column() ||
-        column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+    if (column_new.is_bf_column() != column_old.is_bf_column()) {
         return true;
     }
 

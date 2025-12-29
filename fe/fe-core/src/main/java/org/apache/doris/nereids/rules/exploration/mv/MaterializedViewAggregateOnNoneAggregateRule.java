@@ -82,13 +82,17 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
         // any check result of join or scan is true, then return true
         PlanCheckContext joinCheckContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
         boolean joinCheckResult = structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, joinCheckContext)
-                && !joinCheckContext.isContainsTopAggregate();
+                && !joinCheckContext.isContainsTopAggregate()
+                && !joinCheckContext.isContainsTopLimit() && !joinCheckContext.isContainsTopTopN()
+                && !joinCheckContext.isContainsTopWindow();
         if (joinCheckResult) {
             return true;
         }
         PlanCheckContext scanCheckContext = PlanCheckContext.of(ImmutableSet.of());
         return structInfo.getTopPlan().accept(StructInfo.SCAN_PLAN_PATTERN_CHECKER, scanCheckContext)
-                && !scanCheckContext.isContainsTopAggregate();
+                && !scanCheckContext.isContainsTopAggregate()
+                && !joinCheckContext.isContainsTopLimit() && !joinCheckContext.isContainsTopTopN()
+                && !joinCheckContext.isContainsTopWindow();
     }
 
     @Override

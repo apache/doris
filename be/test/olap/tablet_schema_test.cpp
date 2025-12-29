@@ -45,7 +45,6 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     column_pb.set_precision(10);
     column_pb.set_frac(0);
     column_pb.set_is_bf_column(false);
-    column_pb.set_has_bitmap_index(false);
     column_pb.set_visible(true);
     column_pb.set_variant_max_subcolumns_count(100);
     column_pb.set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
@@ -64,7 +63,6 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     EXPECT_EQ(10, tablet_column.precision());
     EXPECT_EQ(0, tablet_column.frac());
     EXPECT_FALSE(tablet_column.is_bf_column());
-    EXPECT_FALSE(tablet_column.has_bitmap_index());
     EXPECT_TRUE(tablet_column.visible());
     EXPECT_EQ(100, tablet_column.variant_max_subcolumns_count());
     EXPECT_EQ(PatternTypePB::MATCH_NAME_GLOB, tablet_column.pattern_type());
@@ -83,7 +81,6 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     tcolumn.__set_is_allow_null(true);
     tcolumn.__set_aggregation_type(TAggregationType::SUM);
     tcolumn.__set_is_bloom_filter_column(true);
-    tcolumn.__set_has_bitmap_index(true);
     tcolumn.__set_visible(false);
     tcolumn.__set_default_value("default_test");
     tcolumn.__set_variant_enable_typed_paths_to_sparse(false);
@@ -99,7 +96,6 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     EXPECT_EQ(259, tablet_column.length());
     EXPECT_EQ(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM, tablet_column.aggregation());
     EXPECT_TRUE(tablet_column.is_bf_column());
-    EXPECT_TRUE(tablet_column.has_bitmap_index());
     EXPECT_FALSE(tablet_column.visible());
     EXPECT_TRUE(tablet_column.has_default_value());
     EXPECT_EQ("default_test", tablet_column.default_value());
@@ -209,19 +205,8 @@ TEST_F(TabletSchemaTest, test_tablet_schema_inverted_indexs) {
         return pb;
     }());
 
-    TabletIndex bitmap_index;
-    bitmap_index.init_from_pb([&]() {
-        TabletIndexPB pb;
-        pb.set_index_id(3);
-        pb.set_index_name("bitmap_idx");
-        pb.set_index_type(IndexType::BITMAP);
-        pb.add_col_unique_id(1001);
-        return pb;
-    }());
-
     schema.append_index(std::move(index1));
     schema.append_index(std::move(index2));
-    schema.append_index(std::move(bitmap_index));
 
     auto inverted_indexes_col1 = schema.inverted_indexs(col1);
     EXPECT_EQ(1, inverted_indexes_col1.size());
@@ -826,14 +811,6 @@ TEST_F(TabletSchemaTest, test_tablet_schema_get_index) {
     inverted_index_pb.add_col_unique_id(14001);
     inverted_index.init_from_pb(inverted_index_pb);
 
-    TabletIndex bitmap_index;
-    TabletIndexPB bitmap_index_pb;
-    bitmap_index_pb.set_index_id(5002);
-    bitmap_index_pb.set_index_name("bitmap_idx");
-    bitmap_index_pb.set_index_type(IndexType::BITMAP);
-    bitmap_index_pb.add_col_unique_id(14001);
-    bitmap_index.init_from_pb(bitmap_index_pb);
-
     TabletIndex ann_index;
     TabletIndexPB ann_index_pb;
     ann_index_pb.set_index_id(5003);
@@ -851,7 +828,6 @@ TEST_F(TabletSchemaTest, test_tablet_schema_get_index) {
     ngram_bf_index.init_from_pb(ngram_bf_index_pb);
 
     schema.append_index(std::move(inverted_index));
-    schema.append_index(std::move(bitmap_index));
     schema.append_index(std::move(ann_index));
     schema.append_index(std::move(ngram_bf_index));
 
@@ -859,10 +835,6 @@ TEST_F(TabletSchemaTest, test_tablet_schema_get_index) {
     EXPECT_NE(nullptr, found_inverted);
     EXPECT_EQ("inverted_idx", found_inverted->index_name());
     EXPECT_EQ(5001, found_inverted->index_id());
-    const TabletIndex* found_bitmap = schema.get_index(14001, IndexType::BITMAP, "");
-    EXPECT_NE(nullptr, found_bitmap);
-    EXPECT_EQ("bitmap_idx", found_bitmap->index_name());
-    EXPECT_EQ(5002, found_bitmap->index_id());
     const TabletIndex* found_ann = schema.get_index(14002, IndexType::ANN, "");
     EXPECT_NE(nullptr, found_ann);
     EXPECT_EQ("ann_idx", found_ann->index_name());
@@ -881,7 +853,6 @@ TEST_F(TabletSchemaTest, test_tablet_schema_get_index) {
 
     EXPECT_TRUE(found_inverted->is_inverted_index());
     EXPECT_EQ(IndexType::INVERTED, found_inverted->index_type());
-    EXPECT_EQ(IndexType::BITMAP, found_bitmap->index_type());
     EXPECT_EQ(IndexType::ANN, found_ann->index_type());
     EXPECT_EQ(IndexType::NGRAM_BF, found_ngram_bf->index_type());
 

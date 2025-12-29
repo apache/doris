@@ -57,7 +57,7 @@ public class IPv6Literal extends LiteralExpr {
         checkValueValid(value);
         this.value = value;
         this.type = Type.IPV6;
-        analysisDone();
+        this.nullable = false;
     }
 
     protected IPv6Literal(IPv6Literal other) {

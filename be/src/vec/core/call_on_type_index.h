@@ -24,6 +24,7 @@
 
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/data_types/data_type_timestamptz.h"
 
 namespace doris::vectorized {
 
@@ -88,6 +89,8 @@ bool call_on_index_and_data_type(PrimitiveType number, F&& f) {
         return f(TypePair<DataTypeDateTime, T>());
     case PrimitiveType::TYPE_TIMEV2:
         return f(TypePair<DataTypeTimeV2, T>());
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return f(TypePair<DataTypeTimeStampTz, T>());
 
     case PrimitiveType::TYPE_IPV4:
         return f(TypePair<DataTypeIPv4, T>());
@@ -156,6 +159,7 @@ struct DispatchDataTypeMask {
     static constexpr uint32_t DATETIME = 1 << 3;
     static constexpr uint32_t IP = 1 << 4;
     static constexpr uint32_t STRING = 1 << 5;
+    static constexpr uint32_t DECIMALV3 = 1 << 6;
 
     static constexpr uint32_t SCALAR = INT | FLOAT | DECIMAL | DATETIME | IP;
     static constexpr uint32_t NUMBER = INT | FLOAT | DECIMAL;
@@ -194,6 +198,21 @@ bool dispatch_type_base(PrimitiveType number, F&& f) {
         }
     }
 
+    if constexpr ((TypeMaskV & DispatchDataTypeMask::DECIMALV3) != 0) {
+        switch (number) {
+        case PrimitiveType::TYPE_DECIMAL32:
+            return f(DispatchDataType<TYPE_DECIMAL32>());
+        case PrimitiveType::TYPE_DECIMAL64:
+            return f(DispatchDataType<TYPE_DECIMAL64>());
+        case PrimitiveType::TYPE_DECIMAL128I:
+            return f(DispatchDataType<TYPE_DECIMAL128I>());
+        case PrimitiveType::TYPE_DECIMAL256:
+            return f(DispatchDataType<TYPE_DECIMAL256>());
+        default:
+            break;
+        }
+    }
+
     if constexpr ((TypeMaskV & DispatchDataTypeMask::DECIMAL) != 0) {
         switch (number) {
         case PrimitiveType::TYPE_DECIMAL32:
@@ -223,6 +242,8 @@ bool dispatch_type_base(PrimitiveType number, F&& f) {
             return f(DispatchDataType<TYPE_DATETIME>());
         case PrimitiveType::TYPE_TIMEV2:
             return f(DispatchDataType<TYPE_TIMEV2>());
+        case PrimitiveType::TYPE_TIMESTAMPTZ:
+            return f(DispatchDataType<TYPE_TIMESTAMPTZ>());
         default:
             break;
         }
@@ -264,6 +285,16 @@ bool dispatch_switch_scalar(PrimitiveType number, F&& f) {
 }
 
 template <typename F>
+bool dispatch_switch_float(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::FLOAT>(number, std::forward<F>(f));
+}
+
+template <typename F>
+bool dispatch_switch_int(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::INT>(number, std::forward<F>(f));
+}
+
+template <typename F>
 bool dispatch_switch_number(PrimitiveType number, F&& f) {
     return dispatch_type_base<F, DispatchDataTypeMask::NUMBER>(number, std::forward<F>(f));
 }
@@ -271,6 +302,11 @@ bool dispatch_switch_number(PrimitiveType number, F&& f) {
 template <typename F>
 bool dispatch_switch_decimal(PrimitiveType number, F&& f) {
     return dispatch_type_base<F, DispatchDataTypeMask::DECIMAL>(number, std::forward<F>(f));
+}
+
+template <typename F>
+bool dispatch_switch_decimalv3(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::DECIMALV3>(number, std::forward<F>(f));
 }
 
 } // namespace doris::vectorized

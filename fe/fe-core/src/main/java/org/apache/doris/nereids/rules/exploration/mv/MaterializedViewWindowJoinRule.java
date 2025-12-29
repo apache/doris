@@ -54,7 +54,8 @@ public class MaterializedViewWindowJoinRule extends AbstractMaterializedViewWind
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
                 && !checkContext.isContainsTopAggregate() && checkContext.isContainsTopWindow()
-                && checkContext.getTopWindowNum() <= 1;
+                && checkContext.getTopWindowNum() <= 1
+                && !checkContext.isContainsTopTopN() && !checkContext.isContainsTopLimit();
     }
 
     @Override

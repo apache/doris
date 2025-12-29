@@ -490,7 +490,7 @@ public class RangePartitionInfoTest {
         params.add(s1);
         params.add(new StringLiteral("day"));
 
-        FunctionCallExpr f1 = new FunctionCallExpr("date_trunc", params);
+        FunctionCallExpr f1 = new FunctionCallExpr("date_trunc", params, true);
 
         ArrayList<Expr> partitionExprs = new ArrayList<>();
         partitionExprs.add(f1);

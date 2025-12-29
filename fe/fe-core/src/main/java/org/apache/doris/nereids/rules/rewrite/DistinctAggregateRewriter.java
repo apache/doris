@@ -149,22 +149,22 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
     }
 
     private Plan splitDistinctAgg(LogicalAggregate<? extends Plan> aggregate) {
-        Set<AggregateFunction> aggFuncs = aggregate.getAggregateFunctions();
+        Map<AggregateFunction, Expression> aggFuncs = aggregate.getAggregateFunctionWithGuardExpr();
         Set<AggregateFunction> distinctAggFuncs = new HashSet<>();
-        Set<AggregateFunction> otherFunctions = new HashSet<>();
-        for (AggregateFunction aggFunc : aggFuncs) {
-            if (aggFunc.isDistinct()) {
-                distinctAggFuncs.add(aggFunc);
+        Map<AggregateFunction, Expression> otherFunctions = new HashMap<>();
+        for (Map.Entry<AggregateFunction, Expression> entry : aggFuncs.entrySet()) {
+            if (entry.getKey().isDistinct()) {
+                distinctAggFuncs.add(entry.getKey());
             } else {
-                otherFunctions.add(aggFunc);
+                otherFunctions.put(entry.getKey(), entry.getValue());
             }
         }
         if (distinctAggFuncs.size() != 1) {
             return null;
         }
         // If there are some functions that cannot be split in other function, AGG cannot be split
-        for (AggregateFunction aggFunc : otherFunctions) {
-            if (!supportSplitOtherFunctions.contains(aggFunc.getClass())) {
+        for (Map.Entry<AggregateFunction, Expression> entry : otherFunctions.entrySet()) {
+            if (!supportSplitOtherFunctions.contains(entry.getKey().getClass())) {
                 return null;
             }
         }
@@ -174,10 +174,10 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         Set<NamedExpression> groupByKeys = AggregateUtils.getAllKeySet(aggregate);
         ImmutableList.Builder<NamedExpression> bottomAggOtherFunctions = ImmutableList.builder();
         Map<AggregateFunction, NamedExpression> aggFuncToSlot = new HashMap<>();
-        for (AggregateFunction aggFunc : otherFunctions) {
-            Alias bottomAggFuncAlias = new Alias(aggFunc);
+        for (Map.Entry<AggregateFunction, Expression> entry : otherFunctions.entrySet()) {
+            Alias bottomAggFuncAlias = new Alias(entry.getValue());
             bottomAggOtherFunctions.add(bottomAggFuncAlias);
-            aggFuncToSlot.put(aggFunc, bottomAggFuncAlias.toSlot());
+            aggFuncToSlot.put(entry.getKey(), bottomAggFuncAlias.toSlot());
         }
 
         List<NamedExpression> aggOutput = ImmutableList.<NamedExpression>builder()

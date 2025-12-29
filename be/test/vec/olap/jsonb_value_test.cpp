@@ -23,6 +23,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/olap/olap_data_convertor.h"

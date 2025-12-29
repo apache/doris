@@ -27,30 +27,23 @@
 #include <memory> // for unique_ptr
 #include <string>
 #include <unordered_map>
-#include <vector>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h" // Status
+#include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/page_cache.h"
-#include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
-#include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
-#include "runtime/primitive_type.h"
 #include "util/once.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/json/path_in_data.h"
-
 namespace doris {
 namespace vectorized {
 class IDataType;
@@ -65,15 +58,25 @@ struct RowLocation;
 
 namespace segment_v2 {
 
-class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
 class IndexFileReader;
 class IndexIterator;
+class ColumnReader;
+class ColumnIterator;
 class ColumnReaderCache;
 class ColumnMetaAccessor;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
+
+struct SparseColumnCache;
+using SparseColumnCacheSPtr = std::shared_ptr<SparseColumnCache>;
+
+// key is column path, value is the sparse column cache
+// now column path is only SPARSE_COLUMN_PATH, in the future, we can add more sparse column paths
+using PathToSparseColumnCache = std::unordered_map<std::string, SparseColumnCacheSPtr>;
+using PathToSparseColumnCacheUPtr = std::unique_ptr<PathToSparseColumnCache>;
+
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
 // It will prepare all ColumnReader to create ColumnIterator as needed.
@@ -95,7 +98,7 @@ public:
         return file_cache_key(_rowset_id.to_string(), _segment_id);
     }
 
-    ~Segment();
+    ~Segment() override;
 
     int64_t get_metadata_size() const override;
     void update_metadata_size();
@@ -117,10 +120,6 @@ public:
                                std::unique_ptr<ColumnIterator>* iter, const StorageReadOptions* opt,
                                const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
                                        variant_sparse_column_cache = nullptr);
-
-    Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
-                                     const StorageReadOptions& read_options,
-                                     std::unique_ptr<BitmapIndexIterator>* iter);
 
     Status new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
                               const StorageReadOptions& read_options,
@@ -172,21 +171,22 @@ public:
     // another method `get_metadata_size` not include the column reader, only the segment object itself.
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
-    // Get the inner file column's data type
-    // ignore_chidren set to false will treat field as variant
-    // when it contains children with field paths.
-    // nullptr will returned if storage type does not contains such column
-    std::shared_ptr<const vectorized::IDataType> get_data_type_of(const TabletColumn& column,
-                                                                  bool read_flat_leaves);
+    // Get the inner file column's data type.
+    // When `read_options` is provided, the decision (e.g. flat-leaf vs hierarchical) can depend
+    // on the reader type and tablet schema; when it is nullptr, we treat it as a query reader.
+    // nullptr will be returned if storage type does not contain such column.
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(
+            const TabletColumn& column, const StorageReadOptions& read_options);
 
-    // If column in segment is the same type in schema, then it is safe to apply predicate
+    // If column in segment is the same type in schema, then it is safe to apply predicate.
     bool can_apply_predicate_safely(
             int cid, const Schema& schema,
             const std::map<std::string, vectorized::DataTypePtr>& target_cast_type_for_variants,
-            ReaderType read_type) {
+            const StorageReadOptions& read_options) {
         const doris::Field* col = schema.column(cid);
+        DCHECK(col != nullptr) << "Column not found in schema for cid=" << cid;
         vectorized::DataTypePtr storage_column_type =
-                get_data_type_of(col->get_desc(), read_type != ReaderType::READER_QUERY);
+                get_data_type_of(col->get_desc(), read_options);
         if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
             !target_cast_type_for_variants.contains(col->name())) {
             // Default column iterator or not variant column
@@ -210,6 +210,9 @@ public:
                              OlapReaderStatistics* stats);
 
     Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
+
+    static StoragePageCache::CacheKey get_segment_footer_cache_key(
+            const io::FileReaderSPtr& file_reader);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

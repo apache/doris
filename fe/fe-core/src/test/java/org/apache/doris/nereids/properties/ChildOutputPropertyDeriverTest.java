@@ -870,9 +870,12 @@ class ChildOutputPropertyDeriverTest {
                 new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of());
         SlotReference c3 = new SlotReference(
                 new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference c4 = new SlotReference(
+                new ExprId(4), "c4", TinyIntType.INSTANCE, true, ImmutableList.of());
         PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(c1, c2), ImmutableList.of(c1), ImmutableList.of(c1, c3)),
                 ImmutableList.of(c1, c2, c3),
+                c4,
                 logicalProperties,
                 groupPlan
         );
@@ -893,9 +896,12 @@ class ChildOutputPropertyDeriverTest {
                 new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of());
         SlotReference c3 = new SlotReference(
                 new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference c4 = new SlotReference(
+                new ExprId(4), "c4", TinyIntType.INSTANCE, true, ImmutableList.of());
         PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(c1, c2), ImmutableList.of(c1), ImmutableList.of(c1, c3)),
                 ImmutableList.of(c1, c2, c3),
+                c4,
                 logicalProperties,
                 groupPlan
         );
@@ -916,9 +922,12 @@ class ChildOutputPropertyDeriverTest {
                 new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of());
         SlotReference c3 = new SlotReference(
                 new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference c4 = new SlotReference(
+                new ExprId(4), "c4", TinyIntType.INSTANCE, true, ImmutableList.of());
         PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(c1, c2, c3), ImmutableList.of(c1, c2), ImmutableList.of(c1, c2)),
                 ImmutableList.of(c1, c2, c3),
+                c4,
                 logicalProperties,
                 groupPlan
         );

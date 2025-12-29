@@ -86,6 +86,7 @@ public class DateTimeChecker extends FormatChecker {
                             )
                         ),
                         option("NanoSecond", nanoSecond()),
+                        atLeast(0, c -> c == ' '),
                         option("TimeZone", timeZone())
                     )
                );

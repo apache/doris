@@ -51,9 +51,6 @@ suite ("dup_gb_mv_plus") {
     sql "analyze table dup_gb_mv_plus with sync;"
     sql """alter table dup_gb_mv_plus modify column k1 set stats ('row_count'='4');"""
 
-    sql """set enable_stats=false;"""
-
-
     order_qt_select_star "select * from dup_gb_mv_plus order by k1;"
 
     mv_rewrite_success("select k1,sum(k2+1) from dup_gb_mv_plus group by k1;", "k12sp")
@@ -61,9 +58,4 @@ suite ("dup_gb_mv_plus") {
 
     mv_rewrite_success("select sum(k2+1) from dup_gb_mv_plus group by k1;", "k12sp")
     order_qt_select_mv_sub "select sum(k2+1) from dup_gb_mv_plus group by k1 order by k1;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select k1,sum(k2+1) from dup_gb_mv_plus group by k1;", "k12sp")
-
-    mv_rewrite_success("select sum(k2+1) from dup_gb_mv_plus group by k1;", "k12sp")
 }

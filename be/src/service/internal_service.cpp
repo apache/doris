@@ -84,6 +84,7 @@
 #include "olap/txn_manager.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/cache/result_cache.h"
+#include "runtime/cdc_client_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
@@ -122,6 +123,7 @@
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
+#include "vec/exec/format/native/native_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/text/text_reader.h"
@@ -854,6 +856,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         case TFileFormatType::FORMAT_ORC: {
             reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_NATIVE: {
+            reader = vectorized::NativeReader::create_unique(profile.get(), params, range, &io_ctx,
+                                                             nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
@@ -2403,6 +2410,20 @@ void PInternalService::get_tablet_rowsets(google::protobuf::RpcController* contr
         *response->mutable_delete_bitmap() = std::move(diffset);
     }
     Status::OK().to_protobuf(response->mutable_status());
+}
+
+void PInternalService::request_cdc_client(google::protobuf::RpcController* controller,
+                                          const PRequestCdcClientRequest* request,
+                                          PRequestCdcClientResult* result,
+                                          google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
+        _exec_env->cdc_client_mgr()->request_cdc_client_impl(request, result, done);
+    });
+
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
 }
 
 #include "common/compile_check_avoid_end.h"

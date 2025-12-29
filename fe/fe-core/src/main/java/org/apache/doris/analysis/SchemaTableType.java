@@ -112,7 +112,9 @@ public enum SchemaTableType {
     SCH_BLACKHOLE("BLACKHOLE", "BLACKHOLE",
             TSchemaTableType.SCH_BLACKHOLE),
     SCH_COLUMN_DATA_SIZES("COLUMN_DATA_SIZES", "COLUMN_DATA_SIZES",
-            TSchemaTableType.SCH_COLUMN_DATA_SIZES);
+            TSchemaTableType.SCH_COLUMN_DATA_SIZES),
+    SCH_DATABASE_PROPERTIES("DATABASE_PROPERTIES", "DATABASE_PROPERTIES",
+            TSchemaTableType.SCH_DATABASE_PROPERTIES);
 
     private static final String dbName = "INFORMATION_SCHEMA";
 

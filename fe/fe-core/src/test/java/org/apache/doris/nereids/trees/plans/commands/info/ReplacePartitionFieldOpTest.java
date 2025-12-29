@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.ReplacePartitionFieldClause;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -48,12 +47,6 @@ public class ReplacePartitionFieldOpTest {
         Assertions.assertEquals("ts", op.getNewColumnName());
         Assertions.assertEquals("ts_month", op.getNewPartitionFieldName());
         Assertions.assertEquals("REPLACE PARTITION KEY ts_year WITH month(ts) AS ts_month", op.toSql());
-
-        ReplacePartitionFieldClause clause = (ReplacePartitionFieldClause) op.translateToLegacyAlterClause();
-        Assertions.assertNotNull(clause);
-        Assertions.assertEquals("ts_year", clause.getOldPartitionFieldName());
-        Assertions.assertNull(clause.getOldTransformName());
-        Assertions.assertEquals("month", clause.getNewTransformName());
     }
 
     @Test
@@ -123,12 +116,6 @@ public class ReplacePartitionFieldOpTest {
         Assertions.assertEquals(16, op.getOldTransformArg());
         Assertions.assertEquals("id", op.getOldColumnName());
         Assertions.assertEquals("REPLACE PARTITION KEY bucket(16, id) WITH truncate(5, code) AS code_trunc", op.toSql());
-
-        ReplacePartitionFieldClause clause = (ReplacePartitionFieldClause) op.translateToLegacyAlterClause();
-        Assertions.assertNull(clause.getOldPartitionFieldName());
-        Assertions.assertEquals("bucket", clause.getOldTransformName());
-        Assertions.assertEquals(16, clause.getOldTransformArg());
-        Assertions.assertEquals("id", clause.getOldColumnName());
     }
 
     @Test

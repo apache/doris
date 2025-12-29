@@ -246,6 +246,83 @@ private:
     UInt32 scale;
 };
 
+// StringViewField wraps a StringView and provides deep copy semantics.
+// Since StringView is a non-owning view (only contains pointer and length),
+// we need to store the actual data in a String to ensure the Field owns the data.
+// This prevents dangling pointer issues when Field objects are copied or moved.
+class StringViewField {
+public:
+    StringViewField() = default;
+    ~StringViewField() = default;
+
+    // Construct from raw data - performs deep copy
+    StringViewField(const char* data, size_t len) : _storage(data, len) {}
+
+    // Construct from StringView - performs deep copy
+    StringViewField(const StringView& sv) : _storage(sv.data(), sv.size()) {}
+
+    // Copy constructor - deep copy
+    StringViewField(const StringViewField& x) = default;
+
+    // Move constructor
+    StringViewField(StringViewField&& x) noexcept = default;
+
+    // Copy assignment - deep copy
+    StringViewField& operator=(const StringViewField& x) = default;
+
+    // Move assignment
+    StringViewField& operator=(StringViewField&& x) noexcept = default;
+
+    // Access methods
+    const char* data() const { return _storage.data(); }
+    size_t size() const { return _storage.size(); }
+    const String& get_string() const { return _storage; }
+
+    // Convert to StringView for compatibility
+    StringView to_string_view() const { return {data(), static_cast<uint32_t>(size())}; }
+
+    // Comparison operators - using binary comparison (memcmp) for VARBINARY semantics
+    bool operator<(const StringViewField& r) const {
+        int cmp = memcmp(_storage.data(), r._storage.data(),
+                         std::min(_storage.size(), r._storage.size()));
+        return cmp < 0 || (cmp == 0 && _storage.size() < r._storage.size());
+    }
+    bool operator<=(const StringViewField& r) const { return !(r < *this); }
+    bool operator==(const StringViewField& r) const {
+        return _storage.size() == r._storage.size() &&
+               memcmp(_storage.data(), r._storage.data(), _storage.size()) == 0;
+    }
+    bool operator>(const StringViewField& r) const { return r < *this; }
+    bool operator>=(const StringViewField& r) const { return !(*this < r); }
+    bool operator!=(const StringViewField& r) const { return !(*this == r); }
+
+    std::strong_ordering operator<=>(const StringViewField& r) const {
+        size_t min_size = std::min(_storage.size(), r._storage.size());
+        int cmp = memcmp(_storage.data(), r._storage.data(), min_size);
+        if (cmp < 0) {
+            return std::strong_ordering::less;
+        }
+        if (cmp > 0) {
+            return std::strong_ordering::greater;
+        }
+        // Prefixes are equal, compare lengths
+        return _storage.size() <=> r._storage.size();
+    }
+
+    // Arithmetic operators (not commonly used but required by Field)
+    const StringViewField& operator+=(const StringViewField& r) {
+        _storage += r._storage;
+        return *this;
+    }
+
+    const StringViewField& operator-=(const StringViewField& r) {
+        throw Exception(Status::FatalError("Not support minus operation on StringViewField"));
+    }
+
+private:
+    String _storage; // Use String for deep copy and ownership
+};
+
 /** 32 is enough. Round number is used for alignment and for better arithmetic inside std::vector.
   * NOTE: Actually, sizeof(std::string) is 32 when using libc++, so Field is 40 bytes.
   */
@@ -368,6 +445,8 @@ public:
             return get<UInt64>() <=> rhs.get<UInt64>();
         case PrimitiveType::TYPE_DATEV2:
             return get<UInt32>() <=> rhs.get<UInt32>();
+        case PrimitiveType::TYPE_TIMESTAMPTZ:
+            return get<UInt64>() <=> rhs.get<UInt64>();
         case PrimitiveType::TYPE_DATE:
         case PrimitiveType::TYPE_DATETIME:
         case PrimitiveType::TYPE_BIGINT:
@@ -388,7 +467,7 @@ public:
         case PrimitiveType::TYPE_VARCHAR:
             return get<String>() <=> rhs.get<String>();
         case PrimitiveType::TYPE_VARBINARY:
-            return get<doris::StringView>() <=> rhs.get<doris::StringView>();
+            return get<StringViewField>() <=> rhs.get<StringViewField>();
         case PrimitiveType::TYPE_DECIMAL32:
             return get<Decimal32>() <=> rhs.get<Decimal32>();
         case PrimitiveType::TYPE_DECIMAL64:
@@ -413,6 +492,7 @@ public:
             f(field.template get<Null>());
             return;
         case PrimitiveType::TYPE_DATETIMEV2:
+        case PrimitiveType::TYPE_TIMESTAMPTZ:
             f(field.template get<UInt64>());
             return;
         case PrimitiveType::TYPE_DATETIME:
@@ -436,7 +516,7 @@ public:
             f(field.template get<String>());
             return;
         case PrimitiveType::TYPE_VARBINARY:
-            f(field.template get<doris::StringView>());
+            f(field.template get<StringViewField>());
             return;
         case PrimitiveType::TYPE_JSONB:
             f(field.template get<JsonbField>());
@@ -487,11 +567,11 @@ public:
     std::string to_string() const;
 
 private:
-    std::aligned_union_t<
-            DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64, Int128, IPv6,
-            Float64, String, JsonbField, Array, Tuple, Map, VariantMap, DecimalField<Decimal32>,
-            DecimalField<Decimal64>, DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
-            DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState, doris::StringView>
+    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
+                         Int128, IPv6, Float64, String, JsonbField, StringViewField, Array, Tuple,
+                         Map, VariantMap, DecimalField<Decimal32>, DecimalField<Decimal64>,
+                         DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
+                         DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState>
             storage;
 
     PrimitiveType type;
@@ -643,6 +723,11 @@ struct NearestFieldTypeImpl<std::string_view> {
 template <>
 struct NearestFieldTypeImpl<PackedInt128> {
     using Type = Int128;
+};
+
+template <>
+struct NearestFieldTypeImpl<doris::StringView> {
+    using Type = StringViewField;
 };
 
 template <typename T>

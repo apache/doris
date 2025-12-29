@@ -96,6 +96,8 @@ using FunctionDatetimeAddDayHour =
         FunctionDateOrDateTimeComputation<AddDayHourImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeAddMinuteSecond =
         FunctionDateOrDateTimeComputation<AddMinuteSecondImpl<TYPE_DATETIMEV2>>;
+using FunctionDatetimeAddSecondMicrosecond =
+        FunctionDateOrDateTimeComputation<AddSecondMicrosecondImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeSubMicroseconds =
         FunctionDateOrDateTimeComputation<SubtractMicrosecondsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeSubMilliseconds =
@@ -198,6 +200,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDatetimeAddDaySecond>();
     factory.register_function<FunctionDatetimeAddDayHour>();
     factory.register_function<FunctionDatetimeAddMinuteSecond>();
+    factory.register_function<FunctionDatetimeAddSecondMicrosecond>();
 
     factory.register_function<FunctionSubDays>();
     factory.register_function<FunctionSubMonths>();

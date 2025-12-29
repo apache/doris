@@ -17,9 +17,6 @@
 
 package org.apache.doris.insertoverwrite;
 
-import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.DropPartitionClause;
-import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -27,6 +24,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -53,7 +53,7 @@ public class InsertOverwriteUtil {
         if (tableIf instanceof OlapTable) {
             for (int i = 0; i < partitionNames.size(); i++) {
                 Env.getCurrentEnv().addPartitionLike((Database) tableIf.getDatabase(), tableIf.getName(),
-                        new AddPartitionLikeClause(tempPartitionNames.get(i), partitionNames.get(i), true));
+                    new AddPartitionLikeOp(tempPartitionNames.get(i), partitionNames.get(i), true));
                 LOG.info("successfully add temp partition [{}] for [{}]", tempPartitionNames.get(i), tableIf.getName());
             }
         }
@@ -81,15 +81,15 @@ public class InsertOverwriteUtil {
                 }
                 Map<String, String> properties = Maps.newHashMap();
                 properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
-                ReplacePartitionClause replacePartitionClause = new ReplacePartitionClause(
+                ReplacePartitionOp replacePartitionOp = new ReplacePartitionOp(
                         new PartitionNamesInfo(false, partitionNames),
                         new PartitionNamesInfo(true, tempPartitionNames), isForce, properties);
-                if (replacePartitionClause.getTempPartitionNames().isEmpty()) {
+                if (replacePartitionOp.getTempPartitionNames().isEmpty()) {
                     return;
                 }
                 Env.getCurrentEnv()
                         .replaceTempPartition((Database) olapTable.getDatabase(),
-                                (OlapTable) olapTable, replacePartitionClause);
+                                (OlapTable) olapTable, replacePartitionOp);
             } finally {
                 olapTable.writeUnlock();
             }
@@ -140,7 +140,7 @@ public class InsertOverwriteUtil {
                 }
                 Env.getCurrentEnv().dropPartition(
                         (Database) olapTable.getDatabase(), olapTable,
-                        new DropPartitionClause(true, partitionName, true, true));
+                        new DropPartitionOp(true, partitionName, true, true));
                 LOG.info("successfully drop temp partition [{}] for [{}]", partitionName, olapTable.getName());
             }
         } catch (DdlException e) {

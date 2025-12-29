@@ -29,7 +29,6 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
@@ -77,23 +76,16 @@ public class ArithmeticExpr extends Expr {
     @SerializedName("op")
     private final Operator op;
 
-    public ArithmeticExpr(Operator op, Expr e1, Expr e2) {
-        super();
-        this.op = op;
-        Preconditions.checkNotNull(e1);
-        children.add(e1);
-        Preconditions.checkArgument(
-                op == Operator.BITNOT && e2 == null || op != Operator.BITNOT && e2 != null);
-        if (e2 != null) {
-            children.add(e2);
-        }
-    }
-
     /**
      * constructor only used for Nereids.
      */
-    public ArithmeticExpr(Operator op, Expr e1, Expr e2, Type returnType, NullableMode nullableMode) {
-        this(op, e1, e2);
+    public ArithmeticExpr(Operator op, Expr e1, Expr e2, Type returnType, NullableMode nullableMode, boolean nullable) {
+        super();
+        this.op = op;
+        children.add(e1);
+        if (e2 != null) {
+            children.add(e2);
+        }
         List<Type> argTypes;
         if (e2 == null) {
             argTypes = Lists.newArrayList(e1.getType());
@@ -102,6 +94,7 @@ public class ArithmeticExpr extends Expr {
         }
         fn = new Function(new FunctionName(op.getName()), argTypes, returnType, false, true, nullableMode);
         type = returnType;
+        this.nullable = nullable;
     }
 
     /**

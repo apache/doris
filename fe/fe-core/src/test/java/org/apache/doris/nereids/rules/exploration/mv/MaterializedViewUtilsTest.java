@@ -20,13 +20,18 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 /**
  * Test for materialized view util
@@ -950,6 +955,76 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     "created_time",
                                     true);
                         });
+    }
+
+    // java
+    @Test
+    public void isPrefixSameFromStartNullAndEmptyTests() {
+        // both null
+        Assertions.assertFalse(MaterializedViewUtils.isPrefixSameFromStart(null, null));
+        // query null
+        List<OrderKey> view = ImmutableList.of(
+                new OrderKey(new VarcharLiteral("a"), true, false)
+        );
+        Assertions.assertFalse(MaterializedViewUtils.isPrefixSameFromStart(null, view));
+        // view null
+        List<OrderKey> query = ImmutableList.of(
+                new OrderKey(new VarcharLiteral("a"), true, false)
+        );
+        Assertions.assertFalse(MaterializedViewUtils.isPrefixSameFromStart(query, null));
+        List<OrderKey> emptyQuery = ImmutableList.of();
+        List<OrderKey> emptyView = ImmutableList.of();
+        Assertions.assertTrue(MaterializedViewUtils.isPrefixSameFromStart(emptyQuery, emptyView));
+    }
+
+    @Test
+    public void isPrefixSameFromStart_queryLongerThanView() {
+        List<OrderKey> query = ImmutableList.of(
+                new OrderKey(new VarcharLiteral("a"), true, false),
+                new OrderKey(new VarcharLiteral("b"), true, false)
+        );
+        List<OrderKey> view = ImmutableList.of(
+                new OrderKey(new VarcharLiteral("a"), true, false)
+        );
+        Assertions.assertFalse(MaterializedViewUtils.isPrefixSameFromStart(query, view));
+    }
+
+    @Test
+    public void isPrefixSameFromStart_emptyQueryIsPrefix() {
+        List<OrderKey> emptyQuery = ImmutableList.of();
+        List<OrderKey> view = ImmutableList.of(
+                new OrderKey(new VarcharLiteral("x"), true, false),
+                new OrderKey(new VarcharLiteral("y"), true, false)
+        );
+        Assertions.assertTrue(MaterializedViewUtils.isPrefixSameFromStart(emptyQuery, view));
+    }
+
+    @Test
+    public void isPrefixSameFromStart_prefixEqualReturnsTrue() {
+        List<OrderKey> query = ImmutableList.of(
+                new OrderKey(new VarcharLiteral("a"), true, false),
+                new OrderKey(new VarcharLiteral("b"), true, false)
+        );
+        List<OrderKey> view = ImmutableList.of(
+                new OrderKey(new VarcharLiteral("a"), true, false),
+                new OrderKey(new VarcharLiteral("b"), true, false),
+                new OrderKey(new VarcharLiteral("c"), true, false)
+        );
+        Assertions.assertTrue(MaterializedViewUtils.isPrefixSameFromStart(query, view));
+    }
+
+    @Test
+    public void isPrefixSameFromStart_prefixNotEqualReturnsFalse() {
+        List<OrderKey> query = ImmutableList.of(
+                new OrderKey(new VarcharLiteral("a"), true, false),
+                new OrderKey(new VarcharLiteral("x"), true, false)
+        );
+        List<OrderKey> view = ImmutableList.of(
+                new OrderKey(new VarcharLiteral("a"), true, false),
+                new OrderKey(new VarcharLiteral("b"), true, false),
+                new OrderKey(new VarcharLiteral("c"), true, false)
+        );
+        Assertions.assertFalse(MaterializedViewUtils.isPrefixSameFromStart(query, view));
     }
 
     private void checkRelatedTableInfo(RelatedTableInfo relatedTableInfo,

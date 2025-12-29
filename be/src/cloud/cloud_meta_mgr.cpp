@@ -367,6 +367,8 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" index_id={}", req.index_id());
     } else if constexpr (is_any_v<Request, RestoreJobRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
+    } else if constexpr (is_any_v<Request, UpdatePackedFileInfoRequest>) {
+        return fmt::format(" packed_file_path={}", req.packed_file_path());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -2228,5 +2230,26 @@ Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status
                                         : 3600;
     return Status::OK();
 }
+
+Status CloudMetaMgr::update_packed_file_info(const std::string& packed_file_path,
+                                             const cloud::PackedFileInfoPB& packed_file_info) {
+    VLOG_DEBUG << "Updating meta service for packed file: " << packed_file_path << " with "
+               << packed_file_info.total_slice_num() << " small files"
+               << ", total bytes: " << packed_file_info.total_slice_bytes();
+
+    // Create request
+    cloud::UpdatePackedFileInfoRequest req;
+    cloud::UpdatePackedFileInfoResponse resp;
+
+    // Set required fields
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_packed_file_path(packed_file_path);
+    *req.mutable_packed_file_info() = packed_file_info;
+
+    // Make RPC call using retry pattern
+    return retry_rpc("update packed file info", req, &resp,
+                     &cloud::MetaService_Stub::update_packed_file_info);
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::cloud

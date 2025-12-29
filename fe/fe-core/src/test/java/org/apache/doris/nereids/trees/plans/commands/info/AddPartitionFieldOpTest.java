@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AddPartitionFieldClause;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -36,13 +35,6 @@ public class AddPartitionFieldOpTest {
         Assertions.assertEquals("category", op.getColumnName());
         Assertions.assertNull(op.getPartitionFieldName());
         Assertions.assertEquals("ADD PARTITION KEY category", op.toSql());
-
-        AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
-        Assertions.assertNotNull(clause);
-        Assertions.assertNull(clause.getTransformName());
-        Assertions.assertNull(clause.getTransformArg());
-        Assertions.assertEquals("category", clause.getColumnName());
-        Assertions.assertNull(clause.getPartitionFieldName());
     }
 
     @Test
@@ -51,13 +43,6 @@ public class AddPartitionFieldOpTest {
         Assertions.assertEquals("category", op.getColumnName());
         Assertions.assertEquals("category_partition", op.getPartitionFieldName());
         Assertions.assertEquals("ADD PARTITION KEY category AS category_partition", op.toSql());
-
-        AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
-        Assertions.assertNotNull(clause);
-        Assertions.assertNull(clause.getTransformName());
-        Assertions.assertNull(clause.getTransformArg());
-        Assertions.assertEquals("category", clause.getColumnName());
-        Assertions.assertEquals("category_partition", clause.getPartitionFieldName());
     }
 
     @Test
@@ -76,12 +61,6 @@ public class AddPartitionFieldOpTest {
         Assertions.assertEquals("ts", op.getColumnName());
         Assertions.assertEquals("ts_year", op.getPartitionFieldName());
         Assertions.assertEquals("ADD PARTITION KEY year(ts) AS ts_year", op.toSql());
-
-        AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
-        Assertions.assertEquals("year", clause.getTransformName());
-        Assertions.assertNull(clause.getTransformArg());
-        Assertions.assertEquals("ts", clause.getColumnName());
-        Assertions.assertEquals("ts_year", clause.getPartitionFieldName());
     }
 
     @Test
@@ -101,12 +80,6 @@ public class AddPartitionFieldOpTest {
         Assertions.assertEquals("id", op.getColumnName());
         Assertions.assertEquals("id_bucket_16", op.getPartitionFieldName());
         Assertions.assertEquals("ADD PARTITION KEY bucket(16, id) AS id_bucket_16", op.toSql());
-
-        AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
-        Assertions.assertEquals("bucket", clause.getTransformName());
-        Assertions.assertEquals(16, clause.getTransformArg());
-        Assertions.assertEquals("id", clause.getColumnName());
-        Assertions.assertEquals("id_bucket_16", clause.getPartitionFieldName());
     }
 
     @Test
