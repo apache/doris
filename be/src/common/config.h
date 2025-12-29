@@ -1193,6 +1193,7 @@ DECLARE_mDouble(file_cache_leak_fs_to_meta_ratio_threshold);
 DECLARE_mInt64(file_cache_leak_scan_interval_seconds);
 DECLARE_mInt32(file_cache_leak_scan_batch_files);
 DECLARE_mInt32(file_cache_leak_scan_pause_ms);
+DECLARE_mInt64(file_cache_leak_grace_seconds);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);

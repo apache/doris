@@ -18,13 +18,17 @@
 #pragma once
 
 #include <bvar/bvar.h>
+#include <sys/types.h>
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "io/cache/cache_block_meta_store.h"
@@ -62,6 +66,7 @@ public:
     /// version 1.0: cache_base_path / key / offset
     /// version 2.0: cache_base_path / key_prefix / key / offset
     static constexpr int KEY_PREFIX_LENGTH = 3;
+    static constexpr std::string META_DIR_NAME = "meta";
 
     FSFileCacheStorage() = default;
     ~FSFileCacheStorage() override;
@@ -122,6 +127,26 @@ private:
 private:
     // Helper function to count files in cache directory using inode stats
     size_t estimate_file_count_from_inode() const;
+    struct InodeKey {
+        dev_t device;
+        ino_t inode;
+        bool operator==(const InodeKey& other) const {
+            return device == other.device && inode == other.inode;
+        }
+    };
+    struct InodeKeyHash {
+        size_t operator()(const InodeKey& key) const {
+            return std::hash<uint64_t>()((static_cast<uint64_t>(key.device) << 32) ^
+                                         static_cast<uint64_t>(key.inode));
+        }
+    };
+    size_t estimate_non_cache_inode_usage() const;
+    size_t estimate_cache_directory_inode_usage() const;
+    size_t count_inodes_for_path(const std::filesystem::path& path, dev_t target_dev,
+                                 const std::filesystem::path& excluded_root,
+                                 std::unordered_set<InodeKey, InodeKeyHash>& visited) const;
+    std::filesystem::path find_mount_root(dev_t cache_dev) const;
+    bool is_cache_prefix_directory(const std::filesystem::directory_entry& entry) const;
     size_t snapshot_metadata_block_count(BlockFileCache* mgr) const;
     std::vector<size_t> snapshot_metadata_for_hash_offsets(BlockFileCache* mgr,
                                                            const UInt128Wrapper& hash) const;
@@ -148,6 +173,7 @@ private:
     std::mutex _mtx;
     std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer;
     std::shared_ptr<bvar::LatencyRecorder> _iterator_dir_retry_cnt;
+    std::shared_ptr<bvar::Adder<size_t>> _leak_scan_removed_files;
     std::unique_ptr<CacheBlockMetaStore> _meta_store;
 };
 

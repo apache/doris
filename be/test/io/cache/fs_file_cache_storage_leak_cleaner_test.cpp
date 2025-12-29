@@ -15,9 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <string>
+#include <thread>
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -45,13 +50,15 @@ public:
             : ratio(config::file_cache_leak_fs_to_meta_ratio_threshold),
               interval(config::file_cache_leak_scan_interval_seconds),
               batch(config::file_cache_leak_scan_batch_files),
-              pause(config::file_cache_leak_scan_pause_ms) {}
+              pause(config::file_cache_leak_scan_pause_ms),
+              grace(config::file_cache_leak_grace_seconds) {}
 
     ~ScopedLeakCleanerConfig() {
         config::file_cache_leak_fs_to_meta_ratio_threshold = ratio;
         config::file_cache_leak_scan_interval_seconds = interval;
         config::file_cache_leak_scan_batch_files = batch;
         config::file_cache_leak_scan_pause_ms = pause;
+        config::file_cache_leak_grace_seconds = grace;
     }
 
 private:
@@ -59,6 +66,7 @@ private:
     int64_t interval;
     int32_t batch;
     int32_t pause;
+    int64_t grace;
 };
 
 class FSFileCacheLeakCleanerTest : public BlockFileCacheTest {
@@ -217,6 +225,238 @@ TEST_F(FSFileCacheLeakCleanerTest, remove_orphan_and_tmp_files) {
 
     std::error_code ec;
     fs::remove_all(dir, ec);
+}
+
+TEST_F(FSFileCacheLeakCleanerTest, snapshot_metadata_for_hash_offsets_handles_missing_hash) {
+    auto dir = prepare_test_dir();
+    FileCacheSettings settings = default_settings();
+    BlockFileCache mgr(dir.string(), settings);
+    FSFileCacheStorage storage;
+
+    auto missing_hash = BlockFileCache::hash("missing_hash_case");
+    auto offsets = storage.snapshot_metadata_for_hash_offsets(&mgr, missing_hash);
+    EXPECT_TRUE(offsets.empty());
+
+    add_metadata_entry(mgr, missing_hash, 7);
+    add_metadata_entry(mgr, missing_hash, 3);
+
+    offsets = storage.snapshot_metadata_for_hash_offsets(&mgr, missing_hash);
+    std::sort(offsets.begin(), offsets.end());
+    ASSERT_EQ(2, offsets.size());
+    EXPECT_EQ(3u, offsets[0]);
+    EXPECT_EQ(7u, offsets[1]);
+}
+
+TEST_F(FSFileCacheLeakCleanerTest, leak_cleaner_loop_catches_std_exception) {
+    ScopedLeakCleanerConfig guard;
+    config::file_cache_leak_scan_interval_seconds = 1;
+
+    auto dir = prepare_test_dir();
+    FileCacheSettings settings = default_settings();
+    BlockFileCache mgr(dir.string(), settings);
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = dir.string();
+    storage._mgr = &mgr;
+
+    std::atomic<int> callback_count {0};
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("FSFileCacheStorage::leak_cleaner_loop::before_run",
+                      [&storage, &callback_count](auto&&) {
+                          callback_count.fetch_add(1, std::memory_order_relaxed);
+                          storage._stop_leak_cleaner.store(true, std::memory_order_relaxed);
+                          storage._leak_cleaner_cv.notify_all();
+                          throw std::runtime_error("injected std exception");
+                      });
+    sp->enable_processing();
+
+    storage._stop_leak_cleaner.store(false, std::memory_order_relaxed);
+    std::thread worker([&]() { storage.leak_cleaner_loop(); });
+
+    for (int i = 0; i < 10 && callback_count.load(std::memory_order_relaxed) == 0; ++i) {
+        storage._leak_cleaner_cv.notify_all();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    storage._stop_leak_cleaner.store(true, std::memory_order_relaxed);
+    storage._leak_cleaner_cv.notify_all();
+    worker.join();
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+
+    ASSERT_GE(callback_count.load(std::memory_order_relaxed), 1);
+}
+
+TEST_F(FSFileCacheLeakCleanerTest, leak_cleaner_loop_catches_unknown_exception) {
+    ScopedLeakCleanerConfig guard;
+    config::file_cache_leak_scan_interval_seconds = 1;
+
+    auto dir = prepare_test_dir();
+    FileCacheSettings settings = default_settings();
+    BlockFileCache mgr(dir.string(), settings);
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = dir.string();
+    storage._mgr = &mgr;
+
+    struct NonStdException {};
+
+    std::atomic<int> callback_count {0};
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("FSFileCacheStorage::leak_cleaner_loop::before_run",
+                      [&storage, &callback_count](auto&&) {
+                          callback_count.fetch_add(1, std::memory_order_relaxed);
+                          storage._stop_leak_cleaner.store(true, std::memory_order_relaxed);
+                          storage._leak_cleaner_cv.notify_all();
+                          throw NonStdException {};
+                      });
+    sp->enable_processing();
+
+    storage._stop_leak_cleaner.store(false, std::memory_order_relaxed);
+    std::thread worker([&]() { storage.leak_cleaner_loop(); });
+
+    for (int i = 0; i < 10 && callback_count.load(std::memory_order_relaxed) == 0; ++i) {
+        storage._leak_cleaner_cv.notify_all();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    storage._stop_leak_cleaner.store(true, std::memory_order_relaxed);
+    storage._leak_cleaner_cv.notify_all();
+    worker.join();
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+
+    ASSERT_GE(callback_count.load(std::memory_order_relaxed), 1);
+}
+
+TEST_F(FSFileCacheLeakCleanerTest, run_leak_cleanup_removes_orphan_when_metadata_missing) {
+    ScopedLeakCleanerConfig guard;
+    config::file_cache_leak_fs_to_meta_ratio_threshold = 0.5;
+    config::file_cache_leak_grace_seconds = 0;
+
+    auto dir = prepare_test_dir();
+    FileCacheSettings settings = default_settings();
+    BlockFileCache mgr(dir.string(), settings);
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = dir.string();
+    storage._mgr = &mgr;
+
+    auto hash = BlockFileCache::hash("zero_meta_orphan");
+    auto key_dir = storage.get_path_in_local_cache_v3(hash);
+    fs::create_directories(key_dir);
+    auto orphan_path = FSFileCacheStorage::get_path_in_local_cache_v3(key_dir, 0, false);
+    create_regular_file(orphan_path, 'z');
+
+    storage.run_leak_cleanup(&mgr);
+
+    auto prefix_dir = fs::path(key_dir).parent_path();
+    EXPECT_FALSE(fs::exists(orphan_path));
+    EXPECT_FALSE(fs::exists(key_dir));
+    EXPECT_FALSE(fs::exists(prefix_dir));
+}
+
+TEST_F(FSFileCacheLeakCleanerTest, cleanup_handles_missing_base_directory) {
+    ScopedLeakCleanerConfig guard;
+
+    auto dir = prepare_test_dir();
+    FileCacheSettings settings = default_settings();
+    BlockFileCache mgr(dir.string(), settings);
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = (dir / "missing_root").string();
+    storage._mgr = &mgr;
+    fs::path missing_path(storage._cache_base_path);
+    if (fs::exists(missing_path)) {
+        fs::remove_all(missing_path);
+    }
+
+    storage.cleanup_leaked_files(&mgr, 0);
+    EXPECT_FALSE(fs::exists(missing_path));
+}
+
+TEST_F(FSFileCacheLeakCleanerTest, cleanup_skips_invalid_prefixes_and_keys) {
+    ScopedLeakCleanerConfig guard;
+    config::file_cache_leak_grace_seconds = 0;
+
+    auto dir = prepare_test_dir();
+    FileCacheSettings settings = default_settings();
+    BlockFileCache mgr(dir.string(), settings);
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = dir.string();
+    storage._mgr = &mgr;
+
+    fs::create_directories(dir);
+    create_regular_file((dir / "root_file").string());               // non-directory prefix entry
+    fs::create_directories(dir / FSFileCacheStorage::META_DIR_NAME); // meta dir skip
+    fs::create_directories(dir / "abcd");                            // invalid prefix length
+
+    auto prefix_dir = dir / "abc";
+    fs::create_directories(prefix_dir);
+    create_regular_file((prefix_dir / "plain_file").string()); // !key_it->is_directory branch
+    fs::create_directories(prefix_dir / "deadbeef" /* missing '_' */);
+    fs::create_directories(prefix_dir / "zzzg000_0" /* invalid hex */);
+    fs::create_directories(prefix_dir / "123abc_bad" /* invalid expiration */);
+
+    storage.cleanup_leaked_files(&mgr, 0);
+
+    EXPECT_TRUE(fs::exists(prefix_dir));
+    EXPECT_TRUE(fs::exists(dir / "abcd"));
+}
+
+TEST_F(FSFileCacheLeakCleanerTest, cleanup_flush_candidates_when_empty) {
+    ScopedLeakCleanerConfig guard;
+    config::file_cache_leak_grace_seconds = 0;
+
+    auto dir = prepare_test_dir();
+    FileCacheSettings settings = default_settings();
+    BlockFileCache mgr(dir.string(), settings);
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = dir.string();
+    storage._mgr = &mgr;
+
+    auto hash = BlockFileCache::hash("metadata_kept_hash");
+    add_metadata_entry(mgr, hash, 0);
+
+    auto key_dir = storage.get_path_in_local_cache_v3(hash);
+    fs::create_directories(key_dir);
+    auto file_path = FSFileCacheStorage::get_path_in_local_cache_v3(key_dir, 0, false);
+    create_regular_file(file_path, 'm');
+
+    storage.cleanup_leaked_files(&mgr, 1);
+
+    EXPECT_TRUE(fs::exists(file_path));
+}
+
+TEST_F(FSFileCacheLeakCleanerTest, cleanup_flush_candidates_remove_directories) {
+    ScopedLeakCleanerConfig guard;
+    config::file_cache_leak_grace_seconds = 0;
+    config::file_cache_leak_scan_batch_files = 2;
+
+    auto dir = prepare_test_dir();
+    FileCacheSettings settings = default_settings();
+    BlockFileCache mgr(dir.string(), settings);
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = dir.string();
+    storage._mgr = &mgr;
+
+    auto hash = BlockFileCache::hash("cleanup_orphan_batch");
+    auto key_dir = storage.get_path_in_local_cache_v3(hash);
+    fs::create_directories(key_dir);
+    auto orphan_path = FSFileCacheStorage::get_path_in_local_cache_v3(key_dir, 4, false);
+    create_regular_file(orphan_path, 'c');
+
+    storage.cleanup_leaked_files(&mgr, 0);
+
+    auto prefix_dir = fs::path(key_dir).parent_path();
+    EXPECT_FALSE(fs::exists(orphan_path));
+    EXPECT_FALSE(fs::exists(key_dir));
+    EXPECT_FALSE(fs::exists(prefix_dir));
 }
 
 } // namespace doris::io
