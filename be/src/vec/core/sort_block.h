@@ -59,9 +59,6 @@ namespace doris::vectorized {
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
                 HybridSorter& hybrid_sorter, UInt64 limit = 0);
 
-void sort_block_default(Block& src_block, Block& dest_block, const SortDescription& description,
-                        UInt64 limit = 0);
-
 using ColumnWithSortDescription = std::pair<const IColumn*, SortColumnDescription>;
 
 using ColumnsWithSortDescriptions = std::vector<ColumnWithSortDescription>;

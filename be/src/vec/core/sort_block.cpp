@@ -39,12 +39,6 @@ ColumnsWithSortDescriptions get_columns_with_sort_description(const Block& block
     return res;
 }
 
-void sort_block_default(Block& src_block, Block& dest_block, const SortDescription& description,
-                        UInt64 limit) {
-    HybridSorter hybrid_sorter;
-    sort_block(src_block, dest_block, description, hybrid_sorter, limit);
-}
-
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
                 HybridSorter& hybrid_sorter, UInt64 limit) {
     if (!src_block.columns()) {
