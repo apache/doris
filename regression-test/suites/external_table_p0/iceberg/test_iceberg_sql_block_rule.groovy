@@ -57,94 +57,99 @@ suite("test_iceberg_sql_block_rule", "p0,external,doris,external_docker,external
     sql """insert into ${table_name} values (3, 3, 'c')"""
     sql """insert into ${table_name} values (4, 4, 'd')"""
 
-    // Clean up existing rules
+    // Clean up existing rules and users
     sql """drop sql_block_rule if exists iceberg_partition_rule"""
     sql """drop sql_block_rule if exists iceberg_split_rule"""
     sql """drop sql_block_rule if exists iceberg_cardinality_rule"""
     sql """drop sql_block_rule if exists iceberg_regex_rule"""
+    sql """drop user if exists iceberg_block_user1"""
+    sql """drop user if exists iceberg_block_user2"""
+    sql """drop user if exists iceberg_block_user3"""
+    sql """drop user if exists iceberg_block_user4"""
 
-    // Test 1: Partition number limit rule
-    sql """create sql_block_rule iceberg_partition_rule properties("partition_num" = "1", "global" = "true", "enable" = "true");"""
-    
-    test {
-        sql """select * from ${table_name}"""
-        exception """sql hits sql block rule: iceberg_partition_rule, reach partition_num : 1"""
-    }
+    // Create non-global rules (won't affect other parallel tests)
+    sql """create sql_block_rule iceberg_partition_rule properties("partition_num" = "1", "global" = "false");"""
+    sql """create sql_block_rule iceberg_split_rule properties("tablet_num" = "1", "global" = "false");"""
+    sql """create sql_block_rule iceberg_cardinality_rule properties("cardinality" = "1", "global" = "false");"""
+    sql """create sql_block_rule iceberg_regex_rule properties("sql" = "SELECT \\\\* FROM ${table_name}", "global" = "false");"""
 
-    // Test EXPLAIN should not be blocked
-    sql """explain select * from ${table_name}"""
+    // Create test users and bind rules
+    sql """create user iceberg_block_user1;"""
+    sql """SET PROPERTY FOR 'iceberg_block_user1' 'sql_block_rules' = 'iceberg_partition_rule';"""
+    sql """grant all on *.*.* to iceberg_block_user1;"""
 
-    sql """drop sql_block_rule iceberg_partition_rule"""
+    sql """create user iceberg_block_user2;"""
+    sql """SET PROPERTY FOR 'iceberg_block_user2' 'sql_block_rules' = 'iceberg_split_rule';"""
+    sql """grant all on *.*.* to iceberg_block_user2;"""
 
-    // Test 2: Split number limit rule (equivalent to tablet_num for external tables)
-    sql """create sql_block_rule iceberg_split_rule properties("tablet_num" = "1", "global" = "true", "enable" = "true");"""
-    
-    test {
-        sql """select * from ${table_name}"""
-        exception """sql hits sql block rule: iceberg_split_rule, reach tablet_num : 1"""
-    }
+    sql """create user iceberg_block_user3;"""
+    sql """SET PROPERTY FOR 'iceberg_block_user3' 'sql_block_rules' = 'iceberg_cardinality_rule';"""
+    sql """grant all on *.*.* to iceberg_block_user3;"""
 
-    // Test EXPLAIN should not be blocked
-    sql """explain select * from ${table_name}"""
+    sql """create user iceberg_block_user4;"""
+    sql """SET PROPERTY FOR 'iceberg_block_user4' 'sql_block_rules' = 'iceberg_regex_rule';"""
+    sql """grant all on *.*.* to iceberg_block_user4;"""
 
-    sql """drop sql_block_rule iceberg_split_rule"""
-
-    // Test 3: Cardinality limit rule
-    sql """create sql_block_rule iceberg_cardinality_rule properties("cardinality" = "1", "global" = "true", "enable" = "true");"""
-    
-    test {
-        sql """select * from ${table_name}"""
-        exception """sql hits sql block rule: iceberg_cardinality_rule, reach cardinality : 1"""
-    }
-
-    // Test EXPLAIN should not be blocked
-    sql """explain select * from ${table_name}"""
-
-    sql """drop sql_block_rule iceberg_cardinality_rule"""
-
-    // Test 4: Regex match rule
-    sql """create sql_block_rule iceberg_regex_rule properties("sql" = "SELECT \\\\* FROM ${table_name}", "global" = "true", "enable" = "true");"""
-    
-    test {
-        sql """SELECT * FROM ${table_name}"""
-        exception """sql match regex sql block rule: iceberg_regex_rule"""
-    }
-
-    // Test EXPLAIN should not be blocked by regex rule
-    sql """EXPLAIN SELECT * FROM ${table_name}"""
-
-    sql """drop sql_block_rule iceberg_regex_rule"""
-
-    // Test 5: User-specific rules
-    sql """drop sql_block_rule if exists iceberg_user_rule"""
-    sql """create sql_block_rule iceberg_user_rule properties("cardinality" = "1", "global" = "false");"""
-    
-    sql """drop user if exists iceberg_block_user"""
-    sql """create user iceberg_block_user;"""
-    sql """SET PROPERTY FOR 'iceberg_block_user' 'sql_block_rules' = 'iceberg_user_rule';"""
-    sql """grant all on *.*.* to iceberg_block_user;"""
-    
-    //cloud-mode
+    // cloud-mode: grant cluster privileges
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO iceberg_block_user;""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO iceberg_block_user1;"""
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO iceberg_block_user2;"""
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO iceberg_block_user3;"""
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO iceberg_block_user4;"""
     }
 
-    // Login as iceberg_block_user and test
-    def result = connect('iceberg_block_user', '', context.config.jdbcUrl) {
+    // Test 1: partition_num rule
+    connect('iceberg_block_user1', '', context.config.jdbcUrl) {
         test {
             sql """select * from ${catalog_name}.${db_name}.${table_name}"""
-            exception """sql hits sql block rule: iceberg_user_rule, reach cardinality : 1"""
+            exception """sql hits sql block rule: iceberg_partition_rule, reach partition_num : 1"""
         }
-        // EXPLAIN should not be blocked
+        // Test EXPLAIN should not be blocked
         sql """explain select * from ${catalog_name}.${db_name}.${table_name}"""
     }
 
+    // Test 2: tablet_num (split) rule
+    connect('iceberg_block_user2', '', context.config.jdbcUrl) {
+        test {
+            sql """select * from ${catalog_name}.${db_name}.${table_name}"""
+            exception """sql hits sql block rule: iceberg_split_rule, reach tablet_num : 1"""
+        }
+        // Test EXPLAIN should not be blocked
+        sql """explain select * from ${catalog_name}.${db_name}.${table_name}"""
+    }
+
+    // Test 3: cardinality rule
+    connect('iceberg_block_user3', '', context.config.jdbcUrl) {
+        test {
+            sql """select * from ${catalog_name}.${db_name}.${table_name}"""
+            exception """sql hits sql block rule: iceberg_cardinality_rule, reach cardinality : 1"""
+        }
+        // Test EXPLAIN should not be blocked
+        sql """explain select * from ${catalog_name}.${db_name}.${table_name}"""
+    }
+
+    // Test 4: regex rule
+    connect('iceberg_block_user4', '', context.config.jdbcUrl) {
+        test {
+            sql """SELECT * FROM ${catalog_name}.${db_name}.${table_name}"""
+            exception """sql match regex sql block rule: iceberg_regex_rule"""
+        }
+        // Test EXPLAIN should not be blocked by regex rule
+        sql """EXPLAIN SELECT * FROM ${catalog_name}.${db_name}.${table_name}"""
+    }
+
     // Cleanup
-    sql """drop user if exists iceberg_block_user"""
-    sql """drop sql_block_rule if exists iceberg_user_rule"""
+    sql """drop user if exists iceberg_block_user1"""
+    sql """drop user if exists iceberg_block_user2"""
+    sql """drop user if exists iceberg_block_user3"""
+    sql """drop user if exists iceberg_block_user4"""
+    sql """drop sql_block_rule if exists iceberg_partition_rule"""
+    sql """drop sql_block_rule if exists iceberg_split_rule"""
+    sql """drop sql_block_rule if exists iceberg_cardinality_rule"""
+    sql """drop sql_block_rule if exists iceberg_regex_rule"""
     sql """drop table if exists ${table_name}"""
     sql """drop database if exists ${db_name}"""
     sql """drop catalog if exists ${catalog_name}"""
