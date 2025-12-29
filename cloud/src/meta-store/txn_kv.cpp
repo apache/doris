@@ -125,7 +125,7 @@ static std::tuple<fdb_bool_t, int> apply_key_selector(RangeKeySelector selector)
 }
 
 int FdbTxnKv::init() {
-    network_ = std::make_shared<fdb::Network>(FDBNetworkOption {});
+    network_ = std::make_shared<fdb::Network>();
     int ret = network_->init();
     if (ret != 0) {
         LOG(WARNING) << "failed to init network";
@@ -138,7 +138,30 @@ int FdbTxnKv::init() {
         LOG(WARNING) << "failed to init database";
         return ret;
     }
-    return 0;
+
+    // Access the database to ensure the cluster file is valid, and eat the first cluster_version_changed error if any.
+    while (true) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "init fdb txn kv failed, create txn: " << err;
+            return -1;
+        }
+
+        std::string status_json_key = "\xff\xff/status/json";
+        std::string value;
+        err = txn->get(status_json_key, &value, true);
+        if (err == TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED) {
+            continue;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "init fdb txn kv failed, get status json key: " << err;
+            return -1;
+        }
+
+        LOG(INFO) << "fdb txn kv is initialized";
+        return 0;
+    }
 }
 
 TxnErrorCode FdbTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
@@ -250,6 +273,7 @@ constexpr fdb_error_t FDB_ERROR_CODE_TXN_CONFLICT = 1020;
 constexpr fdb_error_t FDB_ERROR_COMMIT_UNKNOWN_RESULT = 1021;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_TIMED_OUT = 1031;
 constexpr fdb_error_t FDB_ERROR_CODE_TOO_MANY_WATCHES = 1032;
+constexpr fdb_error_t FDB_ERROR_CODE_CLUSTER_VERSION_CHANGED = 1039;
 constexpr fdb_error_t FDB_ERROR_CODE_INVALID_OPTION_VALUE = 2006;
 constexpr fdb_error_t FDB_ERROR_CODE_INVALID_OPTION = 2007;
 constexpr fdb_error_t FDB_ERROR_CODE_VERSION_INVALID = 2011;
@@ -288,6 +312,8 @@ static TxnErrorCode cast_as_txn_code(fdb_error_t err) {
         return TxnErrorCode::TXN_CONFLICT;
     case FDB_ERROR_CODE_TOO_MANY_WATCHES:
         return TxnErrorCode::TXN_TOO_MANY_WATCHES;
+    case FDB_ERROR_CODE_CLUSTER_VERSION_CHANGED:
+        return TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED;
     }
 
     if (fdb_error_predicate(FDB_ERROR_PREDICATE_MAYBE_COMMITTED, err)) {
@@ -316,11 +342,23 @@ int Network::init() {
         return 1;
     }
 
+    LOG(INFO) << "select fdb api version: " << fdb_get_max_api_version();
+
     // Setup network thread
-    // Optional setting
-    // FDBNetworkOption opt;
-    // fdb_network_set_option()
-    (void)opt_;
+    if (config::enable_fdb_external_client_directory &&
+        !config::fdb_external_client_directory.empty()) {
+        err = fdb_network_set_option(FDB_NET_OPTION_EXTERNAL_CLIENT_DIRECTORY,
+                                     (const uint8_t*)config::fdb_external_client_directory.c_str(),
+                                     config::fdb_external_client_directory.size());
+        if (err) {
+            LOG(WARNING) << "failed to set fdb external client directory, dir: "
+                         << config::fdb_external_client_directory
+                         << ", err: " << fdb_get_error(err);
+            return 1;
+        }
+        LOG(INFO) << "set fdb external client directory: " << config::fdb_external_client_directory;
+    }
+
     // ATTN: Network can be configured only once,
     //       even if fdb_stop_network() is called successfully
     err = fdb_setup_network(); // Must be called only once before any
@@ -747,6 +785,11 @@ TxnErrorCode Transaction::commit() {
             static_cast<void>(report_conflicting_range()); // don't overwrite the original error.
         } else {
             g_bvar_txn_kv_commit_error_counter << 1;
+        }
+        // If cluster_version_changed is thrown during commit, it should be interpreted similarly to
+        // commit_unknown_result. The commit may or may not have been completed.
+        if (err == FDB_ERROR_CODE_CLUSTER_VERSION_CHANGED) {
+            return TxnErrorCode::TXN_MAYBE_COMMITTED;
         }
         return cast_as_txn_code(err);
     }
