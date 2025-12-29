@@ -385,6 +385,16 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         return Status::OK();
     }
 
+    auto get_serializer_mem_bytes = [&local_state]() -> int64_t {
+        int64_t mem_usage = local_state._serializer.mem_usage();
+        for (auto& channel : local_state.channels) {
+            mem_usage += channel->mem_usage();
+        }
+        return mem_usage;
+    };
+
+    int64_t before_serializer_mem_bytes = get_serializer_mem_bytes();
+
     auto send_to_current_channel = [&]() -> Status {
         // 1. select channel
         auto& current_channel = local_state.channels[local_state.current_channel_idx];
@@ -427,11 +437,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
             {
                 bool serialized = false;
-                int64_t old_block_mem_bytes = local_state._serializer.mem_usage();
-                Defer update_mem([&]() {
-                    COUNTER_UPDATE(local_state.memory_used_counter(),
-                                   local_state._serializer.mem_usage() - old_block_mem_bytes);
-                });
                 RETURN_IF_ERROR(local_state._serializer.next_serialized_block(
                         block, block_holder->get_block(), local_state._rpc_channels_num,
                         &serialized, eos));
@@ -505,13 +510,16 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         // 2. dispatch rows to channel
     }
 
+    int64_t after_serializer_mem_bytes = get_serializer_mem_bytes();
+
+    int64_t delta_mem_bytes = after_serializer_mem_bytes - before_serializer_mem_bytes;
+    COUNTER_UPDATE(local_state.memory_used_counter(), delta_mem_bytes);
+
     Status final_st = Status::OK();
     if (eos) {
-        int64_t block_mem_bytes = local_state._serializer.mem_usage();
-        COUNTER_UPDATE(local_state.memory_used_counter(), -block_mem_bytes);
+        COUNTER_UPDATE(local_state.memory_used_counter(), -after_serializer_mem_bytes);
         local_state._serializer.reset_block();
         for (auto& channel : local_state.channels) {
-            COUNTER_UPDATE(local_state.memory_used_counter(), -channel->mem_usage());
             Status st = channel->close(state);
             /**
              * Consider this case below:
