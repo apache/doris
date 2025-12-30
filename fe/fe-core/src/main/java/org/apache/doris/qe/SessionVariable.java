@@ -2663,7 +2663,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean aggShuffleUseParentKey = true;
 
     @VariableMgr.VarAttr(name = CHOOSE_ONE_AGG_SHUFFLE_KEY, needForward = false)
-    public boolean chooseOneAggShuffleKey = false;
+    public boolean chooseOneAggShuffleKey = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
