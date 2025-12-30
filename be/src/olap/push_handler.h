@@ -141,6 +141,7 @@ private:
 
     // col names from _slot_descs
     std::vector<std::string> _all_col_names;
+    std::unordered_map<std::string, uint32_t> _col_name_to_block_idx;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     vectorized::VExprContextSPtrs _push_down_exprs;
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;

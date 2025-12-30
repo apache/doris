@@ -73,12 +73,16 @@ Status MetaScanner::open(RuntimeState* state) {
                                                               _scan_range.meta_scan_range);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
         RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
+        static_cast<IcebergSysTableJniReader*>(reader.get())
+                ->set_col_name_to_block_idx(&_src_block_name_to_idx);
         _reader = std::move(reader);
     } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PAIMON) {
         auto reader = PaimonSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
                                                              _scan_range.meta_scan_range);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
         RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
+        static_cast<PaimonSysTableJniReader*>(reader.get())
+                ->set_col_name_to_block_idx(&_src_block_name_to_idx);
         _reader = std::move(reader);
     } else {
         RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
@@ -98,6 +102,12 @@ Status MetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
     if (nullptr == state || nullptr == block || nullptr == eof) {
         return Status::InternalError("input is NULL pointer");
     }
+
+    // Build name to index map only once on first call
+    if (_src_block_name_to_idx.empty()) {
+        _src_block_name_to_idx = block->get_name_to_pos_map();
+    }
+
     if (_reader) {
         // TODO: This is a temporary workaround; the code is planned to be refactored later.
         size_t read_rows = 0;
