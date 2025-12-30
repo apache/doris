@@ -3605,6 +3605,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.DisableCache")) {
+            LOG.info("Disable auto partition cache");
             needUseCache = false;
         }
         OlapTable olapTable = (OlapTable) table;
@@ -3724,17 +3725,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                     "FE.FrontendServiceImpl.createPartition.MockRebalance");
                             int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
                             Multimap<Long, Long> tmpBePathsMap = HashMultimap.create();
-                            if (currentExecuteNum > 1) {
-                                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
-                                int choseNum = currentExecuteNum % allBeIds.size();
-                                // (assign different distribution information to tablets)
-                                for (Long beId : bePathsMap.keySet()) {
-                                    Long otherBeId = allBeIds.get(choseNum);
-                                    LOG.info("Mock rebalance: beId={} => otherBeId={}", beId, otherBeId);
-                                    tmpBePathsMap.put(otherBeId, (long) -1);
-                                }
-                                bePathsMap = tmpBePathsMap;
+                            List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                            int choseNum = currentExecuteNum % allBeIds.size();
+                            // (assign different distribution information to tablets)
+                            for (Long beId : bePathsMap.keySet()) {
+                                Long otherBeId = allBeIds.get(choseNum);
+                                LOG.info("Mock rebalance: tablet={}, beId={} => otherBeId={}",
+                                        tablet.getId(), beId, otherBeId);
+                                tmpBePathsMap.put(otherBeId, (long) -1);
                             }
+                            bePathsMap = tmpBePathsMap;
                         }
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
