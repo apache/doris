@@ -101,13 +101,13 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>()
-        .add(MAX_CPU_PERCENT).add(MIN_CPU_PERCENT)
-        .add(MAX_MEMORY_PERCENT).add(MIN_MEMORY_PERCENT)
-        .add(MAX_CONCURRENCY).add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT)
-        .add(SCAN_THREAD_NUM).add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
-        .add(MEMORY_LOW_WATERMARK).add(MEMORY_HIGH_WATERMARK)
-        .add(COMPUTE_GROUP).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND)
-        .add(SLOT_MEMORY_POLICY).build();
+            .add(MAX_CPU_PERCENT).add(MIN_CPU_PERCENT)
+            .add(MAX_MEMORY_PERCENT).add(MIN_MEMORY_PERCENT)
+            .add(MAX_CONCURRENCY).add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT)
+            .add(SCAN_THREAD_NUM).add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
+            .add(MEMORY_LOW_WATERMARK).add(MEMORY_HIGH_WATERMARK)
+            .add(COMPUTE_GROUP).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND)
+            .add(SLOT_MEMORY_POLICY).build();
 
 
     public static final int MAX_CPU_PERCENT_DEFAULT_VALUE = 100;
@@ -135,10 +135,10 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String SLOT_MEMORY_POLICY_DEFAULT_VALUE = "none";
     public static final HashSet<String> AVAILABLE_SLOT_MEMORY_POLICY_VALUES = new HashSet<String>() {{
-        add("none");
-        add("fixed");
-        add("dynamic");
-    }};
+            add("none");
+            add("fixed");
+            add("dynamic");
+        }};
 
     @SerializedName(value = "id")
     private long id;
@@ -242,7 +242,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     // alter resource group
     public static WorkloadGroup copyAndUpdate(WorkloadGroup currentWorkloadGroup, Map<String, String> updateProperties)
-        throws DdlException {
+            throws DdlException {
         Map<String, String> newProperties = new HashMap<>(currentWorkloadGroup.getProperties());
         for (Map.Entry<String, String> kv : updateProperties.entrySet()) {
             newProperties.put(kv.getKey(), kv.getValue());
@@ -250,8 +250,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
         checkProperties(newProperties);
         WorkloadGroup newWorkloadGroup = new WorkloadGroup(
-            currentWorkloadGroup.getId(), currentWorkloadGroup.getName(),
-            newProperties, currentWorkloadGroup.getVersion() + 1);
+                currentWorkloadGroup.getId(), currentWorkloadGroup.getName(),
+                newProperties, currentWorkloadGroup.getVersion() + 1);
         return newWorkloadGroup;
     }
 
@@ -628,7 +628,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 if (!StringUtils.isEmpty(val) && Config.isCloudMode()) {
                     try {
                         String cgName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByClusterId(
-                            val);
+                                val);
                         if (!StringUtils.isEmpty(cgName)) {
                             val = cgName;
                         }
@@ -642,11 +642,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 if (StringUtils.isEmpty(val)) {
                     row.add(ALL_PROPERTIES_DEFAULT_VALUE_MAP.get(key));
                 } else if (MIN_CPU_PERCENT.equals(key)
-                    || MAX_CPU_PERCENT.equals(key)
-                    || MIN_MEMORY_PERCENT.equals(key)
-                    || MAX_MEMORY_PERCENT.equals(key)
-                    || MEMORY_LOW_WATERMARK.equals(key)
-                    || MEMORY_HIGH_WATERMARK.equals(key)) {
+                        || MAX_CPU_PERCENT.equals(key)
+                        || MIN_MEMORY_PERCENT.equals(key)
+                        || MAX_MEMORY_PERCENT.equals(key)
+                        || MEMORY_LOW_WATERMARK.equals(key)
+                        || MEMORY_HIGH_WATERMARK.equals(key)) {
                     row.add(val + "%");
                 } else {
                     row.add(val);
