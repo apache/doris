@@ -4070,7 +4070,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
 
-            if (needUseCache && txnId != 0) {
+            if (needUseCache) {
                 Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
                                 partitionSlaveTablets);

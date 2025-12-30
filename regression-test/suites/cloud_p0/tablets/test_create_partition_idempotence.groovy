@@ -37,7 +37,6 @@ suite('test_create_partition_idempotence', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'enable_debug_points = true',
-        'sys_log_verbose_modules = org.apache.doris',
     ]
     options.cloudMode = true
     options.beNum = 3 
@@ -46,8 +45,6 @@ suite('test_create_partition_idempotence', 'docker') {
         sql """ set parallel_pipeline_task_num = 2 """
         sql """ set load_stream_per_node = 2 """
 
-        // ========== 正向测试用例：启用缓存，应该成功 ==========
-        logger.info("========== 开始正向测试用例：启用缓存，应该成功 ==========")
         def sourceTable1 = "test_partition_source_table_positive"
         sql "DROP TABLE IF EXISTS ${sourceTable1}"
         sql """

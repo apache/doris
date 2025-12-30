@@ -45,14 +45,18 @@ suite('test_insert_overwrite_idempotence', 'docker') {
     options.beNum = 3 
 
     docker(options) {
-        def sourceTable = "test_iot_source_table"
-        def tableName = "test_iot_idempotence_table"
+        sql "SET parallel_pipeline_task_num = 2"
+        sql "SET load_stream_per_node = 2"
+
+        // Positive test case: with cache enabled
+        def sourceTable1 = "test_iot_source_table_positive"
+        def tableName1 = "test_iot_idempotence_table_positive"
 
         // Create source table with skewed data distribution
         // Use HASH(k0) BUCKETS 2 to create data skew: one bucket has 1 row, another has 20000 rows
-        sql "DROP TABLE IF EXISTS ${sourceTable}"
+        sql "DROP TABLE IF EXISTS ${sourceTable1}"
         sql """
-            CREATE TABLE ${sourceTable} (
+            CREATE TABLE ${sourceTable1} (
                 k0 INT NULL
             )
             DISTRIBUTED BY HASH(k0) BUCKETS 2
@@ -63,13 +67,13 @@ suite('test_insert_overwrite_idempotence', 'docker') {
         
         // Insert skewed data: 1 row + 20000 rows
         // This will trigger two different instances to process data
-        sql "INSERT INTO ${sourceTable} VALUES (1);"
-        sql """INSERT INTO ${sourceTable} SELECT number FROM numbers("number" = "20000");"""
+        sql "INSERT INTO ${sourceTable1} VALUES (1);"
+        sql """INSERT INTO ${sourceTable1} SELECT number FROM numbers("number" = "20000");"""
         
         // Create target table with range partitions
-        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql "DROP TABLE IF EXISTS ${tableName1}"
         sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE ${tableName1} (
                 k0 INT NULL
             )
             PARTITION BY RANGE (k0) (
@@ -84,29 +88,83 @@ suite('test_insert_overwrite_idempotence', 'docker') {
         """
         
         // Insert initial data to cover all partitions
-        sql """INSERT INTO ${tableName} VALUES 
+        sql """INSERT INTO ${tableName1} VALUES 
             (1), (2), (3), (4), (5), 
             (11), (12), (13), (14), (15),
             (101), (102), (103), (104), (105);
         """
         
-        sql "SET parallel_pipeline_task_num = 2"
-        sql "SET load_stream_per_node = 2"
-        
         GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.replacePartition.MockRebalance")
-        GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.DisableCache")
-        
         try {
             // Use INSERT OVERWRITE ... SELECT to trigger multiple instances
             // The skewed data in sourceTable will cause two instances to send replacePartition RPC
-            sql """INSERT OVERWRITE TABLE ${tableName} PARTITION(*) SELECT * FROM ${sourceTable};"""
-            assertEquals(1, 2)
+            // With cache enabled, both instances should receive consistent tablet distribution
+            sql """INSERT OVERWRITE TABLE ${tableName1} PARTITION(*) SELECT * FROM ${sourceTable1};"""
+            
+            // Verify the result: should have 20001 rows (1 + 20000)
+            def count = sql "SELECT count(*) FROM ${tableName1}"
+            assertEquals(20001, count[0][0])
+            
         } catch (Exception e) {
-            logger.info("Caught exception in second test: ${e.message}")
+            logger.error("Positive test failed: ${e.message}")
+            throw e
+        } finally {
+            GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.replacePartition.MockRebalance")
+        }
+
+        def sourceTable2 = "test_iot_source_table_negative"
+        def tableName2 = "test_iot_idempotence_table_negative"
+
+        sql "DROP TABLE IF EXISTS ${sourceTable2}"
+        sql """
+            CREATE TABLE ${sourceTable2} (
+                k0 INT NULL
+            )
+            DISTRIBUTED BY HASH(k0) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        
+        // Insert skewed data: 1 row + 20000 rows
+        sql "INSERT INTO ${sourceTable2} VALUES (1);"
+        sql """INSERT INTO ${sourceTable2} SELECT number FROM numbers("number" = "20000");"""
+        
+        sql "DROP TABLE IF EXISTS ${tableName2}"
+        sql """
+            CREATE TABLE ${tableName2} (
+                k0 INT NULL
+            )
+            PARTITION BY RANGE (k0) (
+                PARTITION p10 VALUES LESS THAN (10),
+                PARTITION p100 VALUES LESS THAN (100),
+                PARTITION pMAX VALUES LESS THAN (MAXVALUE)
+            )
+            DISTRIBUTED BY HASH(k0) BUCKETS 10
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        
+        // Insert initial data to cover all partitions
+        sql """INSERT INTO ${tableName2} VALUES 
+            (1), (2), (3), (4), (5), 
+            (11), (12), (13), (14), (15),
+            (101), (102), (103), (104), (105);
+        """
+        
+        GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.replacePartition.MockRebalance")
+        GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.replacePartition.DisableCache")
+        
+        try {
+            sql """INSERT OVERWRITE TABLE ${tableName2} PARTITION(*) SELECT * FROM ${sourceTable2};"""
+            assertEquals(1, 2, "should failed")
+        } catch (Exception e) {
+            logger.info("Caught exception in negative test: ${e.message}")
             if (e.message.contains("ALREADY_EXIST") || e.message.contains("rowset already exists")) {
 
             } else {
-                assertEquals(2, 3)
+                assertEquals(2, 3, "unknown fail: ${e.message}")
             }
         } finally {
             GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.replacePartition.MockRebalance")

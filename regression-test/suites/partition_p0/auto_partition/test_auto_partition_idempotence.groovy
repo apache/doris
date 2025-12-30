@@ -73,17 +73,67 @@ suite('test_create_partition_idempotence_non_cloud', 'docker') {
         sql """ set load_stream_per_node = 2 """
 
         GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
-    
-        sql """ INSERT INTO ${tableName} SELECT * FROM ${sourceTable}; """
+        try {
+            sql """ INSERT INTO ${tableName} SELECT * FROM ${sourceTable}; """
+            
+            def result = sql "SELECT count(DISTINCT `date`) FROM ${tableName}"
+            assertEquals(1, result[0][0])
+            
+            def count = sql "SELECT count(*) FROM ${tableName}"
+            assertEquals(20001, count[0][0])
+            
+        } catch (Exception e) {
+            logger.error("failed: ${e.message}")
+            throw e
+        } finally {
+            GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
+        }
 
-        GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
+        def sourceTable2 = "test_partition_source_table_negative"
+        sql "DROP TABLE IF EXISTS ${sourceTable2}"
+        sql """
+            CREATE TABLE ${sourceTable2} (
+                `date` DATE NOT NULL,
+                `id` INT,
+                `value` VARCHAR(100)
+            )
+            DISTRIBUTED BY HASH(`date`) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
 
-        def result = sql "SELECT count(DISTINCT `date`) FROM ${tableName}"
-        logger.info("Distinct date count: ${result}")
-        assertEquals(1, result[0][0])
+        sql """ INSERT INTO ${sourceTable2} VALUES ("2025-11-05", 1, "test1"); """
+        sql """ INSERT INTO ${sourceTable2} SELECT "2025-11-05", number, "test" FROM numbers("number" = "20000"); """
 
-        def count = sql "SELECT count(*) FROM ${tableName}"
-        logger.info("Total row count: ${count}")
-        assertEquals(20001, count[0][0])
+        def tableName2 = "test_partition_idempotence_table_negative"
+        sql "DROP TABLE IF EXISTS ${tableName2}"
+        sql """
+            CREATE TABLE ${tableName2} (
+                `date` DATE NOT NULL,
+                `id` INT,
+                `value` VARCHAR(100)
+            )
+            AUTO PARTITION BY RANGE (date_trunc(`date`, 'day')) ()
+            DISTRIBUTED BY HASH(id) BUCKETS 10
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+
+        GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
+        GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.DisableCache")
+        try {
+            sql """ INSERT INTO ${tableName2} SELECT * FROM ${sourceTable2}; """
+            assertEquals(1, 2, "should failed")
+        } catch (Exception e) {
+            if (e.message.contains("ALREADY_EXIST") || e.message.contains("rowset already exists")) {
+            } else {
+                assertEquals(2, 3, "unknown fail: ${e.message}")
+            }
+        } finally {
+            GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
+            GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.DisableCache")
+        }
     }
 }
