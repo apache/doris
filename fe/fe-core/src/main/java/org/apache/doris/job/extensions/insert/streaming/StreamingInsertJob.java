@@ -209,6 +209,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             init();
             checkRequiredSourceProperties();
             List<String> createTbls = createTableIfNotExists();
+            if (sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES) == null) {
+                // cdc need the final includeTables
+                String includeTables = String.join(",", createTbls);
+                sourceProperties.put(DataSourceConfigKeys.INCLUDE_TABLES, includeTables);
+            }
             this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
             rdsOffsetProvider.splitChunks(createTbls);
@@ -231,9 +236,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 "password is required property");
         Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.DATABASE) != null,
                 "database is required property");
-        Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES) != null
-                        || sourceProperties.get(DataSourceConfigKeys.EXCLUDE_TABLES) != null,
-                "Either include_tables or exclude_tables must be specified");
         if (!sourceProperties.containsKey(DataSourceConfigKeys.OFFSET)) {
             sourceProperties.put(DataSourceConfigKeys.OFFSET, DataSourceConfigKeys.OFFSET_LATEST);
         }

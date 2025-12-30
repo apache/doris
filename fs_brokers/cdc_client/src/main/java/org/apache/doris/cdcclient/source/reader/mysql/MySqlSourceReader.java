@@ -36,7 +36,6 @@ import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -81,7 +80,6 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 import static org.apache.doris.cdcclient.utils.ConfigUtil.is13Timestamp;
 import static org.apache.doris.cdcclient.utils.ConfigUtil.isJson;
@@ -606,15 +604,6 @@ public class MySqlSourceReader implements SourceReader {
                         .map(t -> databaseName + "." + t.trim())
                         .toArray(String[]::new);
         configFactory.tableList(includingTbls);
-
-        String excludingTables = cdcConfig.get(DataSourceConfigKeys.EXCLUDE_TABLES);
-        if (StringUtils.isNotEmpty(excludingTables)) {
-            String excludingTbls =
-                    Arrays.stream(excludingTables.split(","))
-                            .map(t -> databaseName + "." + t.trim())
-                            .collect(Collectors.joining(","));
-            configFactory.excludeTableList(excludingTbls);
-        }
 
         // setting startMode
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
