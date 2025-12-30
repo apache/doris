@@ -3582,6 +3582,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         //    if a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
         //    So we skip caching for them.
         boolean needUseCache = false;
+        boolean mockRebalance = false;
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
@@ -3603,6 +3604,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
         }
+
+        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.DisableCache")) {
+            LOG.info("Disable auto partition cache");
+            needUseCache = false;
+        }
+
+        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "FE.FrontendServiceImpl.createPartition.MockRebalance");
+            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+            LOG.info("open MockRebalance, currentExecuteNum = {}", currentExecuteNum);
+            if (currentExecuteNum > 1) {
+                mockRebalance = true;
+            }
+        }
+
         OlapTable olapTable = (OlapTable) table;
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         ArrayList<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
@@ -3741,31 +3758,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // The purpose of this injected code is to simulate tablet rebalance.
             // Before using this code to write tests, you should ensure that your
             // configuration is set to single replica.
-            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
-                DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                        "FE.FrontendServiceImpl.createPartition.MockRebalance");
-                int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
-                if (currentExecuteNum > 1) {
-                    List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
-                    if (!partitionTablets.isEmpty() && !allBeIds.isEmpty()) {
-                        TTabletLocation firstTablet = partitionTablets.get(0);
-                        List<Long> curBeIds = firstTablet.getNodeIds();
-                        Long curBeId = curBeIds.get(0);
-                        for (Long beId : allBeIds) {
-                            if (beId != curBeId) {
-                                LOG.info("Mock rebalance: modify first tablet={}, beId={} => newBeId={}",
-                                        firstTablet.getTabletId(), curBeId, beId);
-                                firstTablet.setNodeIds(Lists.newArrayList(beId));
-                                break;
-                            }
+            if (mockRebalance) {
+                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                for (TTabletLocation oldTablet : partitionTablets) {
+                    List<Long> curBeIds = oldTablet.getNodeIds();
+                    Long curBeId = curBeIds.get(0);
+                    for (Long beId : allBeIds) {
+                        if (beId != curBeId) {
+                            LOG.info("Mock rebalance: modify first tablet={}, beId={} => newBeId={}",
+                                    oldTablet.getTabletId(), curBeId, beId);
+                            oldTablet.setNodeIds(Lists.newArrayList(beId));
+                            break;
                         }
                     }
                 }
-            }
-
-            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.DisableCache")) {
-                LOG.info("Disable auto partition cache");
-                needUseCache = false;
             }
 
             if (needUseCache) {
@@ -3780,6 +3786,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tablets.addAll(partitionTablets);
             slaveTablets.addAll(partitionSlaveTablets);
         }
+
         result.setPartitions(partitions);
         result.setTablets(tablets);
         result.setSlaveTablets(slaveTablets);
@@ -3849,6 +3856,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         //    if a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
         //    So we skip caching for them.
         boolean needUseCache = false;
+        boolean mockRebalance = false;
         long txnId = 0;
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
@@ -3872,6 +3880,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
         }
+
+        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
+            LOG.info("Disable auto partition cache");
+            needUseCache = false;
+        }
+
+        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.MockRebalance")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "FE.FrontendServiceImpl.replacePartition.MockRebalance");
+            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+            LOG.info("open MockRebalance, currentExecuteNum = {}", currentExecuteNum);
+            if (currentExecuteNum > 1) {
+                mockRebalance = true;
+            }
+        }
+
         InsertOverwriteManager overwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
         ReentrantLock taskLock = overwriteManager.getLock(taskGroupId);
         if (taskLock == null) {
@@ -4056,23 +4080,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // The purpose of this injected code is to simulate tablet rebalance.
             // Before using this code to write tests, you should ensure that your
             // configuration is set to single replica.
-            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.MockRebalance")) {
-                DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                        "FE.FrontendServiceImpl.replacePartition.MockRebalance");
-                int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
-                if (currentExecuteNum > 1) {
-                    List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
-                    if (!partitionTablets.isEmpty() && !allBeIds.isEmpty()) {
-                        TTabletLocation firstTablet = partitionTablets.get(0);
-                        List<Long> curBeIds = firstTablet.getNodeIds();
-                        Long curBeId = curBeIds.get(0);
-                        for (Long beId : allBeIds) {
-                            if (beId != curBeId) {
-                                LOG.info("Mock rebalance: modify first tablet={}, beId={} => newBeId={}",
-                                        firstTablet.getTabletId(), curBeId, beId);
-                                firstTablet.setNodeIds(Lists.newArrayList(beId));
-                                break;
-                            }
+            if (mockRebalance) {
+                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                for (TTabletLocation oldTablet : partitionTablets) {
+                    List<Long> curBeIds = oldTablet.getNodeIds();
+                    Long curBeId = curBeIds.get(0);
+                    for (Long beId : allBeIds) {
+                        if (beId != curBeId) {
+                            LOG.info("Mock rebalance: modify first tablet={}, beId={} => newBeId={}",
+                                    oldTablet.getTabletId(), curBeId, beId);
+                            oldTablet.setNodeIds(Lists.newArrayList(beId));
+                            break;
                         }
                     }
                 }
@@ -4095,6 +4113,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tablets.addAll(partitionTablets);
             slaveTablets.addAll(partitionSlaveTablets);
         }
+
         result.setPartitions(partitions);
         result.setTablets(tablets);
         result.setSlaveTablets(slaveTablets);

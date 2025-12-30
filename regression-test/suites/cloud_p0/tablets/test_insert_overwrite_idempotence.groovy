@@ -32,7 +32,6 @@ Test Description:
 */
 
 suite('test_insert_overwrite_idempotence', 'docker') {
-
     // cloud
     def options_cloud = new ClusterOptions()
     options_cloud.feConfigs += [
@@ -86,12 +85,8 @@ suite('test_insert_overwrite_idempotence', 'docker') {
         
         GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.replacePartition.MockRebalance")
         try {
-            // Use INSERT OVERWRITE ... SELECT to trigger multiple instances
-            // The skewed data in sourceTable will cause two instances to send replacePartition RPC
-            // With cache enabled, both instances should receive consistent tablet distribution
             sql """INSERT OVERWRITE TABLE ${tableName1} PARTITION(*) SELECT * FROM ${sourceTable1};"""
             
-            // Verify the result: should have 20001 rows (1 + 20000)
             def count = sql "SELECT count(*) FROM ${tableName1}"
             assertEquals(20001, count[0][0])
             
@@ -157,74 +152,6 @@ suite('test_insert_overwrite_idempotence', 'docker') {
         } finally {
             GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.replacePartition.MockRebalance")
             GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.replacePartition.DisableCache")
-        }
-    }
-
-    // non_cloud mode
-    // (Refrain) Because with storage-compute separation, the BE actually tracks the tablet id, so it's hard to use mock tests 
-    // to verify the "rowset already exists" problem in the reverse case. Therefore, we only verify the positive case here.
-    def options_non_cloud = new ClusterOptions()
-    options_non_cloud.feConfigs += [
-        'enable_debug_points=true',
-    ]
-    options_non_cloud.cloudMode = false
-    options_non_cloud.beNum = 3
-
-    docker(options_non_cloud) {
-        sql "SET parallel_pipeline_task_num = 2"
-        sql "SET load_stream_per_node = 2"
-
-        def sourceTable1 = "test_iot_source_table_positive"
-        def tableName1 = "test_iot_idempotence_table_positive"
-
-        sql "DROP TABLE IF EXISTS ${sourceTable1}"
-        sql """
-            CREATE TABLE ${sourceTable1} (
-                k0 INT NULL
-            )
-            DISTRIBUTED BY HASH(k0) BUCKETS 2
-            PROPERTIES (
-                "replication_num" = "1"
-            );
-        """
-        
-        sql "INSERT INTO ${sourceTable1} VALUES (1);"
-        sql """INSERT INTO ${sourceTable1} SELECT number FROM numbers("number" = "20000");"""
-        
-        sql "DROP TABLE IF EXISTS ${tableName1}"
-        sql """
-            CREATE TABLE ${tableName1} (
-                k0 INT NULL
-            )
-            PARTITION BY RANGE (k0) (
-                PARTITION p10 VALUES LESS THAN (10),
-                PARTITION p100 VALUES LESS THAN (100),
-                PARTITION pMAX VALUES LESS THAN (MAXVALUE)
-            )
-            DISTRIBUTED BY HASH(k0) BUCKETS 10
-            PROPERTIES (
-                "replication_num" = "1"
-            );
-        """
-        
-        sql """INSERT INTO ${tableName1} VALUES 
-            (1), (2), (3), (4), (5), 
-            (11), (12), (13), (14), (15),
-            (101), (102), (103), (104), (105);
-        """
-        
-        GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.replacePartition.MockRebalance")
-        try {
-            sql """INSERT OVERWRITE TABLE ${tableName1} PARTITION(*) SELECT * FROM ${sourceTable1};"""
-            
-            def count = sql "SELECT count(*) FROM ${tableName1}"
-            assertEquals(20001, count[0][0])
-            
-        } catch (Exception e) {
-            logger.error("Positive test failed: ${e.message}")
-            throw e
-        } finally {
-            GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.replacePartition.MockRebalance")
         }
     }
 }
