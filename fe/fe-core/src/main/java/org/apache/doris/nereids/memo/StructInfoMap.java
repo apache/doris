@@ -227,7 +227,7 @@ public class StructInfoMap {
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             List<Set<BitSet>> childrenTableMap = new LinkedList<>();
             if (groupExpression.children().isEmpty()) {
-                BitSet leaf = constructLeaf(groupExpression, cascadesContext, forceRefresh);
+                BitSet leaf = constructLeaf(groupExpression, cascadesContext, forceRefresh, tableIdMode);
                 if (leaf.isEmpty()) {
                     break;
                 }
@@ -304,24 +304,41 @@ public class StructInfoMap {
     }
 
     private BitSet constructLeaf(GroupExpression groupExpression, CascadesContext cascadesContext,
-            boolean forceRefresh) {
+            boolean forceRefresh, boolean tableIdMode) {
         Plan plan = groupExpression.getPlan();
         BitSet tableMap = new BitSet();
-        if (plan instanceof LogicalCatalogRelation) {
-            LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) plan;
-            TableIf table = logicalCatalogRelation.getTable();
-            // If disable materialized view nest rewrite, and mv already rewritten successfully once, doesn't construct
-            // table id map for nest mv rewrite
-            if (!forceRefresh && cascadesContext.getStatementContext()
-                    .getMaterializationRewrittenSuccessSet().contains(table.getFullQualifiers())) {
-                return tableMap;
+        if (tableIdMode) {
+            if (plan instanceof LogicalCatalogRelation) {
+                LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) plan;
+                TableIf table = logicalCatalogRelation.getTable();
+                // If disable materialized view nest rewrite, and mv already rewritten successfully once,
+                // doesn't construct
+                // table id map for nest mv rewrite
+                if (!forceRefresh && cascadesContext.getStatementContext()
+                        .getMaterializationRewrittenSuccessSet().contains(table.getFullQualifiers())) {
+                    return tableMap;
+                }
+                tableMap.set(cascadesContext.getStatementContext().getTableId(
+                        logicalCatalogRelation.getTable()).asInt());
             }
-            tableMap.set(logicalCatalogRelation.getRelationId().asInt());
-        }
-        // one row relation / CTE consumer
-        if (plan instanceof LogicalCTEConsumer || plan instanceof LogicalEmptyRelation
-                || plan instanceof LogicalOneRowRelation) {
-            tableMap.set(((LogicalRelation) plan).getRelationId().asInt());
+        } else {
+            if (plan instanceof LogicalCatalogRelation) {
+                LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) plan;
+                TableIf table = logicalCatalogRelation.getTable();
+                // If disable materialized view nest rewrite, and mv already rewritten successfully once,
+                // doesn't construct
+                // table id map for nest mv rewrite
+                if (!forceRefresh && cascadesContext.getStatementContext()
+                        .getMaterializationRewrittenSuccessSet().contains(table.getFullQualifiers())) {
+                    return tableMap;
+                }
+                tableMap.set(logicalCatalogRelation.getRelationId().asInt());
+            }
+            // one row relation / CTE consumer
+            if (plan instanceof LogicalCTEConsumer || plan instanceof LogicalEmptyRelation
+                    || plan instanceof LogicalOneRowRelation) {
+                tableMap.set(((LogicalRelation) plan).getRelationId().asInt());
+            }
         }
         return tableMap;
     }
