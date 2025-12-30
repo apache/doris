@@ -64,6 +64,7 @@ Status CollectionStatistics::collect(
         }
     }
 
+#ifndef NDEBUG
     std::stringstream ss;
     ss << "term_num_docs: " << _total_num_docs;
     for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
@@ -87,6 +88,7 @@ Status CollectionStatistics::collect(
         ss << "]";
     }
     LOG(INFO) << "CollectionStatistics: " << ss.str();
+#endif
 
     return Status::OK();
 }
