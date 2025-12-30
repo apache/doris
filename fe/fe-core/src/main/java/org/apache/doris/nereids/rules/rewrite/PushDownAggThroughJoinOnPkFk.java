@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Push down agg through join with foreign key:
@@ -131,13 +132,27 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         if (primary.getOutputSet().stream().noneMatch(aggInputs::contains)) {
             return agg;
         }
-        Set<Slot> primaryOutputSet = primary.getOutputSet();
-        Set<Slot> primarySlots = Sets.intersection(aggInputs, primaryOutputSet);
+        // Firstly, using fd to eliminate group by key.
+        // group by primary_table_pk, primary_table_other
+        // -> group by primary_table_pk
+        Set<Set<Slot>> groupBySlots = new HashSet<>();
+        for (Expression expression : agg.getGroupByExpressions()) {
+            groupBySlots.add(expression.getInputSlots());
+        }
         DataTrait dataTrait = child.getLogicalProperties().getTrait();
         FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(Sets.union(foreign.getOutputSet(), primary.getOutputSet()));
+        Set<Slot> foreignOutput = Sets.intersection(agg.getOutputSet(), foreign.getOutputSet());
+        Set<Set<Slot>> minGroupBySlots = funcDeps.eliminateDeps(groupBySlots, foreignOutput);
+        List<Slot> minGroupBySlotList = minGroupBySlots.stream().flatMap(Set::stream).collect(Collectors.toList());
+
+        // Secondly, put bijective slot into map: {primary_table_pk : foreign_table_fk}
+        // Bijective slots are mutually interchangeable within GROUP BY keys.
+        // group by primary_table_pk equals group by foreign_table_fk
+        Set<Slot> primaryOutputSet = primary.getOutputSet();
+        Set<Slot> primarySlots = Sets.intersection(aggInputs, primaryOutputSet);
         HashMap<Slot, Slot> primaryToForeignDeps = new HashMap<>();
         for (Slot slot : primarySlots) {
-            Set<Set<Slot>> replacedSlotSets = funcDeps.findDeterminats(ImmutableSet.of(slot));
+            Set<Set<Slot>> replacedSlotSets = funcDeps.findBijectionSlots(ImmutableSet.of(slot));
             for (Set<Slot> replacedSlots : replacedSlotSets) {
                 if (primaryOutputSet.stream().noneMatch(replacedSlots::contains)
                         && replacedSlots.size() == 1) {
@@ -147,7 +162,9 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             }
         }
 
-        Set<Expression> newGroupBySlots = constructNewGroupBy(agg, primaryOutputSet, primaryToForeignDeps);
+        // Thirdly, construct new Agg below join.
+        Set<Expression> newGroupBySlots = constructNewGroupBy(minGroupBySlotList, primaryOutputSet,
+                primaryToForeignDeps);
         List<NamedExpression> newOutput = constructNewOutput(
                 agg, primaryOutputSet, primaryToForeignDeps, funcDeps, primary);
         if (newGroupBySlots == null || newOutput == null) {
@@ -156,10 +173,10 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         return agg.withGroupByAndOutput(ImmutableList.copyOf(newGroupBySlots), ImmutableList.copyOf(newOutput));
     }
 
-    private @Nullable Set<Expression> constructNewGroupBy(LogicalAggregate<?> agg, Set<Slot> primaryOutputs,
-            Map<Slot, Slot> primaryToForeignBiDeps) {
+    private @Nullable Set<Expression> constructNewGroupBy(List<? extends Expression> gbyExpression,
+            Set<Slot> primaryOutputs, Map<Slot, Slot> primaryToForeignBiDeps) {
         Set<Expression> newGroupBySlots = new HashSet<>();
-        for (Expression expression : agg.getGroupByExpressions()) {
+        for (Expression expression : gbyExpression) {
             if (!(expression instanceof Slot)) {
                 return null;
             }

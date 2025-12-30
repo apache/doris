@@ -183,6 +183,7 @@ public class FuncDeps {
         return items.contains(new FuncDepsItem(dominate, dependency));
     }
 
+    // 这个也是判断是否为双射的
     public boolean isCircleDeps(Set<Slot> dominate, Set<Slot> dependency) {
         return items.contains(new FuncDepsItem(dominate, dependency))
                 && items.contains(new FuncDepsItem(dependency, dominate));
@@ -201,16 +202,30 @@ public class FuncDeps {
     }
 
     /**
-     * find the determinants of dependencies
+     * Finds all slot sets that have a bijective relationship with the given slot set.
+     * Given edges containing:
+     *   {A} -> {{B}, {C}}
+     *   {B} -> {{A}, {D}}
+     *   {C} -> {{A}}
+     * When slot = {A}, returns {{B}} because {A} and {B} mutually determine each other.
+     * {C} is not returned because {C} does not determine {A} (one-way dependency only).
      */
-    public Set<Set<Slot>> findDeterminats(Set<Slot> dependency) {
-        Set<Set<Slot>> determinants = new HashSet<>();
-        for (FuncDepsItem item : items) {
-            if (item.dependencies.equals(dependency)) {
-                determinants.add(item.determinants);
+    public Set<Set<Slot>> findBijectionSlots(Set<Slot> slot) {
+        Set<Set<Slot>> bijectionSlots = new HashSet<>();
+        if (!edges.containsKey(slot)) {
+            return bijectionSlots;
+        }
+        for (Set<Slot> dep : edges.get(slot)) {
+            if (!edges.containsKey(dep)) {
+                continue;
+            }
+            for (Set<Slot> det : edges.get(dep)) {
+                if (det.equals(slot)) {
+                    bijectionSlots.add(dep);
+                }
             }
         }
-        return determinants;
+        return bijectionSlots;
     }
 
     @Override
