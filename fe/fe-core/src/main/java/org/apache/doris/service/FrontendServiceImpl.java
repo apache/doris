@@ -3760,13 +3760,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     Long curBeId = curBeIds.get(0);
                     for (Long beId : allBeIds) {
                         if (beId != curBeId) {
-                            LOG.info("Mock rebalance: modify first tablet={}, beId={} => newBeId={}",
-                                    oldTablet.getTabletId(), curBeId, beId);
                             oldTablet.setNodeIds(Lists.newArrayList(beId));
                             break;
                         }
                     }
                 }
+            }
+
+            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.DisableCache")) {
+                needUseCache = false;
             }
 
             if (needUseCache) {
