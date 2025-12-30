@@ -207,8 +207,7 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
             .scale = tmp_dt->get_scale(),
             .is_null_literal = false,
             .pColumnMeta = col_meta.get(),
-            .default_field = Field::create_field<TYPE_DECIMAL32>(
-                    DecimalField<Decimal32>(0, tmp_dt->get_scale())),
+            .default_field = Field::create_field<TYPE_DECIMAL32>(Decimal32(0)),
     };
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
 }
@@ -466,10 +465,8 @@ TEST_F(DataTypeDecimalTest, get_default) {
         using DataType = decltype(dt);
         using ColumnType = typename DataType::ColumnType;
         auto default_field = dt.get_default();
-        auto decimal_field =
-                default_field.template get<DecimalField<typename ColumnType::value_type>>();
-        EXPECT_EQ(decimal_field.get_scale(), dt.get_scale());
-        EXPECT_EQ(decimal_field.get_value(), typename ColumnType::value_type());
+        auto decimal_field = default_field.template get<typename ColumnType::value_type>();
+        EXPECT_EQ(decimal_field, typename ColumnType::value_type());
     };
     test_func(dt_decimal32_1);
     test_func(dt_decimal64_1);
@@ -508,10 +505,8 @@ TEST_F(DataTypeDecimalTest, get_field) {
             }
             expr_node.decimal_literal.value = line;
             auto field = dt.get_field(expr_node);
-            auto decimal_field =
-                    field.template get<DecimalField<typename ColumnType::value_type>>();
-            EXPECT_EQ(decimal_field.get_scale(), dt.get_scale());
-            res.push_back(decimal_field.get_value().to_string(dt.get_scale()));
+            auto decimal_field = field.template get<typename ColumnType::value_type>();
+            res.push_back(decimal_field.to_string(dt.get_scale()));
         }
         check_or_generate_res_file(output_file, {res});
     };
@@ -731,8 +726,7 @@ TEST_F(DataTypeDecimalTest, SerdeArrowTest) {
 
 TEST_F(DataTypeDecimalTest, GetFieldWithDataTypeTest) {
     auto column_decimal128v3_1 = dt_decimal128v3_1.create_column();
-    Field field_decimal128v3_1 =
-            Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(1234567890, 0));
+    Field field_decimal128v3_1 = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(1234567890));
     column_decimal128v3_1->insert(field_decimal128v3_1);
     EXPECT_EQ(dt_decimal128v3_1.get_field_with_data_type(*column_decimal128v3_1, 0).field,
               field_decimal128v3_1);

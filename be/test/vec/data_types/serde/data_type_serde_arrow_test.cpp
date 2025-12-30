@@ -292,8 +292,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             char to[64] = {};
             std::cout << "value: " << value.to_string(to) << std::endl;
             for (int i = 0; i < row_num; ++i) {
-                column_vector_datetimev2->insert(
-                        Field::create_field<TYPE_DATETIMEV2>(value.to_date_int_val()));
+                column_vector_datetimev2->insert(Field::create_field<TYPE_DATETIMEV2>(value));
             }
             vectorized::DataTypePtr datetimev2_type(
                     std::make_shared<vectorized::DataTypeDateTimeV2>(3));

@@ -190,7 +190,7 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
 
 template <PrimitiveType T>
 Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
-                          typename PrimitiveTypeTraits<T>::ColumnItemType* slot,
+                          typename PrimitiveTypeTraits<T>::CppType* slot,
                           const cctz::time_zone& time_zone) {
     constexpr bool is_datetime_v1 = T == TYPE_DATE || T == TYPE_DATETIME;
     typename PrimitiveTypeTraits<T>::CppType dt_val;
@@ -271,16 +271,13 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
         }
     }
 
-    *reinterpret_cast<typename PrimitiveTypeTraits<T>::ColumnItemType*>(slot) =
-            binary_cast<typename PrimitiveTypeTraits<T>::CppType,
-                        typename PrimitiveTypeTraits<T>::ColumnItemType>(
-                    *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&dt_val));
+    *slot = *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&dt_val);
     return Status::OK();
 }
 
 template <PrimitiveType T>
 Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
-                    typename PrimitiveTypeTraits<T>::ColumnItemType* slot,
+                    typename PrimitiveTypeTraits<T>::CppType* slot,
                     const cctz::time_zone& time_zone) {
     // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
     if (col.IsNumber()) {
@@ -309,7 +306,7 @@ Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_d
 template <PrimitiveType T>
 Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
                      vectorized::IColumn* col_ptr, const cctz::time_zone& time_zone) {
-    typename PrimitiveTypeTraits<T>::ColumnItemType data;
+    typename PrimitiveTypeTraits<T>::CppType data;
     RETURN_IF_ERROR((get_date_int<T>(col, type, pure_doc_value, &data, time_zone)));
     col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
     return Status::OK();
@@ -426,11 +423,11 @@ Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
 
 template <PrimitiveType T>
 Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
-                    typename PrimitiveTypeTraits<T>::ColumnItemType& val) {
+                    typename PrimitiveTypeTraits<T>::CppType& val) {
     if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT || T == TYPE_BIGINT ||
                   T == TYPE_LARGEINT) {
-        RETURN_IF_ERROR(get_int_value<typename PrimitiveTypeTraits<T>::ColumnItemType>(
-                col, sub_type, &val, pure_doc_value));
+        RETURN_IF_ERROR(get_int_value<typename PrimitiveTypeTraits<T>::CppType>(col, sub_type, &val,
+                                                                                pure_doc_value));
         return Status::OK();
     }
     if constexpr (T == TYPE_FLOAT) {
@@ -457,7 +454,7 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
         }
 
         if (col.IsNumber()) {
-            val = static_cast<typename PrimitiveTypeTraits<T>::ColumnItemType>(col.GetInt());
+            val = static_cast<typename PrimitiveTypeTraits<T>::CppType>(col.GetInt());
             return Status::OK();
         }
 
@@ -485,7 +482,7 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
 template <PrimitiveType T>
 Status process_single_column(const rapidjson::Value& col, PrimitiveType sub_type,
                              bool pure_doc_value, vectorized::Array& array) {
-    typename PrimitiveTypeTraits<T>::ColumnItemType val;
+    typename PrimitiveTypeTraits<T>::CppType val;
     RETURN_IF_ERROR(handle_value<T>(col, sub_type, pure_doc_value, val));
     array.push_back(vectorized::Field::create_field<T>(val));
     return Status::OK();
@@ -514,12 +511,12 @@ template <PrimitiveType T>
 Status process_date_column(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
                            vectorized::Array& array, const cctz::time_zone& time_zone) {
     if (!col.IsArray()) {
-        typename PrimitiveTypeTraits<T>::ColumnItemType data;
+        typename PrimitiveTypeTraits<T>::CppType data;
         RETURN_IF_ERROR((get_date_int<T>(col, sub_type, pure_doc_value, &data, time_zone)));
         array.push_back(vectorized::Field::create_field<T>(data));
     } else {
         for (const auto& sub_col : col.GetArray()) {
-            typename PrimitiveTypeTraits<T>::ColumnItemType data;
+            typename PrimitiveTypeTraits<T>::CppType data;
             RETURN_IF_ERROR((get_date_int<T>(sub_col, sub_type, pure_doc_value, &data, time_zone)));
             array.push_back(vectorized::Field::create_field<T>(data));
         }
@@ -533,7 +530,7 @@ Status process_jsonb_column(const rapidjson::Value& col, PrimitiveType sub_type,
         JsonBinaryValue jsonb_value;
         RETURN_IF_ERROR(jsonb_value.from_json_string(json_value_to_string(col)));
         vectorized::JsonbField json(jsonb_value.value(), jsonb_value.size());
-        array.push_back(vectorized::Field::create_field<TYPE_JSONB>(json));
+        array.push_back(vectorized::Field::create_field<TYPE_JSONB>(std::move(json)));
     } else {
         for (const auto& sub_col : col.GetArray()) {
             JsonBinaryValue jsonb_value;
