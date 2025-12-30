@@ -3479,14 +3479,17 @@ public class Env {
      * @param isCreateTable this call is for creating table
      * @param generatedPartitionId the preset partition id for the partition to add
      * @param writeEditLog whether to write an edit log for this addition
-     * @return PartitionPersistInfo to be written to editlog. It may be null if no partitions added.
+     * @batchPartitions output parameter, used to batch write edit log outside this function, can be null.
+     * first is editlog PartitionPersistInfo, second is the added Partition
      * @throws DdlException
      */
-    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionOp addPartitionOp,
+    public void addPartition(Database db, String tableName, AddPartitionOp addPartitionOp,
                                              boolean isCreateTable, long generatedPartitionId,
-                                             boolean writeEditLog) throws DdlException {
-        return getInternalCatalog().addPartition(db, tableName, addPartitionOp,
-            isCreateTable, generatedPartitionId, writeEditLog);
+                                             boolean writeEditLog,
+                                             List<Pair<PartitionPersistInfo, Partition>> batchPartitions)
+            throws DdlException {
+        getInternalCatalog().addPartition(db, tableName, addPartitionOp,
+                isCreateTable, generatedPartitionId, writeEditLog, batchPartitions);
     }
 
     public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionOp multiPartitionOp)
