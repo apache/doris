@@ -27,7 +27,7 @@ import io.debezium.jdbc.JdbcConfiguration;
 /**
  * A connection pool factory to create pooled Postgres {@link HikariDataSource}. Copy from
  * https://github.com/apache/flink-cdc/blob/release-3.5/flink-cdc-connect/flink-cdc-source-connectors/flink-connector-postgres-cdc/src/main/java/org/apache/flink/cdc/connectors/postgres/source/PostgresConnectionPoolFactory.java
- * Line 52: to use config.getUser() instead of config.getHostname() as username to fix FLINK-38847
+ * Line 54: to use config.getUser() instead of config.getHostname() as username to fix FLINK-38847
  */
 public class PostgresConnectionPoolFactory extends JdbcConnectionPoolFactory {
     public static final String JDBC_URL_PATTERN = "jdbc:postgresql://%s:%s/%s";
