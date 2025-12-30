@@ -56,7 +56,7 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
 
         // create test
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
+            // sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table1}"""
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table2}"""
             sql """CREATE TABLE ${pgDB}.${pgSchema}.${table1} (

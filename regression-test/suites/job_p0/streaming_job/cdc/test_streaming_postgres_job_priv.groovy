@@ -33,7 +33,7 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String pg_port = context.config.otherConfigs.get("pg_14_port");
+        String pg_port = context.config.otherConfigs.get("pg_14_port")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
@@ -41,7 +41,7 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
 
         // create pg test table
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
+            // sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${tableName}"""
             sql """CREATE TABLE ${pgDB}.${pgSchema}.${tableName} (
                   "name" varchar(200),

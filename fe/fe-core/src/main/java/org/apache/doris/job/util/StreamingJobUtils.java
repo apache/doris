@@ -244,6 +244,10 @@ public class StreamingJobUtils {
         if (includeTables != null) {
             includeTablesList = Arrays.asList(includeTables.split(","));
         }
+        List<String> excludeTablesList = new ArrayList<>();
+        if (excludeTables != null) {
+            excludeTablesList = Arrays.asList(excludeTables.split(","));
+        }
 
         JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
         String database = getRemoteDbName(sourceType, properties);
@@ -252,6 +256,7 @@ public class StreamingJobUtils {
             throw new JobException("No tables found in database " + database);
         }
         Map<String, String> tableCreateProperties = getTableCreateProperties(targetProperties);
+
         List<String> noPrimaryKeyTables = new ArrayList<>();
         for (String table : tablesNameList) {
             if (!includeTablesList.isEmpty() && !includeTablesList.contains(table)) {
@@ -260,7 +265,8 @@ public class StreamingJobUtils {
                 continue;
             }
 
-            if (excludeTables != null && excludeTables.contains(table)) {
+            // if set include_tables, exclude_tables is ignored
+            if (!excludeTablesList.isEmpty() && excludeTables.contains(table)) {
                 log.info("Skip table {} in database {} as it in exclude_tables {}", table, database,
                         excludeTables);
                 continue;
