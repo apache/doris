@@ -32,6 +32,7 @@
 #include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -477,6 +478,69 @@ struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
     }
 };
 
+template <int N>
+void pack_nullmaps_interleaved(const uint8_t* const* datas, const uint8_t* bit_offsets,
+                               size_t row_numbers, size_t stride, uint8_t* __restrict out) {
+    static_assert(N >= 1 && N <= BITSIZE);
+
+    const uint8_t* __restrict p0 = (N > 0) ? datas[0] : nullptr;
+    const uint8_t* __restrict p1 = (N > 1) ? datas[1] : nullptr;
+    const uint8_t* __restrict p2 = (N > 2) ? datas[2] : nullptr;
+    const uint8_t* __restrict p3 = (N > 3) ? datas[3] : nullptr;
+    const uint8_t* __restrict p4 = (N > 4) ? datas[4] : nullptr;
+    const uint8_t* __restrict p5 = (N > 5) ? datas[5] : nullptr;
+    const uint8_t* __restrict p6 = (N > 6) ? datas[6] : nullptr;
+    const uint8_t* __restrict p7 = (N > 7) ? datas[7] : nullptr;
+
+    const uint8_t m0 = (N > 0) ? bit_offsets[0] : 0;
+    const uint8_t m1 = (N > 1) ? bit_offsets[1] : 0;
+    const uint8_t m2 = (N > 2) ? bit_offsets[2] : 0;
+    const uint8_t m3 = (N > 3) ? bit_offsets[3] : 0;
+    const uint8_t m4 = (N > 4) ? bit_offsets[4] : 0;
+    const uint8_t m5 = (N > 5) ? bit_offsets[5] : 0;
+    const uint8_t m6 = (N > 6) ? bit_offsets[6] : 0;
+    const uint8_t m7 = (N > 7) ? bit_offsets[7] : 0;
+
+    for (size_t i = 0; i < row_numbers; ++i) {
+        uint8_t byte = 0;
+
+        if constexpr (N > 0) {
+            byte |= p0[i] << m0;
+        }
+        if constexpr (N > 1) {
+            byte |= p1[i] << m1;
+        }
+        if constexpr (N > 2) {
+            byte |= p2[i] << m2;
+        }
+        if constexpr (N > 3) {
+            byte |= p3[i] << m3;
+        }
+        if constexpr (N > 4) {
+            byte |= p4[i] << m4;
+        }
+        if constexpr (N > 5) {
+            byte |= p5[i] << m5;
+        }
+        if constexpr (N > 6) {
+            byte |= p6[i] << m6;
+        }
+        if constexpr (N > 7) {
+            byte |= p7[i] << m7;
+        }
+
+        out[i * stride] |= byte;
+    }
+}
+
+template <int N>
+struct PackNullmapsReducer {
+    static void run(const uint8_t* const* datas, const uint8_t* coefficients, size_t row_numbers,
+                    size_t stride, uint8_t* __restrict out) {
+        pack_nullmaps_interleaved<N>(datas, coefficients, row_numbers, stride, out);
+    }
+};
+
 template <typename TData>
 struct MethodKeysFixed : public MethodBase<TData> {
     using Base = MethodBase<TData>;
@@ -499,8 +563,11 @@ struct MethodKeysFixed : public MethodBase<TData> {
     void pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
                      const ColumnRawPtrs& nullmap_columns, DorisVector<T>& result) {
         size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
-        // set size to 0 at first, then use resize to call default constructor on index included from [0, row_numbers) to reset all memory
-        result.clear();
+        if (bitmap_size) {
+            // set size to 0 at first, then use resize to call default constructor on index included from [0, row_numbers) to reset all memory
+            // only need to reset the memory used to bitmap
+            result.clear();
+        }
         result.resize(row_numbers);
 
         auto* __restrict result_data = reinterpret_cast<char*>(result.data());
@@ -508,27 +575,28 @@ struct MethodKeysFixed : public MethodBase<TData> {
         size_t offset = 0;
         std::vector<bool> has_null_column(nullmap_columns.size(), false);
         if (bitmap_size > 0) {
+            std::vector<const uint8_t*> nullmap_datas;
+            std::vector<uint8_t> bit_offsets;
             for (size_t j = 0; j < nullmap_columns.size(); j++) {
                 if (!nullmap_columns[j]) {
                     continue;
                 }
-                const auto* __restrict data =
+                const uint8_t* __restrict data =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
 
-                if (!simd::contain_one(data, row_numbers)) {
-                    continue;
-                }
-                has_null_column[j] = true;
-
-                size_t bucket = j / BITSIZE;
-                size_t local_offset = j - bucket * BITSIZE;
-                const auto mask = uint8_t(1 << local_offset);
-                auto* __restrict current = result_data + bucket;
-                for (size_t i = 0; i < row_numbers; ++i) {
-                    *(current) |= data[i] * mask;
-                    current += sizeof(T);
+                has_null_column[j] = simd::contain_one(data, row_numbers);
+                if (has_null_column[j]) {
+                    nullmap_datas.emplace_back(data);
+                    bit_offsets.emplace_back(j % BITSIZE);
                 }
             }
+            for (size_t j = 0, bucket = 0; j < nullmap_datas.size(); j += BITSIZE, bucket++) {
+                int column_batch = std::min(BITSIZE, (int)(nullmap_datas.size() - j));
+                constexpr_int_match<1, BITSIZE, PackNullmapsReducer>::run(
+                        column_batch, nullmap_datas.data() + j, bit_offsets.data() + j, row_numbers,
+                        sizeof(T), reinterpret_cast<uint8_t*>(result_data + bucket));
+            }
+
             offset += bitmap_size;
         }
 
@@ -545,8 +613,9 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 }
                 auto* __restrict current = result_data + offset;
                 for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed<Fixed, true>(current, data + i * sizeof(Fixed));
+                    memcpy_fixed<Fixed, true>(current, data);
                     current += sizeof(T);
+                    data += sizeof(Fixed);
                 }
             };
 
