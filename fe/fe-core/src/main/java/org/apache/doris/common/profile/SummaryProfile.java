@@ -666,7 +666,7 @@ public class SummaryProfile {
             RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
             RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
-        executionSummaryProfile.addInfoString(CPU_SHARE, RuntimeProfile.printCounter(cpuShare, TUnit.NONE));
+        executionSummaryProfile.addInfoString(CPU_SHARE, RuntimeProfile.printCounter(cpuShare, TUnit.UNIT));
         executionSummaryProfile.addInfoString(CPU_HARD_LIMIT,
             RuntimeProfile.printCounter(cpuHardLimit, TUnit.NONE));
         executionSummaryProfile.addInfoString(MEMORY_LIMIT, memoryLimit + "%");
