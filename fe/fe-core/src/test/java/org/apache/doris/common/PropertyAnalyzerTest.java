@@ -465,6 +465,8 @@ public class PropertyAnalyzerTest {
             Assert.fail();
         }
     }
+
+    @Test
     public void testAnalyzeDataProperty() throws AnalysisException {
         Map<String, String> properties = Maps.newHashMap();
         DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
