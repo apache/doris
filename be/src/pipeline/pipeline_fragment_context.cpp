@@ -1139,8 +1139,9 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             OperatorPtr source_op;
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op = std::make_shared<MultiCastDataStreamerSourceOperatorX>(
-                    multi_cast_node_id, i, pool, thrift_sink.multi_cast_stream_sink.sinks[i],
-                    row_desc, /*operator_id=*/source_id);
+                    /*node_id*/ source_id, /*consumer_id*/ i, pool,
+                    thrift_sink.multi_cast_stream_sink.sinks[i], row_desc,
+                    /*operator_id=*/source_id);
             RETURN_IF_ERROR(new_pipeline->add_operator(
                     source_op, params.__isset.parallel_instances ? params.parallel_instances : 0));
             // 2. create and set sink operator of data stream sender for new pipeline
@@ -1594,14 +1595,14 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     }
     case TPlanNodeType::INTERSECT_NODE: {
         RETURN_IF_ERROR(_build_operators_for_set_operation_node<true>(
-                pool, tnode, descs, op, cur_pipe, parent_idx, child_idx));
-        op->set_followed_by_shuffled_operator(_require_bucket_distribution);
+                pool, tnode, descs, op, cur_pipe, parent_idx, child_idx,
+                followed_by_shuffled_operator));
         break;
     }
     case TPlanNodeType::EXCEPT_NODE: {
         RETURN_IF_ERROR(_build_operators_for_set_operation_node<false>(
-                pool, tnode, descs, op, cur_pipe, parent_idx, child_idx));
-        op->set_followed_by_shuffled_operator(_require_bucket_distribution);
+                pool, tnode, descs, op, cur_pipe, parent_idx, child_idx,
+                followed_by_shuffled_operator));
         break;
     }
     case TPlanNodeType::REPEAT_NODE: {
@@ -1662,8 +1663,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 template <bool is_intersect>
 Status PipelineFragmentContext::_build_operators_for_set_operation_node(
         ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs, OperatorPtr& op,
-        PipelinePtr& cur_pipe, int parent_idx, int child_idx) {
+        PipelinePtr& cur_pipe, int parent_idx, int child_idx, bool followed_by_shuffled_operator) {
     op.reset(new SetSourceOperatorX<is_intersect>(pool, tnode, next_operator_id(), descs));
+    op->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
     RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
 
     const auto downstream_pipeline_id = cur_pipe->id();
@@ -1683,6 +1685,7 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(
             sink.reset(new SetProbeSinkOperatorX<is_intersect>(
                     child_id, next_sink_operator_id(), op->operator_id(), pool, tnode, descs));
         }
+        sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
         RETURN_IF_ERROR(probe_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(probe_side_pipe->sink()->init(tnode, _runtime_state.get()));
         // prepare children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.

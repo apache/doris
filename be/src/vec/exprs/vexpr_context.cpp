@@ -19,14 +19,13 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <ostream>
 #include <string>
 
-#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
@@ -79,6 +78,18 @@ Status VExprContext::execute(const Block* block, ColumnPtr& result_column) {
     RETURN_IF_CATCH_EXCEPTION(
             { st = _root->execute_column(this, block, block->rows(), result_column); });
     return st;
+}
+
+Status VExprContext::execute(const Block* block, ColumnWithTypeAndName& result_data) {
+    Status st;
+    ColumnPtr result_column;
+    RETURN_IF_CATCH_EXCEPTION(
+            { st = _root->execute_column(this, block, block->rows(), result_column); });
+    RETURN_IF_ERROR(st);
+    result_data.column = result_column;
+    result_data.type = execute_type(block);
+    result_data.name = _root->expr_name();
+    return Status::OK();
 }
 
 DataTypePtr VExprContext::execute_type(const Block* block) {
