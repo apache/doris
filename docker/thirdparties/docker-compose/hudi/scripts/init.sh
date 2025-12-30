@@ -40,7 +40,7 @@ download_jar() {
   local jar_file="${CACHE_DIR}/${jar_name}-${version}.jar"
   
   if [[ ! -f "${jar_file}" ]]; then
-    echo "Downloading ${jar_name} JAR ${version} from ${url} ..."
+    echo "Downloading ${jar_name} JAR ${version} from ${url} ..." >&2
     local download_success=false
     if command -v curl >/dev/null 2>&1; then
       if curl -sSfL "${url}" -o "${jar_file}"; then
