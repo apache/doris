@@ -276,7 +276,6 @@ static std::unordered_map<std::string_view,
     {"MetaServiceRegistryKey",     {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_registry_key();                                                         }, parse<ServiceRegistryPB>        , parse_json<ServiceRegistryPB>}},
     {"MetaServiceArnInfoKey",      {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_arn_info_key();                                                         }, parse<RamUserPB>                , parse_json<RamUserPB>}},
     {"MetaServiceEncryptionKey",   {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_encryption_key_info_key();                                              }, parse<EncryptionKeyInfoPB>      , parse_json<EncryptionKeyInfoPB>}},
-    {"PackedFileKey",              {{"instance_id", "packed_file_path"},                             [](param_type& p) { return packed_file_key(KeyInfoSetter<PackedFileKeyInfo>{p}.get());                                 }, parse<PackedFileInfoPB>         , parse_json<PackedFileInfoPB>}},
 };
 
 // Versioned key support (0x03 space)
