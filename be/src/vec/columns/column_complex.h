@@ -192,6 +192,18 @@ public:
         __builtin_unreachable();
     }
 
+    /// Do NOT remove these following two functions,
+    /// There are used by some `EngineChecksumTask::_compute_checksum()`.
+    // maybe we do not need to impl the function
+    void update_hash_with_value(size_t n, SipHash& hash) const override {
+        // TODO add hash function
+    }
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override {
+        // TODO add hash function
+    }
+
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
     }
