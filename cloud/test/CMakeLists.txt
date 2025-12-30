@@ -30,7 +30,8 @@ add_executable(recycler_test
     recycler_test.cpp
     recycler_operation_log_test.cpp
     snapshot_data_size_calculator_test.cpp
-    recycle_versioned_keys_test.cpp)
+    recycle_versioned_keys_test.cpp
+    recycler_batch_delete_test.cpp)
 
 add_executable(mem_txn_kv_test mem_txn_kv_test.cpp)
 
