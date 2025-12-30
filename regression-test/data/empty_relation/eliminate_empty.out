@@ -45,9 +45,10 @@ PhysicalResultSink
 -- !explain_except_data_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept[bucketShuffle] RFV2: RF0[n_nationkey->n_nationkey]
-------PhysicalProject
---------PhysicalOlapScan[nation]
+----PhysicalExcept RFV2: RF0[n_nationkey->n_nationkey]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------PhysicalOlapScan[nation]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------filter(( not (n_nationkey = 1)))
@@ -111,9 +112,10 @@ PhysicalResultSink
 -- !null_explain_except_data_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept[bucketShuffle] RFV2: RF0[n_nationkey->n_nationkey]
-------PhysicalProject
---------PhysicalOlapScan[nation]
+----PhysicalExcept RFV2: RF0[n_nationkey->n_nationkey]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------PhysicalOlapScan[nation]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------filter(( not (n_nationkey = 1)))
