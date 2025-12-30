@@ -104,6 +104,7 @@ public:
         return _distribute_rows_into_channels_timer;
     }
     std::vector<std::shared_ptr<vectorized::Channel>> channels;
+    std::vector<int> local_channel_ids;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
     bool _only_local_exchange {false};
 
