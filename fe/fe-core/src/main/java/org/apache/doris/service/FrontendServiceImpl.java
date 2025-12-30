@@ -3602,6 +3602,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (instanceNum > 1) {
                     needUseCache = true;
                 }
+
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("needUseCache = : {}, instanceNum = {}", needUseCache, instanceNum);
+                }
             }
         }
 
@@ -3877,6 +3881,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (instanceNum > 1) {
                     needUseCache = true;
                     txnId = coordinator.getTxnId();
+                }
+
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("needUseCache = : {}, instanceNum = {}", needUseCache, instanceNum);
                 }
             }
         }

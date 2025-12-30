@@ -36,6 +36,7 @@ suite('test_insert_overwrite_idempotence', 'docker') {
     def options_cloud = new ClusterOptions()
     options_cloud.feConfigs += [
         'enable_debug_points=true',
+        // 'sys_log_verbose_modules = org.apache.doris',
     ]
     options_cloud.cloudMode = true
     options_cloud.beNum = 3 
