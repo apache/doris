@@ -87,9 +87,9 @@ private:
             }
             if constexpr (SetProbeSideFlag) {
                 int64_t end = filter.size();
-                for (int i = _left_block_pos == _child_block->rows() ? _left_block_pos - 1
-                                                                     : _left_block_pos;
-                     i >= _left_block_start_pos; i--) {
+                for (int i = _probe_block_pos == _child_block->rows() ? _probe_block_pos - 1
+                                                                      : _probe_block_pos;
+                     i >= _probe_block_start_pos; i--) {
                     int64_t offset = 0;
                     if (!_probe_offset_stack.empty()) {
                         offset = _probe_offset_stack.top();
@@ -178,9 +178,9 @@ private:
     }
 
     bool _matched_rows_done;
-    int _left_block_start_pos = 0;
-    int _left_block_pos; // current scan pos in _left_block
-    int _left_side_process_count = 0;
+    int _probe_block_start_pos = 0;
+    int _probe_block_pos; // current scan pos in _probe_block
+    int _probe_side_process_count = 0;
     bool _need_more_input_data = true;
     // Visited flags for current row in probe side.
     std::vector<int8_t> _cur_probe_row_visited_flags;
