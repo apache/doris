@@ -247,7 +247,7 @@ bvar::Status<int64_t> g_bvar_fdb_qos_worst_durability_lag_storage_server_ns("fdb
 bvar::Status<int64_t> g_bvar_fdb_qos_worst_log_server_queue_bytes("fdb_qos_worst_log_server_queue_bytes", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_qos_worst_storage_server_queue_bytes("fdb_qos_worst_storage_server_queue_bytes", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent("fdb_client_thread_busyness_percent", BVAR_FDB_INVALID_VALUE);
-mBvarStatus<double> g_bvar_fdb_cluster_processes("fdb_cluster_process", {"process_id", "component", "metric"});
+mBvarStatus<double> g_bvar_fdb_cluster_processes("fdb_cluster_processes", {"process_id", "component", "metric"});
 mBvarStatus<double> g_bvar_fdb_cluster_workload("fdb_cluster_workload", {"component", "metric"});
 
 // checker's bvars
