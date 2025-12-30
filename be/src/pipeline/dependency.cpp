@@ -78,7 +78,7 @@ void Dependency::set_ready() {
         if (_ready) {
             return;
         }
-        _watcher.stop();
+        stop_watcher(lc);
         _ready = true;
         local_block_task.swap(_blocked_task);
     }
@@ -95,7 +95,7 @@ Dependency* Dependency::is_blocked_by(std::shared_ptr<PipelineTask> task) {
     auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
-        start_watcher();
+        start_watcher(lc);
         THROW_IF_ERROR(task->blocked(this, lc));
     }
     return ready ? nullptr : this;
