@@ -19,7 +19,6 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 
@@ -164,25 +163,6 @@ public class DateTimeFormatterUtils {
 
         String pattern = trimFormat(format.getValue());
         return formatTemporalLiteral(year, month, day, hour, minute, second, microsecond, pattern);
-    }
-
-    /**
-     * Conservative implementation of DATE_FORMAT/TIME_FORMAT for date literals used
-     * in constant folding.
-     *
-     * @param date         date literal to format
-     * @param format       format pattern
-     * @param isTimeFormat true when invoked via time_format, false for date_format
-     * @return formatted string or null when pattern requires missing date fields
-     */
-    public static String toFormatStringConservative(DateV2Literal date, StringLikeLiteral format,
-            boolean isTimeFormat) {
-        int year = isTimeFormat ? 0 : (int) date.getYear();
-        int month = isTimeFormat ? 0 : (int) date.getMonth();
-        int day = isTimeFormat ? 0 : (int) date.getDay();
-
-        String pattern = trimFormat(format.getValue());
-        return formatTemporalLiteral(year, month, day, 0, 0, 0, 0, pattern);
     }
 
     /**

@@ -280,19 +280,6 @@ public class DateTimeExtractAndTransform {
      * datetime arithmetic function date-format
      */
     @ExecFunction(name = "date_format")
-    public static Expression dateFormat(DateV2Literal date, StringLikeLiteral format) {
-        if (StringUtils.trim(format.getValue()).length() > 128) {
-            throw new AnalysisException("The length of format string in date_format() function should not be greater"
-                    + " than 128.");
-        }
-        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(date, format, false));
-    }
-
-    /**
-     * datetime arithmetic function date-format
-     */
-    @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeV2Literal date, StringLikeLiteral format) {
         if (StringUtils.trim(format.getValue()).length() > 128) {
             throw new AnalysisException("The length of format string in date_format() function should not be greater"
@@ -312,18 +299,6 @@ public class DateTimeExtractAndTransform {
                     + " than 128.");
         }
         return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(time, format));
-    }
-
-    /**
-     * time_format constant folding for datev2 literal.
-     */
-    @ExecFunction(name = "time_format")
-    public static Expression timeFormat(DateV2Literal date, StringLikeLiteral format) {
-        if (StringUtils.trim(format.getValue()).length() > 128) {
-            throw new AnalysisException("The length of format string in time_format() function should not be greater"
-                    + " than 128.");
-        }
-        return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(date, format, true));
     }
 
     /**

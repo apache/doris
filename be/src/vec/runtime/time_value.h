@@ -162,7 +162,7 @@ public:
             time = -time;
         }
 
-        return DateV2Value<DateTimeV2ValueType>::to_format_string_without_check(
+        return DatetimeValueUtil::to_format_string_without_check<true>(
                 format, len, to, max_valid_length, 0, 0, 0, TimeValue::hour(time),
                 TimeValue::minute(time), TimeValue::second(time), TimeValue::microsecond(time));
     }
