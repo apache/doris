@@ -3767,10 +3767,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
 
-            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.DisableCache")) {
-                needUseCache = false;
-            }
-
             if (needUseCache) {
                 Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
