@@ -266,7 +266,8 @@ public class StreamingJobUtils {
             }
 
             // if set include_tables, exclude_tables is ignored
-            if (!excludeTablesList.isEmpty() && excludeTables.contains(table)) {
+            if (includeTablesList.isEmpty()
+                    && !excludeTablesList.isEmpty() && excludeTablesList.contains(table)) {
                 log.info("Skip table {} in database {} as it in exclude_tables {}", table, database,
                         excludeTables);
                 continue;

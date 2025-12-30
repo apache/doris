@@ -85,6 +85,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
         createSlotForGlobalStreamSplit(dialect);
         super.initialize(jobId, dataSource, config);
     }
@@ -335,7 +336,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     }
 
     /**
-     * This commit commits values up to the startOffset of the current split; even if
+     * This method commits values up to the startOffset of the current split; even if
      * `CommitFeOffset` fails, Data after the startOffset will not be cleared.
      */
     @Override

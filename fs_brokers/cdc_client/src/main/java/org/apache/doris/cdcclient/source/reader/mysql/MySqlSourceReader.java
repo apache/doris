@@ -778,8 +778,10 @@ public class MySqlSourceReader implements SourceReader {
         closeBinlogReader();
         currentReader = null;
         currentSplitRecords = null;
-        tableSchemas.clear();
-        tableSchemas = null;
+        if (tableSchemas != null) {
+            tableSchemas.clear();
+            tableSchemas = null;
+        }
     }
 
     @Override

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_streaming_postgres_job_dup", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("test_streaming_postgres_job_dup", "p0,external,pg,external_docker,external_docker_pg") {
     def jobName = "test_streaming_postgres_job_dup_name"
     def currentDb = (sql "select database()")[0][0]
     def table1 = "test_streaming_postgres_job_dup"

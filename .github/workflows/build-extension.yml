@@ -58,7 +58,7 @@ jobs:
             docs_changes:
               - 'docs/**'
             cdc_client_changes:
-              - 'fs_brokers/cdc_client/**'  
+              - 'fs_brokers/cdc_client/**'
   build-broker:
     name: Build Broker
     needs: changes
@@ -129,7 +129,7 @@ jobs:
 
       - name: Build cdc client
         run: |
-          cd fs_brokers/cdc_client/ && /bin/bash build.sh                 
+          cd fs_brokers/cdc_client/ && /bin/bash build.sh
   # build-docs:
   #   name: Build Documents
   #   needs: changes

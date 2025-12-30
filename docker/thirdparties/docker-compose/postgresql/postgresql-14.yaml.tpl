@@ -32,7 +32,7 @@ services:
       - "-c"
       - "max_wal_senders=30"
       - "-c"
-      - "max_replication_slots=30" 
+      - "max_replication_slots=30"
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres && psql -U postgres -c 'SELECT 1 FROM doris_test.deadline;'" ]
       interval: 5s
