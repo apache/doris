@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS boolean_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS tinyint_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -49,6 +51,7 @@ CREATE TABLE IF NOT EXISTS smallint_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -64,6 +67,7 @@ CREATE TABLE IF NOT EXISTS int_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -79,6 +83,7 @@ CREATE TABLE IF NOT EXISTS bigint_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -94,6 +99,7 @@ CREATE TABLE IF NOT EXISTS string_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -109,6 +115,7 @@ CREATE TABLE IF NOT EXISTS date_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -124,6 +131,7 @@ CREATE TABLE IF NOT EXISTS timestamp_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'

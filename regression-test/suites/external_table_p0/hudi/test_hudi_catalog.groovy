@@ -50,6 +50,13 @@ suite("test_hudi_catalog", "p0,external,hudi,external_docker,external_docker_hud
     order_qt_test_select_table """
         select * from bigint_partition_tb order by id;
     """
-    // TODO: test jni scanner
+    try {
+        sql """ set force_jni_scanner = true;    """
+        order_qt_test_select_table """
+            select * from bigint_partition_tb order by id;
+        """
+    } finally {
+        sql """ set force_jni_scanner = false;    """
+    }
 }
 

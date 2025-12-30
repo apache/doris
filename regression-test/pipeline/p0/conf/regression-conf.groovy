@@ -167,9 +167,9 @@ enableTrinoConnectorTest = false
 // hudi p0 external regression test config
 // To enable hudi test, you need first start hudi container.
 // See `docker/thirdparties/run-thirdparties-docker.sh -c hudi`
-enableHudiTest=false
+enableHudiTest=true
 // hudi catalog config
 hudiHmsPort=19083
 hudiMinioPort=19100
-hudiMinioAccessKey=minio
-hudiMinioSecretKey=minio123
+hudiMinioAccessKey="minio"
+hudiMinioSecretKey="minio123"

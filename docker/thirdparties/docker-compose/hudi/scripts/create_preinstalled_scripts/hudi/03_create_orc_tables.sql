@@ -14,6 +14,7 @@ TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
   hoodie.base.file.format = 'orc',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -31,6 +32,7 @@ TBLPROPERTIES (
   hoodie.base.file.format = 'orc',
   hoodie.compact.inline = 'true',
   hoodie.compact.inline.max.delta.commits = '1',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'

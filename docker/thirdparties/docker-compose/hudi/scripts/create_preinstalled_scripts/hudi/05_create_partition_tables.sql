@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS one_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS two_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -50,6 +52,7 @@ CREATE TABLE IF NOT EXISTS three_partition_tb (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'

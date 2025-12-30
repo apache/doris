@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS timetravel_cow (
 TBLPROPERTIES (
   type = 'cow',
   primaryKey = 'id',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
@@ -29,6 +30,7 @@ TBLPROPERTIES (
   primaryKey = 'id',
   hoodie.compact.inline = 'true',
   hoodie.compact.inline.max.delta.commits = '1',
+  hoodie.metadata.enable = 'false',
   hoodie.datasource.hive_sync.enable = 'true',
   hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
   hoodie.datasource.hive_sync.mode = 'hms'
