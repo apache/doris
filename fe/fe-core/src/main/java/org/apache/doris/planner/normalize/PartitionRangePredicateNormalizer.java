@@ -34,12 +34,12 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.planner.OlapScanNode;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -149,11 +149,15 @@ public class PartitionRangePredicateNormalizer {
     }
 
     private NormalizedPartitionPredicates cannotIntersectPartitionRange() {
+        Map<Long, String> canNotComputeIntersectRange = new LinkedHashMap<>();
+        for (Long selectedPartitionId : olapScanNode.getSelectedPartitionIds()) {
+            canNotComputeIntersectRange.put(selectedPartitionId, "");
+        }
         return new NormalizedPartitionPredicates(
                 // conjuncts will be used as the part of the digest
                 olapScanNode.getConjuncts(),
                 // can not compute intersect range
-                ImmutableMap.of(olapScanNode.getSelectedPartitionIds().iterator().next(), "")
+                canNotComputeIntersectRange
         );
     }
 

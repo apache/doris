@@ -30,6 +30,10 @@ CONF_Int32(brpc_idle_timeout_sec, "-1");
 CONF_String(hostname, "");
 CONF_String(fdb_cluster, "xxx:yyy@127.0.0.1:4500");
 CONF_String(fdb_cluster_file_path, "./conf/fdb.cluster");
+CONF_Bool(enable_fdb_external_client_directory, "true");
+// The directory path of external foundationdb client library.
+// eg: /path/to/dir1:/path/to/dir2:...
+CONF_String(fdb_external_client_directory, "");
 CONF_String(http_token, "greedisgood9999");
 // use volatile mem kv for test. MUST NOT be `true` in production environment.
 CONF_Bool(use_mem_kv, "false");
@@ -304,6 +308,8 @@ CONF_mInt64(max_txn_commit_byte, "7340032");
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
+CONF_mBool(enable_cloud_parallel_txn_lazy_commit, "true");
+CONF_Int32(parallel_txn_lazy_commit_num_threads, "0"); // hardware concurrency if zero.
 CONF_mInt64(txn_lazy_max_rowsets_per_batch, "1000");
 CONF_mBool(txn_lazy_commit_shuffle_partitions, "true");
 CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed

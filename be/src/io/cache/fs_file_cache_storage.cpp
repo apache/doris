@@ -26,6 +26,7 @@
 #include <filesystem>
 #include <mutex>
 #include <system_error>
+#include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -877,8 +878,8 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     // If the difference is more than threshold, load from filesystem as well
     if (estimated_file_count > 100) {
         double difference_ratio =
-                static_cast<double>(estimated_file_count) -
-                static_cast<double>(db_block_count) / static_cast<double>(estimated_file_count);
+                (static_cast<double>(estimated_file_count) - static_cast<double>(db_block_count)) /
+                static_cast<double>(estimated_file_count);
 
         if (difference_ratio > config::file_cache_meta_store_vs_file_system_diff_num_threshold) {
             LOG(WARNING) << "Significant difference between DB blocks (" << db_block_count
@@ -983,13 +984,53 @@ size_t FSFileCacheStorage::estimate_file_count_from_statfs() const {
     // Get total size of cache directory to estimate file count
     std::error_code ec;
     uintmax_t total_size = 0;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(_cache_base_path, ec)) {
+    std::vector<std::filesystem::path> pending_dirs {std::filesystem::path(_cache_base_path)};
+    while (!pending_dirs.empty()) {
+        auto current_dir = pending_dirs.back();
+        pending_dirs.pop_back();
+
+        std::filesystem::directory_iterator it(current_dir, ec);
         if (ec) {
-            LOG(WARNING) << "Error accessing directory entry: " << ec.message();
+            LOG(WARNING) << "Failed to list directory while estimating file count, dir="
+                         << current_dir << ", err=" << ec.message();
+            ec.clear();
             continue;
         }
-        if (entry.is_regular_file()) {
-            total_size += entry.file_size();
+
+        for (; it != std::filesystem::directory_iterator(); ++it) {
+            std::error_code status_ec;
+            auto entry_status = it->symlink_status(status_ec);
+            TEST_SYNC_POINT_CALLBACK(
+                    "FSFileCacheStorage::estimate_file_count_from_statfs::AfterEntryStatus",
+                    &status_ec);
+            if (status_ec) {
+                LOG(WARNING) << "Failed to stat entry while estimating file count, path="
+                             << it->path() << ", err=" << status_ec.message();
+                continue;
+            }
+
+            if (std::filesystem::is_directory(entry_status)) {
+                auto next_dir = it->path();
+                TEST_SYNC_POINT_CALLBACK(
+                        "FSFileCacheStorage::estimate_file_count_from_statfs::OnDirectory",
+                        &next_dir);
+                pending_dirs.emplace_back(next_dir);
+                continue;
+            }
+
+            if (std::filesystem::is_regular_file(entry_status)) {
+                std::error_code size_ec;
+                auto file_size = it->file_size(size_ec);
+                TEST_SYNC_POINT_CALLBACK(
+                        "FSFileCacheStorage::estimate_file_count_from_statfs::AfterFileSize",
+                        &size_ec);
+                if (size_ec) {
+                    LOG(WARNING) << "Failed to get file size while estimating file count, path="
+                                 << it->path() << ", err=" << size_ec.message();
+                    continue;
+                }
+                total_size += file_size;
+            }
         }
     }
 

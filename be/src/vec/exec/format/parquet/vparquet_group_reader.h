@@ -60,6 +60,10 @@ class OffsetIndex;
 class RowGroup;
 } // namespace tparquet
 
+namespace doris::segment_v2 {
+class RowIdColumnIteratorV2;
+}
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
@@ -171,7 +175,8 @@ public:
     int64_t get_remaining_rows() { return _remaining_rows; }
 
     void set_row_id_column_iterator(
-            const std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int>& iterator_pair) {
+            const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>&
+                    iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
 
@@ -262,8 +267,8 @@ private:
     bool _is_row_group_filtered = false;
 
     RowGroupIndex _current_row_group_idx {0, 0, 0};
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
-                                                                                           -1};
+    std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
+            _row_id_column_iterator_pair = {nullptr, -1};
     std::vector<rowid_t> _current_batch_row_ids;
 
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;

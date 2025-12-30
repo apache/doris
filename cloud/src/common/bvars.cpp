@@ -120,6 +120,7 @@ MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count(
 bvar::LatencyRecorder g_bvar_ms_scan_instance_update("ms", "scan_instance_update");
 bvar::LatencyRecorder g_bvar_txn_lazy_committer_waiting_duration("txn_lazy_committer", "waiting");
 bvar::LatencyRecorder g_bvar_txn_lazy_committer_committing_duration("txn_lazy_committer", "committing");
+bvar::LatencyRecorder g_bvar_txn_lazy_committer_commit_partition_duration("txn_lazy_committer", "commit_partition");
 bvar::Adder<int64_t> g_bvar_txn_lazy_committer_submitted("txn_lazy_committer", "submitted");
 bvar::Adder<int64_t> g_bvar_txn_lazy_committer_finished("txn_lazy_committer", "finished");
 
@@ -179,6 +180,11 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_deleted(
         "recycler", "packed_file_bytes_object_deleted");
 BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num(
         "recycler", "packed_file_rowset_scanned_num");
+
+BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count(
+        "recycler", "batch_delete_rowset_plan_count");
+BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures(
+        "recycler", "batch_delete_failures");
 
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");

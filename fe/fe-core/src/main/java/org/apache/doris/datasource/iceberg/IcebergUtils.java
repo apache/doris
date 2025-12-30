@@ -56,6 +56,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -572,7 +573,7 @@ public class IcebergUtils {
             case STRING:
                 return Type.STRING;
             case UUID:
-                return ScalarType.createVarbinaryType(16);
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(16) : Type.STRING;
             case BINARY:
                 return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
                         : Type.STRING;
@@ -1551,6 +1552,21 @@ public class IcebergUtils {
         return String.format("CREATE VIEW `%s` AS ", icebergExternalTable.getName())
                 +
                 icebergExternalTable.getViewText();
+    }
+
+    public static IcebergManifestCache getManifestCache(ExternalCatalog catalog) {
+        return Env.getCurrentEnv()
+                .getExtMetaCacheMgr()
+                .getIcebergMetadataCache((IcebergExternalCatalog) catalog)
+                .getManifestCache();
+    }
+
+    public static boolean isManifestCacheEnabled(ExternalCatalog catalog) {
+        String enabled = catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE);
+        if (enabled == null) {
+            return IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE;
+        }
+        return Boolean.parseBoolean(enabled);
     }
 
 }

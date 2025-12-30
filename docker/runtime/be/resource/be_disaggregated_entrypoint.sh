@@ -572,9 +572,9 @@ resolve_password_from_secret
 # parse tls connection variables, if config `enbale_tls=true`, use tls connection to manage node.
 parse_tls_connection_variables
 collect_env_info
+./doris-debug --component be
 #add_self $fe_addr || exit $?
 check_and_register $fe_addrs
-./doris-debug --component be
 ulimit -c unlimited
 log_stderr "run start_be.sh"
 # the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal
