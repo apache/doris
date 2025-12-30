@@ -3545,9 +3545,4 @@ class Suite implements GroovyInterceptable {
             GlobalLock.unlock(lockName)
         }
     }
-
-    def explain_and_result = { tag, sql ->
-        "qt_${tag}_shape"          "explain shape plan ${sql}"
-        "order_qt_${tag}_result"   "${sql}"
-    }
 }
