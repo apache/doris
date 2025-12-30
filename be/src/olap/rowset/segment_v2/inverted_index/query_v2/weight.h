@@ -15,11 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/roaring_query.h"
+#pragma once
 
-namespace doris::segment_v2::idx_query_v2 {
+#include <CLucene.h>
+#include <CLucene/index/IndexReader.h>
 
-RoaringQuery::RoaringQuery(const std::shared_ptr<roaring::Roaring>& roaring)
-        : _roaring(roaring), _iter(_roaring->end()), _end(_roaring->end()) {}
+#include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 
-} // namespace doris::segment_v2::idx_query_v2
+CL_NS_USE(index)
+
+namespace doris::segment_v2::inverted_index::query_v2 {
+
+class Weight {
+public:
+    Weight() = default;
+    virtual ~Weight() = default;
+
+    virtual ScorerPtr scorer(lucene::index::IndexReader* reader) = 0;
+};
+using WeightPtr = std::shared_ptr<Weight>;
+
+} // namespace doris::segment_v2::inverted_index::query_v2

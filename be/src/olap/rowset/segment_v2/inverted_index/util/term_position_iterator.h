@@ -28,8 +28,6 @@ using TermPositionsIterPtr = std::shared_ptr<TermPositionsIterator>;
 
 class TermPositionsIterator : public TermIterator {
 public:
-    using TermPositionsPtr = std::unique_ptr<TermPositions, CLuceneDeleter>;
-
     TermPositionsIterator() = default;
     TermPositionsIterator(TermPositionsPtr term_positions)
             : TermIterator(std::move(term_positions)) {
@@ -47,11 +45,10 @@ public:
     static TermPositionsIterPtr create(const io::IOContext* io_ctx, IndexReader* reader,
                                        const std::wstring& field_name,
                                        const std::wstring& ws_term) {
-        auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termPositions(t);
-        _CLDECDELETE(t);
-        return std::make_shared<TermPositionsIterator>(
-                TermPositionsPtr(term_pos, CLuceneDeleter {}));
+
+        auto t = make_term_ptr(field_name.c_str(), ws_term.c_str());
+        auto term_pos = make_term_positions_ptr(reader, t.get(), io_ctx);
+        return std::make_shared<TermPositionsIterator>(std::move(term_pos));
     }
 
 private:

@@ -33,5 +33,6 @@ Status StorageConnectivityTester::test(TStorageBackendType::type type,
         return Status::OK();
     }
 }
+
 #include "common/compile_check_end.h"
 } // namespace doris::io

@@ -19,26 +19,30 @@
 
 #include <memory>
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
 
-namespace doris::segment_v2::idx_query_v2 {
+namespace doris::segment_v2::inverted_index::query_v2 {
 
-class TermQuery : public Query {
+class Scorer : public DocSet {
 public:
-    TermQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-              const TQueryOptions& query_options, QueryInfo query_info);
-    ~TermQuery() override;
+    Scorer() = default;
+    ~Scorer() override = default;
 
-    void execute(const std::shared_ptr<roaring::Roaring>& result) {}
+    virtual float score() = 0;
+};
+using ScorerPtr = std::shared_ptr<Scorer>;
 
-    int32_t doc_id() const { return _iter->doc_id(); }
-    int32_t next_doc() const { return _iter->next_doc(); }
-    int32_t advance(int32_t target) const { return _iter->advance(target); }
-    int64_t cost() const { return _iter->doc_freq(); }
+class EmptyScorer : public Scorer {
+public:
+    EmptyScorer() = default;
+    ~EmptyScorer() override = default;
 
-private:
-    TermDocs* _term_docs = nullptr;
-    TermIterPtr _iter;
+    uint32_t advance() override { return TERMINATED; }
+    uint32_t seek(uint32_t) override { return TERMINATED; }
+    uint32_t doc() const override { return TERMINATED; }
+    uint32_t size_hint() const override { return 0; }
+
+    float score() override { return 0.0F; }
 };
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index::query_v2

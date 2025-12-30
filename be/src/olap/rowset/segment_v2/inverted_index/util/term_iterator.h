@@ -22,6 +22,8 @@
 #include <memory>
 
 #include "CLucene/index/Terms.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
+
 
 CL_NS_USE(index)
 
@@ -31,21 +33,11 @@ struct IOContext;
 
 namespace doris::segment_v2 {
 
-struct CLuceneDeleter {
-    void operator()(TermDocs* p) const {
-        if (p) {
-            _CLDELETE(p);
-        }
-    }
-};
-
 class TermIterator;
 using TermIterPtr = std::shared_ptr<TermIterator>;
 
 class TermIterator {
 public:
-    using TermDocsPtr = std::unique_ptr<TermDocs, CLuceneDeleter>;
-
     TermIterator() = default;
     TermIterator(TermDocsPtr term_docs) : term_docs_(std::move(term_docs)) {}
     virtual ~TermIterator() = default;
@@ -80,15 +72,18 @@ public:
         return create(io_ctx, reader, field_name, StringUtil::string_to_wstring(term));
     }
 
-    static TermIterPtr create(const io::IOContext* io_ctx, IndexReader* reader,
-                              const std::wstring& field_name, const std::wstring& ws_term) {
+
+    static TermIterPtr create(const io::IOContext* io_ctx,
+                              lucene::index::IndexReader* reader, const std::wstring& field_name,
+                              const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termDocs(t);
+        auto* term_pos = reader->termDocs(t, io_ctx);
         _CLDECDELETE(t);
         return std::make_shared<TermIterator>(TermDocsPtr(term_pos, CLuceneDeleter {}));
     }
 
 protected:
+    std::wstring term_;
     TermDocsPtr term_docs_;
 };
 
