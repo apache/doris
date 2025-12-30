@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -75,8 +76,8 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
-    // The key is the query relationId, the value is the refresh version when last refresh, this is needed
-    // because struct info refresh base on target relationId.
+    // The key is the query tableId, the value is the refresh version when last refresh, this is needed
+    // because struct info refresh base on target tableId.
     private final Map<Integer, AtomicInteger> refreshVersion = new HashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckSuccessMap =
             new LinkedHashMap<>();
@@ -136,9 +137,9 @@ public class Memo {
         return refreshVersion;
     }
 
-    /** return the incremented refresh version for the given relationId*/
-    public long incrementAndGetRefreshVersion(int relationId) {
-        return refreshVersion.compute(relationId, (k, v) -> {
+    /** return the incremented refresh version for the given commonTableId*/
+    public long incrementAndGetRefreshVersion(int commonTableId) {
+        return refreshVersion.compute(commonTableId, (k, v) -> {
             if (v == null) {
                 return new AtomicInteger(1);
             }
@@ -148,8 +149,9 @@ public class Memo {
     }
 
     /** return the incremented refresh version for the given relationId set*/
-    public void incrementAndGetRefreshVersion(BitSet relationIdSet) {
-        for (int i = relationIdSet.nextSetBit(0); i >= 0; i = relationIdSet.nextSetBit(i + 1)) {
+    public void incrementAndGetRefreshVersion(BitSet commonTableIdSet) {
+        for (int i = commonTableIdSet.nextSetBit(0); i >= 0;
+                i = commonTableIdSet.nextSetBit(i + 1)) {
             incrementAndGetRefreshVersion(i);
         }
     }
@@ -484,7 +486,9 @@ public class Memo {
                 && plan instanceof LogicalCatalogRelation
                 && ((CatalogRelation) plan).getTable() instanceof MTMV
                 && !plan.getGroupExpression().isPresent()) {
-            incrementAndGetRefreshVersion(((CatalogRelation) plan).getRelationId().asInt());
+            TableId mvCommonTableId
+                    = this.connectContext.getStatementContext().getTableId(((CatalogRelation) plan).getTable());
+            incrementAndGetRefreshVersion(mvCommonTableId.asInt());
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {

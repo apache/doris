@@ -272,32 +272,32 @@ public class MaterializedViewUtils {
      * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
      * @param originalPlan original plan, the output is right
      * @param cascadesContext the cascadesContext when extractStructInfo
-     * @param targetRelationIdSet the target relation id set which used to filter struct info,
+     * @param targetTableIdSet the target relation id set which used to filter struct info,
      *                            empty means no struct info match
      */
-    public static List<StructInfo> extractStructInfo(Plan plan, Plan originalPlan, CascadesContext cascadesContext,
-            BitSet targetRelationIdSet) {
+    public static List<StructInfo> extractStructInfoFuzzy(Plan plan, Plan originalPlan,
+                                                          CascadesContext cascadesContext, BitSet targetTableIdSet) {
         // If plan belong to some group, construct it with group struct info
         if (plan.getGroupExpression().isPresent()) {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
             StructInfoMap structInfoMap = ownerGroup.getStructInfoMap();
             // Refresh struct info in current level plan from top to bottom
             SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-            int memoVersion = StructInfoMap.getMemoVersion(targetRelationIdSet,
+            int memoVersion = StructInfoMap.getMemoVersion(targetTableIdSet,
                     cascadesContext.getMemo().getRefreshVersion());
-            structInfoMap.refresh(ownerGroup, cascadesContext, targetRelationIdSet, new HashSet<>(),
-                    sessionVariable.isEnableMaterializedViewNestRewrite(), memoVersion);
-            structInfoMap.setRefreshVersion(targetRelationIdSet, cascadesContext.getMemo().getRefreshVersion());
-            Set<BitSet> queryRelationIdSets = structInfoMap.getTableMaps();
+            structInfoMap.refresh(ownerGroup, cascadesContext, targetTableIdSet, new HashSet<>(),
+                    sessionVariable.isEnableMaterializedViewNestRewrite(), memoVersion, true);
+            structInfoMap.setRefreshVersion(targetTableIdSet, cascadesContext.getMemo().getRefreshVersion());
+            Set<BitSet> queryTableIdSets = structInfoMap.getTableMaps(true);
             ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
-            if (!queryRelationIdSets.isEmpty()) {
-                for (BitSet queryRelationIdSet : queryRelationIdSets) {
+            if (!queryTableIdSets.isEmpty()) {
+                for (BitSet queryTableIdSet : queryTableIdSets) {
                     // compare relation id corresponding table id
-                    if (!containsAll(targetRelationIdSet, queryRelationIdSet)) {
+                    if (!containsAll(targetTableIdSet, queryTableIdSet)) {
                         continue;
                     }
-                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext, queryRelationIdSet, ownerGroup,
-                            originalPlan, sessionVariable.isEnableMaterializedViewNestRewrite());
+                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext, queryTableIdSet, ownerGroup,
+                            originalPlan, sessionVariable.isEnableMaterializedViewNestRewrite(), true);
                     if (structInfo != null) {
                         structInfosBuilder.add(structInfo);
                     }

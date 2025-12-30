@@ -62,10 +62,19 @@ class StructInfoMapTest extends SqlTestBase {
                 .rewrite()
                 .optimize();
         Group root = c1.getMemo().getRoot();
-        Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps();
+        Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps(true);
         Assertions.assertTrue(tableMaps.isEmpty());
-        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, 0);
+
+        Multimap<Integer, Integer> commonTableIdToRelationIdMap
+                = c1.getStatementContext().getCommonTableIdToRelationIdMap();
+        BitSet targetBitSet = new BitSet();
+        for (Integer tableId : commonTableIdToRelationIdMap.keys()) {
+            targetBitSet.set(tableId);
+        }
+        c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
+        int memoVersion = StructInfoMap.getMemoVersion(targetBitSet, c1.getMemo().getRefreshVersion());
+        root.getStructInfoMap().refresh(root, c1, targetBitSet, new HashSet<>(),
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, memoVersion, true);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
@@ -106,17 +115,17 @@ class StructInfoMapTest extends SqlTestBase {
         root = c1.getMemo().getRoot();
         // because refresh struct info by targetBitSet when getValidQueryStructInfos, this would cause
         // query struct info version increase twice. so need increase the memo version manually.
-        Multimap<Integer, Integer> commonTableIdToRelationIdMap
+        commonTableIdToRelationIdMap
                 = c1.getStatementContext().getCommonTableIdToRelationIdMap();
-        BitSet targetBitSet = new BitSet();
-        for (Integer relationId : commonTableIdToRelationIdMap.values()) {
-            targetBitSet.set(relationId);
+        targetBitSet = new BitSet();
+        for (Integer tableId : commonTableIdToRelationIdMap.keys()) {
+            targetBitSet.set(tableId);
         }
         c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
-        int memoVersion = StructInfoMap.getMemoVersion(targetBitSet, c1.getMemo().getRefreshVersion());
+        memoVersion = StructInfoMap.getMemoVersion(targetBitSet, c1.getMemo().getRefreshVersion());
         root.getStructInfoMap().refresh(root, c1, targetBitSet, new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, memoVersion);
-        tableMaps = root.getStructInfoMap().getTableMaps();
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, memoVersion, true);
+        tableMaps = root.getStructInfoMap().getTableMaps(true);
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
     }
@@ -142,12 +151,12 @@ class StructInfoMapTest extends SqlTestBase {
                 .rewrite()
                 .optimize();
         Group root = c1.getMemo().getRoot();
-        Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps();
+        Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps(true);
         Assertions.assertTrue(tableMaps.isEmpty());
         root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, 0);
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, 0, true);
         root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, 0);
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, 0, true);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
@@ -195,8 +204,8 @@ class StructInfoMapTest extends SqlTestBase {
         c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
         int memoVersion = StructInfoMap.getMemoVersion(targetBitSet, c1.getMemo().getRefreshVersion());
         root.getStructInfoMap().refresh(root, c1, targetBitSet, new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, memoVersion);
-        tableMaps = root.getStructInfoMap().getTableMaps();
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, memoVersion, true);
+        tableMaps = root.getStructInfoMap().getTableMaps(true);
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
     }
@@ -262,14 +271,14 @@ class StructInfoMapTest extends SqlTestBase {
         c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
         int memoVersion = StructInfoMap.getMemoVersion(targetBitSet, c1.getMemo().getRefreshVersion());
         root.getStructInfoMap().refresh(root, c1, targetBitSet, new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, memoVersion);
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, memoVersion, true);
         StructInfoMap structInfoMap = root.getStructInfoMap();
-        Assertions.assertEquals(2, structInfoMap.getTableMaps().size());
-        BitSet mvMap = structInfoMap.getTableMaps().stream()
+        Assertions.assertEquals(2, structInfoMap.getTableMaps(true).size());
+        BitSet mvMap = structInfoMap.getTableMaps(true).stream()
                 .filter(b -> b.cardinality() == 2)
                 .collect(Collectors.toList()).get(0);
         StructInfo structInfo = structInfoMap.getStructInfo(c1, mvMap, root, null,
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, true);
         System.out.println(structInfo.getOriginalPlan().treeString());
         BitSet bitSet = new BitSet();
         for (CatalogRelation relation : structInfo.getRelations()) {

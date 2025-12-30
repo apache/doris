@@ -79,7 +79,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -188,16 +187,15 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             MaterializationContext materializationContext) {
         List<StructInfo> validStructInfos = new ArrayList<>();
         // For every materialized view we should trigger refreshing struct info map
-        List<StructInfo> uncheckedQueryStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
-                cascadesContext,
-                materializationContext.getQueryRelationIdSetMvMatched(cascadesContext.getStatementContext()));
+        List<StructInfo> uncheckedQueryStructInfos = MaterializedViewUtils.extractStructInfoFuzzy(queryPlan, queryPlan,
+                cascadesContext, materializationContext.getCommonTableIdSet(cascadesContext.getStatementContext()));
         uncheckedQueryStructInfos.forEach(queryStructInfo -> {
             boolean valid = checkQueryPattern(queryStructInfo, cascadesContext) && queryStructInfo.isValid();
             if (!valid) {
                 cascadesContext.getMaterializationContexts().forEach(ctx ->
                         ctx.recordFailReason(queryStructInfo, "Query struct info is invalid",
                                 () -> String.format("query table bitmap is %s, plan is %s",
-                                        queryStructInfo.getTableBitSet(), queryPlan.treeString())
+                                        queryStructInfo.getRelations(), queryPlan.treeString())
                         ));
             } else {
                 validStructInfos.add(queryStructInfo);
@@ -278,9 +276,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 // Try to rewrite compensate predicates by using mv scan
                 List<Expression> rewriteCompensatePredicates = rewriteExpression(compensatePredicates.toList(),
                         queryPlan, materializationContext.getShuttledExprToScanExprMapping(),
-                        viewToQuerySlotMapping, queryStructInfo.getTableBitSet(),
-                        compensatePredicates.getRangePredicateMap(),
-                        cascadesContext);
+                        viewToQuerySlotMapping, compensatePredicates.getRangePredicateMap(), cascadesContext);
                 if (rewriteCompensatePredicates.isEmpty()) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "Rewrite compensate predicate by view fail",
@@ -321,7 +317,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     && sessionVariable.isEnableMaterializedViewUnionRewrite()) {
                 MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
                 Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
-                        cascadesContext.getStatementContext(), queryStructInfo.getTableBitSet());
+                        cascadesContext.getStatementContext(), queryStructInfo.getRelationBitSet());
                 Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
                 boolean relateTableUsedPartitionsAnyNull = false;
                 boolean relateTableUsedPartitionsAllEmpty = true;
@@ -588,14 +584,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      *         then use the corresponding value of mapping to replace it
      */
     protected List<Expression> rewriteExpression(List<? extends Expression> sourceExpressionsToWrite, Plan sourcePlan,
-            ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping, BitSet sourcePlanBitSet,
+            ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping,
             Map<Expression, ExpressionInfo> queryExprToInfoMap, CascadesContext cascadesContext) {
         // Firstly, rewrite the target expression using source with inverse mapping
         // then try to use the target expression to represent the query. if any of source expressions
         // could not be represented by target expressions, return null.
         // generate target to target replacement expression mapping, and change target expression to source based
         List<? extends Expression> sourceShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
-                sourceExpressionsToWrite, sourcePlan, sourcePlanBitSet);
+                sourceExpressionsToWrite, sourcePlan);
         ExpressionMapping expressionMappingKeySourceBased = targetExpressionMapping.keyPermute(targetToSourceMapping);
         // target to target replacement expression mapping, because mv is 1:1 so get the first element
         List<Map<Expression, Expression>> flattenExpressionMap = expressionMappingKeySourceBased.flattenMap();
@@ -917,7 +913,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         // query slot need shuttle to use table slot, avoid alias influence
         Set<Expression> queryUsedNeedRejectNullSlotsViewBased = ExpressionUtils.shuttleExpressionWithLineage(
-                        new ArrayList<>(queryNullRejectSlotSet), queryStructInfo.getTopPlan(), new BitSet()).stream()
+                        new ArrayList<>(queryNullRejectSlotSet), queryStructInfo.getTopPlan()).stream()
                 .map(expr -> ExpressionUtils.replace(expr, queryToViewMapping.toSlotReferenceMap()))
                 .collect(Collectors.toSet());
         // view slot need shuttle to use table slot, avoid alias influence
@@ -925,7 +921,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         for (Set<Slot> requireNullableSlots : requireNoNullableViewSlot) {
             shuttledRequireNoNullableViewSlot.add(
                     ExpressionUtils.shuttleExpressionWithLineage(new ArrayList<>(requireNullableSlots),
-                                    viewStructInfo.getTopPlan(), new BitSet()).stream().map(Slot.class::cast)
+                                    viewStructInfo.getTopPlan()).stream().map(Slot.class::cast)
                             .collect(Collectors.toSet()));
         }
         // query pulledUp predicates should have null reject predicates and contains any require noNullable slot
@@ -1101,7 +1097,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<Expression> queryOrderKeysExpressions = queryOrderKeys.stream()
                 .map(OrderKey::getExpr).collect(Collectors.toList());
         List<? extends Expression> queryOrderByExpressionsShuttled = ExpressionUtils.shuttleExpressionWithLineage(
-                queryOrderKeysExpressions, queryStructInfo.getTopPlan(), queryStructInfo.getTableBitSet());
+                queryOrderKeysExpressions, queryStructInfo.getTopPlan());
 
         List<OrderKey> queryShuttledOrderKeys = new ArrayList<>();
         for (int i = 0; i < queryOrderKeys.size(); i++) {
@@ -1112,7 +1108,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<OrderKey> viewShuttledOrderKeys = new ArrayList<>();
         List<? extends Expression> viewOrderByExpressionsShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                 viewOrderKeys.stream().map(OrderKey::getExpr).collect(Collectors.toList()),
-                viewStructInfo.getTopPlan(), new BitSet());
+                viewStructInfo.getTopPlan());
         List<Expression> viewOrderByExpressionsQueryBasedSet = ExpressionUtils.replace(
                 viewOrderByExpressionsShuttled.stream().map(Expression.class::cast).collect(Collectors.toList()),
                 viewToQuerySlotMapping.toSlotReferenceMap());
@@ -1132,7 +1128,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // try to rewrite the order by expressions using the mv scan slot
         List<Expression> rewrittenExpressions = rewriteExpression(queryOrderKeysExpressions,
                 queryStructInfo.getTopPlan(), materializationContext.shuttledExprToScanExprMapping,
-                viewToQuerySlotMapping, queryStructInfo.getTableBitSet(), ImmutableMap.of(), cascadesContext);
+                viewToQuerySlotMapping, ImmutableMap.of(), cascadesContext);
         if (rewrittenExpressions.isEmpty()) {
             materializationContext.recordFailReason(queryStructInfo,
                     "query topN order keys rewrite fail, query topN order keys is not consistent "

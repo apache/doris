@@ -59,55 +59,99 @@ public class StructInfoMap {
     /**
      * The map key is the relation id bit set to get corresponding plan accurately
      */
-    private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMap = new HashMap<>();
+    private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMapByRelationId = new HashMap<>();
     /**
      * The map key is the relation id bit set to get corresponding plan accurately
      */
-    private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
-    // The key is the relationIds query used, the value is the refresh version when last refresh
+    private final Map<BitSet, StructInfo> infoMapByRelationId = new HashMap<>();
+
+    /**
+     * The map key is the common table id bit set to get corresponding plan accurately
+     */
+    private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMapByTableId = new HashMap<>();
+    /**
+     * The map key is the common table id bit set to get corresponding plan accurately
+     */
+    private final Map<BitSet, StructInfo> infoMapByTableId = new HashMap<>();
+
+    // The key is the tableIds query used, the value is the refresh version when last refresh
     private final Map<BitSet, Integer> refreshVersion = new HashMap<>();
 
     /**
      * get struct info according to table map
      *
-     * @param tableMap the original table map
+     * @param targetIdMap the original table map
      * @param group the group that the mv matched
      * @return struct info or null if not found
      */
-    public @Nullable StructInfo getStructInfo(CascadesContext cascadesContext, BitSet tableMap, Group group,
-            Plan originPlan, boolean forceRefresh) {
-        StructInfo structInfo = infoMap.get(tableMap);
-        if (structInfo != null) {
-            return structInfo;
-        }
-        if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
-            int memoVersion = getMemoVersion(tableMap, cascadesContext.getMemo().getRefreshVersion());
-            refresh(group, cascadesContext, tableMap, new HashSet<>(), forceRefresh, memoVersion);
-            group.getStructInfoMap().setRefreshVersion(tableMap, cascadesContext.getMemo().getRefreshVersion());
-        }
-        if (groupExpressionMap.containsKey(tableMap)) {
-            Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(tableMap);
-            // NOTICE: During the transition from physicalAggregate to logical aggregation,
-            // the original function signature needs to remain unchanged because the constructor of LogicalAggregation
-            // will recalculate the signature of the aggregation function.
-            // When the calculated signature is inconsistent with the original signature
-            // (e.g. due to the influence of the session variable enable_decimal256),
-            // a problem will arise where the output type of the rewritten plan is inconsistent with
-            // the output type of the upper-level operator.
-            structInfo = MoreFieldsThread.keepFunctionSignature(() ->
-                    constructStructInfo(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second,
-                    originPlan, cascadesContext));
-            infoMap.put(tableMap, structInfo);
+    public @Nullable StructInfo getStructInfo(CascadesContext cascadesContext, BitSet targetIdMap, Group group,
+            Plan originPlan, boolean forceRefresh, boolean tableIdMode) {
+        StructInfo structInfo;
+        if (tableIdMode) {
+            structInfo = infoMapByTableId.get(targetIdMap);
+            if (structInfo != null) {
+                return structInfo;
+            }
+            if (groupExpressionMapByTableId.isEmpty() || !groupExpressionMapByTableId.containsKey(targetIdMap)) {
+                refresh(group, cascadesContext, targetIdMap, new HashSet<>(),
+                        forceRefresh, Integer.MAX_VALUE, tableIdMode);
+                group.getStructInfoMap().setRefreshVersion(targetIdMap, cascadesContext.getMemo().getRefreshVersion());
+            }
+            if (groupExpressionMapByTableId.containsKey(targetIdMap)) {
+                Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair =
+                        getGroupExpressionWithChildren(targetIdMap, tableIdMode);
+                // NOTICE: During the transition from physicalAggregate to logical aggregation,
+                // the original function signature needs to remain unchanged because the constructor
+                // of LogicalAggregation
+                // will recalculate the signature of the aggregation function.
+                // When the calculated signature is inconsistent with the original signature
+                // (e.g. due to the influence of the session variable enable_decimal256),
+                // a problem will arise where the output type of the rewritten plan is inconsistent with
+                // the output type of the upper-level operator.
+                structInfo = MoreFieldsThread.keepFunctionSignature(() ->
+                        constructStructInfo(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second,
+                                originPlan, cascadesContext, tableIdMode));
+                infoMapByTableId.put(targetIdMap, structInfo);
+            }
+        } else {
+            structInfo = infoMapByRelationId.get(targetIdMap);
+            if (structInfo != null) {
+                return structInfo;
+            }
+            if (groupExpressionMapByRelationId.isEmpty() || !groupExpressionMapByRelationId.containsKey(targetIdMap)) {
+                int memoVersion = getMemoVersion(targetIdMap, cascadesContext.getMemo().getRefreshVersion());
+                refresh(group, cascadesContext, targetIdMap, new HashSet<>(), forceRefresh, memoVersion, tableIdMode);
+                group.getStructInfoMap().setRefreshVersion(targetIdMap, cascadesContext.getMemo().getRefreshVersion());
+            }
+            if (groupExpressionMapByRelationId.containsKey(targetIdMap)) {
+                Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair =
+                        getGroupExpressionWithChildren(targetIdMap, tableIdMode);
+                // NOTICE: During the transition from physicalAggregate to logical aggregation,
+                // the original function signature needs to remain unchanged because the constructor
+                // of LogicalAggregation
+                // will recalculate the signature of the aggregation function.
+                // When the calculated signature is inconsistent with the original signature
+                // (e.g. due to the influence of the session variable enable_decimal256),
+                // a problem will arise where the output type of the rewritten plan is inconsistent with
+                // the output type of the upper-level operator.
+                structInfo = MoreFieldsThread.keepFunctionSignature(() ->
+                        constructStructInfo(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second,
+                                originPlan, cascadesContext, tableIdMode));
+                infoMapByRelationId.put(targetIdMap, structInfo);
+            }
         }
         return structInfo;
     }
 
-    public Set<BitSet> getTableMaps() {
-        return groupExpressionMap.keySet();
+    public Set<BitSet> getTableMaps(boolean tableIdMode) {
+        return tableIdMode ? groupExpressionMapByTableId.keySet() : groupExpressionMapByRelationId.keySet();
     }
 
-    public Pair<GroupExpression, List<BitSet>> getGroupExpressionWithChildren(BitSet tableMap) {
-        return groupExpressionMap.get(tableMap);
+    public Pair<GroupExpression, List<BitSet>> getGroupExpressionWithChildren(BitSet tableMap, boolean tableIdMode) {
+        if (tableIdMode) {
+            return groupExpressionMapByTableId.get(tableMap);
+        }
+        return groupExpressionMapByRelationId.get(tableMap);
     }
 
     // Set the refresh version for the given queryRelationIdSet
@@ -142,22 +186,22 @@ public class StructInfoMap {
     }
 
     private StructInfo constructStructInfo(GroupExpression groupExpression, List<BitSet> children,
-            Plan originPlan, CascadesContext cascadesContext) {
+            Plan originPlan, CascadesContext cascadesContext, boolean tableIdMode) {
         // this plan is not origin plan, should record origin plan in struct info
-        Plan plan = constructPlan(groupExpression, children);
+        Plan plan = constructPlan(groupExpression, children, tableIdMode);
         return originPlan == null ? StructInfo.of(plan, cascadesContext)
                 : StructInfo.of(plan, originPlan, cascadesContext);
     }
 
-    private Plan constructPlan(GroupExpression groupExpression, List<BitSet> children) {
+    private Plan constructPlan(GroupExpression groupExpression, List<BitSet> children, boolean tableIdMode) {
         List<Plan> childrenPlan = new ArrayList<>();
         for (int i = 0; i < children.size(); i++) {
             StructInfoMap structInfoMap = groupExpression.child(i).getStructInfoMap();
             BitSet childMap = children.get(i);
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair
-                    = structInfoMap.getGroupExpressionWithChildren(childMap);
+                    = structInfoMap.getGroupExpressionWithChildren(childMap, tableIdMode);
             childrenPlan.add(
-                    constructPlan(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second));
+                    constructPlan(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second, tableIdMode));
         }
         // need to clear current group expression info by using withGroupExpression
         // this plan would copy into memo, if with group expression, would cause err
@@ -172,12 +216,12 @@ public class StructInfoMap {
      *
      */
     public void refresh(Group group, CascadesContext cascadesContext,
-            BitSet targetBitSet,
-            Set<Integer> refreshedGroup,
-            boolean forceRefresh, int memoVersion) {
+            BitSet targetBitSet, Set<Integer> refreshedGroup,
+            boolean forceRefresh, int memoVersion, boolean tableIdMode) {
         StructInfoMap structInfoMap = group.getStructInfoMap();
         refreshedGroup.add(group.getGroupId().asInt());
-        if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.getRefreshVersion(targetBitSet)) {
+        if (!structInfoMap.getTableMaps(tableIdMode).isEmpty()
+                && memoVersion == structInfoMap.getRefreshVersion(targetBitSet)) {
             return;
         }
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
@@ -187,7 +231,11 @@ public class StructInfoMap {
                 if (leaf.isEmpty()) {
                     break;
                 }
-                groupExpressionMap.put(leaf, Pair.of(groupExpression, new LinkedList<>()));
+                if (tableIdMode) {
+                    groupExpressionMapByTableId.put(leaf, Pair.of(groupExpression, new LinkedList<>()));
+                } else {
+                    groupExpressionMapByRelationId.put(leaf, Pair.of(groupExpression, new LinkedList<>()));
+                }
                 continue;
             }
             // this is used for filter group expression whose children's table map all not in targetBitSet
@@ -198,11 +246,11 @@ public class StructInfoMap {
                 StructInfoMap childStructInfoMap = child.getStructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
                     childStructInfoMap.refresh(child, cascadesContext, targetBitSet,
-                            refreshedGroup, forceRefresh, memoVersion);
+                            refreshedGroup, forceRefresh, memoVersion, tableIdMode);
                     childStructInfoMap.setRefreshVersion(targetBitSet, memoVersion);
                 }
                 Set<BitSet> groupTableSet = new HashSet<>();
-                for (BitSet tableMaps : child.getStructInfoMap().getTableMaps()) {
+                for (BitSet tableMaps : child.getStructInfoMap().getTableMaps(tableIdMode)) {
                     groupTableSet.add(tableMaps);
                     filteredTableMaps.or(tableMaps);
                 }
@@ -211,7 +259,7 @@ public class StructInfoMap {
                 }
             }
             // filter the tableSet that used intersects with targetBitSet, make sure the at least constructed
-            if (!structInfoMap.getTableMaps().isEmpty() && !targetBitSet.isEmpty()
+            if (!structInfoMap.getTableMaps(tableIdMode).isEmpty() && !targetBitSet.isEmpty()
                     && !filteredTableMaps.isEmpty() && !filteredTableMaps.intersects(targetBitSet)) {
                 continue;
             }
@@ -225,19 +273,33 @@ public class StructInfoMap {
                     eachGroupExpressionTableSet.or(bitSet);
                 }
             }
-            if (groupExpressionMap.containsKey(eachGroupExpressionTableSet)) {
-                // for the group expressions of group, only need to refresh any of the group expression
-                // when they have the same group expression table set
-                continue;
+            if (tableIdMode) {
+                if (groupExpressionMapByTableId.containsKey(eachGroupExpressionTableSet)) {
+                    // for the group expressions of group, only need to refresh any of the group expression
+                    // when they have the same group expression table set
+                    continue;
+                }
+            } else {
+                if (groupExpressionMapByRelationId.containsKey(eachGroupExpressionTableSet)) {
+                    // for the group expressions of group, only need to refresh any of the group expression
+                    // when they have the same group expression table set
+                    continue;
+                }
             }
             // if cumulative child table map is different from current
             // or current group expression map is empty, should update the groupExpressionMap currently
             Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
-            for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
-                groupExpressionMap.putIfAbsent(bitSetWithChild.first,
-                        Pair.of(groupExpression, bitSetWithChild.second));
+            if (tableIdMode) {
+                for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
+                    groupExpressionMapByTableId.putIfAbsent(bitSetWithChild.first,
+                            Pair.of(groupExpression, bitSetWithChild.second));
+                }
+            } else {
+                for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
+                    groupExpressionMapByRelationId.putIfAbsent(bitSetWithChild.first,
+                            Pair.of(groupExpression, bitSetWithChild.second));
+                }
             }
-
         }
     }
 
@@ -279,6 +341,12 @@ public class StructInfoMap {
 
     @Override
     public String toString() {
-        return "StructInfoMap{ groupExpressionMap = " + groupExpressionMap + ", infoMap = " + infoMap + '}';
+        return "StructInfoMap{"
+                + " groupExpressionMapByRelationId=" + groupExpressionMapByRelationId.keySet()
+                + ", infoMapByRelationId=" + infoMapByRelationId.keySet()
+                + ", groupExpressionMapByTableId=" + groupExpressionMapByTableId.keySet()
+                + ", infoMapByTableId=" + infoMapByTableId.keySet()
+                + ", refreshVersion=" + refreshVersion
+                + '}';
     }
 }
