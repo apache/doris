@@ -46,6 +46,7 @@ public class BrokerLoadPendingTaskTest {
 
     @BeforeClass
     public static void setUp() {
+        tBrokerFileStatus.path = "hdfs://localhost:8900/test_column/file.csv";
         tBrokerFileStatus.size = 1;
     }
 
@@ -80,5 +81,51 @@ public class BrokerLoadPendingTaskTest {
         BrokerPendingTaskAttachment brokerPendingTaskAttachment = Deencapsulation.getField(brokerLoadPendingTask, "attachment");
         Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
         Assert.assertEquals(tBrokerFileStatus, brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0));
+    }
+
+    @Test
+    public void testFilterSuccessFile(@Injectable BrokerLoadJob brokerLoadJob,
+                                      @Injectable BrokerFileGroup brokerFileGroup,
+                                      @Injectable BrokerDesc brokerDesc,
+                                      @Mocked Env env) throws UserException {
+        Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
+        List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
+        brokerFileGroups.add(brokerFileGroup);
+        FileGroupAggKey aggKey = new FileGroupAggKey(1L, null);
+        aggKeyToFileGroups.put(aggKey, brokerFileGroups);
+
+        TBrokerFileStatus successFile = new TBrokerFileStatus();
+        successFile.path = "hdfs://localhost:8900/test_column/_SUCCESS";
+        successFile.size = 0;
+        successFile.isDir = false;
+
+        TBrokerFileStatus dataFile = new TBrokerFileStatus();
+        dataFile.path = "hdfs://localhost:8900/test_column/data.csv";
+        dataFile.size = 100;
+        dataFile.isDir = false;
+
+        new Expectations() {
+            {
+                env.getNextId();
+                result = 1L;
+                brokerFileGroup.getFilePaths();
+                result = "hdfs://localhost:8900/test_column/*";
+            }
+        };
+
+        new MockUp<BrokerUtil>() {
+            @Mock
+            public void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses) {
+                fileStatuses.add(successFile);
+                fileStatuses.add(dataFile);
+            }
+        };
+
+        BrokerLoadPendingTask brokerLoadPendingTask = new BrokerLoadPendingTask(brokerLoadJob, aggKeyToFileGroups, brokerDesc, LoadTask.Priority.NORMAL);
+        brokerLoadPendingTask.executeTask();
+        BrokerPendingTaskAttachment brokerPendingTaskAttachment = Deencapsulation.getField(brokerLoadPendingTask, "attachment");
+        // Only dataFile should be kept
+        Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
+        Assert.assertEquals(dataFile.path, brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0).path);
     }
 }
