@@ -285,7 +285,6 @@ import org.apache.doris.transaction.TxnCommitAttachment;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -3604,10 +3603,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
         }
-        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.DisableCache")) {
-            LOG.info("Disable auto partition cache");
-            needUseCache = false;
-        }
         OlapTable olapTable = (OlapTable) table;
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         ArrayList<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
@@ -3717,25 +3712,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
-                        // The purpose of this injected code is to simulate tablet rebalance.
-                        // Before using this code to write tests, you should ensure that your
-                        // configuration is set to single replica.
-                        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
-                            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                                    "FE.FrontendServiceImpl.createPartition.MockRebalance");
-                            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
-                            Multimap<Long, Long> tmpBePathsMap = HashMultimap.create();
-                            List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
-                            int choseNum = currentExecuteNum % allBeIds.size();
-                            // (assign different distribution information to tablets)
-                            for (Long beId : bePathsMap.keySet()) {
-                                Long otherBeId = allBeIds.get(choseNum);
-                                LOG.info("Mock rebalance: tablet={}, beId={} => otherBeId={}",
-                                        tablet.getId(), beId, otherBeId);
-                                tmpBePathsMap.put(otherBeId, (long) -1);
-                            }
-                            bePathsMap = tmpBePathsMap;
-                        }
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                         result.setStatus(errorStatus);
@@ -3760,6 +3736,36 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 Lists.newArrayList(bePathsMap.keySet())));
                     }
                 }
+            }
+
+            // The purpose of this injected code is to simulate tablet rebalance.
+            // Before using this code to write tests, you should ensure that your
+            // configuration is set to single replica.
+            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
+                DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                        "FE.FrontendServiceImpl.createPartition.MockRebalance");
+                int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+                if (currentExecuteNum > 1) {
+                    List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                    if (!partitionTablets.isEmpty() && !allBeIds.isEmpty()) {
+                        TTabletLocation firstTablet = partitionTablets.get(0);
+                        List<Long> curBeIds = firstTablet.getNodeIds();
+                        Long curBeId = curBeIds.get(0);
+                        for (Long beId : allBeIds) {
+                            if (beId != curBeId) {
+                                LOG.info("Mock rebalance: modify first tablet={}, beId={} => newBeId={}",
+                                        firstTablet.getTabletId(), curBeId, beId);
+                                firstTablet.setNodeIds(Lists.newArrayList(beId));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.DisableCache")) {
+                LOG.info("Disable auto partition cache");
+                needUseCache = false;
             }
 
             if (needUseCache) {
@@ -3865,10 +3871,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     txnId = coordinator.getTxnId();
                 }
             }
-        }
-        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
-            LOG.info("Disable auto partition cache");
-            needUseCache = false;
         }
         InsertOverwriteManager overwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
         ReentrantLock taskLock = overwriteManager.getLock(taskGroupId);
@@ -4025,25 +4027,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
-                        // The purpose of this injected code is to simulate tablet rebalance.
-                        // Before using this code to write tests, you should ensure that your
-                        // configuration is set to single replica.
-                        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.MockRebalance")) {
-                            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                                    "FE.FrontendServiceImpl.replacePartition.MockRebalance");
-                            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
-                            Multimap<Long, Long> tmpBePathsMap = HashMultimap.create();
-                            List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
-                            int choseNum = currentExecuteNum % allBeIds.size();
-                            // (assign different distribution information to tablets)
-                            for (Long beId : bePathsMap.keySet()) {
-                                Long otherBeId = allBeIds.get(choseNum);
-                                LOG.info("Mock rebalance: tablet={}, beId={} => otherBeId={}",
-                                        tablet.getId(), beId, otherBeId);
-                                tmpBePathsMap.put(otherBeId, (long) -1);
-                            }
-                            bePathsMap = tmpBePathsMap;
-                        }
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                         result.setStatus(errorStatus);
@@ -4068,6 +4051,36 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 Lists.newArrayList(bePathsMap.keySet())));
                     }
                 }
+            }
+
+            // The purpose of this injected code is to simulate tablet rebalance.
+            // Before using this code to write tests, you should ensure that your
+            // configuration is set to single replica.
+            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.MockRebalance")) {
+                DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                        "FE.FrontendServiceImpl.replacePartition.MockRebalance");
+                int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+                if (currentExecuteNum > 1) {
+                    List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                    if (!partitionTablets.isEmpty() && !allBeIds.isEmpty()) {
+                        TTabletLocation firstTablet = partitionTablets.get(0);
+                        List<Long> curBeIds = firstTablet.getNodeIds();
+                        Long curBeId = curBeIds.get(0);
+                        for (Long beId : allBeIds) {
+                            if (beId != curBeId) {
+                                LOG.info("Mock rebalance: modify first tablet={}, beId={} => newBeId={}",
+                                        firstTablet.getTabletId(), curBeId, beId);
+                                firstTablet.setNodeIds(Lists.newArrayList(beId));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
+                LOG.info("Disable auto partition cache");
+                needUseCache = false;
             }
 
             if (needUseCache) {
