@@ -60,7 +60,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -77,7 +77,7 @@ public class Memo {
     private final ConnectContext connectContext;
     // The key is the query relationId, the value is the refresh version when last refresh, this is needed
     // because struct info refresh base on target relationId.
-    private final Map<Integer, AtomicLong> refreshVersion = new HashMap<>();
+    private final Map<Integer, AtomicInteger> refreshVersion = new HashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckSuccessMap =
             new LinkedHashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckFailMap =
@@ -132,7 +132,7 @@ public class Memo {
     }
 
     /** get the refresh version map*/
-    public Map<Integer, AtomicLong> getRefreshVersion() {
+    public Map<Integer, AtomicInteger> getRefreshVersion() {
         return refreshVersion;
     }
 
@@ -140,7 +140,7 @@ public class Memo {
     public long incrementAndGetRefreshVersion(int relationId) {
         return refreshVersion.compute(relationId, (k, v) -> {
             if (v == null) {
-                return new AtomicLong(1L);
+                return new AtomicInteger(1);
             }
             v.incrementAndGet();
             return v;
@@ -479,7 +479,6 @@ public class Memo {
                     plan.getLogicalProperties(), targetGroup.getLogicalProperties());
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
-        // TODO Support sync materialized view in the future
         if (connectContext != null
                 && connectContext.getSessionVariable().isEnableMaterializedViewNestRewrite()
                 && plan instanceof LogicalCatalogRelation

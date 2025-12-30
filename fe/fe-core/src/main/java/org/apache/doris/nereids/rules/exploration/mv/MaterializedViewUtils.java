@@ -283,8 +283,10 @@ public class MaterializedViewUtils {
             StructInfoMap structInfoMap = ownerGroup.getStructInfoMap();
             // Refresh struct info in current level plan from top to bottom
             SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+            int memoVersion = StructInfoMap.getMemoVersion(targetRelationIdSet,
+                    cascadesContext.getMemo().getRefreshVersion());
             structInfoMap.refresh(ownerGroup, cascadesContext, targetRelationIdSet, new HashSet<>(),
-                    sessionVariable.isEnableMaterializedViewNestRewrite());
+                    sessionVariable.isEnableMaterializedViewNestRewrite(), memoVersion);
             structInfoMap.setRefreshVersion(targetRelationIdSet, cascadesContext.getMemo().getRefreshVersion());
             Set<BitSet> queryRelationIdSets = structInfoMap.getTableMaps();
             ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();

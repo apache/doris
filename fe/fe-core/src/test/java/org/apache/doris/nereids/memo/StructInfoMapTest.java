@@ -65,7 +65,7 @@ class StructInfoMapTest extends SqlTestBase {
         Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
         root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, 0);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
@@ -113,8 +113,9 @@ class StructInfoMapTest extends SqlTestBase {
             targetBitSet.set(relationId);
         }
         c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
+        int memoVersion = StructInfoMap.getMemoVersion(targetBitSet, c1.getMemo().getRefreshVersion());
         root.getStructInfoMap().refresh(root, c1, targetBitSet, new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, memoVersion);
         tableMaps = root.getStructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
@@ -144,9 +145,9 @@ class StructInfoMapTest extends SqlTestBase {
         Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
         root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, 0);
         root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, 0);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
@@ -192,8 +193,9 @@ class StructInfoMapTest extends SqlTestBase {
             targetBitSet.set(relationId);
         }
         c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
+        int memoVersion = StructInfoMap.getMemoVersion(targetBitSet, c1.getMemo().getRefreshVersion());
         root.getStructInfoMap().refresh(root, c1, targetBitSet, new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, memoVersion);
         tableMaps = root.getStructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
@@ -258,8 +260,9 @@ class StructInfoMapTest extends SqlTestBase {
             targetBitSet.set(relationId);
         }
         c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
+        int memoVersion = StructInfoMap.getMemoVersion(targetBitSet, c1.getMemo().getRefreshVersion());
         root.getStructInfoMap().refresh(root, c1, targetBitSet, new HashSet<>(),
-                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite, memoVersion);
         StructInfoMap structInfoMap = root.getStructInfoMap();
         Assertions.assertEquals(2, structInfoMap.getTableMaps().size());
         BitSet mvMap = structInfoMap.getTableMaps().stream()

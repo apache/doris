@@ -43,7 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 
 /**
@@ -52,6 +52,10 @@ import javax.annotation.Nullable;
 public class StructInfoMap {
 
     public static final Logger LOG = LogManager.getLogger(StructInfoMap.class);
+    // 2166136261
+    private static final int FNV32_OFFSET_BASIS = 0x811C9DC5;
+    // 16777619
+    private static final int FNV32_PRIME = 0x01000193;
     /**
      * The map key is the relation id bit set to get corresponding plan accurately
      */
@@ -61,7 +65,7 @@ public class StructInfoMap {
      */
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
     // The key is the relationIds query used, the value is the refresh version when last refresh
-    private final Map<BitSet, Long> refreshVersion = new HashMap<>();
+    private final Map<BitSet, Integer> refreshVersion = new HashMap<>();
 
     /**
      * get struct info according to table map
@@ -77,8 +81,8 @@ public class StructInfoMap {
             return structInfo;
         }
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
-            refresh(group, cascadesContext, tableMap, new HashSet<>(),
-                    forceRefresh);
+            int memoVersion = getMemoVersion(tableMap, cascadesContext.getMemo().getRefreshVersion());
+            refresh(group, cascadesContext, tableMap, new HashSet<>(), forceRefresh, memoVersion);
             group.getStructInfoMap().setRefreshVersion(tableMap, cascadesContext.getMemo().getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {
@@ -107,30 +111,34 @@ public class StructInfoMap {
     }
 
     // Set the refresh version for the given queryRelationIdSet
-    public void setRefreshVersion(BitSet queryRelationIdSet, Map<Integer, AtomicLong> memoRefreshVersionMap) {
+    public void setRefreshVersion(BitSet queryRelationIdSet, Map<Integer, AtomicInteger> memoRefreshVersionMap) {
         this.refreshVersion.put(queryRelationIdSet, getMemoVersion(queryRelationIdSet, memoRefreshVersionMap));
     }
 
     // Set the refresh version for the given queryRelationIdSet
-    public void setRefreshVersion(BitSet queryRelationIdSet, Long memoRefreshVersion) {
+    public void setRefreshVersion(BitSet queryRelationIdSet, int memoRefreshVersion) {
         this.refreshVersion.put(queryRelationIdSet, memoRefreshVersion);
     }
 
     // Get the refresh version for the given queryRelationIdSet, if not exist, return 0
     public long getRefreshVersion(BitSet queryRelationIdSet) {
-        return refreshVersion.computeIfAbsent(queryRelationIdSet, k -> 0L);
+        return refreshVersion.computeIfAbsent(queryRelationIdSet, k -> 0);
     }
 
-    /** Get the max memo version among the relation ids in queryRelationIdSet*/
-    public static long getMemoVersion(BitSet queryRelationIdSet, Map<Integer, AtomicLong> memoRefreshVersionMap) {
-        long version = 0L;
-        for (Integer queryMvRelationId : memoRefreshVersionMap.keySet()) {
-            if (queryRelationIdSet.get(queryMvRelationId)) {
-                AtomicLong memoRefreshVersion = memoRefreshVersionMap.get(queryMvRelationId);
-                version = Math.max(memoRefreshVersion.get(), version);
+    /** Get the memo version among the relation ids in queryRelationIdSet*/
+    public static int getMemoVersion(BitSet queryRelationIdSet, Map<Integer, AtomicInteger> memoRefreshVersionMap) {
+        int hash = FNV32_OFFSET_BASIS;
+        for (int id = queryRelationIdSet.nextSetBit(0);
+                id >= 0; id = queryRelationIdSet.nextSetBit(id + 1)) {
+            AtomicInteger ver = memoRefreshVersionMap.get(id);
+            int tmpVer = ver == null ? 0 : ver.get();
+            hash ^= tmpVer;
+            hash *= FNV32_PRIME;
+            if (id == Integer.MAX_VALUE) {
+                break;
             }
         }
-        return version;
+        return hash;
     }
 
     private StructInfo constructStructInfo(GroupExpression groupExpression, List<BitSet> children,
@@ -166,10 +174,9 @@ public class StructInfoMap {
     public void refresh(Group group, CascadesContext cascadesContext,
             BitSet targetBitSet,
             Set<Integer> refreshedGroup,
-            boolean forceRefresh) {
+            boolean forceRefresh, int memoVersion) {
         StructInfoMap structInfoMap = group.getStructInfoMap();
         refreshedGroup.add(group.getGroupId().asInt());
-        long memoVersion = getMemoVersion(targetBitSet, cascadesContext.getMemo().getRefreshVersion());
         if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.getRefreshVersion(targetBitSet)) {
             return;
         }
@@ -190,7 +197,8 @@ public class StructInfoMap {
                 // group in expression should all be reserved
                 StructInfoMap childStructInfoMap = child.getStructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
-                    childStructInfoMap.refresh(child, cascadesContext, targetBitSet, refreshedGroup, forceRefresh);
+                    childStructInfoMap.refresh(child, cascadesContext, targetBitSet,
+                            refreshedGroup, forceRefresh, memoVersion);
                     childStructInfoMap.setRefreshVersion(targetBitSet, memoVersion);
                 }
                 Set<BitSet> groupTableSet = new HashSet<>();
