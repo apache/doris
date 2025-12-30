@@ -253,11 +253,20 @@ public class FrontendServiceImplTest {
     }
 
     @Test
-    public void testRestoreSnapshotWithStorageMedium() throws TException {
+    public void testRestoreSnapshotParameterValidationStorageMedium() throws TException {
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
         TRestoreSnapshotRequest request = new TRestoreSnapshotRequest();
 
-        // Test with storage_medium parameter in properties
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test_db");
+        request.setLabelName("test_label");
+        request.setRepoName("test_repo");
+        request.setMeta(new byte[0]);  // Empty meta will fail later, but passes the isSet() check
+        request.setJobInfo(new byte[0]);
+
+        request.setToken("test_token");
+
         Map<String, String> properties = new HashMap<>();
         properties.put("storage_medium", "ssd");
         request.setProperties(properties);
@@ -268,9 +277,18 @@ public class FrontendServiceImplTest {
     }
 
     @Test
-    public void testRestoreSnapshotWithMediumAllocationMode() throws TException {
+    public void testRestoreSnapshotParameterValidationMediumAllocationMode() throws TException {
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
         TRestoreSnapshotRequest request = new TRestoreSnapshotRequest();
+
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test_db");
+        request.setLabelName("test_label");
+        request.setRepoName("test_repo");
+        request.setMeta(new byte[0]);
+        request.setJobInfo(new byte[0]);
+        request.setToken("test_token");  // Bypass auth
 
         // Test with medium_allocation_mode parameter in properties
         Map<String, String> properties = new HashMap<>();
@@ -282,12 +300,25 @@ public class FrontendServiceImplTest {
         Assert.assertNotNull(result.getStatus());
     }
 
+    /**
+     * Test restoreSnapshot() with both parameters
+     * Tests the parameter validation path in restoreSnapshotImpl()
+     */
     @Test
-    public void testRestoreSnapshotWithBothParameters() throws TException {
+    public void testRestoreSnapshotParameterValidationBothParameters() throws TException {
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
         TRestoreSnapshotRequest request = new TRestoreSnapshotRequest();
 
-        // Test with both storage_medium and medium_allocation_mode in properties
+        // Set required fields
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test_db");
+        request.setLabelName("test_label");
+        request.setRepoName("test_repo");
+        request.setMeta(new byte[0]);
+        request.setJobInfo(new byte[0]);
+        request.setToken("test_token");  // Bypass auth
+
         Map<String, String> properties = new HashMap<>();
         properties.put("storage_medium", "hdd");
         properties.put("medium_allocation_mode", "strict");
@@ -298,16 +329,81 @@ public class FrontendServiceImplTest {
         Assert.assertNotNull(result.getStatus());
     }
 
+    /**
+     * Test restoreSnapshot() with same_with_upstream
+     * Tests the parameter validation path in restoreSnapshotImpl()
+     */
     @Test
-    public void testRestoreSnapshotWithSameWithUpstream() throws TException {
+    public void testRestoreSnapshotParameterValidationSameWithUpstream() throws TException {
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
         TRestoreSnapshotRequest request = new TRestoreSnapshotRequest();
+
+        // Set required fields
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test_db");
+        request.setLabelName("test_label");
+        request.setRepoName("test_repo");
+        request.setMeta(new byte[0]);
+        request.setJobInfo(new byte[0]);
+        request.setToken("test_token");  // Bypass auth
 
         // Test with same_with_upstream storage medium in properties
         Map<String, String> properties = new HashMap<>();
         properties.put("storage_medium", "same_with_upstream");
         properties.put("medium_allocation_mode", "adaptive");
         request.setProperties(properties);
+
+        TRestoreSnapshotResult result = impl.restoreSnapshot(request);
+        Assert.assertNotNull(result);
+        Assert.assertNotNull(result.getStatus());
+    }
+
+    @Test
+    public void testRestoreSnapshotWithAllFlags() throws TException {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TRestoreSnapshotRequest request = new TRestoreSnapshotRequest();
+
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test_db");
+        request.setLabelName("test_label");
+        request.setRepoName("test_repo");
+        request.setMeta(new byte[0]);
+        request.setJobInfo(new byte[0]);
+        request.setToken("test_token");
+
+        request.setCleanPartitions(true);
+        request.setCleanTables(true);
+        request.setAtomicRestore(true);
+        request.setForceReplace(true);
+        request.setStorageMedium("ssd");
+        request.setMediumAllocationMode("adaptive");
+
+        Map<String, String> properties = new HashMap<>();
+        properties.put("reserve_replica", "true");
+        properties.put("reserve_dynamic_partition_enable", "true");
+        properties.put("custom_property", "custom_value");
+        request.setProperties(properties);
+
+        TRestoreSnapshotResult result = impl.restoreSnapshot(request);
+        Assert.assertNotNull(result);
+        Assert.assertNotNull(result.getStatus());
+    }
+
+    @Test
+    public void testRestoreSnapshotWithNoProperties() throws TException {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TRestoreSnapshotRequest request = new TRestoreSnapshotRequest();
+
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test_db");
+        request.setLabelName("test_label");
+        request.setRepoName("test_repo");
+        request.setMeta(new byte[0]);
+        request.setJobInfo(new byte[0]);
+        request.setToken("test_token");
 
         TRestoreSnapshotResult result = impl.restoreSnapshot(request);
         Assert.assertNotNull(result);

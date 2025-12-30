@@ -1099,6 +1099,9 @@ public class CreateTableTest extends TestWithFeService {
                         + "\"replication_num\" = \"1\",\n"
                         + "\"sequence_mapping.s1\" = \"c,d\"\n"
                         + ");", true));
+    }
+
+    @Test
     public void testStorageMediumProperty() throws Exception {
         // 1. Test create table with 'storage_medium' property.
         // This should implicitly set 'storage_medium_specified' to true.
