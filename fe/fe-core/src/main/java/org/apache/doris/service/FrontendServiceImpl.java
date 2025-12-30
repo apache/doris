@@ -3602,15 +3602,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (instanceNum > 1) {
                     needUseCache = true;
                 }
-
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("needUseCache = : {}, instanceNum = {}", needUseCache, instanceNum);
-                }
             }
         }
 
         if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.DisableCache")) {
-            LOG.info("Disable auto partition cache");
             needUseCache = false;
         }
 
@@ -3618,7 +3613,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
                     "FE.FrontendServiceImpl.createPartition.MockRebalance");
             int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
-            LOG.info("open MockRebalance, currentExecuteNum = {}", currentExecuteNum);
             if (currentExecuteNum > 1) {
                 mockRebalance = true;
             }
@@ -3713,9 +3707,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
-                LOG.debug("Fast path: use cached auto partition info, txnId: {}, partitionId: {}, "
-                        + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
-                        partitionTablets.size(), partitionSlaveTablets.size());
                 continue;
             }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
@@ -3782,9 +3773,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
                                 partitionSlaveTablets);
-                LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
-                        + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
-                        partitionTablets.size(), partitionSlaveTablets.size());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
+                            + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
+                            partitionTablets.size(), partitionSlaveTablets.size());
+                }
             }
 
             tablets.addAll(partitionTablets);
@@ -3882,15 +3875,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     needUseCache = true;
                     txnId = coordinator.getTxnId();
                 }
-
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("needUseCache = : {}, instanceNum = {}", needUseCache, instanceNum);
-                }
             }
         }
 
         if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
-            LOG.info("Disable auto partition cache");
             needUseCache = false;
         }
 
@@ -3898,7 +3886,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
                     "FE.FrontendServiceImpl.replacePartition.MockRebalance");
             int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
-            LOG.info("open MockRebalance, currentExecuteNum = {}", currentExecuteNum);
             if (currentExecuteNum > 1) {
                 mockRebalance = true;
             }
@@ -4039,9 +4026,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
-                LOG.debug("Fast path: use cached auto partition info, txnId: {}, partitionId: {}, "
-                        + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
-                        partitionTablets.size(), partitionSlaveTablets.size());
                 continue;
             }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
@@ -4095,8 +4079,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     Long curBeId = curBeIds.get(0);
                     for (Long beId : allBeIds) {
                         if (beId != curBeId) {
-                            LOG.info("Mock rebalance: modify first tablet={}, beId={} => newBeId={}",
-                                    oldTablet.getTabletId(), curBeId, beId);
                             oldTablet.setNodeIds(Lists.newArrayList(beId));
                             break;
                         }
@@ -4105,7 +4087,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
-                LOG.info("Disable auto partition cache");
                 needUseCache = false;
             }
 
@@ -4113,9 +4094,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
                                 partitionSlaveTablets);
-                LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
-                        + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
-                        partitionTablets.size(), partitionSlaveTablets.size());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
+                            + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
+                            partitionTablets.size(), partitionSlaveTablets.size());
+                }
             }
 
             tablets.addAll(partitionTablets);
