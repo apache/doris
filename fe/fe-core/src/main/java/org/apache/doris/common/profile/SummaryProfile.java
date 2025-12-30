@@ -915,7 +915,6 @@ public class SummaryProfile {
     }
 
 
-
     public void setMaxConcurrency(int maxConcurrency) {
         this.maxConcurrency = maxConcurrency;
     }
