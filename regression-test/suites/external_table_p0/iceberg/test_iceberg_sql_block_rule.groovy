@@ -71,7 +71,7 @@ suite("test_iceberg_sql_block_rule", "p0,external,doris,external_docker,external
     sql """create sql_block_rule iceberg_partition_rule properties("partition_num" = "1", "global" = "false");"""
     sql """create sql_block_rule iceberg_split_rule properties("tablet_num" = "1", "global" = "false");"""
     sql """create sql_block_rule iceberg_cardinality_rule properties("cardinality" = "1", "global" = "false");"""
-    sql """create sql_block_rule iceberg_regex_rule properties("sql" = "SELECT \\\\* FROM ${table_name}", "global" = "false");"""
+    sql """create sql_block_rule iceberg_regex_rule properties("sql" = "SELECT \\\\*", "global" = "false");"""
 
     // Create test users and bind rules
     sql """create user iceberg_block_user1;"""

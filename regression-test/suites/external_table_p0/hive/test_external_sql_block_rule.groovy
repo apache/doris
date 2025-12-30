@@ -51,7 +51,7 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
     sql """create sql_block_rule hive_partition_rule properties("partition_num" = "3", "global" = "false");"""
     sql """create sql_block_rule hive_split_rule properties("tablet_num" = "3", "global" = "false");"""
     sql """create sql_block_rule hive_cardinality_rule properties("cardinality" = "3", "global" = "false");"""
-    sql """create sql_block_rule hive_regex_rule properties("sql" = "SELECT \\\\* FROM parquet_partition_table", "global" = "false");"""
+    sql """create sql_block_rule hive_regex_rule properties("sql" = "SELECT \\\\*", "global" = "false");"""
 
     // Create test users and bind rules
     sql """create user hive_block_user1;"""

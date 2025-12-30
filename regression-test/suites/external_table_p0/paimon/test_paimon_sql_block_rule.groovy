@@ -58,7 +58,7 @@ suite("test_paimon_sql_block_rule", "p0,external,doris,external_docker,external_
     sql """create sql_block_rule paimon_partition_rule properties("partition_num" = "1", "global" = "false");"""
     sql """create sql_block_rule paimon_split_rule properties("tablet_num" = "1", "global" = "false");"""
     sql """create sql_block_rule paimon_cardinality_rule properties("cardinality" = "1", "global" = "false");"""
-    sql """create sql_block_rule paimon_regex_rule properties("sql" = "SELECT \\\\* FROM ${table_name}", "global" = "false");"""
+    sql """create sql_block_rule paimon_regex_rule properties("sql" = "SELECT \\\\*", "global" = "false");"""
 
     // Create test users and bind rules
     sql """create user paimon_block_user1;"""
