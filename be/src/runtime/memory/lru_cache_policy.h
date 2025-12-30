@@ -257,6 +257,7 @@ public:
         if (!_enable_prune) {
             LOG(INFO) << "[MemoryGC] " << type_string(_type)
                       << " cache prune disabled, so could not adjust capacity to free memory";
+            return 0;
         }
         size_t old_capacity = get_capacity();
         int64_t old_mem_consumption = mem_consumption();
