@@ -631,6 +631,10 @@ class Syncer {
     }
 
     Boolean restoreSnapshot(boolean forCCR = false) {
+        return restoreSnapshot(forCCR, null, null)
+    }
+    
+    Boolean restoreSnapshot(boolean forCCR, String storageMedium, String mediumAllocationMode) {
         logger.info("Restore snapshot ${context.labelName}")
         FrontendClientImpl clientImpl = context.getSourceFrontClient()
 
@@ -647,6 +651,10 @@ class Syncer {
         jsonMap.put("extra_info", context.genExtraInfo())
         logger.info("json map ${jsonMap}.")
         context.getSnapshotResult.setJobInfo(gson.toJson(jsonMap).getBytes())
+
+        // Set storage_medium and medium_allocation_mode for testing
+        context.storageMedium = storageMedium
+        context.mediumAllocationMode = mediumAllocationMode
 
         // step 2: restore
         TRestoreSnapshotResult result = SyncerUtils.restoreSnapshot(clientImpl, context, forCCR)

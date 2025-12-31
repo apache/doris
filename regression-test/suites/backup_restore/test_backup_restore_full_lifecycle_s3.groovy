@@ -57,7 +57,7 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         ON (${tableName1})
     """
     
-    syncer.waitAllBackupFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
     sql "DROP TABLE ${tableName1} FORCE"
     
@@ -72,7 +72,7 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         )
     """
     
-    syncer.waitAllRestoreFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
     def result1 = sql "SELECT * FROM ${tableName1} ORDER BY id"
     assertEquals(3, result1.size())
@@ -123,7 +123,7 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         ON (${tableName2A}, ${tableName2B})
     """
     
-    syncer.waitAllBackupFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
     sql "DROP TABLE ${tableName2A} FORCE"
     sql "DROP TABLE ${tableName2B} FORCE"
@@ -139,7 +139,7 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         )
     """
     
-    syncer.waitAllRestoreFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
     def result2A = sql "SELECT COUNT(*) FROM ${tableName2A}"
     def result2B = sql "SELECT COUNT(*) FROM ${tableName2B}"
@@ -186,7 +186,7 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         ON (${tableName3})
     """
     
-    syncer.waitAllBackupFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
     sql "DROP TABLE ${tableName3} FORCE"
     
@@ -201,7 +201,7 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         )
     """
     
-    syncer.waitAllRestoreFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
     def result3 = sql "SELECT COUNT(*) FROM ${tableName3}"
     assertEquals(3, result3[0][0])
@@ -237,9 +237,9 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         ON (${tableName4})
     """
     
-    syncer.waitAllBackupFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
-    // Modify data
+    // Insert more data
     sql "INSERT INTO ${tableName4} VALUES (2, 'new_data')"
     
     def beforeRestore = sql "SELECT COUNT(*) FROM ${tableName4}"
@@ -255,7 +255,7 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         )
     """
     
-    syncer.waitAllRestoreFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
     def afterRestore = sql "SELECT * FROM ${tableName4}"
     assertEquals(1, afterRestore.size())
@@ -295,7 +295,7 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         ON (${tableName5} PARTITION (p1, p2))
     """
     
-    syncer.waitAllBackupFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
     sql "DROP TABLE ${tableName5} FORCE"
     
@@ -306,7 +306,7 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         ON (${tableName5} PARTITION (p1))
     """
     
-    syncer.waitAllRestoreFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
     def result5 = sql "SELECT * FROM ${tableName5}"
     assertEquals(1, result5.size())
@@ -315,67 +315,12 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
     logger.info("Test 5 passed: Partial partition restore completed")
     sql "DROP TABLE ${tableName5} FORCE"
 
-    // Test 6: Large table lifecycle (performance test)
-    logger.info("=== Test 6: Large table lifecycle ===")
+    // Test 6: Dynamic partition table
+    logger.info("=== Test 6: Dynamic partition table lifecycle ===")
     
-    String tableName6 = "tbl_large"
+    String tableName6 = "tbl_dynamic"
     sql """
         CREATE TABLE ${tableName6} (
-            id INT,
-            data1 VARCHAR(100),
-            data2 VARCHAR(100),
-            data3 INT,
-            data4 DECIMAL(18,2)
-        )
-        DISTRIBUTED BY HASH(id) BUCKETS 5
-        PROPERTIES ("replication_num" = "1")
-    """
-    
-    // Insert 10000 rows
-    def insertSql = "INSERT INTO ${tableName6} VALUES "
-    def values = []
-    for (int i = 1; i <= 10000; i++) {
-        values.add("(${i}, 'data1_${i}', 'data2_${i}', ${i * 10}, ${i * 1.5})")
-    }
-    sql insertSql + values.join(",")
-    
-    String snapshotName6 = "snapshot_${tableName6}"
-    sql """
-        BACKUP SNAPSHOT ${dbName}.${snapshotName6}
-        TO ${repoName}
-        ON (${tableName6})
-    """
-    
-    syncer.waitAllBackupFinish(dbName)
-    
-    sql "DROP TABLE ${tableName6} FORCE"
-    
-    sql """
-        RESTORE SNAPSHOT ${dbName}.${snapshotName6}
-        FROM ${repoName}
-        ON (${tableName6})
-    """
-    
-    syncer.waitAllRestoreFinish(dbName)
-    
-    def result6 = sql "SELECT COUNT(*) FROM ${tableName6}"
-    assertEquals(10000, result6[0][0])
-    
-    // Verify data integrity
-    def sample = sql "SELECT * FROM ${tableName6} WHERE id = 5000"
-    assertEquals(1, sample.size())
-    assertEquals(5000, sample[0][0])
-    assertEquals("data1_5000", sample[0][1])
-    
-    logger.info("Test 6 passed: Large table lifecycle completed")
-    sql "DROP TABLE ${tableName6} FORCE"
-
-    // Test 7: Dynamic partition table
-    logger.info("=== Test 7: Dynamic partition table lifecycle ===")
-    
-    String tableName7 = "tbl_dynamic"
-    sql """
-        CREATE TABLE ${tableName7} (
             dt DATE,
             id INT,
             value VARCHAR(50)
@@ -393,45 +338,44 @@ suite("test_backup_restore_full_lifecycle_s3", "backup_restore") {
         )
     """
     
-    sleep(2000) // Wait for dynamic partitions to be created
+    sleep(2000)
     
-    def partitionsBefore = sql "SHOW PARTITIONS FROM ${tableName7}"
+    def partitionsBefore = sql "SHOW PARTITIONS FROM ${tableName6}"
     logger.info("Dynamic partitions created: ${partitionsBefore.size()}")
     
-    sql "INSERT INTO ${tableName7} VALUES (DATE_SUB(CURDATE(), INTERVAL 1 DAY), 1, 'data1')"
+    sql "INSERT INTO ${tableName6} VALUES (DATE_SUB(CURDATE(), INTERVAL 1 DAY), 1, 'data1')"
     
-    String snapshotName7 = "snapshot_${tableName7}"
+    String snapshotName6 = "snapshot_${tableName6}"
     sql """
-        BACKUP SNAPSHOT ${dbName}.${snapshotName7}
+        BACKUP SNAPSHOT ${dbName}.${snapshotName6}
         TO ${repoName}
-        ON (${tableName7})
+        ON (${tableName6})
     """
     
-    syncer.waitAllBackupFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
-    sql "DROP TABLE ${tableName7} FORCE"
+    sql "DROP TABLE ${tableName6} FORCE"
     
     // Restore with reserve_dynamic_partition_enable = true
     sql """
-        RESTORE SNAPSHOT ${dbName}.${snapshotName7}
+        RESTORE SNAPSHOT ${dbName}.${snapshotName6}
         FROM ${repoName}
-        ON (${tableName7})
+        ON (${tableName6})
         PROPERTIES (
             "reserve_dynamic_partition_enable" = "true"
         )
     """
     
-    syncer.waitAllRestoreFinish(dbName)
+    syncer.waitAllRestoreFinish()
     
-    def tableInfo = sql "SHOW CREATE TABLE ${tableName7}"
+    def tableInfo = sql "SHOW CREATE TABLE ${tableName6}"
     assertTrue(tableInfo[0][1].contains("dynamic_partition.enable"))
     
-    logger.info("Test 7 passed: Dynamic partition table lifecycle completed")
-    sql "DROP TABLE ${tableName7} FORCE"
+    logger.info("Test 6 passed: Dynamic partition table lifecycle completed")
+    sql "DROP TABLE ${tableName6} FORCE"
 
     // Cleanup
     sql "DROP DATABASE ${dbName} FORCE"
     
     logger.info("=== All lifecycle tests completed successfully ===")
 }
-

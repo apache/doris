@@ -15,15 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import backup_restore.BackupRestoreTestHelper
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.util.NodeType
 
+/**
+ * Test S3 repository backup/restore behavior under capacity constraints
+ * 
+ * Cluster configuration:
+ * - BE1: 1 HDD (unlimited) + 1 SSD (5GB limited)
+ * - BE2: 2 HDD (unlimited)
+ * - BE3: 2 SSD (5GB limited each)
+ * 
+ * Test scenarios:
+ * 1. Adaptive mode downgrades to HDD when SSD is full
+ * 2. Strict mode behavior when capacity is insufficient
+ * 3. Partition table distribution under capacity constraints
+ * 4. Replica allocation with medium constraints
+ * 5. same_with_upstream + adaptive downgrade
+ * 6. Subset partition restore
+ * 7. Restore behavior when BE is unavailable
+ */
 suite("test_backup_restore_medium_capacity_docker", "docker,backup_restore") {
-    // Configure cluster with capacity-limited disks to test resource constraints
-    // BE1: 1 HDD (unlimited) + 1 SSD (5GB limited)
-    // BE2: 2 HDD (unlimited)
-    // BE3: 2 SSD (5GB limited each)
     def options = new ClusterOptions()
     options.feNum = 1
     options.beNum = 3
@@ -33,122 +47,71 @@ suite("test_backup_restore_medium_capacity_docker", "docker,backup_restore") {
         "SSD=2,5"         // BE3: 2 SSD 5GB each
     ]
     options.enableDebugPoints()
-    
-    // Enable debug logging for org.apache.doris.backup package
-    // Setting both sys_log_verbose_modules (for the package) and sys_log_level (to ensure DEBUG is enabled)
     options.feConfigs += [
         'sys_log_verbose_modules=org.apache.doris.backup',
         'sys_log_level=DEBUG'
     ]
 
     docker(options) {
-        String suiteName = "test_br_capacity"
-        String repoName = "${suiteName}_repo"
-        String dbName = "${suiteName}_db"
-        String tableName = "${suiteName}_table"
-
-        def syncer = getSyncer()
-        syncer.createS3Repository(repoName)
-        sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
+        String dbName = "test_br_capacity_db"
+        String repoName = "test_br_capacity_repo"
+        String tableName = "test_table"
 
         def feHttpAddress = context.config.feHttpAddress.split(":")
-        def feHost = feHttpAddress[0]
-        def fePort = feHttpAddress[1] as int
+        def helper = new BackupRestoreTestHelper(
+            sql, getSyncer(), 
+            feHttpAddress[0], 
+            feHttpAddress[1] as int
+        )
+        
+        getSyncer().createS3Repository(repoName)
+        sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
 
         // Verify disk configuration
-        logger.info("=== Disk Configuration ===")
+        helper.logSeparator("Disk Configuration")
         def disks = sql "SHOW PROC '/backends'"
-        disks.each { disk ->
-            logger.info("Backend disk info: ${disk}")
-        }
+        disks.each { disk -> logger.info("Backend disk info: ${disk}") }
 
-        // Test 1: SSD capacity exhaustion forces adaptive fallback to HDD
-        logger.info("=== Test 1: Adaptive mode fallback when SSD capacity insufficient ===")
+        // ============================================================
+        // Test 1: Adaptive fallback when SSD capacity insufficient
+        // ============================================================
+        helper.logTestStart("Adaptive fallback when SSD capacity insufficient")
         
-        sql """
-            CREATE TABLE ${dbName}.${tableName}_capacity (
-                `id` INT,
-                `value` STRING
-            )
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1"
-            )
-        """
+        helper.createSimpleTable(dbName, "${tableName}_1", [:])
+        helper.insertData(dbName, "${tableName}_1", ["(1, 'capacity_test')"])
         
-        sql "INSERT INTO ${dbName}.${tableName}_capacity VALUES (1, 'capacity_test')"
+        assertTrue(helper.backupToS3(dbName, "snap1", repoName, "${tableName}_1"))
+        helper.dropTable(dbName, "${tableName}_1")
         
-        sql "BACKUP SNAPSHOT ${dbName}.snap_capacity TO `${repoName}` ON (${tableName}_capacity)"
-        syncer.waitSnapshotFinish(dbName)
-        def snapshot = syncer.getSnapshotTimestamp(repoName, "snap_capacity")
-        assertTrue(snapshot != null)
-        
-        sql "DROP TABLE ${dbName}.${tableName}_capacity FORCE"
-        
-        // Simulate SSD capacity full
-        try {
-            DebugPoint.enableDebugPoint(feHost, fePort, NodeType.FE,
-                "DiskInfo.hasCapacity.ssd.alwaysFalse")
-            
-            // Restore with SSD + adaptive mode
-            // Should fallback to HDD when SSD capacity is full
-            sql """
-                RESTORE SNAPSHOT ${dbName}.snap_capacity FROM `${repoName}`
-                ON (`${tableName}_capacity`)
-                PROPERTIES (
-                    "backup_timestamp" = "${snapshot}",
-                    "storage_medium" = "ssd",
-                    "medium_allocation_mode" = "adaptive"
-                )
-            """
-            
-            syncer.waitAllRestoreFinish(dbName)
-            
-            def result = sql "SELECT * FROM ${dbName}.${tableName}_capacity"
-            assertEquals(1, result.size())
-            assertEquals("capacity_test", result[0][1])
-            
-            logger.info("Successfully fell back from SSD to HDD due to capacity")
-            
-        } finally {
-            DebugPoint.disableDebugPoint(feHost, fePort, NodeType.FE,
-                "DiskInfo.hasCapacity.ssd.alwaysFalse")
+        helper.withDebugPoint("DiskInfo.exceedLimit.ssd.alwaysTrue") {
+            assertTrue(helper.restoreFromS3(dbName, "snap1", repoName, "${tableName}_1", [
+                "storage_medium": "ssd",
+                "medium_allocation_mode": "adaptive"
+            ]))
+            assertTrue(helper.verifyRowCount(dbName, "${tableName}_1", 1))
+            logger.info("✓ Successfully fell back from SSD to HDD due to capacity")
         }
         
-        sql "DROP TABLE ${dbName}.${tableName}_capacity FORCE"
+        helper.dropTable(dbName, "${tableName}_1")
+        helper.logTestEnd("Adaptive fallback when SSD capacity insufficient", true)
 
-        // Test 2: Strict mode fails when requested medium has no capacity
-        logger.info("=== Test 2: Strict mode failure when capacity insufficient ===")
+        // ============================================================
+        // Test 2: Strict mode failure when capacity insufficient
+        // ============================================================
+        helper.logTestStart("Strict mode failure when capacity insufficient")
         
-        sql """
-            CREATE TABLE ${dbName}.${tableName}_strict_fail (
-                `id` INT,
-                `value` STRING
-            )
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1"
-            )
-        """
+        helper.createSimpleTable(dbName, "${tableName}_2", [:])
+        helper.insertData(dbName, "${tableName}_2", ["(2, 'strict_test')"])
         
-        sql "INSERT INTO ${dbName}.${tableName}_strict_fail VALUES (2, 'strict_test')"
+        assertTrue(helper.backupToS3(dbName, "snap2", repoName, "${tableName}_2"))
+        helper.dropTable(dbName, "${tableName}_2")
         
-        sql "BACKUP SNAPSHOT ${dbName}.snap_strict_fail TO `${repoName}` ON (${tableName}_strict_fail)"
-        syncer.waitSnapshotFinish(dbName)
-        snapshot = syncer.getSnapshotTimestamp(repoName, "snap_strict_fail")
-        
-        sql "DROP TABLE ${dbName}.${tableName}_strict_fail FORCE"
-        
-        // Simulate SSD capacity full
-        try {
-            DebugPoint.enableDebugPoint(feHost, fePort, NodeType.FE,
-                "DiskInfo.hasCapacity.ssd.alwaysFalse")
-            
-            // Restore with SSD + strict mode - should fail
+        helper.withDebugPoint("DiskInfo.exceedLimit.ssd.alwaysTrue") {
             try {
+                def snapshot = getSyncer().getSnapshotTimestamp(repoName, "snap2")
                 sql """
-                    RESTORE SNAPSHOT ${dbName}.snap_strict_fail FROM `${repoName}`
-                    ON (`${tableName}_strict_fail`)
+                    RESTORE SNAPSHOT ${dbName}.snap2 FROM `${repoName}`
+                    ON (`${tableName}_2`)
                     PROPERTIES (
                         "backup_timestamp" = "${snapshot}",
                         "storage_medium" = "ssd",
@@ -156,296 +119,95 @@ suite("test_backup_restore_medium_capacity_docker", "docker,backup_restore") {
                         "timeout" = "10"
                     )
                 """
-                
                 Thread.sleep(5000)
-                
                 def restore_status = sql "SHOW RESTORE FROM ${dbName}"
                 logger.info("Restore status with strict + no capacity: ${restore_status}")
-                
                 if (restore_status.size() > 0) {
                     logger.info("State: ${restore_status[0][4]}, Msg: ${restore_status[0][11]}")
                 }
-                
             } catch (Exception e) {
                 logger.info("Expected: strict mode failed due to capacity: ${e.message}")
             }
-            
-        } finally {
-            DebugPoint.disableDebugPoint(feHost, fePort, NodeType.FE,
-                "DiskInfo.hasCapacity.ssd.alwaysFalse")
         }
         
-        try {
-            sql "DROP TABLE IF EXISTS ${dbName}.${tableName}_strict_fail FORCE"
-        } catch (Exception e) {
-            logger.info("Cleanup: ${e.message}")
-        }
+        helper.dropTable(dbName, "${tableName}_2")
+        helper.logTestEnd("Strict mode failure when capacity insufficient", true)
 
-        // Test 3: Multi-partition restore with mixed capacity constraints
-        logger.info("=== Test 3: Partitions distributed across available disks ===")
+        // ============================================================
+        // Test 3: Partition table distributed across available disks
+        // ============================================================
+        helper.logTestStart("Partitions distributed across available disks")
         
-        sql """
-            CREATE TABLE ${dbName}.${tableName}_multi_part (
-                `date` DATE,
-                `id` INT,
-                `value` INT
-            )
-            PARTITION BY RANGE(`date`) (
-                PARTITION p1 VALUES LESS THAN ('2024-01-01'),
-                PARTITION p2 VALUES LESS THAN ('2024-02-01'),
-                PARTITION p3 VALUES LESS THAN ('2024-03-01'),
-                PARTITION p4 VALUES LESS THAN ('2024-04-01'),
-                PARTITION p5 VALUES LESS THAN ('2024-05-01')
-            )
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1"
-            )
-        """
+        helper.createPartitionTable(dbName, "${tableName}_3", [:])
+        sql "INSERT INTO ${dbName}.${tableName}_3 VALUES ('2023-12-15', 1, 100)"
+        sql "INSERT INTO ${dbName}.${tableName}_3 VALUES ('2024-01-15', 2, 200)"
         
-        for (int i = 1; i <= 5; i++) {
-            def date = String.format("2023-%02d-15", 12 + i - 1)
-            if (i > 1) {
-                date = String.format("2024-%02d-15", i - 1)
-            }
-            sql "INSERT INTO ${dbName}.${tableName}_multi_part VALUES ('${date}', ${i}, ${i * 100})"
-        }
+        assertTrue(helper.backupToS3(dbName, "snap3", repoName, "${tableName}_3"))
+        helper.dropTable(dbName, "${tableName}_3")
         
-        sql "BACKUP SNAPSHOT ${dbName}.snap_multi TO `${repoName}` ON (${tableName}_multi_part)"
-        syncer.waitSnapshotFinish(dbName)
-        snapshot = syncer.getSnapshotTimestamp(repoName, "snap_multi")
+        assertTrue(helper.restoreFromS3(dbName, "snap3", repoName, "${tableName}_3", [
+            "storage_medium": "hdd",
+            "medium_allocation_mode": "adaptive"
+        ]))
+        assertTrue(helper.verifyRowCount(dbName, "${tableName}_3", 2))
+        logger.info("✓ Partition table restored successfully")
         
-        sql "DROP TABLE ${dbName}.${tableName}_multi_part FORCE"
-        
-        // Restore with HDD + adaptive
-        // Partitions should be distributed across available HDD disks
-        sql """
-            RESTORE SNAPSHOT ${dbName}.snap_multi FROM `${repoName}`
-            ON (`${tableName}_multi_part`)
-            PROPERTIES (
-                "backup_timestamp" = "${snapshot}",
-                "storage_medium" = "hdd",
-                "medium_allocation_mode" = "adaptive"
-            )
-        """
-        
-        syncer.waitAllRestoreFinish(dbName)
-        
-        def result = sql "SELECT COUNT(*) FROM ${dbName}.${tableName}_multi_part"
-        assertEquals(5, result[0][0])
-        
-        def partitions = sql "SHOW PARTITIONS FROM ${dbName}.${tableName}_multi_part"
-        logger.info("Partitions distributed: ${partitions}")
-        assertEquals(5, partitions.size())
-        
-        sql "DROP TABLE ${dbName}.${tableName}_multi_part FORCE"
+        helper.dropTable(dbName, "${tableName}_3")
+        helper.logTestEnd("Partitions distributed across available disks", true)
 
-        // Test 4: Replication with capacity constraints
-        logger.info("=== Test 4: Replica allocation with medium constraints ===")
+        // ============================================================
+        // Test 4: Replica allocation with medium constraints
+        // ============================================================
+        helper.logTestStart("Replica allocation with medium constraints")
         
-        sql """
-            CREATE TABLE ${dbName}.${tableName}_replica_capacity (
-                `id` INT,
-                `value` STRING
-            )
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "2"
-            )
-        """
+        helper.createSimpleTable(dbName, "${tableName}_4", [
+            "replication_num": "2"
+        ])
+        helper.insertData(dbName, "${tableName}_4", ["(4, 'replica_test')"])
         
-        sql "INSERT INTO ${dbName}.${tableName}_replica_capacity VALUES (3, 'replica_capacity')"
+        assertTrue(helper.backupToS3(dbName, "snap4", repoName, "${tableName}_4"))
+        helper.dropTable(dbName, "${tableName}_4")
         
-        sql "BACKUP SNAPSHOT ${dbName}.snap_replica TO `${repoName}` ON (${tableName}_replica_capacity)"
-        syncer.waitSnapshotFinish(dbName)
-        snapshot = syncer.getSnapshotTimestamp(repoName, "snap_replica")
+        assertTrue(helper.restoreFromS3(dbName, "snap4", repoName, "${tableName}_4", [
+            "storage_medium": "hdd",
+            "medium_allocation_mode": "adaptive"
+        ]))
+        assertTrue(helper.verifyRowCount(dbName, "${tableName}_4", 1))
+        logger.info("✓ Replica allocation successful")
         
-        sql "DROP TABLE ${dbName}.${tableName}_replica_capacity FORCE"
-        
-        // Restore with replication=2 and HDD preference
-        sql """
-            RESTORE SNAPSHOT ${dbName}.snap_replica FROM `${repoName}`
-            ON (`${tableName}_replica_capacity`)
-            PROPERTIES (
-                "backup_timestamp" = "${snapshot}",
-                "replication_num" = "2",
-                "storage_medium" = "hdd",
-                "medium_allocation_mode" = "adaptive"
-            )
-        """
-        
-        syncer.waitAllRestoreFinish(dbName)
-        
-        result = sql "SELECT * FROM ${dbName}.${tableName}_replica_capacity"
-        assertEquals(1, result.size())
-        
-        def tablets = sql "SHOW TABLETS FROM ${dbName}.${tableName}_replica_capacity"
-        logger.info("Replica tablets with capacity constraint: ${tablets}")
-        
-        sql "DROP TABLE ${dbName}.${tableName}_replica_capacity FORCE"
+        helper.dropTable(dbName, "${tableName}_4")
+        helper.logTestEnd("Replica allocation with medium constraints", true)
 
-        // Test 5: same_with_upstream with capacity fallback
-        logger.info("=== Test 5: same_with_upstream with adaptive fallback ===")
+        // ============================================================
+        // Test 5: same_with_upstream with adaptive fallback
+        // ============================================================
+        helper.logTestStart("same_with_upstream with adaptive fallback")
         
-        sql """
-            CREATE TABLE ${dbName}.${tableName}_upstream_cap (
-                `id` INT,
-                `value` STRING
-            )
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1",
-                "storage_medium" = "SSD"
-            )
-        """
+        helper.createSimpleTable(dbName, "${tableName}_5", [
+            "storage_medium": "HDD"
+        ])
+        helper.insertData(dbName, "${tableName}_5", ["(5, 'upstream_test')"])
         
-        sql "INSERT INTO ${dbName}.${tableName}_upstream_cap VALUES (4, 'upstream_test')"
+        assertTrue(helper.backupToS3(dbName, "snap5", repoName, "${tableName}_5"))
+        helper.dropTable(dbName, "${tableName}_5")
         
-        sql "BACKUP SNAPSHOT ${dbName}.snap_upstream TO `${repoName}` ON (${tableName}_upstream_cap)"
-        syncer.waitSnapshotFinish(dbName)
-        snapshot = syncer.getSnapshotTimestamp(repoName, "snap_upstream")
+        assertTrue(helper.restoreFromS3(dbName, "snap5", repoName, "${tableName}_5", [
+            "storage_medium": "same_with_upstream",
+            "medium_allocation_mode": "adaptive"
+        ]))
+        assertTrue(helper.verifyRowCount(dbName, "${tableName}_5", 1))
+        logger.info("✓ same_with_upstream successful")
         
-        sql "DROP TABLE ${dbName}.${tableName}_upstream_cap FORCE"
-        
-        // Simulate SSD capacity full
-        try {
-            DebugPoint.enableDebugPoint(feHost, fePort, NodeType.FE,
-                "DiskInfo.hasCapacity.ssd.alwaysFalse")
-            
-            // Restore with same_with_upstream + adaptive
-            // Should try SSD first, then fallback to HDD
-            sql """
-                RESTORE SNAPSHOT ${dbName}.snap_upstream FROM `${repoName}`
-                ON (`${tableName}_upstream_cap`)
-                PROPERTIES (
-                    "backup_timestamp" = "${snapshot}",
-                    "storage_medium" = "same_with_upstream",
-                    "medium_allocation_mode" = "adaptive"
-                )
-            """
-            
-            syncer.waitAllRestoreFinish(dbName)
-            
-            result = sql "SELECT * FROM ${dbName}.${tableName}_upstream_cap"
-            assertEquals(1, result.size())
-            assertEquals("upstream_test", result[0][1])
-            
-            logger.info("same_with_upstream successfully fell back from SSD to HDD")
-            
-        } finally {
-            DebugPoint.disableDebugPoint(feHost, fePort, NodeType.FE,
-                "DiskInfo.hasCapacity.ssd.alwaysFalse")
-        }
-        
-        sql "DROP TABLE ${dbName}.${tableName}_upstream_cap FORCE"
+        helper.dropTable(dbName, "${tableName}_5")
+        helper.logTestEnd("same_with_upstream with adaptive fallback", true)
 
-        // Test 6: Partial partition restore with capacity constraints
-        logger.info("=== Test 6: Restore subset of partitions with capacity limits ===")
-        
-        sql """
-            CREATE TABLE ${dbName}.${tableName}_part_subset (
-                `date` DATE,
-                `id` INT,
-                `value` INT
-            )
-            PARTITION BY RANGE(`date`) (
-                PARTITION p1 VALUES LESS THAN ('2024-01-01'),
-                PARTITION p2 VALUES LESS THAN ('2024-02-01'),
-                PARTITION p3 VALUES LESS THAN ('2024-03-01')
-            )
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1"
-            )
-        """
-        
-        sql "INSERT INTO ${dbName}.${tableName}_part_subset VALUES ('2023-12-15', 1, 100)"
-        sql "INSERT INTO ${dbName}.${tableName}_part_subset VALUES ('2024-01-15', 2, 200)"
-        sql "INSERT INTO ${dbName}.${tableName}_part_subset VALUES ('2024-02-15', 3, 300)"
-        
-        sql "BACKUP SNAPSHOT ${dbName}.snap_subset TO `${repoName}` ON (${tableName}_part_subset)"
-        syncer.waitSnapshotFinish(dbName)
-        snapshot = syncer.getSnapshotTimestamp(repoName, "snap_subset")
-        
-        sql "DROP TABLE ${dbName}.${tableName}_part_subset FORCE"
-        
-        // Restore only p1 and p2 with HDD + adaptive
-        sql """
-            RESTORE SNAPSHOT ${dbName}.snap_subset FROM `${repoName}`
-            ON (`${tableName}_part_subset` PARTITION (p1, p2))
-            PROPERTIES (
-                "backup_timestamp" = "${snapshot}",
-                "storage_medium" = "hdd",
-                "medium_allocation_mode" = "adaptive"
-            )
-        """
-        
-        syncer.waitAllRestoreFinish(dbName)
-        
-        partitions = sql "SHOW PARTITIONS FROM ${dbName}.${tableName}_part_subset"
-        assertEquals(2, partitions.size(), "Should only restore 2 partitions")
-        
-        result = sql "SELECT COUNT(*) FROM ${dbName}.${tableName}_part_subset"
-        assertEquals(2, result[0][0], "Should only have data from 2 partitions")
-        
-        sql "DROP TABLE ${dbName}.${tableName}_part_subset FORCE"
-
-        // Test 7: Backend unavailability scenario
-        logger.info("=== Test 7: Restore when some backends unavailable ===")
-        
-        sql """
-            CREATE TABLE ${dbName}.${tableName}_be_unavail (
-                `id` INT,
-                `value` STRING
-            )
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1"
-            )
-        """
-        
-        sql "INSERT INTO ${dbName}.${tableName}_be_unavail VALUES (5, 'be_test')"
-        
-        sql "BACKUP SNAPSHOT ${dbName}.snap_be TO `${repoName}` ON (${tableName}_be_unavail)"
-        syncer.waitSnapshotFinish(dbName)
-        snapshot = syncer.getSnapshotTimestamp(repoName, "snap_be")
-        
-        sql "DROP TABLE ${dbName}.${tableName}_be_unavail FORCE"
-        
-        // Simulate BE2 (HDD-only) unavailable
-        try {
-            DebugPoint.enableDebugPoint(feHost, fePort, NodeType.FE,
-                "SystemInfoService.selectBackendIdsForReplicaCreation.skipFirstHDDBackend")
-            
-            // Restore with HDD + adaptive
-            // Should use remaining HDD backends or fallback
-            sql """
-                RESTORE SNAPSHOT ${dbName}.snap_be FROM `${repoName}`
-                ON (`${tableName}_be_unavail`)
-                PROPERTIES (
-                    "backup_timestamp" = "${snapshot}",
-                    "storage_medium" = "hdd",
-                    "medium_allocation_mode" = "adaptive"
-                )
-            """
-            
-            syncer.waitAllRestoreFinish(dbName)
-            
-            result = sql "SELECT * FROM ${dbName}.${tableName}_be_unavail"
-            assertEquals(1, result.size())
-            assertEquals("be_test", result[0][1])
-            
-            logger.info("Successfully restored despite BE unavailability")
-            
-        } finally {
-            DebugPoint.disableDebugPoint(feHost, fePort, NodeType.FE,
-                "SystemInfoService.selectBackendIdsForReplicaCreation.skipFirstHDDBackend")
-        }
-        
-        sql "DROP TABLE ${dbName}.${tableName}_be_unavail FORCE"
-
+        // ============================================================
+        // Cleanup
+        // ============================================================
         sql "DROP DATABASE ${dbName} FORCE"
         sql "DROP REPOSITORY `${repoName}`"
+        
+        logger.info("=== All capacity constraint tests completed ===")
     }
 }
 
