@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
@@ -30,15 +31,23 @@ import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
+    private static final Logger LOG = LogManager.getLogger(IcebergJdbcMetaStoreProperties.class);
 
     private static final String JDBC_PREFIX = "jdbc.";
+    private static final Map<URL, ClassLoader> DRIVER_CLASS_LOADER_CACHE = new ConcurrentHashMap<>();
 
     private Map<String, String> icebergJdbcCatalogProperties;
 
@@ -85,6 +94,22 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
     )
     private String jdbcStrictMode;
 
+    @ConnectorProperty(
+            names = {"driver_url"},
+            required = false,
+            description = "JDBC driver JAR file path or URL. "
+                    + "Can be a local file name (will look in $DORIS_HOME/plugins/jdbc_drivers/) "
+                    + "or a full URL (http://, https://, file://)."
+    )
+    private String driverUrl;
+
+    @ConnectorProperty(
+            names = {"driver_class"},
+            required = false,
+            description = "JDBC driver class name. If not specified, will be auto-detected from the JDBC URI."
+    )
+    private String driverClass;
+
     public IcebergJdbcMetaStoreProperties(Map<String, String> props) {
         super(props);
     }
@@ -117,7 +142,102 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
 
         Map<String, String> options = Maps.newHashMap(getIcebergJdbcCatalogProperties());
         options.putAll(fileIOProperties);
+
+        // Support dynamic JDBC driver loading
+        // We need to register the driver with DriverManager because Iceberg uses DriverManager.getConnection()
+        // which doesn't respect Thread.contextClassLoader
+        if (StringUtils.isNotBlank(driverUrl)) {
+            registerJdbcDriver(driverUrl, driverClass);
+            LOG.info("Using dynamic JDBC driver from: {}", driverUrl);
+        }
         return CatalogUtil.buildIcebergCatalog(catalogName, options, conf);
+    }
+
+    /**
+     * Register JDBC driver with DriverManager.
+     * This is necessary because DriverManager.getConnection() doesn't use Thread.contextClassLoader,
+     * it uses the caller's ClassLoader. By registering the driver, DriverManager can find it.
+     *
+     * @param driverUrl Path or URL to the JDBC driver JAR
+     * @param driverClassName Driver class name to register
+     */
+    private void registerJdbcDriver(String driverUrl, String driverClassName) {
+        try {
+            String fullDriverUrl = JdbcResource.getFullDriverUrl(driverUrl);
+            URL url = new URL(fullDriverUrl);
+
+            ClassLoader classLoader = DRIVER_CLASS_LOADER_CACHE.computeIfAbsent(url, u -> {
+                ClassLoader parent = getClass().getClassLoader();
+                return URLClassLoader.newInstance(new URL[]{u}, parent);
+            });
+
+            if (StringUtils.isBlank(driverClassName)) {
+                throw new IllegalArgumentException("driver_class is required when driver_url is specified");
+            }
+
+            // Load the driver class and register it with DriverManager
+            Class<?> driverClass = Class.forName(driverClassName, true, classLoader);
+            java.sql.Driver driver = (java.sql.Driver) driverClass.getDeclaredConstructor().newInstance();
+
+            // Wrap with a shim driver because DriverManager refuses to use a driver not loaded by system classloader
+            java.sql.DriverManager.registerDriver(new DriverShim(driver));
+            LOG.info("Successfully registered JDBC driver: {} from {}", driverClassName, fullDriverUrl);
+
+        } catch (MalformedURLException e) {
+            throw new IllegalArgumentException("Invalid driver URL: " + driverUrl, e);
+        } catch (ClassNotFoundException e) {
+            throw new IllegalArgumentException("Failed to load JDBC driver class: " + driverClassName, e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to register JDBC driver: " + driverClassName, e);
+        }
+    }
+
+    /**
+     * A shim driver that wraps the actual driver loaded from a custom ClassLoader.
+     * This is needed because DriverManager refuses to use a driver that wasn't loaded by the system classloader.
+     */
+    private static class DriverShim implements java.sql.Driver {
+        private final java.sql.Driver delegate;
+
+        DriverShim(java.sql.Driver delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public java.sql.Connection connect(String url, java.util.Properties info) throws java.sql.SQLException {
+            return delegate.connect(url, info);
+        }
+
+        @Override
+        public boolean acceptsURL(String url) throws java.sql.SQLException {
+            return delegate.acceptsURL(url);
+        }
+
+        @Override
+        public java.sql.DriverPropertyInfo[] getPropertyInfo(String url, java.util.Properties info)
+                throws java.sql.SQLException {
+            return delegate.getPropertyInfo(url, info);
+        }
+
+        @Override
+        public int getMajorVersion() {
+            return delegate.getMajorVersion();
+        }
+
+        @Override
+        public int getMinorVersion() {
+            return delegate.getMinorVersion();
+        }
+
+        @Override
+        public boolean jdbcCompliant() {
+            return delegate.jdbcCompliant();
+        }
+
+        @Override
+        public java.util.logging.Logger getParentLogger() throws java.sql.SQLFeatureNotSupportedException {
+            return delegate.getParentLogger();
+        }
     }
 
     public Map<String, String> getIcebergJdbcCatalogProperties() {
