@@ -359,7 +359,7 @@ TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_AlreadyLowercase) {
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_EmptyProperties) {
     std::map<std::string, std::string> properties;
-    EXPECT_EQ(build_analyzer_key_from_properties(properties), INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), INVERTED_INDEX_PARSER_NONE);
 }
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomAnalyzer) {
@@ -389,7 +389,7 @@ TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_ParserKeyAlias) {
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_ParserNone) {
     std::map<std::string, std::string> properties;
     properties[INVERTED_INDEX_PARSER_KEY] = "none";
-    EXPECT_EQ(build_analyzer_key_from_properties(properties), INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), INVERTED_INDEX_PARSER_NONE);
 }
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomOverridesParser) {

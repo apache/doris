@@ -165,27 +165,26 @@ InvertedIndexIterator::CandidateResult InvertedIndexIterator::find_reader_candid
         return result;
     }
 
-    // Step 2: Fallback to default analyzer key (O(1) lookup)
+    // If user explicitly specified an analyzer (not default), do NOT fallback to other analyzers.
+    // This prevents using wrong index when the requested analyzer's index is not built yet.
+    // For example: user has idx1(standard) built and idx2(english) not built,
+    // query with "using analyzer english" should NOT use idx1.
     if (normalized_key != INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
-        if (auto it = _key_to_entries.find(INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
-            it != _key_to_entries.end()) {
-            populate_from_indices(it->second);
-            result.used_fallback = true;
-            LOG(WARNING) << "Analyzer key '" << normalized_key
-                         << "' not found, falling back to default analyzer";
-            return result;
-        }
+        LOG(WARNING) << "Analyzer key '" << normalized_key
+                     << "' not found and fallback is disabled for user-specified analyzer. "
+                     << "The index for this analyzer may not be built yet.";
+        // Return empty candidates to trigger INVERTED_INDEX_BYPASS
+        return result;
     }
 
-    // Step 3: Fallback to all readers
+    // Only for default analyzer key: fallback to all readers
     result.candidates.reserve(_reader_entries.size());
     for (const auto& entry : _reader_entries) {
         result.candidates.push_back(&entry);
     }
     if (!result.candidates.empty()) {
         result.used_fallback = true;
-        LOG(WARNING) << "No matching analyzer found for '" << normalized_key
-                     << "', using first available reader";
+        VLOG_DEBUG << "Using default analyzer, found " << result.candidates.size() << " readers";
     }
     return result;
 }
@@ -205,6 +204,15 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
     const std::string normalized_key = ensure_normalized_key(analyzer_key);
     auto [candidates, used_fallback] = find_reader_candidates(normalized_key);
     if (candidates.empty()) {
+        // If user specified a non-default analyzer and no matching reader found,
+        // return INVERTED_INDEX_BYPASS to trigger downgrade to non-index path.
+        // This prevents using wrong analyzer's index when the specified one is not built.
+        if (normalized_key != INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                    "No inverted index reader found for analyzer '{}'. "
+                    "The index for this analyzer may not be built yet.",
+                    normalized_key));
+        }
         return ResultError(Status::RuntimeError(
                 "No available inverted index readers. Check if index is properly initialized."));
     }
@@ -262,6 +270,14 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
     const std::string normalized_key = ensure_normalized_key(analyzer_key);
     auto [candidates, used_fallback] = find_reader_candidates(normalized_key);
     if (candidates.empty()) {
+        // If user specified a non-default analyzer and no matching reader found,
+        // return INVERTED_INDEX_BYPASS to trigger downgrade to non-index path.
+        if (normalized_key != INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                    "No inverted index reader found for analyzer '{}'. "
+                    "The index for this analyzer may not be built yet.",
+                    normalized_key));
+        }
         return ResultError(Status::RuntimeError(
                 "No available inverted index readers. Check if index is properly initialized."));
     }

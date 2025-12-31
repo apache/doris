@@ -133,7 +133,12 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
 AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
     DCHECK(config != nullptr);
     const std::string& analyzer_name = config->analyzer_name;
-    if (analyzer_name.empty()) {
+
+    // Handle empty analyzer_name or "__default__": use parser_type to create builtin analyzer.
+    // This is used when:
+    // 1. analyzer_name is not specified (empty)
+    // 2. analyzer_name is "__default__" (e.g., table has no index, use default tokenization)
+    if (analyzer_name.empty() || analyzer_name == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
         return create_builtin_analyzer(config->parser_type, config->parser_mode, config->lower_case,
                                        config->stop_words);
     }
@@ -181,6 +186,13 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
         const std::string& search_str, const std::map<std::string, std::string>& properties) {
+    if (!should_analyzer(properties)) {
+        std::vector<TermInfo> result;
+        if (!search_str.empty()) {
+            result.emplace_back(search_str);
+        }
+        return result;
+    }
     InvertedIndexAnalyzerConfig config;
     config.analyzer_name = get_analyzer_name_from_properties(properties);
     config.parser_type = get_inverted_index_parser_type_from_string(

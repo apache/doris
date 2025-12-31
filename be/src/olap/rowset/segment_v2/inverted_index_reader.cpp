@@ -314,7 +314,9 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                      query_info);
         } else {
             SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-            if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
+            if (analyzer_ctx != nullptr && !analyzer_ctx->should_tokenize()) {
+                query_info.term_infos.emplace_back(search_str);
+            } else if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
                 auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
                         analyzer_ctx->char_filter_map);
                 reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);

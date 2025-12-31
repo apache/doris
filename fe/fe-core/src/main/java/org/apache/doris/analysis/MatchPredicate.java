@@ -124,12 +124,18 @@ public class MatchPredicate extends Predicate {
 
         // Set parser and analyzer fields
         this.invertedIndexParser = selection.parser();
-        this.invertedIndexAnalyzerName = selection.analyzer();
-        if (Strings.isNullOrEmpty(this.invertedIndexAnalyzerName)) {
-            if (invertedIndex == null) {
-                this.invertedIndexAnalyzerName = this.invertedIndexParser;
-            } else if (!InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(
-                               this.invertedIndexParser)) {
+        // When table has no inverted index (invertedIndex == null), and analyzer is not explicitly
+        // specified, we should pass "__default__" to BE to let it use default tokenization.
+        // This enables match functions to work on tables without inverted index.
+        // When user explicitly specifies "using analyzer none", or when index is configured with
+        // parser=none, we should pass "none" to skip tokenization.
+        if (invertedIndex == null && !selection.explicit()
+                && InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(selection.analyzer())) {
+            // Table has no index, use default tokenization
+            this.invertedIndexAnalyzerName = "__default__";
+        } else {
+            this.invertedIndexAnalyzerName = selection.analyzer();
+            if (Strings.isNullOrEmpty(this.invertedIndexAnalyzerName)) {
                 this.invertedIndexAnalyzerName = this.invertedIndexParser;
             }
         }

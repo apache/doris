@@ -152,7 +152,7 @@ TEST_F(InvertedIndexIteratorTest, AddReader_MultipleReadersWithDifferentKeys) {
     EXPECT_TRUE(result2.has_value());
     EXPECT_EQ(result2.value(), reader2);
 
-    auto result3 = iterator.select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    auto result3 = iterator.select_best_reader(INVERTED_INDEX_PARSER_NONE);
     EXPECT_TRUE(result3.has_value());
     EXPECT_EQ(result3.value(), reader3);
 }
@@ -173,7 +173,7 @@ TEST_F(InvertedIndexIteratorTest, FindReaderCandidates_FallbackToDefault) {
     auto default_reader = create_mock_reader("");
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, default_reader);
 
-    auto result = iterator.select_best_reader("non_existent_key");
+    auto result = iterator.select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), default_reader);
 }
@@ -183,7 +183,7 @@ TEST_F(InvertedIndexIteratorTest, FindReaderCandidates_FallbackToAny) {
     auto chinese_reader = create_mock_reader("chinese");
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, chinese_reader);
 
-    auto result = iterator.select_best_reader("non_existent_key");
+    auto result = iterator.select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), chinese_reader);
 }

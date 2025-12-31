@@ -192,7 +192,7 @@ std::string normalize_analyzer_key(const std::string& analyzer) {
 std::string build_analyzer_key_from_properties(
         const std::map<std::string, std::string>& properties) {
     if (properties.empty()) {
-        return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
+        return INVERTED_INDEX_PARSER_NONE;
     }
 
     auto custom_it = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
@@ -210,8 +210,8 @@ std::string build_analyzer_key_from_properties(
             parser = parser_it->second;
         }
     }
-    if (parser.empty() || parser == INVERTED_INDEX_PARSER_NONE) {
-        return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
+    if (parser.empty()) {
+        return INVERTED_INDEX_PARSER_NONE;
     }
 
     return normalize_analyzer_key(parser);

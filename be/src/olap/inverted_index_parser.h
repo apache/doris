@@ -56,24 +56,6 @@ struct InvertedIndexAnalyzerConfig {
     CharFilterMap char_filter_map;
 };
 
-// Runtime context for analyzer
-// Contains only the fields needed at runtime
-struct InvertedIndexAnalyzerCtx {
-    // Used by execute_column path to determine if tokenization should be skipped
-    std::string analyzer_name;
-    InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
-
-    // Used for creating reader and tokenization
-    CharFilterMap char_filter_map;
-    lucene::analysis::Analyzer* analyzer = nullptr;
-
-    // Helper method: returns true if tokenization should be performed
-    bool should_tokenize() const {
-        return !(parser_type == InvertedIndexParserType::PARSER_NONE && analyzer_name.empty());
-    }
-};
-using InvertedIndexAnalyzerCtxSPtr = std::shared_ptr<InvertedIndexAnalyzerCtx>;
-
 const std::string INVERTED_INDEX_PARSER_TRUE = "true";
 const std::string INVERTED_INDEX_PARSER_FALSE = "false";
 
@@ -118,6 +100,43 @@ const std::string INVERTED_INDEX_NORMALIZER_NAME_KEY = "normalizer";
 const std::string INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY = "field_pattern";
 const std::string INVERTED_INDEX_DEFAULT_ANALYZER_KEY = "__default__";
 
+// Normalize an analyzer name to a standardized key format (lowercase, trimmed).
+// Used for consistent lookup in multi-analyzer index scenarios.
+std::string normalize_analyzer_key(const std::string& analyzer);
+
+// Runtime context for analyzer
+// Contains only the fields needed at runtime
+struct InvertedIndexAnalyzerCtx {
+    // Used by execute_column path to determine if tokenization should be skipped
+    std::string analyzer_name;
+    InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
+
+    // Used for creating reader and tokenization
+    CharFilterMap char_filter_map;
+    lucene::analysis::Analyzer* analyzer = nullptr;
+
+    // Helper method: returns true if tokenization should be performed
+    // For PARSER_NONE (builtin "none" analyzer), no tokenization is performed.
+    // For custom analyzers (parser_type=PARSER_NONE but analyzer_name is a custom name),
+    // tokenization is performed using the custom analyzer.
+    // For "__default__" analyzer_name, returns true to let the caller use index properties
+    // to decide the actual analyzer (fallback to index-configured analyzer).
+    bool should_tokenize() const {
+        if (parser_type != InvertedIndexParserType::PARSER_NONE) {
+            return true;
+        }
+        if (analyzer_name.empty()) {
+            return false;
+        }
+        auto normalized = normalize_analyzer_key(analyzer_name);
+        // Only "none" should skip tokenization.
+        // "__default__" means use index-configured analyzer, so we should return true
+        // to let the caller fallback to index properties for tokenization.
+        return normalized != INVERTED_INDEX_PARSER_NONE;
+    }
+};
+using InvertedIndexAnalyzerCtxSPtr = std::shared_ptr<InvertedIndexAnalyzerCtx>;
+
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
 InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::string& parser_str);
@@ -158,10 +177,6 @@ std::string get_parser_dict_compression_from_properties(
         const std::map<std::string, std::string>& properties);
 
 std::string get_analyzer_name_from_properties(const std::map<std::string, std::string>& properties);
-
-// Normalize an analyzer name to a standardized key format (lowercase, trimmed).
-// Used for consistent lookup in multi-analyzer index scenarios.
-std::string normalize_analyzer_key(const std::string& analyzer);
 
 // Build a normalized analyzer key from index properties.
 // Checks custom_analyzer first, then falls back to parser type.
