@@ -90,11 +90,30 @@ suite("test_create_paimon_table", "p0,external,doris,external_docker,external_do
                 partition by (c1) ()
                 properties("primary-key"=c0);
             """
+            
+            sql """drop table if exists ${db_name}.test05"""
+            sql """
+                CREATE TABLE ${db_name}.test05 (
+                    c0 int,
+                    c1 bigint,
+                    c2 float,
+                    c3 double,
+                    c4 string,
+                    c5 date,
+                    c6 decimal(10,5),
+                    c7 datetime
+                ) engine=paimon
+                properties(
+                 'primary-key' = 'c0,c1',
+                 'bucket' = '4',
+                 'bucket-key' = 'c0,c1');
+            """
 
             sql """ drop table if exists ${db_name}.test01"""
             sql """ drop table if exists ${db_name}.test02"""
             sql """ drop table if exists ${db_name}.test03"""
             sql """ drop table if exists ${db_name}.test04"""
+            sql """ drop table if exists ${db_name}.test05"""
             sql """ drop database if exists ${db_name}"""
             sql """DROP CATALOG IF EXISTS ${catalog_name}"""
         }

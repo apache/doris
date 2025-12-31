@@ -485,6 +485,8 @@ public interface TableIf {
                 case ICEBERG:
                 case ICEBERG_EXTERNAL_TABLE:
                     return "iceberg";
+                case PAIMON_EXTERNAL_TABLE:
+                    return "paimon";
                 case DICTIONARY:
                     return "dictionary";
                 case DORIS_EXTERNAL_TABLE:

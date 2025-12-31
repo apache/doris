@@ -29,7 +29,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.Catalog.TableNotExistException;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.hive.HiveCatalog;
@@ -59,7 +58,7 @@ public class PaimonMetadataOpsTest {
     public static String warehouse;
     public static PaimonExternalCatalog paimonCatalog;
     public static PaimonMetadataOps ops;
-    public static String dbName = "testdb";
+    public static String dbName = "test_db";
     public static ConnectContext connectContext;
 
     @BeforeClass
@@ -85,7 +84,7 @@ public class PaimonMetadataOpsTest {
     }
 
     @Test
-    public void testSimpleTable() throws UserException, TableNotExistException {
+    public void testSimpleTable() throws Exception {
         String tableName = getTableName();
         Identifier identifier = new Identifier(dbName, tableName);
         String sql = "create table " + dbName + "." + tableName + " (id int) engine = paimon";
@@ -106,7 +105,7 @@ public class PaimonMetadataOpsTest {
     }
 
     @Test
-    public void testProperties() throws UserException, TableNotExistException {
+    public void testProperties() throws Exception {
         String tableName = getTableName();
         Identifier identifier = new Identifier(dbName, tableName);
         String sql = "create table " + dbName + "." + tableName + " (id int) engine = paimon properties(\"primary-key\"=id)";
@@ -130,7 +129,7 @@ public class PaimonMetadataOpsTest {
     }
 
     @Test
-    public void testType() throws UserException, TableNotExistException {
+    public void testType() throws Exception {
         String tableName = getTableName();
         Identifier identifier = new Identifier(dbName, tableName);
         String sql = "create table " + dbName + "." + tableName + " ("
@@ -173,8 +172,8 @@ public class PaimonMetadataOpsTest {
     }
 
     @Test
-    public void testPartition() throws UserException, TableNotExistException {
-        String tableName = getTableName();
+    public void testPartition() throws Exception {
+        String tableName = "test04";
         Identifier identifier = new Identifier(dbName, tableName);
         String sql = "create table " + dbName + "." + tableName + " ("
                 + "c0 int, "
@@ -195,6 +194,30 @@ public class PaimonMetadataOpsTest {
         Assert.assertEquals(1, table.partitionKeys().size());
         Assert.assertTrue(table.primaryKeys().contains("c0"));
         Assert.assertEquals(1, table.primaryKeys().size());
+    }
+
+    @Test
+    public void testBucket() throws Exception {
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        String sql = "create table " + dbName + "." + tableName + " ("
+                + "c0 int, "
+                + "c1 bigint, "
+                + "c2 float, "
+                + "c3 double, "
+                + "c4 string, "
+                + "c5 date, "
+                + "c6 decimal(20, 10), "
+                + "c7 datetime"
+                + ") engine = paimon "
+                + "properties(\"primary-key\"=c0,"
+                + "\"bucket\" = 4,"
+                + "\"bucket-key\" = c0)";
+        createTable(sql);
+        Catalog catalog = ops.getCatalog();
+        Table table = catalog.getTable(identifier);
+        Assert.assertEquals("4", table.options().get("bucket"));
+        Assert.assertEquals("c0", table.options().get("bucket-key"));
     }
 
     public void createTable(String sql) throws UserException {
