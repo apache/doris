@@ -82,6 +82,7 @@ public class ClientController {
     /** Fetch lastest end meta */
     @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
     public Object fetchEndOffset(@RequestBody JobBaseConfig jobConfig) {
+        LOG.info("Fetching end offset for job {}", jobConfig.getJobId());
         SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
         return RestResponse.success(reader.getEndOffset(jobConfig));
     }
@@ -101,7 +102,7 @@ public class ClientController {
         SourceReader reader = env.getReader(jobConfig);
         reader.close(jobConfig);
         env.close(jobConfig.getJobId());
-        pipelineCoordinator.closeJob(jobConfig.getJobId());
+        pipelineCoordinator.closeJobStreamLoad(jobConfig.getJobId());
         return RestResponse.success(true);
     }
 }

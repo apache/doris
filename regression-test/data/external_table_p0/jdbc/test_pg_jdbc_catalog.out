@@ -2297,6 +2297,7 @@ mysql
 
 -- !specified_database_3 --
 catalog_pg_test
+cdc_test
 information_schema
 mysql
 pg_catalog

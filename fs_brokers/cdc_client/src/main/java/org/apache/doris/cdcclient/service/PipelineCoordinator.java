@@ -172,7 +172,7 @@ public class PipelineCoordinator {
                                 writeRecordRequest.getJobId(),
                                 writeRecordRequest.getTaskId());
                     } catch (Exception ex) {
-                        closeJob(writeRecordRequest.getJobId());
+                        closeJobStreamLoad(writeRecordRequest.getJobId());
                         LOG.error(
                                 "Failed to process async write record, jobId={} taskId={}",
                                 writeRecordRequest.getJobId(),
@@ -287,7 +287,7 @@ public class PipelineCoordinator {
                 });
     }
 
-    public void closeJob(Long jobId) {
+    public void closeJobStreamLoad(Long jobId) {
         DorisBatchStreamLoad batchStreamLoad = batchStreamLoadMap.remove(jobId);
         if (batchStreamLoad != null) {
             LOG.info("Close DorisBatchStreamLoad for jobId={}", jobId);

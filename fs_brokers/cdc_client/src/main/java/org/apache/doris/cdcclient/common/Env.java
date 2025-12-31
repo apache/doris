@@ -26,16 +26,24 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
+import com.google.common.base.Preconditions;
 import lombok.Setter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class Env {
+    private static final Logger LOG = LoggerFactory.getLogger(Env.class);
     private static volatile Env INSTANCE;
     private final Map<Long, JobContext> jobContexts;
+    private final Map<Long, Lock> jobLocks;
     @Setter private int backendHttpPort;
 
     private Env() {
         this.jobContexts = new ConcurrentHashMap<>();
+        this.jobLocks = new ConcurrentHashMap<>();
     }
 
     public String getBackendHostPort() {
@@ -72,24 +80,46 @@ public class Env {
 
     private SourceReader getOrCreateReader(
             Long jobId, DataSource dataSource, Map<String, String> config) {
+        Objects.requireNonNull(jobId, "jobId");
+        Objects.requireNonNull(dataSource, "dataSource");
+        JobContext context = jobContexts.get(jobId);
+        if (context != null) {
+            return context.getReader(dataSource);
+        }
+
+        Lock lock = jobLocks.computeIfAbsent(jobId, k -> new ReentrantLock());
+        lock.lock();
         try {
-            JobContext context = getOrCreateContext(jobId, dataSource, config);
-            return context.getOrCreateReader(dataSource);
-        } catch (Exception ex) {
-            jobContexts.remove(jobId);
-            throw ex;
+            // double check
+            context = jobContexts.get(jobId);
+            if (context != null) {
+                return context.getReader(dataSource);
+            }
+
+            LOG.info("Creating new reader for job {}, dataSource {}", jobId, dataSource);
+            context = new JobContext(jobId, dataSource, config);
+            SourceReader reader = context.initializeReader();
+            jobContexts.put(jobId, context);
+            return reader;
+        } finally {
+            lock.unlock();
         }
     }
 
     public void close(Long jobId) {
-        jobContexts.remove(jobId);
-    }
-
-    private JobContext getOrCreateContext(
-            Long jobId, DataSource dataSource, Map<String, String> config) {
-        Objects.requireNonNull(jobId, "jobId");
-        Objects.requireNonNull(dataSource, "dataSource");
-        return jobContexts.computeIfAbsent(jobId, id -> new JobContext(id, dataSource, config));
+        Lock lock = jobLocks.get(jobId);
+        if (lock != null) {
+            lock.lock();
+            try {
+                jobContexts.remove(jobId);
+                jobLocks.remove(jobId);
+            } finally {
+                lock.unlock();
+            }
+        } else {
+            // should not happen
+            jobContexts.remove(jobId);
+        }
     }
 
     private static final class JobContext {
@@ -104,17 +134,21 @@ public class Env {
             this.config = config;
         }
 
-        private synchronized SourceReader getOrCreateReader(DataSource source) {
-            if (reader == null) {
-                reader = SourceReaderFactory.createSourceReader(source);
-                dataSource = source;
-                reader.initialize(jobId, dataSource, config);
-            } else if (dataSource != source) {
+        private SourceReader initializeReader() {
+            SourceReader newReader = SourceReaderFactory.createSourceReader(dataSource);
+            newReader.initialize(jobId, dataSource, config);
+            this.reader = newReader;
+            return reader;
+        }
+
+        private SourceReader getReader(DataSource source) {
+            if (this.dataSource != source) {
                 throw new IllegalStateException(
                         String.format(
                                 "Job %d already bound to datasource %s, cannot switch to %s",
-                                jobId, dataSource, source));
+                                jobId, this.dataSource, source));
             }
+            Preconditions.checkState(reader != null, "Job %d reader not initialized yet", jobId);
             return reader;
         }
     }

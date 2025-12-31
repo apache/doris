@@ -42,7 +42,7 @@ public final class SourceReaderFactory {
 
     private SourceReaderFactory() {}
 
-    public static void register(DataSource source, Supplier<SourceReader> supplier) {
+    private static void register(DataSource source, Supplier<SourceReader> supplier) {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(supplier, "supplier");
         REGISTRY.put(source, supplier);
