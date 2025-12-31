@@ -852,10 +852,31 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 throw new Exception("debug point FE.DynamicPartitionScheduler.before.commitCloudPartition");
             }
 
-            // get table write lock to add partition, edit log and modify table state must be atomic
-            olapTable.writeLockOrDdlException();
-            try {
-                for (int i = 0; i < batchPartsInfo.size(); i++) {
+            for (int i = 0; i < batchPartsInfo.size(); i++) {
+                // get table write lock to add partition, edit log and modify table state must be atomic
+                olapTable.writeLockOrDdlException();
+                try {
+                    boolean isTempPartition = addPartitionOps.get(i).isTempPartition();
+                    Partition toAddPartition = batchPartsInfo.get(i).second;
+                    String partitionName = toAddPartition.getName();
+                    // ATTN: Check here to see if the newly created dynamic
+                    // partition has already been added by another process.
+                    // If it has, do not add this dynamic partition again,
+                    // and call `onErasePartition` to clean up any remaining information.
+                    Partition checkIsAdded = olapTable.getPartition(partitionName, isTempPartition);
+                    if (checkIsAdded != null) {
+                        LOG.warn("dynamic partition has been added, skip it. "
+                                + "db: {}, table: {}, partition: {}, tableId: {}",
+                                db.getFullName(), tableName, partitionName, olapTable.getId());
+                        Env.getCurrentEnv().onErasePartition(toAddPartition);
+                        continue;
+                    }
+                    if (isTempPartition) {
+                        olapTable.addTempPartition(toAddPartition);
+                    } else {
+                        olapTable.addPartition(toAddPartition);
+                    }
+
                     Env.getCurrentEnv().getEditLog().logAddPartition(batchPartsInfo.get(i).first);
                     if (DebugPointUtil.isEnable("FE.DynamicPartitionScheduler.in.logEditPartitions")) {
                         if (i == batchPartsInfo.size() / 2) {
@@ -865,15 +886,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                                 + ".in.commitCloudPartition");
                         }
                     }
-                    boolean isTempPartition = addPartitionOps.get(i).isTempPartition();
-                    if (isTempPartition) {
-                        olapTable.addTempPartition(batchPartsInfo.get(i).second);
-                    } else {
-                        olapTable.addPartition(batchPartsInfo.get(i).second);
-                    }
+                } finally {
+                    olapTable.writeUnlock();
                 }
-            } finally {
-                olapTable.writeUnlock();
             }
             LOG.info("finish write edit log to add partitions in batch, "
                     + "numPartitions: {}, db: {}, table: {}, tableId: {}",
