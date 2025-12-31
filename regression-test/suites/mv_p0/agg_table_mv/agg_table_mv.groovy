@@ -62,6 +62,8 @@ suite ("agg_table_mv") {
     (4, 5, '2023-10-19', 'k', 99.5, 'a', 'b', 1, 'yy');
     """
 
+    sql """alter table orders_agg modify column o_orderkey set stats ('row_count'='10');"""
+
     create_sync_mv(db, "orders_agg", "agg_mv_name_3", """
         select o_orderdatE as a_o_orderdatE, o_custkey as a_o_custkey, o_orderkey as a_o_orderkey, 
             sum(o_totalprice) as sum_total 

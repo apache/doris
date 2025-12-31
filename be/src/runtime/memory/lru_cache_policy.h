@@ -74,11 +74,11 @@ public:
     void reset_cache() { _cache.reset(); }
 
     bool check_capacity(size_t capacity, uint32_t num_shards) {
-        if (capacity < num_shards) {
+        if (capacity == 0 || capacity < num_shards) {
             LOG(INFO) << fmt::format(
-                    "{} lru cache capacity({} B) less than num_shards({}), init failed, will be "
-                    "disabled.",
-                    type_string(type()), capacity, num_shards);
+                    "{} lru cache capacity({} B) {} num_shards({}), will be disabled.",
+                    type_string(type()), capacity, capacity == 0 ? "is 0, ignore" : "less than",
+                    num_shards);
             _enable_prune = false;
             return false;
         }
@@ -254,7 +254,11 @@ public:
         if (std::dynamic_pointer_cast<doris::DummyLRUCache>(_cache)) {
             return 0;
         }
-
+        if (!_enable_prune) {
+            LOG(INFO) << "[MemoryGC] " << type_string(_type)
+                      << " cache prune disabled, so could not adjust capacity to free memory";
+            return 0;
+        }
         size_t old_capacity = get_capacity();
         int64_t old_mem_consumption = mem_consumption();
         int64_t old_usage = get_usage();

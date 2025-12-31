@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,7 +56,7 @@ public class COSPropertiesTest {
         origProps.put("test_non_storage_param", "6000");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
         origProps.put("cos.endpoint", "cos.ap-beijing-1.myqcloud.com");
-        COSProperties cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(0);
+        COSProperties cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(1);
         Map<String, String> cosConfig = cosProperties.getMatchedProperties();
         Assertions.assertTrue(!cosConfig.containsKey("test_non_storage_param"));
 
@@ -89,7 +90,7 @@ public class COSPropertiesTest {
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
         //origProps.put("cos.region", "ap-beijing");
 
-        COSProperties cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(0);
+        COSProperties cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(1);
         Map<String, String> s3Props = cosProperties.generateBackendS3Configuration();
         Map<String, String> cosConfig = cosProperties.getMatchedProperties();
         Assertions.assertTrue(!cosConfig.containsKey("test_non_storage_param"));
@@ -109,7 +110,8 @@ public class COSPropertiesTest {
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
         origProps.put("cos.use_path_style", "true");
-        cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(0);
+        cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(1);
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createAll(origProps).get(0).getClass());
         s3Props = cosProperties.generateBackendS3Configuration();
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         // Add any additional assertions for other properties if needed
@@ -175,5 +177,20 @@ public class COSPropertiesTest {
         props.put("cos.secret_key", "mySecretKey");
         obsStorageProperties = (COSProperties) StorageProperties.createPrimary(props);
         Assertions.assertEquals(StaticCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
+    }
+
+    @Test
+    public void testS3DisableHadoopCache() throws UserException {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        COSProperties s3Properties = (COSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.cos.impl.disable.cache"));
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.cosn.impl.disable.cache"));
+        props.put("fs.cos.impl.disable.cache", "true");
+        props.put("fs.cosn.impl.disable.cache", "false");
+        s3Properties = (COSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.cos.impl.disable.cache"));
+        Assertions.assertEquals("false", s3Properties.hadoopStorageConfig.get("fs.cosn.impl.disable.cache"));
     }
 }

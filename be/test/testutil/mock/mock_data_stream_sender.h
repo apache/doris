@@ -54,7 +54,10 @@ struct MockChannel : public Channel {
             return Status::OK();
         }
         Block nblock;
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(nblock.deserialize(*_pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                nblock.deserialize(*_pblock, &uncompress_size, &uncompressed_time));
         if (!nblock.empty()) {
             RETURN_IF_ERROR(_send_block.merge(std::move(nblock)));
         }
@@ -64,7 +67,10 @@ struct MockChannel : public Channel {
     Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block,
                                 bool eos = false) override {
         Block nblock;
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(nblock.deserialize(*block->get_block()));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                nblock.deserialize(*block->get_block(), &uncompress_size, &uncompressed_time));
         if (!nblock.empty()) {
             RETURN_IF_ERROR(_send_block.merge(std::move(nblock)));
         }

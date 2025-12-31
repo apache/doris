@@ -43,7 +43,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.eclipse.jetty.util.StringUtil;
 
 import java.util.Map;

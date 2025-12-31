@@ -69,5 +69,39 @@ void QueryHelper::collect_range(const IndexQueryContextPtr& context,
     }
 }
 
+bool QueryHelper::is_simple_phrase(const std::vector<TermInfo>& term_infos) {
+    return std::ranges::all_of(term_infos,
+                               [](const auto& term_info) { return term_info.is_single_term(); });
+}
+
+std::vector<TermInfo> QueryHelper::build_phrase_term_infos(const std::vector<TermInfo>& src) {
+    std::vector<TermInfo> dst;
+    dst.reserve(src.size());
+    size_t idx = 0;
+    while (idx < src.size()) {
+        int32_t pos = src[idx].position;
+        std::vector<std::string> group_terms;
+        while (idx < src.size() && src[idx].position == pos) {
+            const auto& info = src[idx];
+            if (info.is_single_term()) {
+                group_terms.emplace_back(info.get_single_term());
+            } else {
+                const auto& terms = info.get_multi_terms();
+                group_terms.insert(group_terms.end(), terms.begin(), terms.end());
+            }
+            ++idx;
+        }
+        TermInfo t;
+        t.position = pos;
+        if (group_terms.size() == 1) {
+            t.term = std::move(group_terms[0]);
+        } else {
+            t.term = std::move(group_terms);
+        }
+        dst.emplace_back(std::move(t));
+    }
+    return dst;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

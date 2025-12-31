@@ -18,8 +18,10 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
@@ -37,6 +39,9 @@ public:
                              const DocRange& doc_range);
     static void collect_range(const IndexQueryContextPtr& context, const SimilarityPtr& similarity,
                               const DocRange& doc_range);
+
+    static bool is_simple_phrase(const std::vector<TermInfo>& term_infos);
+    static std::vector<TermInfo> build_phrase_term_infos(const std::vector<TermInfo>& src);
 };
 
 #include "common/compile_check_end.h"

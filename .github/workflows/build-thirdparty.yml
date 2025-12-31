@@ -132,6 +132,8 @@ jobs:
           export PATH="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 1 -type d -name 'bin'):${PATH}"
           export JAVA_HOME="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 0)"
           export DORIS_TOOLCHAIN=gcc
+          export CMAKE_POLICY_VERSION_MINIMUM=3.10
+          export CUSTOM_CMAKE="/usr/local/bin/cmake"
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
@@ -140,7 +142,7 @@ jobs:
     name: Build Third Party Libraries (macOS)
     needs: changes
     if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v4
@@ -190,6 +192,8 @@ jobs:
       - name: Build
         run: |
           export MACOSX_DEPLOYMENT_TARGET=12.0
+          export CMAKE_POLICY_VERSION_MINIMUM=3.10
+          export CUSTOM_CMAKE="/usr/local/bin/cmake"
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
@@ -248,6 +252,8 @@ jobs:
       - name: Build
         run: |
           export MACOSX_DEPLOYMENT_TARGET=12.0
+          export CMAKE_POLICY_VERSION_MINIMUM=3.10
+          export CUSTOM_CMAKE="/usr/local/bin/cmake"
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"

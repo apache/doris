@@ -39,6 +39,7 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>java-common</artifactId>
             <version>${project.version}</version>
+            <scope>provided</scope>
             <exclusions>
                 <exclusion>
                     <groupId>org.apache.thrift</groupId>
@@ -60,7 +61,6 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>auth</artifactId>
-            <version>${awssdk.version}</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

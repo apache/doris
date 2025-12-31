@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "common/cast_set.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime_filter/runtime_filter_definitions.h"
@@ -67,7 +68,8 @@ public:
         if (right < 0) {
             return false;
         }
-        return _bitmap_value->contains_any(std::max(left, (CppType)0), right);
+        return _bitmap_value->contains_any(cast_set<uint64_t>(std::max(left, (CppType)0)),
+                                           cast_set<uint64_t>(right));
     }
 
 private:

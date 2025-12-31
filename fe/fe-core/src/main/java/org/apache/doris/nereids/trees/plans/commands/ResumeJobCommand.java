@@ -43,9 +43,9 @@ public class ResumeJobCommand extends AlterJobStatusCommand implements ForwardWi
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractJob job = ctx.getEnv().getJobManager().getJobByName(super.getJobName());
         if (job instanceof StreamingInsertJob) {
-            ctx.getEnv().getJobManager().alterJobStatus(super.getJobName(), JobStatus.PENDING);
+            ctx.getEnv().getJobManager().alterJobStatus(super.getJobName(), JobStatus.PENDING, null);
         } else {
-            ctx.getEnv().getJobManager().alterJobStatus(super.getJobName(), JobStatus.RUNNING);
+            ctx.getEnv().getJobManager().alterJobStatus(super.getJobName(), JobStatus.RUNNING, null);
         }
     }
 

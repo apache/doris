@@ -130,6 +130,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -173,7 +174,8 @@ public:
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_index(&param));
+        param.analyzer_ctx = analyzer_ctx;
+        RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {
             auto result_bitmap = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -429,21 +431,11 @@ private:
                 return Status::InternalError(get_name() + " not support right type " +
                                              right_type->get_name());
             }
-        } else if ((is_date_or_datetime(right_type->get_primitive_type()) ||
-                    is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
+        } else if ((is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
                     right_type->get_primitive_type() == TYPE_TIMEV2) &&
-                   (is_date_or_datetime(left_element_type->get_primitive_type()) ||
-                    is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
+                   (is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
                     left_element_type->get_primitive_type() == TYPE_TIMEV2)) {
-            if (left_element_type->get_primitive_type() == TYPE_DATE) {
-                return_column = _execute_number_expanded<ColumnDate>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_DATETIME) {
-                return_column = _execute_number_expanded<ColumnDateTime>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_DATEV2) {
+            if (left_element_type->get_primitive_type() == TYPE_DATEV2) {
                 return_column = _execute_number_expanded<ColumnDateV2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);

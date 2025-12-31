@@ -81,10 +81,16 @@ suite("docs/table-design/data-partitioning/dynamic-partitioning.md") {
 
         sql "SHOW DYNAMIC PARTITION TABLES"
         sql """ ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") """
-        cmd """ curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -XGET http://${context.config.feHttpAddress}/api/_set_config?dynamic_partition_enable=true """
+        String tlsInfo = ""
+        String protocol = "http"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            tlsInfo = " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+            protocol = "https"
+        }
+        cmd """ curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -XGET ${protocol}://${context.config.feHttpAddress}/api/_set_config?dynamic_partition_enable=true ${tlsInfo}"""
 
         sql """ ADMIN SET FRONTEND CONFIG ("dynamic_partition_check_interval_seconds" = "7200") """
-        cmd """ curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -XGET http://${context.config.feHttpAddress}/api/_set_config?dynamic_partition_check_interval_seconds=432000 """
+        cmd """ curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -XGET ${protocol}://${context.config.feHttpAddress}/api/_set_config?dynamic_partition_check_interval_seconds=432000 ${tlsInfo}"""
     } catch (Throwable t) {
         Assertions.fail("examples in docs/table-design/data-partitioning/dynamic-partitioning.md failed to exec, please fix it", t)
     }

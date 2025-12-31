@@ -67,10 +67,10 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -78,9 +78,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
-import org.apache.doris.plsql.metastore.PlsqlManager;
-import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
-import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
@@ -130,8 +127,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 public class MetadataGenerator {
     private static final Logger LOG = LogManager.getLogger(MetadataGenerator.class);
@@ -140,8 +137,6 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> WORKLOAD_GROUPS_COLUMN_TO_INDEX;
 
-    private static final ImmutableMap<String, Integer> ROUTINE_INFO_COLUMN_TO_INDEX;
-
     private static final ImmutableMap<String, Integer> WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TABLE_OPTIONS_COLUMN_TO_INDEX;
@@ -149,6 +144,8 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TABLE_PROPERTIES_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> DATABASE_PROPERTIES_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> META_CACHE_STATS_COLUMN_TO_INDEX;
 
@@ -171,12 +168,6 @@ public class MetadataGenerator {
             workloadGroupBuilder.put(WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i).toLowerCase(), i);
         }
         WORKLOAD_GROUPS_COLUMN_TO_INDEX = workloadGroupBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> routineInfoBuilder = new ImmutableMap.Builder();
-        for (int i = 0; i < PlsqlManager.ROUTINE_INFO_TITLE_NAMES.size(); i++) {
-            routineInfoBuilder.put(PlsqlManager.ROUTINE_INFO_TITLE_NAMES.get(i).toLowerCase(), i);
-        }
-        ROUTINE_INFO_COLUMN_TO_INDEX = routineInfoBuilder.build();
 
         ImmutableMap.Builder<String, Integer> policyBuilder = new ImmutableMap.Builder();
         List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_policy").getFullSchema();
@@ -205,6 +196,13 @@ public class MetadataGenerator {
             propertiesBuilder.put(propertiesColList.get(i).getName().toLowerCase(), i);
         }
         TABLE_PROPERTIES_COLUMN_TO_INDEX = propertiesBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> dbPropertiesBuilder = new ImmutableMap.Builder();
+        List<Column> dbPropertiesColList = SchemaTable.TABLE_MAP.get("database_properties").getFullSchema();
+        for (int i = 0; i < dbPropertiesColList.size(); i++) {
+            dbPropertiesBuilder.put(dbPropertiesColList.get(i).getName().toLowerCase(), i);
+        }
+        DATABASE_PROPERTIES_COLUMN_TO_INDEX = dbPropertiesBuilder.build();
 
         ImmutableMap.Builder<String, Integer> metaCacheBuilder = new ImmutableMap.Builder();
         List<Column> metaCacheColList = SchemaTable.TABLE_MAP.get("catalog_meta_cache_statistics").getFullSchema();
@@ -312,10 +310,6 @@ public class MetadataGenerator {
                 result = workloadGroupsMetadataResult(schemaTableParams);
                 columnIndex = WORKLOAD_GROUPS_COLUMN_TO_INDEX;
                 break;
-            case ROUTINES_INFO:
-                result = routineInfoMetadataResult(schemaTableParams);
-                columnIndex = ROUTINE_INFO_COLUMN_TO_INDEX;
-                break;
             case WORKLOAD_SCHEDULE_POLICY:
                 result = workloadSchedPolicyMetadataResult(schemaTableParams);
                 columnIndex = WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
@@ -331,6 +325,10 @@ public class MetadataGenerator {
             case TABLE_PROPERTIES:
                 result = tablePropertiesMetadataResult(schemaTableParams);
                 columnIndex = TABLE_PROPERTIES_COLUMN_TO_INDEX;
+                break;
+            case DATABASE_PROPERTIES:
+                result = databasePropertiesMetadataResult(schemaTableParams);
+                columnIndex = DATABASE_PROPERTIES_COLUMN_TO_INDEX;
                 break;
             case CATALOG_META_CACHE_STATS:
                 result = metaCacheStatsMetadataResult(schemaTableParams);
@@ -711,19 +709,19 @@ public class MetadataGenerator {
                         continue;
                     }
                     MTMVRelation relation = ((MTMV) table).getRelation();
-                    Set<BaseTableInfo> tablesOneLevel = relation.getBaseTablesOneLevel();
-                    for (BaseTableInfo info : tablesOneLevel) {
-                        TRow trow = new TRow();
-                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
-                        trow.addToColumnValue(new TCell().setStringVal(dbName));
-                        trow.addToColumnValue(new TCell().setStringVal(tableName));
-                        trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getCtlName()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getDbName()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getTableName()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getType()));
-                        dataBatch.add(trow);
-                    }
+                    Stream.concat(relation.getBaseTablesOneLevel().stream(), relation.getBaseViewsOneLevel().stream())
+                            .forEach(info -> {
+                                TRow trow = new TRow();
+                                trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                                trow.addToColumnValue(new TCell().setStringVal(dbName));
+                                trow.addToColumnValue(new TCell().setStringVal(tableName));
+                                trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getCtlName()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getDbName()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getTableName()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getType()));
+                                dataBatch.add(trow);
+                            });
                 } else if (table instanceof View) {
                     String tableName = table.getName();
                     if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
@@ -1228,67 +1226,25 @@ public class MetadataGenerator {
                     continue;
                 }
             }
-            List<AbstractTask> tasks = job.queryAllTasks();
-            for (AbstractTask task : tasks) {
-                TRow tvfInfo = task.getTvfInfo(job.getJobName());
-                if (tvfInfo != null) {
-                    dataBatch.add(tvfInfo);
-                }
-            }
-        }
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
-    }
 
-    private static TFetchSchemaTableDataResult routineInfoMetadataResult(TSchemaTableRequestParams params) {
-        if (!params.isSetCurrentUserIdent()) {
-            return errorResult("current user ident is not set.");
-        }
-
-        PlsqlManager plSqlClient = Env.getCurrentEnv().getPlsqlManager();
-
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        List<TRow> dataBatch = Lists.newArrayList();
-
-        Map<PlsqlProcedureKey, PlsqlStoredProcedure> allProc = plSqlClient.getAllPlsqlStoredProcedures();
-        for (Map.Entry<PlsqlProcedureKey, PlsqlStoredProcedure> entry : allProc.entrySet()) {
-            PlsqlStoredProcedure proc = entry.getValue();
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(proc.getName())); // SPECIFIC_NAME
-            trow.addToColumnValue(new TCell().setStringVal(Long.toString(proc.getCatalogId()))); // ROUTINE_CATALOG
-            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(proc.getCatalogId());
-            if (catalog != null) {
-                DatabaseIf db = catalog.getDbNullable(proc.getDbId());
-                if (db != null) {
-                    trow.addToColumnValue(new TCell().setStringVal(db.getFullName())); // ROUTINE_SCHEMA
-                } else {
-                    trow.addToColumnValue(new TCell().setStringVal("")); // ROUTINE_SCHEMA
+            if (job instanceof StreamingInsertJob) {
+                StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+                List<AbstractStreamingTask> streamingInsertTasks = streamingJob.queryAllStreamTasks();
+                for (AbstractStreamingTask task : streamingInsertTasks) {
+                    TRow tvfInfo = task.getTvfInfo(job.getJobName());
+                    if (tvfInfo != null) {
+                        dataBatch.add(tvfInfo);
+                    }
                 }
             } else {
-                trow.addToColumnValue(new TCell().setStringVal("")); // ROUTINE_SCHEMA
+                List<AbstractTask> tasks = job.queryAllTasks();
+                for (AbstractTask task : tasks) {
+                    TRow tvfInfo = task.getTvfInfo(job.getJobName());
+                    if (tvfInfo != null) {
+                        dataBatch.add(tvfInfo);
+                    }
+                }
             }
-            trow.addToColumnValue(new TCell().setStringVal(proc.getName())); // ROUTINE_NAME
-            trow.addToColumnValue(new TCell().setStringVal("PROCEDURE")); // ROUTINE_TYPE
-            trow.addToColumnValue(new TCell().setStringVal("")); // DTD_IDENTIFIER
-            trow.addToColumnValue(new TCell().setStringVal(proc.getSource())); // ROUTINE_BODY
-            trow.addToColumnValue(new TCell().setStringVal("")); // ROUTINE_DEFINITION
-            trow.addToColumnValue(new TCell().setStringVal("NULL")); // EXTERNAL_NAME
-            trow.addToColumnValue(new TCell().setStringVal("")); // EXTERNAL_LANGUAGE
-            trow.addToColumnValue(new TCell().setStringVal("SQL")); // PARAMETER_STYLE
-            trow.addToColumnValue(new TCell().setStringVal("")); // IS_DETERMINISTIC
-            trow.addToColumnValue(new TCell().setStringVal("")); // SQL_DATA_ACCESS
-            trow.addToColumnValue(new TCell().setStringVal("NULL")); // SQL_PATH
-            trow.addToColumnValue(new TCell().setStringVal("DEFINER")); // SECURITY_TYPE
-            trow.addToColumnValue(new TCell().setStringVal(proc.getCreateTime())); // CREATED
-            trow.addToColumnValue(new TCell().setStringVal(proc.getModifyTime())); // LAST_ALTERED
-            trow.addToColumnValue(new TCell().setStringVal("")); // SQ_MODE
-            trow.addToColumnValue(new TCell().setStringVal("")); // ROUTINE_COMMENT
-            trow.addToColumnValue(new TCell().setStringVal(proc.getOwnerName())); // DEFINER
-            trow.addToColumnValue(new TCell().setStringVal("")); // CHARACTER_SET_CLIENT
-            trow.addToColumnValue(new TCell().setStringVal("")); // COLLATION_CONNECTION
-            trow.addToColumnValue(new TCell().setStringVal("")); // DATABASE_COLLATION
-            dataBatch.add(trow);
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
@@ -1308,40 +1264,63 @@ public class MetadataGenerator {
             OlapTable olapTable = (OlapTable) table;
             olapTable.readLock();
             try {
-                TRow trow = new TRow();
-                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
-                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
-                trow.addToColumnValue(
+                Collection<Partition> allPartitions = olapTable.getAllPartitions();
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                for (Partition partition : allPartitions) {
+                    TRow trow = new TRow();
+                    long partitionId = partition.getId();
+                    trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                    trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                    trow.addToColumnValue(
                         new TCell().setStringVal(olapTable.getKeysType().toMetadata())); // TABLE_MODEL
-                trow.addToColumnValue(
-                        new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTypes
+                    trow.addToColumnValue(
+                        new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTyp
 
-                DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-                if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                    List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
-                    StringBuilder distributeKey = new StringBuilder();
-                    for (Column c : distributionColumns) {
-                        if (distributeKey.length() != 0) {
-                            distributeKey.append(",");
+                    DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+                    if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                        List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
+                        StringBuilder distributeKey = new StringBuilder();
+                        for (Column c : distributionColumns) {
+                            if (distributeKey.length() != 0) {
+                                distributeKey.append(",");
+                            }
+                            distributeKey.append(c.getName());
                         }
-                        distributeKey.append(c.getName());
-                    }
-                    if (distributeKey.length() == 0) {
-                        trow.addToColumnValue(new TCell().setStringVal(""));
-                    } else {
-                        trow.addToColumnValue(
+                        if (distributeKey.length() == 0) {
+                            trow.addToColumnValue(new TCell().setStringVal(""));
+                        } else {
+                            trow.addToColumnValue(
                                 new TCell().setStringVal(distributeKey.toString()));
+                        }
+                        trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_KEY
+                        trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_TYPE
                     }
-                    trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
-                } else {
-                    trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_KEY
-                    trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_TYPE
+                    trow.addToColumnValue(new TCell().setIntVal(distributionInfo.getBucketNum())); // BUCKETS_NUM
+                    trow.addToColumnValue(new TCell().setIntVal(olapTable.getPartitionNum())); // PARTITION_NUM
+                    trow.addToColumnValue(new TCell().setStringVal(
+                            partitionInfo.getType().toString())); // PARTITION_METHOD
+                    PartitionItem item = partitionInfo.getItem(partitionId);
+                    if ((partitionInfo.getType() == PartitionType.UNPARTITIONED) || (item == null)) {
+                        trow.addToColumnValue(new TCell().setStringVal("NULL")); // PARTITION_EXPRESSION
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal(
+                                partitionInfo.getDisplayPartitionColumns().toString())); // PARTITION_EXPRESSION
+                    }
+                    if (partitionInfo.getType() == PartitionType.RANGE
+                            || partitionInfo.getType() == PartitionType.LIST) {
+                        trow.addToColumnValue(new TCell().setStringVal(item.getItemsSql())); // PARTITION_KEY
+                        trow.addToColumnValue(new TCell().setStringVal(partitionInfo
+                                .getPartitionRangeString(partitionId))); // RANGE
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal(""));  // PARTITION_KEY
+                        trow.addToColumnValue(new TCell().setStringVal("")); // RANGE
+                    }
+                    dataBatch.add(trow);
                 }
-                trow.addToColumnValue(new TCell().setIntVal(distributionInfo.getBucketNum())); // BUCKETS_NUM
-                trow.addToColumnValue(new TCell().setIntVal(olapTable.getPartitionNum())); // PARTITION_NUM
-                dataBatch.add(trow);
             } finally {
                 olapTable.readUnlock();
             }
@@ -1367,6 +1346,10 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal("")); // DISTRIBUTE_TYPE
             trow.addToColumnValue(new TCell().setIntVal(0)); // BUCKETS_NUM
             trow.addToColumnValue(new TCell().setIntVal(0)); // PARTITION_NUM
+            trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_METHOD
+            trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_EXPRESSION
+            trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_KEY
+            trow.addToColumnValue(new TCell().setStringVal("")); // RANGE
             dataBatch.add(trow);
         }
     }
@@ -1526,6 +1509,66 @@ public class MetadataGenerator {
         return result;
     }
 
+    private static TFetchSchemaTableDataResult databasePropertiesMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        if (!params.isSetDbId()) {
+            return errorResult("current db id is not set.");
+        }
+        if (!params.isSetCatalog()) {
+            return errorResult("current catalog is not set.");
+        }
+
+        TUserIdentity tcurrentUserIdentity = params.getCurrentUserIdent();
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        Long dbId = params.getDbId();
+        String clg = params.getCatalog();
+        List<TRow> dataBatch = Lists.newArrayList();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(clg);
+        if (catalog == null) {
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        }
+        DatabaseIf databaseIf = catalog.getDbNullable(dbId);
+        if (databaseIf == null) {
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        }
+
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUserIdentity, catalog.getName(),
+                databaseIf.getFullName(), PrivPredicate.SHOW)) {
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        }
+        Map<String, String> props = databaseIf.getDbProperties() == null
+                ? null : databaseIf.getDbProperties().getProperties();
+        if (props == null || props.isEmpty()) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
+            trow.addToColumnValue(new TCell().setStringVal(databaseIf.getFullName()));
+            trow.addToColumnValue(new TCell().setStringVal(""));
+            trow.addToColumnValue(new TCell().setStringVal(""));
+            dataBatch.add(trow);
+        } else {
+            props.forEach((key, value) -> {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
+                trow.addToColumnValue(new TCell().setStringVal(databaseIf.getFullName()));
+                trow.addToColumnValue(new TCell().setStringVal(key));
+                trow.addToColumnValue(new TCell().setStringVal(value));
+                dataBatch.add(trow);
+            });
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
     private static TFetchSchemaTableDataResult metaCacheStatsMetadataResult(TSchemaTableRequestParams params) {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
@@ -1543,7 +1586,7 @@ public class MetadataGenerator {
                 fillBatch(dataBatch, hudiMetadataCacheMgr.getCacheStats(catalog), catalog.getName());
             } else if (catalogIf instanceof IcebergExternalCatalog) {
                 // 3. iceberg cache
-                IcebergMetadataCache icebergCache = mgr.getIcebergMetadataCache();
+                IcebergMetadataCache icebergCache = mgr.getIcebergMetadataCache((IcebergExternalCatalog) catalogIf);
                 fillBatch(dataBatch, icebergCache.getCacheStats(), catalogIf.getName());
             }
         }
@@ -1811,10 +1854,8 @@ public class MetadataGenerator {
                     "column " + colNames + " does not match partition columns of table " + tbl.getName());
         }
 
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) tbl.getCatalog());
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                tbl, tbl.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(tbl)));
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(tbl));
         Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
         List<TRow> dataBatch = Lists.newArrayList();
         for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {

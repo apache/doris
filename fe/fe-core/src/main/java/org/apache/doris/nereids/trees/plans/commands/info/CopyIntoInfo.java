@@ -20,14 +20,11 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CopyFromParam;
-import org.apache.doris.analysis.CopyIntoProperties;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StageAndPattern;
-import org.apache.doris.analysis.StageProperties;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -114,7 +111,7 @@ public class CopyIntoInfo {
     private CopyIntoProperties copyIntoProperties;
     private Map<String, Map<String, String>> optHints;
 
-    private LabelName label = null;
+    private LabelNameInfo label = null;
     private BrokerDesc brokerDesc = null;
     private DataDescription dataDescription = null;
     private final Map<String, String> brokerProperties = new HashMap<>();
@@ -187,7 +184,7 @@ public class CopyIntoInfo {
                 throw new IllegalStateException("Table name [" + nameParts + "] is invalid.");
         }
         tableNameInfo = new TableNameInfo(ctl, db, table);
-        label = new LabelName(tableNameInfo.getDb(), labelName);
+        label = new LabelNameInfo(tableNameInfo.getDb(), labelName);
         if (stage.isEmpty()) {
             throw new AnalysisException("Stage name can not be empty");
         }
@@ -266,7 +263,10 @@ public class CopyIntoInfo {
                     analyzer, context, cascadesContext);
         }
 
-        dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
+        String compression = copyIntoProperties.getCompression();
+        if (compression != null) {
+            dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, compression);
+        }
         dataDescription = new DataDescription(tableNameInfo.getTbl(), null, Lists.newArrayList(filePath),
             copyFromDesc.getFileColumns(), separator, fileFormatStr, null, false,
             legacyColumnMappingList, legacyFileFilterExpr, null, LoadTask.MergeType.APPEND, null,
@@ -347,7 +347,7 @@ public class CopyIntoInfo {
         public Expr visitCast(Cast cast, PlanTranslatorContext context) {
             // left child of cast is target type, right child of cast is expression
             return new CastExpr(cast.getDataType().toCatalogDataType(),
-                    cast.child().accept(this, context), null);
+                    cast.child().accept(this, context), cast.nullable());
         }
     }
 
@@ -371,7 +371,7 @@ public class CopyIntoInfo {
         brokerProperties.put(StorageProperties.FS_PROVIDER_KEY, objInfo.getProvider().toString().toUpperCase());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
-        this.copyIntoProperties.analyze();
+        this.copyIntoProperties.validate();
     }
 
     public ShowResultSetMetaData getMetaData() {
@@ -379,7 +379,7 @@ public class CopyIntoInfo {
     }
 
     public String getDbName() {
-        return label.getDbName();
+        return label.getDb();
     }
 
     public BrokerDesc getBrokerDesc() {
@@ -394,7 +394,7 @@ public class CopyIntoInfo {
         return properties;
     }
 
-    public LabelName getLabel() {
+    public LabelNameInfo getLabel() {
         return label;
     }
 

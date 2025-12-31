@@ -36,6 +36,7 @@ public:
     using ResponseType = Response;
     DummyBrpcCallback() {
         cntl_ = std::make_shared<brpc::Controller>();
+        call_id_ = cntl_->call_id();
         response_ = std::make_shared<Response>();
     }
 
@@ -43,8 +44,11 @@ public:
 
     virtual void call() {}
 
-    virtual void join() { brpc::Join(cntl_->call_id()); }
+    virtual void join() { brpc::Join(call_id_); }
 
+    // according to brpc doc, we MUST save the call_id before rpc done. use this id to join.
+    // if a rpc is already done then we get the id and join, it's wrong.
+    brpc::CallId call_id_;
     // controller has to be the same lifecycle with the closure, because brpc may use
     // it in any stage of the rpc.
     std::shared_ptr<brpc::Controller> cntl_;

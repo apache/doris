@@ -20,7 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.Map;
 

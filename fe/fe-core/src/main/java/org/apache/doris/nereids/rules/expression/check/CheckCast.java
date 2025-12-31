@@ -50,6 +50,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -72,8 +73,8 @@ import java.util.Set;
  */
 public class CheckCast implements ExpressionPatternRuleFactory {
     public static CheckCast INSTANCE = new CheckCast();
-    private static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> strictCastWhiteList;
-    private static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> unStrictCastWhiteList;
+    public static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> strictCastWhiteList;
+    public static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> unStrictCastWhiteList;
 
     static {
         Set<Class<? extends DataType>> allowedTypes = Sets.newHashSet();
@@ -121,7 +122,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         strictCastWhiteList.put(DateType.class, allowedTypes);
         strictCastWhiteList.put(DateV2Type.class, allowedTypes);
 
-        // DateTime
+        // DateTimeV1
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(BigIntType.class);
         allowedTypes.add(LargeIntType.class);
@@ -133,7 +134,27 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(DateTimeType.class, allowedTypes);
+
+        // DateTimeV2
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(BigIntType.class);
+        allowedTypes.add(LargeIntType.class);
+        allowedTypes.add(DateType.class);
+        allowedTypes.add(DateV2Type.class);
+        allowedTypes.add(DateTimeType.class);
+        allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeV2Type.class);
+        allowToStringLikeType(allowedTypes);
+        allowedTypes.add(VariantType.class);
+        allowedTypes.add(TimeStampTzType.class);
         strictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
+
+        // timestamp tz
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampTzType.class);
+        allowToStringLikeType(allowedTypes);
+        strictCastWhiteList.put(TimeStampTzType.class, allowedTypes);
 
         // Time
         allowedTypes = Sets.newHashSet();
@@ -156,6 +177,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToBasicType(allowedTypes);
         allowedTypes.add(IPv4Type.class);
         allowedTypes.add(IPv6Type.class);
+        allowedTypes.add(VarBinaryType.class);
+        allowedTypes.add(TimeStampTzType.class);
         allowToComplexType(allowedTypes);
         allowedTypes.remove(HllType.class);
         allowedTypes.remove(BitmapType.class);
@@ -197,6 +220,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         //varbinary
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(VarBinaryType.class);
+        allowToStringLikeType(allowedTypes);
         strictCastWhiteList.put(VarBinaryType.class, allowedTypes);
 
         // array
@@ -401,37 +425,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else if (originalType.isComplexType() && targetType.isJsonType()) {
             return !checkTypeContainsType(originalType, MapType.class);
         } else {
-            return checkPrimitiveType(originalType, targetType);
-        }
-    }
-
-    /**
-     * forbid this original and target type
-     *   1. original type is object type
-     *   2. target type is object type
-     *   3. original type is same with target type
-     *   4. target type is null type
-     */
-    private static boolean checkPrimitiveType(DataType originalType, DataType targetType) {
-        if (originalType.isJsonType() || targetType.isJsonType()) {
             return true;
         }
-        if (!originalType.isPrimitive() || !targetType.isPrimitive()) {
-            return false;
-        }
-        if (originalType.equals(targetType)) {
-            return false;
-        }
-        if (originalType.isNullType()) {
-            return true;
-        }
-        if (originalType.isObjectType() || targetType.isObjectType()) {
-            return false;
-        }
-        if (targetType.isNullType()) {
-            return false;
-        }
-        return true;
     }
 
     /**

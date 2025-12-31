@@ -44,7 +44,7 @@ public:
         POINT_QUERY_ROW_CACHE = 8,
         DELETE_BITMAP_AGG_CACHE = 9,
         TABLET_VERSION_CACHE = 10,
-        LAST_SUCCESS_CHANNEL_CACHE = 11,
+        LOAD_STATE_CHANNEL_CACHE = 11,
         COMMON_OBJ_LRU_CACHE = 12,
         FOR_UT_CACHE_SIZE = 13,
         TABLET_SCHEMA_CACHE = 14,
@@ -56,6 +56,7 @@ public:
         QUERY_CACHE = 20,
         TABLET_COLUMN_OBJECT_POOL = 21,
         SCHEMA_CLOUD_DICTIONARY_CACHE = 22,
+        CONDITION_CACHE = 23,
     };
 
     static std::string type_string(CacheType type) {
@@ -82,8 +83,8 @@ public:
             return "MowDeleteBitmapAggCache";
         case CacheType::TABLET_VERSION_CACHE:
             return "MowTabletVersionCache";
-        case CacheType::LAST_SUCCESS_CHANNEL_CACHE:
-            return "LastSuccessChannelCache";
+        case CacheType::LOAD_STATE_CHANNEL_CACHE:
+            return "LoadStateChannelCache ";
         case CacheType::COMMON_OBJ_LRU_CACHE:
             return "CommonObjLRUCache";
         case CacheType::FOR_UT_CACHE_SIZE:
@@ -102,6 +103,10 @@ public:
             return "QueryCache";
         case CacheType::TABLET_COLUMN_OBJECT_POOL:
             return "TabletColumnObjectPool";
+        case CacheType::SCHEMA_CLOUD_DICTIONARY_CACHE:
+            return "SchemaCloudDictionaryCache";
+        case CacheType::CONDITION_CACHE:
+            return "ConditionCache";
         default:
             throw Exception(Status::FatalError("not match type of cache policy :{}",
                                                static_cast<int>(type)));
@@ -121,7 +126,7 @@ public:
             {"PointQueryRowCache", CacheType::POINT_QUERY_ROW_CACHE},
             {"MowDeleteBitmapAggCache", CacheType::DELETE_BITMAP_AGG_CACHE},
             {"MowTabletVersionCache", CacheType::TABLET_VERSION_CACHE},
-            {"LastSuccessChannelCache", CacheType::LAST_SUCCESS_CHANNEL_CACHE},
+            {"LoadStateChannelCache ", CacheType::LOAD_STATE_CHANNEL_CACHE},
             {"CommonObjLRUCache", CacheType::COMMON_OBJ_LRU_CACHE},
             {"ForUTCacheSize", CacheType::FOR_UT_CACHE_SIZE},
             {"TabletSchemaCache", CacheType::TABLET_SCHEMA_CACHE},

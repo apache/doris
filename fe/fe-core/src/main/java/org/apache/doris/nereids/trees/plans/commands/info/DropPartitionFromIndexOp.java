@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -78,11 +76,6 @@ public class DropPartitionFromIndexOp extends AlterTableOp {
         if (Strings.isNullOrEmpty(indexName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FOR_INDEX, indexName);
         }
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new DropPartitionFromIndexClause(ifExists, partitionName, isTempPartition, forceDrop, indexName);
     }
 
     @Override

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -276,6 +277,16 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         // do not process must shuffle
         if (children.get(0).getPlan() instanceof PhysicalDistribute) {
             return ImmutableList.of();
+        }
+        DistributionSpec distributionSpec = originChildrenProperties.get(0).getDistributionSpec();
+        // process must shuffle
+        if (distributionSpec instanceof DistributionSpecMustShuffle) {
+            Plan realChild = children.get(0).getPlan();
+            if (realChild instanceof PhysicalProject
+                    || realChild instanceof PhysicalFilter
+                    || realChild instanceof PhysicalLimit) {
+                visit(filter, context);
+            }
         }
         return ImmutableList.of(originChildrenProperties);
     }
@@ -573,6 +584,19 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         // do not process must shuffle
         if (children.get(0).getPlan() instanceof PhysicalDistribute) {
             return ImmutableList.of();
+        }
+        DistributionSpec distributionSpec = originChildrenProperties.get(0).getDistributionSpec();
+        // process must shuffle
+        if (distributionSpec instanceof DistributionSpecMustShuffle) {
+            Plan realChild = children.get(0).getPlan();
+            if (realChild instanceof PhysicalLimit) {
+                visit(project, context);
+            } else if (realChild instanceof PhysicalProject) {
+                PhysicalProject physicalProject = (PhysicalProject) realChild;
+                if (!project.canMergeChildProjections(physicalProject)) {
+                    visit(project, context);
+                }
+            }
         }
         return ImmutableList.of(originChildrenProperties);
     }

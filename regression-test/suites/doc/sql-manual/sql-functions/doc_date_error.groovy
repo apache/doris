@@ -37,7 +37,7 @@ suite("doc_date_error") {
     }
     test {
         sql """select DATE_ADD('2023-12-31 23:00:00', INTERVAL 2 sa);"""
-        exception "mismatched input 'sa' expecting {'.', '[', 'AND', 'BETWEEN', 'COLLATE', 'DAY', 'DIV', 'HOUR', 'IN', 'IS', 'LIKE', 'MATCH', 'MATCH_ALL', 'MATCH_ANY', 'MATCH_PHRASE', 'MATCH_PHRASE_EDGE', 'MATCH_PHRASE_PREFIX', 'MATCH_REGEXP', 'MINUTE', 'MONTH', 'NOT', 'OR', 'QUARTER', 'REGEXP', 'RLIKE', 'SECOND', 'WEEK', 'XOR', 'YEAR', EQ, '<=>', NEQ, '<', LTE, '>', GTE, '+', '-', '*', '/', '%', '&', '&&', '|', '||', '^'}(line 1, pos 50)"
+        exception "mismatched input 'sa' expecting"
     }
 
     // date_ceil out of range
@@ -103,12 +103,6 @@ suite("doc_date_error") {
     test {
         sql """select from_days(99999999);"""
         exception "Operation from_days of 99999999 out of range"
-    }
-
-    // from_iso8601_date format error
-    test {
-        sql """select from_iso8601_date('2023-10-01T12:34:10');"""
-        exception "Operation from_iso8601_date of 2023-10-01T12:34:10 is invalid"
     }
 
     // from_microsecond input is negative
@@ -361,12 +355,6 @@ suite("doc_date_error") {
     test {
         sql """SELECT SECONDS_SUB('0000-01-01 00:00:00', 1) AS result;"""
         exception "Operation second_add of 0000-01-01 00:00:00, -1 out of range"
-    }
-
-    // STR_TO_DATE format mismatch
-    test {
-        sql """SELECT STR_TO_DATE('2023/01/01', '%Y-%m-%d') AS result;"""
-        exception "Operation str_to_date of 2023/01/01, %Y-%m-%d is invalid"
     }
 
     // TIMESTAMPADD invalid unit

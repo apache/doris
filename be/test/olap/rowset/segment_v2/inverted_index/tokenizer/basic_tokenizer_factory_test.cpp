@@ -42,9 +42,11 @@ class BasicTokenizerFactoryTest : public ::testing::Test {
 protected:
     void assert_tokenizer_output(const std::string& text,
                                  const std::vector<ExpectedToken>& expected,
-                                 BasicTokenizerMode mode = BasicTokenizerMode::L1) {
+                                 const std::string& extra_chars = "") {
         Settings settings;
-        settings.set("mode", std::to_string(static_cast<int32_t>(mode)));
+        if (!extra_chars.empty()) {
+            settings.set("extra_chars", extra_chars);
+        }
         auto tokenizer = create_basic_tokenizer(text, settings);
 
         Token t;
@@ -61,52 +63,57 @@ protected:
     }
 };
 
-TEST_F(BasicTokenizerFactoryTest, BasicTokenizationL1) {
-    // Test L1 mode: English + numbers + Chinese tokenization
-    assert_tokenizer_output("Hello world!", {{"Hello", 1}, {"world", 1}}, BasicTokenizerMode::L1);
+TEST_F(BasicTokenizerFactoryTest, BasicTokenization) {
+    // Test basic tokenization: English + numbers + Chinese
+    assert_tokenizer_output("Hello world!", {{"Hello", 1}, {"world", 1}});
 }
 
-TEST_F(BasicTokenizerFactoryTest, ChineseTokenizationL1) {
-    // Test L1 mode with Chinese characters
-    assert_tokenizer_output("你好世界", {{"你", 1}, {"好", 1}, {"世", 1}, {"界", 1}},
-                            BasicTokenizerMode::L1);
+TEST_F(BasicTokenizerFactoryTest, ChineseTokenization) {
+    // Test Chinese characters tokenization
+    assert_tokenizer_output("你好世界", {{"你", 1}, {"好", 1}, {"世", 1}, {"界", 1}});
 }
 
-TEST_F(BasicTokenizerFactoryTest, MixedLanguageL1) {
-    // Test L1 mode with mixed English and Chinese
+TEST_F(BasicTokenizerFactoryTest, MixedLanguage) {
+    // Test mixed English and Chinese
     assert_tokenizer_output(
             "Hello你好World世界",
-            {{"Hello", 1}, {"你", 1}, {"好", 1}, {"World", 1}, {"世", 1}, {"界", 1}},
-            BasicTokenizerMode::L1);
+            {{"Hello", 1}, {"你", 1}, {"好", 1}, {"World", 1}, {"世", 1}, {"界", 1}});
 }
 
-TEST_F(BasicTokenizerFactoryTest, NumbersAndPunctuationL1) {
-    // Test L1 mode with numbers and punctuation
+TEST_F(BasicTokenizerFactoryTest, NumbersAndPunctuation) {
+    // Test with numbers, punctuation is ignored by default
     assert_tokenizer_output("Version 2.0 版本",
-                            {{"Version", 1}, {"2", 1}, {"0", 1}, {"版", 1}, {"本", 1}},
-                            BasicTokenizerMode::L1);
+                            {{"Version", 1}, {"2", 1}, {"0", 1}, {"版", 1}, {"本", 1}});
 }
 
-TEST_F(BasicTokenizerFactoryTest, BasicTokenizationL2) {
-    // Test L2 mode: L1 + all Unicode characters tokenized
-    assert_tokenizer_output("Hello world!", {{"Hello", 1}, {"world", 1}, {"!", 1}},
-                            BasicTokenizerMode::L2);
+TEST_F(BasicTokenizerFactoryTest, ExtraCharsBasic) {
+    // Test extra_chars: tokenize '.' as separate token
+    assert_tokenizer_output("Version 2.0", {{"Version", 1}, {"2", 1}, {".", 1}, {"0", 1}}, ".");
 }
 
-TEST_F(BasicTokenizerFactoryTest, UnicodeTokenizationL2) {
-    // Test L2 mode with various Unicode characters
-    assert_tokenizer_output("Hello��世界", {{"Hello", 1}, {"�", 1}, {"�", 1}, {"世", 1}, {"界", 1}},
-                            BasicTokenizerMode::L2);
+TEST_F(BasicTokenizerFactoryTest, ExtraCharsMultiple) {
+    // Test multiple extra_chars: '[', ']', '.', '_'
+    assert_tokenizer_output(
+            "test[0].value_1",
+            {{"test", 1}, {"[", 1}, {"0", 1}, {"]", 1}, {".", 1}, {"value", 1}, {"_", 1}, {"1", 1}},
+            "[]._");
 }
 
-TEST_F(BasicTokenizerFactoryTest, WhitespaceHandlingL2) {
-    // Test L2 mode skips whitespace
-    assert_tokenizer_output("Hello   world", {{"Hello", 1}, {"world", 1}}, BasicTokenizerMode::L2);
+TEST_F(BasicTokenizerFactoryTest, ExtraCharsWithChinese) {
+    // Test extra_chars with Chinese text
+    assert_tokenizer_output("测试.数据", {{"测", 1}, {"试", 1}, {".", 1}, {"数", 1}, {"据", 1}},
+                            ".");
 }
 
-TEST_F(BasicTokenizerFactoryTest, FactoryInitialization) {
+TEST_F(BasicTokenizerFactoryTest, ExtraCharsSpecialSymbols) {
+    // Test various special symbols as extra_chars
+    assert_tokenizer_output("hello@world#2024",
+                            {{"hello", 1}, {"@", 1}, {"world", 1}, {"#", 1}, {"2024", 1}}, "@#");
+}
+
+TEST_F(BasicTokenizerFactoryTest, FactoryInitializationDefault) {
+    // Test default initialization without extra_chars
     Settings settings;
-    settings.set("mode", "1");
 
     BasicTokenizerFactory factory;
     factory.initialize(settings);
@@ -116,9 +123,10 @@ TEST_F(BasicTokenizerFactoryTest, FactoryInitialization) {
     ASSERT_NE(basic_tokenizer, nullptr);
 }
 
-TEST_F(BasicTokenizerFactoryTest, FactoryInitializationL2) {
+TEST_F(BasicTokenizerFactoryTest, FactoryInitializationWithExtraChars) {
+    // Test initialization with extra_chars
     Settings settings;
-    settings.set("mode", "2");
+    settings.set("extra_chars", "[]._");
 
     BasicTokenizerFactory factory;
     factory.initialize(settings);
@@ -128,53 +136,54 @@ TEST_F(BasicTokenizerFactoryTest, FactoryInitializationL2) {
     ASSERT_NE(basic_tokenizer, nullptr);
 }
 
-TEST_F(BasicTokenizerFactoryTest, DefaultMode) {
-    // Test default mode (L1) when no mode is specified
+TEST_F(BasicTokenizerFactoryTest, EmptyExtraChars) {
+    // Test with empty extra_chars
     Settings settings;
-    BasicTokenizerFactory factory;
-    factory.initialize(settings);
+    settings.set("extra_chars", "");
 
-    auto tokenizer = factory.create();
-    auto basic_tokenizer = std::dynamic_pointer_cast<BasicTokenizer>(tokenizer);
-    ASSERT_NE(basic_tokenizer, nullptr);
+    BasicTokenizerFactory factory;
+    EXPECT_NO_THROW(factory.initialize(settings));
 }
 
-TEST_F(BasicTokenizerFactoryTest, InvalidMode) {
+TEST_F(BasicTokenizerFactoryTest, InvalidExtraCharsNonASCII) {
+    // Test with non-ASCII characters in extra_chars (should throw)
     Settings settings;
-    settings.set("mode", "3"); // Invalid mode
+    settings.set("extra_chars", "你好"); // Chinese characters
 
     BasicTokenizerFactory factory;
     EXPECT_THROW(factory.initialize(settings), Exception);
 }
 
-TEST_F(BasicTokenizerFactoryTest, InvalidModeZero) {
+TEST_F(BasicTokenizerFactoryTest, InvalidExtraCharsMixedASCIIAndNonASCII) {
+    // Test with mixed ASCII and non-ASCII (should throw)
     Settings settings;
-    settings.set("mode", "0"); // Invalid mode
+    settings.set("extra_chars", ".中"); // '.' is ASCII, '中' is not
 
     BasicTokenizerFactory factory;
     EXPECT_THROW(factory.initialize(settings), Exception);
 }
 
-TEST_F(BasicTokenizerFactoryTest, InvalidModeNegative) {
+TEST_F(BasicTokenizerFactoryTest, ValidASCIIExtraChars) {
+    // Test with various valid ASCII characters
     Settings settings;
-    settings.set("mode", "-1"); // Invalid mode
+    settings.set("extra_chars", "!@#$%^&*()_+-=[]{}|;:',.<>?/~`");
 
     BasicTokenizerFactory factory;
-    EXPECT_THROW(factory.initialize(settings), Exception);
+    EXPECT_NO_THROW(factory.initialize(settings));
 }
 
 TEST_F(BasicTokenizerFactoryTest, EdgeCases) {
     // Test empty string
-    assert_tokenizer_output("", {}, BasicTokenizerMode::L1);
+    assert_tokenizer_output("", {});
 
     // Test whitespace only
-    assert_tokenizer_output("   ", {}, BasicTokenizerMode::L1);
+    assert_tokenizer_output("   ", {});
 
-    // Test punctuation only (L1 mode should skip non-Chinese punctuation)
-    assert_tokenizer_output("...", {}, BasicTokenizerMode::L1);
+    // Test punctuation only without extra_chars (should be ignored)
+    assert_tokenizer_output("...", {});
 
-    // Test punctuation only (L2 mode should tokenize punctuation)
-    assert_tokenizer_output("...", {{".", 1}, {".", 1}, {".", 1}}, BasicTokenizerMode::L2);
+    // Test punctuation only with extra_chars (should be tokenized)
+    assert_tokenizer_output("...", {{".", 1}, {".", 1}, {".", 1}}, ".");
 }
 
 TEST_F(BasicTokenizerFactoryTest, LongText) {
@@ -183,7 +192,44 @@ TEST_F(BasicTokenizerFactoryTest, LongText) {
     std::vector<ExpectedToken> expected = {
             {"This", 1},     {"is", 1},    {"a", 1},   {"long", 1}, {"text", 1}, {"with", 1},
             {"multiple", 1}, {"words", 1}, {"and", 1}, {"中", 1},   {"文", 1},   {"characters", 1}};
-    assert_tokenizer_output(long_text, expected, BasicTokenizerMode::L1);
+    assert_tokenizer_output(long_text, expected);
+}
+
+TEST_F(BasicTokenizerFactoryTest, LongTextWithExtraChars) {
+    // Test longer text with extra_chars
+    std::string long_text = "user.name=test_123";
+    std::vector<ExpectedToken> expected = {{"user", 1}, {".", 1}, {"name", 1}, {"=", 1},
+                                           {"test", 1}, {"_", 1}, {"123", 1}};
+    assert_tokenizer_output(long_text, expected, "._=");
+}
+
+TEST_F(BasicTokenizerFactoryTest, ExtraCharsWithAlphanumeric) {
+    assert_tokenizer_output("[123.456_7890abcd]",
+                            {{.term = "[", .pos_inc = 1},
+                             {.term = "123", .pos_inc = 1},
+                             {.term = ".", .pos_inc = 1},
+                             {.term = "456", .pos_inc = 1},
+                             {.term = "_", .pos_inc = 1},
+                             {.term = "7890abcd", .pos_inc = 1},
+                             {.term = "]", .pos_inc = 1}},
+                            "[]._");
+}
+
+TEST_F(BasicTokenizerFactoryTest, ExtraCharsShouldNotIncludeAlphanumeric) {
+    assert_tokenizer_output("Found OpenMP: TRUE (found version \"5.1\")",
+                            {{.term = "Found", .pos_inc = 1},
+                             {.term = "OpenMP", .pos_inc = 1},
+                             {.term = "TRUE", .pos_inc = 1},
+                             {.term = "(", .pos_inc = 1},
+                             {.term = "found", .pos_inc = 1},
+                             {.term = "version", .pos_inc = 1},
+                             {.term = "\"", .pos_inc = 1},
+                             {.term = "5", .pos_inc = 1},
+                             {.term = ".", .pos_inc = 1},
+                             {.term = "1", .pos_inc = 1},
+                             {.term = "\"", .pos_inc = 1},
+                             {.term = ")", .pos_inc = 1}},
+                            "()\".");
 }
 
 } // namespace doris::segment_v2::inverted_index

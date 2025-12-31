@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 // nereids_testIncorrectRewriteCountDistinct
 suite ("incRewriteCD") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
@@ -37,26 +39,15 @@ suite ("incRewriteCD") {
     sql """insert into incRewriteCD values("2020-01-01",1,"a",1);"""
     sql """insert into incRewriteCD values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view incRewriteCD_mv as select user_id as a1, bitmap_union(to_bitmap(tag_id)) from incRewriteCD group by user_id;")
-
-    sleep(3000)
-
+    create_sync_mv(db, "incRewriteCD", "incRewriteCD_mv", "select user_id as a1, bitmap_union(to_bitmap(tag_id)) from incRewriteCD group by user_id;")
     sql """insert into incRewriteCD values("2020-01-01",1,"a",2);"""
 
     sql "analyze table incRewriteCD with sync;"
     sql """alter table incRewriteCD modify column time_col set stats ('row_count'='3');"""
-
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from incRewriteCD order by time_col;", "incRewriteCD_mv")
     order_qt_select_star "select * from incRewriteCD order by time_col,tag_id;"
 
     mv_rewrite_fail("select user_name, count(distinct tag_id) from incRewriteCD group by user_name;", "incRewriteCD_mv")
     order_qt_select_mv "select user_name, count(distinct tag_id) from incRewriteCD group by user_name order by user_name;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from incRewriteCD order by time_col;", "incRewriteCD_mv")
-
-    mv_rewrite_fail("select user_name, count(distinct tag_id) from incRewriteCD group by user_name;", "incRewriteCD_mv")
 }

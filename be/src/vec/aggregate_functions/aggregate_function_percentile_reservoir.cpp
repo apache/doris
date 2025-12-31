@@ -26,6 +26,7 @@ namespace doris::vectorized {
 
 AggregateFunctionPtr createAggregateFunctionPercentileReservoir(const std::string& name,
                                                                 const DataTypes& argument_types,
+                                                                const DataTypePtr& result_type,
                                                                 const bool result_is_nullable,
                                                                 const AggregateFunctionAttr& attr) {
     if (argument_types.empty()) {

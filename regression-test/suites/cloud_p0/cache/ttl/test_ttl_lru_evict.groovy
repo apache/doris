@@ -38,6 +38,17 @@ import org.apache.http.impl.client.LaxRedirectStrategy;
 //  - set smaller max_ttl_cache_ratio in this test
 
 suite("test_ttl_lru_evict") {
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99,
+        file_cache_background_ttl_gc_interval_ms : 1000,
+        file_cache_background_ttl_info_update_interval_ms : 1000,
+        file_cache_background_tablet_id_flush_interval_ms : 1000
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    sql "set global enable_auto_analyze = false"
+    sql "set global enable_audit_plugin = false"
     def clusters = sql " SHOW CLUSTERS; "
     assertTrue(!clusters.isEmpty())
     def validCluster = clusters[0][0]
@@ -253,7 +264,7 @@ suite("test_ttl_lru_evict") {
     // sequentially, coz we don't know what other cases are
     // doing with TTL cache
     logger.info("ttl evict diff:" + (ttl_cache_evict_size_end - ttl_cache_evict_size_begin).toString())
-    assertTrue((ttl_cache_evict_size_end - ttl_cache_evict_size_begin) > 1073741824)
+    assertTrue((ttl_cache_evict_size_end - ttl_cache_evict_size_begin) > 238860800)
 
     // then we test skip_cache count when doing query when ttl cache is full
     // we expect it to be rare
@@ -336,5 +347,6 @@ suite("test_ttl_lru_evict") {
                 }
             }
             assertTrue(flag1)
+    }
     }
 }

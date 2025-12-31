@@ -20,7 +20,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.thrift.TDataSink;
@@ -200,9 +199,7 @@ public class DataStreamSink extends DataSink {
         TDataStreamSink tStreamSink =
                 new TDataStreamSink(exchNodeId.asInt(), outputPartition.toThrift());
         for (Expr e : conjuncts) {
-            if  (!(e instanceof BitmapFilterPredicate)) {
-                tStreamSink.addToConjuncts(e.treeToThrift());
-            }
+            tStreamSink.addToConjuncts(e.treeToThrift());
         }
         if (projections != null) {
             for (Expr expr : projections) {

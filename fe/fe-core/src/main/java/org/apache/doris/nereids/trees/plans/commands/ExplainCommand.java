@@ -87,6 +87,9 @@ public class ExplainCommand extends Command implements NoForward {
                 || explainable instanceof UpdateCommand) {
             ctx.getStatementContext().setIsInsert(true);
         }
+        if (explainable instanceof DeleteFromCommand) {
+            ctx.getStatementContext().setSkipPrunePredicate(true);
+        }
         explainPlan = ((LogicalPlan) explainable.getExplainPlan(ctx));
         NereidsPlanner planner = explainable.getExplainPlanner(explainPlan, ctx.getStatementContext()).orElseGet(() ->
             new NereidsPlanner(ctx.getStatementContext())
@@ -101,7 +104,8 @@ public class ExplainCommand extends Command implements NoForward {
         }
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.setPlanner(planner);
-        executor.checkBlockRules();
+        // Skip SQL block rules check for EXPLAIN statements since they only show
+        // the execution plan without actually executing the query
         if (showPlanProcess) {
             executor.handleExplainPlanProcessStmt(planner.getCascadesContext().getPlanProcesses());
         } else {

@@ -199,9 +199,11 @@ void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpR
     str = str + '\n';
     HttpChannel::send_reply(req, str);
 #ifndef BE_TEST
-    if (config::enable_stream_load_record) {
-        str = ctx->prepare_stream_load_record(str);
-        _save_stream_load_record(ctx, str);
+    if (config::enable_stream_load_record || config::enable_stream_load_record_to_audit_log_table) {
+        if (req->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
+            str = ctx->prepare_stream_load_record(str);
+            _save_stream_load_record(ctx, str);
+        }
     }
 #endif
 

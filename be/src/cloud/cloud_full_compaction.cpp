@@ -349,8 +349,9 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     int64_t max_version = cloud_tablet()->max_version().second;
     DCHECK(max_version >= _output_rowset->version().second);
     if (max_version > _output_rowset->version().second) {
-        RETURN_IF_ERROR(cloud_tablet()->capture_consistent_rowsets_unlocked(
-                {_output_rowset->version().second + 1, max_version}, &tmp_rowsets));
+        auto ret = DORIS_TRY(cloud_tablet()->capture_consistent_rowsets_unlocked(
+                {_output_rowset->version().second + 1, max_version}, CaptureRowsetOps {}));
+        tmp_rowsets = std::move(ret.rowsets);
     }
     for (const auto& it : tmp_rowsets) {
         int64_t cur_version = it->rowset_meta()->start_version();

@@ -47,6 +47,7 @@ public class ShowCreateMTMVInfo {
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("Materialized View", ScalarType.createVarchar(20)))
             .addColumn(new Column("Create Materialized View", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Session Variables", ScalarType.createVarchar(10000)))
             .build();
 
     private final TableNameInfo mvName;
@@ -89,7 +90,7 @@ public class ShowCreateMTMVInfo {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
         MTMV mtmv = (MTMV) db.getTableOrDdlException(mvName.getTbl());
         String mtmvDdl = Env.getMTMVDdl(mtmv);
-        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
+        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl, mtmv.getSessionVariables().toString()));
         return new ShowResultSet(META_DATA, rows);
 
     }

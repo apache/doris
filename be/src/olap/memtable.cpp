@@ -45,6 +45,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
+bvar::Adder<uint64_t> g_flush_cuz_memtable_full("flush_cuz_memtable_full");
 
 using namespace ErrorCode;
 
@@ -68,20 +69,17 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
             _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
-    _num_columns = _tablet_schema->num_columns();
     if (partial_update_info != nullptr) {
         _partial_update_mode = partial_update_info->update_mode();
         if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
-            _num_columns = partial_update_info->partial_update_input_columns.size();
             if (partial_update_info->is_schema_contains_auto_inc_column &&
                 !partial_update_info->is_input_columns_contains_auto_inc_column) {
                 _is_partial_update_and_auto_inc = true;
-                _num_columns += 1;
             }
         }
     }
-    // TODO: Support ZOrderComparator in the future
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
+    // TODO: Support ZOrderComparator in the future
     _row_in_blocks = std::make_unique<DorisVector<std::shared_ptr<RowInBlock>>>();
     _load_mem_limit = MemInfo::mem_limit() * config::load_process_max_memory_limit_percent / 100;
 }
@@ -100,9 +98,15 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
     if (_is_partial_update_and_auto_inc) {
         _column_offset.emplace_back(_column_offset.size());
     }
+    _num_columns = _column_offset.size();
 }
 
 void MemTable::_init_agg_functions(const vectorized::Block* block) {
+    if (_num_columns > _column_offset.size()) [[unlikely]] {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "num_columns {} is greater than block columns {}", _num_columns,
+                               _column_offset.size());
+    }
     for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         vectorized::AggregateFunctionPtr function;
         if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow) {
@@ -110,13 +114,13 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             // the aggregate function manually.
             if (_skip_bitmap_col_idx != cid) {
                 function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                        "replace_load", {block->get_data_type(cid)},
+                        "replace_load", {block->get_data_type(cid)}, block->get_data_type(cid),
                         block->get_data_type(cid)->is_nullable(),
                         BeExecVersionManager::get_newest_version());
             } else {
                 function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                        "bitmap_intersect", {block->get_data_type(cid)}, false,
-                        BeExecVersionManager::get_newest_version());
+                        "bitmap_intersect", {block->get_data_type(cid)}, block->get_data_type(cid),
+                        false, BeExecVersionManager::get_newest_version());
             }
         } else {
             function = _tablet_schema->column(cid).get_aggregate_function(
@@ -243,6 +247,45 @@ Status MemTable::insert(const vectorized::Block* input_block,
 
     _stat.raw_rows += num_rows;
     return Status::OK();
+}
+
+void MemTable::_aggregate_two_row_with_sequence_map(vectorized::MutableBlock& mutable_block,
+                                                    RowInBlock* src_row, RowInBlock* dst_row) {
+    // for each mapping replace value columns according to the sequence column compare result
+    // for example: a b c d s1 s2  (key:a , s1=>[b,c], s2=>[d])
+    // src row:     1 4 5 6  8 9
+    // dst row:     1 2 3 4  7 10
+    // after aggregate
+    // dst row:     1 4 5 4  8 10  (b,c,s1 will be replaced, d,s2)
+    const auto& seq_map = _tablet_schema->seq_col_idx_to_value_cols_idx();
+    for (const auto& it : seq_map) {
+        auto sequence = it.first;
+        auto* sequence_col_ptr = mutable_block.mutable_columns()[sequence].get();
+        auto res = sequence_col_ptr->compare_at(dst_row->_row_pos, src_row->_row_pos,
+                                                *sequence_col_ptr, -1);
+        if (res > 0) {
+            continue;
+        }
+        for (auto cid : it.second) {
+            if (cid < _num_columns) {
+                auto* col_ptr = mutable_block.mutable_columns()[cid].get();
+                _agg_functions[cid]->add(dst_row->agg_places(cid),
+                                         const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+                                         src_row->_row_pos, _arena);
+            }
+        }
+        if (sequence < _num_columns) {
+            _agg_functions[sequence]->add(
+                    dst_row->agg_places(sequence),
+                    const_cast<const doris::vectorized::IColumn**>(&sequence_col_ptr),
+                    src_row->_row_pos, _arena);
+            // must use replace column instead of update row_pos
+            // because one row may have multi sequence column
+            // and agg function add method won't change the real column value
+            sequence_col_ptr->replace_column_data(*sequence_col_ptr, src_row->_row_pos,
+                                                  dst_row->_row_pos);
+        }
+    }
 }
 
 template <bool has_skip_bitmap_col>
@@ -481,7 +524,7 @@ void MemTable::_clear_row_agg(RowInBlock* row) {
         row->remove_init_agg();
     }
 }
-
+// only in `to_block` the `is_final` flag will be true, in other cases, it will be false
 template <bool is_final, bool has_skip_bitmap_col>
 void MemTable::_aggregate() {
     SCOPED_RAW_TIMER(&_stat.agg_ns);
@@ -505,11 +548,22 @@ void MemTable::_aggregate() {
                     _init_row_for_agg(prev_row, mutable_block);
                 }
                 _stat.merged_rows++;
-                _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, cur_row, prev_row);
+                if (_tablet_schema->has_seq_map()) {
+                    _aggregate_two_row_with_sequence_map(mutable_block, cur_row, prev_row);
+                } else {
+                    _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, cur_row,
+                                                                     prev_row);
+                }
+
+                // Clean up aggregation state of the merged row to avoid memory leak
+                if (cur_row) {
+                    _clear_row_agg(cur_row);
+                }
             } else {
                 prev_row = cur_row;
                 if (!temp_row_in_blocks.empty()) {
-                    // no more rows to merge for prev row, finalize it
+                    // The rows from the previous batch of _row_in_blocks have been merged into temp_row_in_blocks,
+                    // now call finalize to write the aggregation results into _output_mutable_block.
                     _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), block_data,
                                                 row_pos);
                 }
@@ -660,7 +714,12 @@ bool MemTable::need_flush() const {
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
         max_size = max_size > min_buffer_size ? max_size : min_buffer_size;
     }
-    return memory_usage() >= max_size;
+
+    if (memory_usage() >= max_size) {
+        g_flush_cuz_memtable_full << 1;
+        return true;
+    }
+    return false;
 }
 
 int64_t MemTable::_adaptive_write_buffer_size() const {

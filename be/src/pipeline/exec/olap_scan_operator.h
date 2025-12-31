@@ -79,6 +79,7 @@ private:
                                              PushDownType& pdt) override;
 
     PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
+    PushDownType _should_push_down_topn_filter() override { return PushDownType::ACCEPTABLE; }
 
     PushDownType _should_push_down_bitmap_filter() override { return PushDownType::ACCEPTABLE; }
 
@@ -90,6 +91,11 @@ private:
 
     bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
+            return false;
+        }
+        if (!olap_scan_node().__isset.columns_desc || olap_scan_node().columns_desc.empty() ||
+            olap_scan_node().columns_desc[0].col_unique_id < 0) {
+            // Disable topN filter if there is no schema info
             return false;
         }
         return _is_key_column(predicate.get_col_name(_parent->node_id()));
@@ -109,9 +115,8 @@ private:
     std::atomic_bool _sync_tablet = false;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
-    std::vector<FilterOlapParam<TCondition>> _olap_filters;
     // If column id in this set, indicate that we need to read data after index filtering
-    std::set<int32_t> _maybe_read_column_ids;
+    std::set<int32_t> _output_column_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
@@ -188,11 +193,7 @@ private:
     // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 
-    // row count filtered by bitmap inverted index
-    RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
-    // time fro bitmap inverted index read and filter
-    RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
-
+    RuntimeProfile::Counter* _statistics_collect_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
@@ -242,6 +243,10 @@ private:
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
 
+    // condition cache filter stats
+    RuntimeProfile::Counter* _condition_cache_hit_segment_counter = nullptr;
+    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
+
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
@@ -263,7 +268,6 @@ private:
 
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_bitmap_index_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
@@ -286,7 +290,7 @@ private:
     RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
 
     std::vector<TabletWithVersion> _tablets;
-    std::vector<TabletReader::ReadSource> _read_sources;
+    std::vector<TabletReadSource> _read_sources;
 
     std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
     std::map<SlotId, size_t> _slot_id_to_index_in_block;
@@ -300,10 +304,19 @@ public:
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
 
+    int get_column_id(const std::string& col_name) const override {
+        if (!_tablet_schema) {
+            return -1;
+        }
+        const auto& column = *DORIS_TRY(_tablet_schema->column(col_name));
+        return _tablet_schema->field_index(column.unique_id());
+    }
+
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
     TQueryCacheParam _cache_param;
+    TabletSchemaSPtr _tablet_schema;
 };
 
 #include "common/compile_check_end.h"

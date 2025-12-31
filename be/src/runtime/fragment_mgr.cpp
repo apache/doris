@@ -367,6 +367,13 @@ Status FragmentMgr::trigger_pipeline_context_report(
 // Also, the reported status will always reflect the most recent execution status,
 // including the final status when execution finishes.
 void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
+    DBUG_EXECUTE_IF("FragmentMgr::coordinator_callback.report_delay", {
+        int random_seconds = req.status.is<ErrorCode::DATA_QUALITY_ERROR>() ? 8 : 2;
+        LOG_INFO("sleep : ").tag("time", random_seconds).tag("query_id", print_id(req.query_id));
+        std::this_thread::sleep_for(std::chrono::seconds(random_seconds));
+        LOG_INFO("sleep done").tag("query_id", print_id(req.query_id));
+    });
+
     DCHECK(req.status.ok() || req.done); // if !status.ok() => done
     if (req.coord_addr.hostname == "external") {
         // External query (flink/spark read tablets) not need to report to FE.
@@ -912,6 +919,7 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
             return;
         }
     }
+    SCOPED_ATTACH_TASK(query_ctx->resource_ctx());
     query_ctx->cancel(reason);
     remove_query_context(query_id);
     LOG(INFO) << "Query " << print_id(query_id)

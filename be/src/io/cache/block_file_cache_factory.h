@@ -27,8 +27,10 @@
 #include <vector>
 
 #include "common/status.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
+#include "olap/options.h"
 namespace doris {
 class TUniqueId;
 
@@ -48,6 +50,8 @@ public:
     Status create_file_cache(const std::string& cache_base_path,
                              FileCacheSettings file_cache_settings);
 
+    Status reload_file_cache(const std::vector<CachePath>& cache_base_paths);
+
     size_t try_release();
 
     size_t try_release(const std::string& base_path);
@@ -64,6 +68,11 @@ public:
 
     std::vector<std::string> get_cache_file_by_path(const UInt128Wrapper& hash);
     int64_t get_cache_file_size_by_path(const UInt128Wrapper& hash);
+
+    // Return cached blocks data for a given key hash
+    std::vector<doris::CacheBlockPB> get_cache_data_by_path(const UInt128Wrapper& hash);
+    // Convenience overload: compute hash from path and return cached blocks data
+    std::vector<doris::CacheBlockPB> get_cache_data_by_path(const std::string& path);
 
     BlockFileCache* get_by_path(const UInt128Wrapper& hash);
     BlockFileCache* get_by_path(const std::string& cache_base_path);
@@ -95,6 +104,9 @@ public:
     std::string reset_capacity(const std::string& path, int64_t new_capacity);
 
     void get_cache_stats_block(vectorized::Block* block);
+
+    // Get all cache instances for inspection
+    const std::vector<std::unique_ptr<BlockFileCache>>& get_caches() const { return _caches; }
 
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;

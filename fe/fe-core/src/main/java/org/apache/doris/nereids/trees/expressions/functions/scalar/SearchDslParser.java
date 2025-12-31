@@ -61,13 +61,32 @@ public class SearchDslParser {
      * Parse DSL string and return intermediate representation
      */
     public static QsPlan parseDsl(String dsl) {
+        return parseDsl(dsl, null, null);
+    }
+
+    /**
+     * Parse DSL string with default field and operator support
+     *
+     * @param dsl DSL query string
+     * @param defaultField Default field name when DSL doesn't specify field (optional)
+     * @param defaultOperator Default operator ("and" or "or") for multi-term queries (optional, defaults to "or")
+     * @return Parsed QsPlan
+     */
+    public static QsPlan parseDsl(String dsl, String defaultField, String defaultOperator) {
         if (dsl == null || dsl.trim().isEmpty()) {
             return new QsPlan(new QsNode(QsClauseType.TERM, "error", "empty_dsl"), new ArrayList<>());
         }
 
+        // Expand simplified DSL if default field is provided
+        String expandedDsl = dsl;
+        if (defaultField != null && !defaultField.trim().isEmpty()) {
+            expandedDsl = expandSimplifiedDsl(dsl.trim(), defaultField.trim(),
+                    normalizeDefaultOperator(defaultOperator));
+        }
+
         try {
             // Create ANTLR lexer and parser
-            SearchLexer lexer = new SearchLexer(new ANTLRInputStream(dsl));
+            SearchLexer lexer = new SearchLexer(new ANTLRInputStream(expandedDsl));
             CommonTokenStream tokens = new CommonTokenStream(lexer);
             SearchParser parser = new SearchParser(tokens);
 
@@ -107,9 +126,269 @@ public class SearchDslParser {
             return new QsPlan(root, bindings);
 
         } catch (Exception e) {
-            LOG.error("Failed to parse search DSL: '{}'", dsl, e);
+            LOG.error("Failed to parse search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
             throw new RuntimeException("Invalid search DSL syntax: " + dsl + ". Error: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Normalize default operator to lowercase "and" or "or"
+     */
+    private static String normalizeDefaultOperator(String operator) {
+        if (operator == null || operator.trim().isEmpty()) {
+            return "or";  // Default to OR
+        }
+        String normalized = operator.trim().toLowerCase();
+        if ("and".equals(normalized) || "or".equals(normalized)) {
+            return normalized;
+        }
+        throw new IllegalArgumentException("Invalid default operator: " + operator
+                + ". Must be 'and' or 'or'");
+    }
+
+    /**
+     * Expand simplified DSL to full DSL format
+     * <p>
+     * Examples:
+     * - "foo bar" + field="tags" + operator="and" → "tags:ALL(foo bar)"
+     * - "foo* bar*" + field="tags" + operator="and" → "tags:foo* AND tags:bar*"
+     * - "foo OR bar" + field="tags" → "tags:foo OR tags:bar"
+     * - "EXACT(foo bar)" + field="tags" → "tags:EXACT(foo bar)"
+     *
+     * @param dsl Simple DSL string
+     * @param defaultField Default field name
+     * @param defaultOperator "and" or "or"
+     * @return Expanded full DSL
+     */
+    private static String expandSimplifiedDsl(String dsl, String defaultField, String defaultOperator) {
+        // 1. If DSL already contains field names (colon), return as-is
+        if (containsFieldReference(dsl)) {
+            return dsl;
+        }
+
+        // 2. Check if DSL starts with a function keyword (EXACT, ANY, ALL, IN)
+        if (startsWithFunction(dsl)) {
+            return defaultField + ":" + dsl;
+        }
+
+        // 3. Check for explicit boolean operators in DSL
+        if (containsExplicitOperators(dsl)) {
+            return addFieldPrefixToOperatorExpression(dsl, defaultField);
+        }
+
+        // 4. Tokenize and analyze terms
+        List<String> terms = tokenizeDsl(dsl);
+        if (terms.isEmpty()) {
+            return defaultField + ":" + dsl;
+        }
+
+        // 5. Single term - simple case
+        if (terms.size() == 1) {
+            return defaultField + ":" + terms.get(0);
+        }
+
+        // 6. Multiple terms - check for wildcards
+        boolean hasWildcard = terms.stream().anyMatch(SearchDslParser::containsWildcard);
+
+        if (hasWildcard) {
+            // Wildcards cannot be tokenized - must create separate field queries
+            String operator = "and".equals(defaultOperator) ? " AND " : " OR ";
+            return terms.stream()
+                    .map(term -> defaultField + ":" + term)
+                    .collect(java.util.stream.Collectors.joining(operator));
+        } else {
+            // Regular multi-term query - use ANY/ALL
+            String clauseType = "and".equals(defaultOperator) ? "ALL" : "ANY";
+            return defaultField + ":" + clauseType + "(" + dsl + ")";
+        }
+    }
+
+    /**
+     * Check if DSL contains field references (has colon not in quoted strings)
+     */
+    private static boolean containsFieldReference(String dsl) {
+        boolean inQuotes = false;
+        boolean inRegex = false;
+        for (int i = 0; i < dsl.length(); i++) {
+            char c = dsl.charAt(i);
+            if (c == '"' && (i == 0 || dsl.charAt(i - 1) != '\\')) {
+                inQuotes = !inQuotes;
+            } else if (c == '/' && !inQuotes) {
+                inRegex = !inRegex;
+            } else if (c == ':' && !inQuotes && !inRegex) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if DSL starts with function keywords
+     */
+    private static boolean startsWithFunction(String dsl) {
+        String upper = dsl.toUpperCase();
+        return upper.startsWith("EXACT(")
+                || upper.startsWith("ANY(")
+                || upper.startsWith("ALL(")
+                || upper.startsWith("IN(");
+    }
+
+    /**
+     * Check if DSL contains explicit boolean operators (AND/OR/NOT)
+     */
+    private static boolean containsExplicitOperators(String dsl) {
+        // Look for standalone AND/OR/NOT keywords (not part of field names)
+        String upper = dsl.toUpperCase();
+        return upper.matches(".*\\s+(AND|OR)\\s+.*")
+                || upper.matches("^NOT\\s+.*")
+                || upper.matches(".*\\s+NOT\\s+.*");
+    }
+
+    /**
+     * Add field prefix to expressions with explicit operators
+     * Example: "foo AND bar" → "field:foo AND field:bar"
+     */
+    private static String addFieldPrefixToOperatorExpression(String dsl, String defaultField) {
+        StringBuilder result = new StringBuilder();
+        StringBuilder currentTerm = new StringBuilder();
+        int i = 0;
+
+        while (i < dsl.length()) {
+            // Skip whitespace
+            while (i < dsl.length() && Character.isWhitespace(dsl.charAt(i))) {
+                i++;
+            }
+            if (i >= dsl.length()) {
+                break;
+            }
+
+            // Try to match operators
+            String remaining = dsl.substring(i);
+            String upperRemaining = remaining.toUpperCase();
+
+            if (upperRemaining.startsWith("AND ") || upperRemaining.startsWith("AND\t")
+                    || (upperRemaining.equals("AND") && i + 3 >= dsl.length())) {
+                // Found AND operator
+                if (currentTerm.length() > 0) {
+                    if (result.length() > 0) {
+                        result.append(" ");
+                    }
+                    result.append(defaultField).append(":").append(currentTerm.toString().trim());
+                    currentTerm.setLength(0);
+                }
+                if (result.length() > 0) {
+                    result.append(" ");
+                }
+                result.append(dsl.substring(i, i + 3)); // Preserve original case
+                i += 3;
+                continue;
+            } else if (upperRemaining.startsWith("OR ") || upperRemaining.startsWith("OR\t")
+                    || (upperRemaining.equals("OR") && i + 2 >= dsl.length())) {
+                // Found OR operator
+                if (currentTerm.length() > 0) {
+                    if (result.length() > 0) {
+                        result.append(" ");
+                    }
+                    result.append(defaultField).append(":").append(currentTerm.toString().trim());
+                    currentTerm.setLength(0);
+                }
+                if (result.length() > 0) {
+                    result.append(" ");
+                }
+                result.append(dsl.substring(i, i + 2)); // Preserve original case
+                i += 2;
+                continue;
+            } else if (upperRemaining.startsWith("NOT ") || upperRemaining.startsWith("NOT\t")
+                    || (upperRemaining.equals("NOT") && i + 3 >= dsl.length())) {
+                // Found NOT operator
+                if (currentTerm.length() > 0) {
+                    if (result.length() > 0) {
+                        result.append(" ");
+                    }
+                    result.append(defaultField).append(":").append(currentTerm.toString().trim());
+                    currentTerm.setLength(0);
+                }
+                if (result.length() > 0) {
+                    result.append(" ");
+                }
+                result.append(dsl.substring(i, i + 3)); // Preserve original case
+                i += 3;
+                continue;
+            }
+
+            // Not an operator, accumulate term
+            currentTerm.append(dsl.charAt(i));
+            i++;
+        }
+
+        // Add last term
+        if (currentTerm.length() > 0) {
+            if (result.length() > 0) {
+                result.append(" ");
+            }
+            result.append(defaultField).append(":").append(currentTerm.toString().trim());
+        }
+
+        return result.toString().trim();
+    }
+
+    /**
+     * Tokenize DSL into terms (split by whitespace, respecting quotes and functions)
+     */
+    private static List<String> tokenizeDsl(String dsl) {
+        List<String> terms = new ArrayList<>();
+        StringBuilder currentTerm = new StringBuilder();
+        boolean inQuotes = false;
+        boolean inParens = false;
+        int parenDepth = 0;
+
+        for (int i = 0; i < dsl.length(); i++) {
+            char c = dsl.charAt(i);
+
+            if (c == '"' && (i == 0 || dsl.charAt(i - 1) != '\\')) {
+                inQuotes = !inQuotes;
+                currentTerm.append(c);
+            } else if (c == '(' && !inQuotes) {
+                parenDepth++;
+                inParens = true;
+                currentTerm.append(c);
+            } else if (c == ')' && !inQuotes) {
+                parenDepth--;
+                if (parenDepth == 0) {
+                    inParens = false;
+                }
+                currentTerm.append(c);
+            } else if (Character.isWhitespace(c) && !inQuotes && !inParens) {
+                // End of term
+                if (currentTerm.length() > 0) {
+                    terms.add(currentTerm.toString());
+                    currentTerm = new StringBuilder();
+                }
+            } else {
+                currentTerm.append(c);
+            }
+        }
+
+        // Add last term
+        if (currentTerm.length() > 0) {
+            terms.add(currentTerm.toString());
+        }
+
+        return terms;
+    }
+
+    /**
+     * Check if a term contains wildcard characters (* or ?)
+     */
+    private static boolean containsWildcard(String term) {
+        // Ignore wildcards in quoted strings or regex
+        if (term.startsWith("\"") && term.endsWith("\"")) {
+            return false;
+        }
+        if (term.startsWith("/") && term.endsWith("/")) {
+            return false;
+        }
+        return term.contains("*") || term.contains("?");
     }
 
     /**

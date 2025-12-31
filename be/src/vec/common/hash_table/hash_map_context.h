@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 
@@ -157,6 +158,8 @@ struct MethodBaseInner {
 
     virtual void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                           uint32_t num_rows) = 0;
+
+    virtual uint32_t direct_mapping_range() { return 0; }
 };
 
 template <typename T>
@@ -408,6 +411,68 @@ struct MethodOneNumber : public MethodBase<TData> {
             // If size() is ​0​, data() may or may not return a null pointer.
             key_columns[0]->insert_many_raw_data((char*)input_keys.data(), num_rows);
         }
+    }
+};
+
+template <typename FieldType, typename TData>
+struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
+    using Base = MethodOneNumber<FieldType, TData>;
+    using Base::init_iterator;
+    using Base::hash_table;
+    using State = ColumnsHashing::HashMethodOneNumber<typename Base::Value, typename Base::Mapped,
+                                                      FieldType>;
+    FieldType _max_key;
+    FieldType _min_key;
+
+    MethodOneNumberDirect(FieldType max_key, FieldType min_key)
+            : _max_key(max_key), _min_key(min_key) {}
+
+    void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
+                              const uint8_t* null_map = nullptr, bool is_join = false,
+                              bool is_build = false, uint32_t bucket_size = 0) override {
+        Base::keys = (FieldType*)(key_columns[0]->is_nullable()
+                                          ? assert_cast<const ColumnNullable*>(key_columns[0])
+                                                    ->get_nested_column_ptr()
+                                                    ->get_raw_data()
+                                                    .data
+                                          : key_columns[0]->get_raw_data().data);
+        CHECK(is_join);
+        CHECK_EQ(bucket_size, direct_mapping_range());
+        Base::bucket_nums.resize(num_rows);
+
+        if (null_map == nullptr) {
+            if (is_build) {
+                for (uint32_t k = 1; k < num_rows; ++k) {
+                    Base::bucket_nums[k] = uint32_t(Base::keys[k] - _min_key + 1);
+                }
+            } else {
+                for (uint32_t k = 0; k < num_rows; ++k) {
+                    Base::bucket_nums[k] = (Base::keys[k] >= _min_key && Base::keys[k] <= _max_key)
+                                                   ? uint32_t(Base::keys[k] - _min_key + 1)
+                                                   : 0;
+                }
+            }
+        } else {
+            if (is_build) {
+                for (uint32_t k = 1; k < num_rows; ++k) {
+                    Base::bucket_nums[k] =
+                            null_map[k] ? bucket_size : uint32_t(Base::keys[k] - _min_key + 1);
+                }
+            } else {
+                for (uint32_t k = 0; k < num_rows; ++k) {
+                    Base::bucket_nums[k] =
+                            null_map[k] ? bucket_size
+                            : (Base::keys[k] >= _min_key && Base::keys[k] <= _max_key)
+                                    ? uint32_t(Base::keys[k] - _min_key + 1)
+                                    : 0;
+                }
+            }
+        }
+    }
+
+    uint32_t direct_mapping_range() override {
+        // +2 to include max_key and one slot for out of range value
+        return static_cast<uint32_t>(_max_key - _min_key + 2);
     }
 };
 

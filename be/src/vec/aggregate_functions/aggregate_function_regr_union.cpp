@@ -28,6 +28,7 @@ namespace doris::vectorized {
 template <template <PrimitiveType> class StatFunctionTemplate>
 AggregateFunctionPtr create_aggregate_function_regr(const std::string& name,
                                                     const DataTypes& argument_types,
+                                                    const DataTypePtr& result_type,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
     bool y_nullable_input = argument_types[0]->is_nullable();
@@ -59,5 +60,8 @@ void register_aggregate_function_regr_union(AggregateFunctionSimpleFactory& fact
     factory.register_function_both("regr_slope", create_aggregate_function_regr<RegrSlopeFunc>);
     factory.register_function_both("regr_intercept",
                                    create_aggregate_function_regr<RegrInterceptFunc>);
+    factory.register_function_both("regr_sxx", create_aggregate_function_regr<RegrSxxFunc>);
+    factory.register_function_both("regr_syy", create_aggregate_function_regr<RegrSyyFunc>);
+    factory.register_function_both("regr_sxy", create_aggregate_function_regr<RegrSxyFunc>);
 }
 } // namespace doris::vectorized

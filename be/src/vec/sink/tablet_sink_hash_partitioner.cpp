@@ -51,8 +51,7 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     _tablet_finder =
             std::make_unique<vectorized::OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
     _tablet_sink_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tablet_sink_tuple_id);
-    _tablet_sink_row_desc =
-            state->obj_pool()->add(new RowDescriptor(_tablet_sink_tuple_desc, false));
+    _tablet_sink_row_desc = state->obj_pool()->add(new RowDescriptor(_tablet_sink_tuple_desc));
     auto& ctxs =
             _local_state->parent()->cast<pipeline::ExchangeSinkOperatorX>().tablet_sink_expr_ctxs();
     _tablet_sink_expr_ctxs.resize(ctxs.size());

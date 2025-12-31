@@ -240,6 +240,12 @@ public class GenericPoolTest {
         public TDictionaryStatusList getDictionaryStatus(List<Long> dictionaryIds) throws TException {
             return null;
         }
+
+        @Override
+        public org.apache.doris.thrift.TTestStorageConnectivityResponse testStorageConnectivity(
+                org.apache.doris.thrift.TTestStorageConnectivityRequest request) throws TException {
+            return null;
+        }
     }
 
     @Test

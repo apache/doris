@@ -262,6 +262,7 @@ protected:
         auto tablet = std::make_shared<Tablet>(*l_engine, tablet_meta, _data_dir.get(), "test_str");
         // tablet->key
         rowset_writer_context->tablet = tablet;
+        rowset_writer_context->enable_segcompaction = true;
     }
 
     void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context,
@@ -362,7 +363,10 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
                 std::shared_ptr<vectorized::Block> output_block =
                         std::make_shared<vectorized::Block>(
                                 tablet_schema->create_block(return_columns));
-                s = rowset_reader->next_block(output_block.get());
+                std::vector<bool> row_is_same;
+                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
+                                                      .same_bit = row_is_same};
+                s = rowset_reader->next_batch(&block_with_same_bit);
                 if (s != Status::OK()) {
                     eof = true;
                 }
@@ -868,7 +872,10 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
                 std::shared_ptr<vectorized::Block> output_block =
                         std::make_shared<vectorized::Block>(
                                 tablet_schema->create_block(return_columns));
-                s = rowset_reader->next_block(output_block.get());
+                std::vector<bool> row_is_same;
+                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
+                                                      .same_bit = row_is_same};
+                s = rowset_reader->next_batch(&block_with_same_bit);
                 if (s != Status::OK()) {
                     eof = true;
                 }
@@ -1133,7 +1140,10 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
                 std::shared_ptr<vectorized::Block> output_block =
                         std::make_shared<vectorized::Block>(
                                 tablet_schema->create_block(return_columns));
-                s = rowset_reader->next_block(output_block.get());
+                std::vector<bool> row_is_same;
+                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
+                                                      .same_bit = row_is_same};
+                s = rowset_reader->next_batch(&block_with_same_bit);
                 if (s != Status::OK()) {
                     eof = true;
                 }

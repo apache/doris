@@ -50,13 +50,11 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     }
 
     public Not(Expression child, boolean isGeneratedIsNotNull) {
-        super(ImmutableList.of(child));
-        this.isGeneratedIsNotNull = isGeneratedIsNotNull;
+        this(ImmutableList.of(child), isGeneratedIsNotNull);
     }
 
     private Not(List<Expression> child, boolean isGeneratedIsNotNull) {
-        super(child);
-        this.isGeneratedIsNotNull = isGeneratedIsNotNull;
+        this(child, isGeneratedIsNotNull, false);
     }
 
     public boolean isGeneratedIsNotNull() {

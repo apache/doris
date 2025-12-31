@@ -188,7 +188,8 @@ public:
                                                 CastParameters& castParms) const override;
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
-                                 int32_t col_id, int64_t row_num) const override;
+                                 int32_t col_id, int64_t row_num,
+                                 const FormatOptions& options) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
@@ -203,17 +204,22 @@ public:
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
 
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
-
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
+    Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& result,
+                                        int64_t row_idx, bool col_const,
+                                        const FormatOptions& options) const override {
+        const auto col_index = index_check_const(row_idx, col_const);
+        const auto string_val = assert_cast<const ColumnType&>(column).get_data_at(col_index);
+        result.push_string(string_val.data, string_val.size);
+        return Status::OK();
+    }
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               const FormatOptions& options) const override;
+
+    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                     const FormatOptions& options) const override;
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override {
@@ -233,18 +239,27 @@ public:
                data_size);
     }
 
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
-
-private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int64_t row_idx, bool col_const,
-                                  const FormatOptions& options) const {
-        const auto col_index = index_check_const(row_idx, col_const);
-        const auto string_val = assert_cast<const ColumnType&>(column).get_data_at(col_index);
-        result.push_string(string_val.data, string_val.size);
-        return Status::OK();
+    static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column) {
+        auto& col = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+        const size_t data_size = unaligned_load<size_t>(data);
+        data += sizeof(size_t);
+        col.insert_data(reinterpret_cast<const char*>(data), data_size);
+        data += data_size;
+        return data;
     }
+
+    static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                      FieldInfo& info) {
+        const size_t data_size = unaligned_load<size_t>(data);
+        data += sizeof(size_t);
+        field = Field::create_field<TYPE_STRING>(
+                String(reinterpret_cast<const char*>(data), data_size));
+        data += data_size;
+        return data;
+    }
+
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                   const FormatOptions& options) const override;
 };
 
 using DataTypeStringSerDe = DataTypeStringSerDeBase<ColumnString>;

@@ -151,7 +151,7 @@ public:
                 assert_cast<const DataTypeArray&>(*left_data_type).get_nested_type());
         auto right_nested_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*right_data_type).get_nested_type());
-        DCHECK(left_nested_type->equals(*right_nested_type))
+        DCHECK(left_nested_type->equals_ignore_precision(*right_nested_type))
                 << "data type " << arguments[0]->get_name() << " not equal with "
                 << arguments[1]->get_name();
         return make_nullable(std::make_shared<DataTypeUInt8>());
@@ -165,6 +165,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -226,8 +227,8 @@ public:
                     nested_param_type, &nested_query_val, query_param));
             param.query_value = query_param->get_value();
             param.roaring = std::make_shared<roaring::Roaring>();
-            ;
-            RETURN_IF_ERROR(iter->read_from_index(&param));
+            param.analyzer_ctx = analyzer_ctx;
+            RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
             *roaring |= *param.roaring;
         }
 

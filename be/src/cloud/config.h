@@ -96,6 +96,7 @@ DECLARE_mInt32(check_auto_compaction_interval_seconds);
 DECLARE_mInt32(max_base_compaction_task_num_per_disk);
 DECLARE_mBool(prioritize_query_perf_in_compaction);
 DECLARE_mInt32(compaction_max_rowset_count);
+DECLARE_mInt64(compaction_txn_max_size_bytes);
 
 // CloudStorageEngine config
 DECLARE_mInt32(refresh_s3_info_interval_s);
@@ -107,8 +108,13 @@ DECLARE_mInt32(mow_stream_load_commit_retry_times);
 
 DECLARE_mBool(save_load_error_log_to_s3);
 
+// Whether to use public endpoint for error log presigned URL
+DECLARE_mBool(use_public_endpoint_for_error_log);
+
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
+
+DECLARE_Int32(warmup_cache_async_thread);
 
 DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
@@ -171,9 +177,23 @@ DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
 
 DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
 
+// Packed file manager config
+DECLARE_mBool(enable_packed_file);
+DECLARE_mInt64(packed_file_size_threshold_bytes);
+DECLARE_mInt64(packed_file_time_threshold_ms);
+DECLARE_mInt64(packed_file_try_lock_timeout_ms);
+DECLARE_mInt64(packed_file_small_file_count_threshold);
+DECLARE_mInt64(small_file_threshold_bytes);
+DECLARE_mInt64(uploaded_file_retention_seconds);
+DECLARE_mInt64(packed_file_cleanup_interval_seconds);
+
 DECLARE_mBool(enable_standby_passive_compaction);
 
 DECLARE_mDouble(standby_compaction_version_ratio);
+
+DECLARE_mBool(enable_cache_read_from_peer);
+
+DECLARE_mInt64(cache_read_from_peer_expired_seconds);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

@@ -233,6 +233,8 @@ public class OperationType {
     public static final short OP_UPDATE_LOAD_JOB = 232;
     // fetch stream load record
     public static final short OP_FETCH_STREAM_LOAD_RECORD = 233;
+    // Note: The features related to 234 and 235 (SYNC JOB) have been removed from the kernel code.
+    // These operation types are kept for compatibility, but the corresponding functionality no longer exists.
     @Deprecated
     public static final short OP_CREATE_SYNC_JOB = 234;
     @Deprecated
@@ -293,9 +295,12 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_NAME = 322;
     public static final short OP_ALTER_CATALOG_PROPS = 323;
     public static final short OP_REFRESH_CATALOG = 324;
+    @Deprecated
     public static final short OP_INIT_CATALOG = 325;
+    @Deprecated
     public static final short OP_INIT_CATALOG_COMP = 10325; // compatible with old cloud code.
     public static final short OP_REFRESH_EXTERNAL_DB = 326;
+    @Deprecated
     public static final short OP_INIT_EXTERNAL_DB = 327;
     public static final short OP_REFRESH_EXTERNAL_TABLE = 328;
     @Deprecated

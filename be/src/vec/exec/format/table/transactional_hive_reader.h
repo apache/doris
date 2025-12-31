@@ -91,7 +91,7 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& column_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
@@ -108,6 +108,8 @@ private:
     AcidRowIDSet _delete_rows;
     std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
     std::vector<std::string> _col_names;
+    // Column name to block index map, passed from FileScanner
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 };
 
 inline bool operator<(const TransactionalHiveReader::AcidRowID& lhs,

@@ -54,7 +54,6 @@ inline void throw_if_division_leads_to_FPE(A a, B b) {
 template <typename Impl>
 class FunctionMod : public IFunction {
     static constexpr bool result_is_decimal = Impl::result_is_decimal;
-    mutable bool need_replace_null_data_to_default_ = false;
 
 public:
     static constexpr auto name = Impl::name;
@@ -66,7 +65,7 @@ public:
     String get_name() const override { return name; }
 
     bool need_replace_null_data_to_default() const override {
-        return need_replace_null_data_to_default_;
+        return Impl::need_replace_null_data_to_default;
     }
 
     size_t get_number_of_arguments() const override { return 2; }
@@ -76,7 +75,6 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        need_replace_null_data_to_default_ = is_decimal(arguments[0]->get_primitive_type());
         return make_nullable(arguments[0]);
     }
 
@@ -325,6 +323,8 @@ struct ModNumericImpl {
     using DataTypeA = typename Impl::DataTypeA;
     using DataTypeB = typename Impl::DataTypeB;
 
+    constexpr static bool need_replace_null_data_to_default = false;
+
     static DataTypes get_variadic_argument_types() { return Impl::get_variadic_argument_types(); }
 
     static ColumnPtr constant_constant(ArgA a, ArgB b) {
@@ -521,6 +521,8 @@ struct ModDecimalImpl {
     using DataTypeB = typename Impl::DataTypeB;
     using ColumnTypeA = typename Impl::ColumnTypeA;
     using ColumnTypeB = typename Impl::ColumnTypeB;
+
+    constexpr static bool need_replace_null_data_to_default = true;
 
     static DataTypes get_variadic_argument_types() { return Impl::get_variadic_argument_types(); }
 

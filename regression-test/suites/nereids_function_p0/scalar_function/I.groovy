@@ -25,4 +25,8 @@ suite("nereids_scalar_fn_I") {
 	qt_sql_instr_Varchar_Varchar_notnull "select instr(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
 	qt_sql_instr_String_String "select instr(kstr, kstr) from fn_test order by kstr, kstr"
 	qt_sql_instr_String_String_notnull "select instr(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
+	qt_sql_is_uuid_Varchar "select is_uuid(kvchrs1) from fn_test order by kvchrs1"
+	qt_sql_is_uuid_Varchar_notnull "select is_uuid(kvchrs1) from fn_test_not_nullable order by kvchrs1"
+	qt_sql_is_uuid_String "select is_uuid(kstr) from fn_test order by kstr"
+	qt_sql_is_uuid_String_notnull "select is_uuid(kstr) from fn_test_not_nullable order by kstr"
 }

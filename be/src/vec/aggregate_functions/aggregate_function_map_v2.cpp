@@ -32,6 +32,7 @@ AggregateFunctionPtr create_agg_function_map_agg_v2(const DataTypes& argument_ty
 
 AggregateFunctionPtr create_aggregate_function_map_agg_v2(const std::string& name,
                                                           const DataTypes& argument_types,
+                                                          const DataTypePtr& result_type,
                                                           const bool result_is_nullable,
                                                           const AggregateFunctionAttr& attr) {
     switch (argument_types[0]->get_primitive_type()) {
@@ -51,8 +52,6 @@ AggregateFunctionPtr create_aggregate_function_map_agg_v2(const std::string& nam
     case PrimitiveType::TYPE_STRING:
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
-    case PrimitiveType::TYPE_DATE:
-    case PrimitiveType::TYPE_DATETIME:
     case PrimitiveType::TYPE_DATEV2:
     case PrimitiveType::TYPE_DATETIMEV2:
     case PrimitiveType::TYPE_TIMEV2:

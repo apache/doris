@@ -69,25 +69,6 @@ namespace doris::vectorized {
 #define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
 #endif
 
-/// Info that represents a scalar or array field in a decomposed view.
-/// It allows to recreate field with different number
-/// of dimensions or nullability.
-struct FieldInfo {
-    /// The common type id of of all scalars in field.
-    PrimitiveType scalar_type_id = PrimitiveType::INVALID_TYPE;
-    /// Do we have NULL scalar in field.
-    bool have_nulls = false;
-    /// If true then we have scalars with different types in array and
-    /// we need to convert scalars to the common type.
-    bool need_convert = false;
-    /// Number of dimension in array. 0 if field is scalar.
-    size_t num_dimensions = 0;
-
-    // decimal info
-    int scale = 0;
-    int precision = 0;
-};
-
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
  *  a trie-like structure. ColumnVariant is not suitable for writing into tables
@@ -146,7 +127,7 @@ public:
         size_t get_non_null_value_size() const;
 
         size_t serialize_text_json(size_t n, BufferWritable& output,
-                                   DataTypeSerDe::FormatOptions opt = {}) const;
+                                   DataTypeSerDe::FormatOptions opt) const;
 
         const DataTypeSerDeSPtr& get_least_common_type_serde() const {
             return least_common_type.get_serde();
@@ -194,6 +175,8 @@ public:
 
         /// Returns last inserted field.
         Field get_last_field() const;
+
+        void deserialize_from_sparse_column(const ColumnString* value, size_t row);
 
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
@@ -308,6 +291,8 @@ private:
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
+private:
+    friend class COWHelper<IColumn, ColumnVariant>;
     // always create root: data type nothing
     explicit ColumnVariant(int32_t max_subcolumns_count);
 
@@ -319,6 +304,7 @@ public:
 
     explicit ColumnVariant(int32_t max_subcolumns_count, Subcolumns&& subcolumns_);
 
+public:
     ~ColumnVariant() override = default;
 
     /// Checks that all subcolumns have consistent sizes.
@@ -331,12 +317,15 @@ public:
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
     }
 
-    void serialize_one_row_to_string(int64_t row, std::string* output) const;
+    void serialize_one_row_to_string(int64_t row, std::string* output,
+                                     const DataTypeSerDe::FormatOptions& options) const;
 
-    void serialize_one_row_to_string(int64_t row, BufferWritable& output) const;
+    void serialize_one_row_to_string(int64_t row, BufferWritable& output,
+                                     const DataTypeSerDe::FormatOptions& options) const;
 
     // serialize one row to json format
-    void serialize_one_row_to_json_format(int64_t row, BufferWritable& output, bool* is_null) const;
+    void serialize_one_row_to_json_format(int64_t row, BufferWritable& output, bool* is_null,
+                                          const DataTypeSerDe::FormatOptions& options) const;
 
     // Fill the `serialized_sparse_column`
     Status serialize_sparse_columns(std::map<std::string_view, Subcolumn>&& remaing_subcolumns);
@@ -509,6 +498,12 @@ public:
 
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
+
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
 
     // Not implemented
     StringRef get_data_at(size_t) const override {

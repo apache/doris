@@ -50,6 +50,7 @@ suite("test_ddl_backup_auth","p0,auth_call") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
+    sql """use ${dbName}"""
 
     sql """create table ${dbName}.${tableName} (
                 id BIGINT,
@@ -109,6 +110,7 @@ suite("test_ddl_backup_auth","p0,auth_call") {
     assertTrue(res.size() == 0)
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
+        sql """use ${dbName}"""
         sql """BACKUP SNAPSHOT ${dbName}.${backupLabelName}
                 TO ${repositoryName}
                 ON (${tableName})

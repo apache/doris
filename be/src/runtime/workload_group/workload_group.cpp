@@ -389,13 +389,13 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 9 scan thread num
-    int scan_thread_num = config::doris_scanner_thread_pool_thread_num;
+    int scan_thread_num = vectorized::ScannerScheduler::default_local_scan_thread_num();
     if (tworkload_group_info.__isset.scan_thread_num && tworkload_group_info.scan_thread_num > 0) {
         scan_thread_num = tworkload_group_info.scan_thread_num;
     }
 
     // 10 max remote scan thread num
-    int max_remote_scan_thread_num = vectorized::ScannerScheduler::get_remote_scan_thread_num();
+    int max_remote_scan_thread_num = vectorized::ScannerScheduler::default_remote_scan_thread_num();
     if (tworkload_group_info.__isset.max_remote_scan_thread_num &&
         tworkload_group_info.max_remote_scan_thread_num > 0) {
         max_remote_scan_thread_num = tworkload_group_info.max_remote_scan_thread_num;
@@ -413,6 +413,10 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     int exec_thread_num = config::pipeline_executor_size;
     if (exec_thread_num <= 0) {
         exec_thread_num = CpuInfo::num_cores();
+    }
+    int blocking_exec_thread_num = config::blocking_pipeline_executor_size;
+    if (blocking_exec_thread_num <= 0) {
+        blocking_exec_thread_num = CpuInfo::num_cores() * 2;
     }
 
     int num_disk = 1;
@@ -484,6 +488,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
             .total_query_slot_count = total_query_slot_count,
             .slot_mem_policy = slot_mem_policy,
             .pipeline_exec_thread_num = exec_thread_num,
+            .blocking_pipeline_exec_thread_num = blocking_exec_thread_num,
             .max_flush_thread_num = max_flush_thread_num,
             .min_flush_thread_num = min_flush_thread_num};
 }
@@ -522,6 +527,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     uint64_t wg_id = wg_info->id;
     std::string wg_name = wg_info->name;
     int pipeline_exec_thread_num = wg_info->pipeline_exec_thread_num;
+    int blocking_exec_thread_num = wg_info->blocking_pipeline_exec_thread_num;
     int scan_thread_num = wg_info->scan_thread_num;
     int max_remote_scan_thread_num = wg_info->max_remote_scan_thread_num;
     int min_remote_scan_thread_num = wg_info->min_remote_scan_thread_num;
@@ -532,6 +538,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     if (_task_sched == nullptr) {
         std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
                 std::make_unique<pipeline::HybridTaskScheduler>(pipeline_exec_thread_num,
+                                                                blocking_exec_thread_num,
                                                                 "p_" + wg_name, cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
         if (ret.ok()) {
@@ -543,7 +550,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     }
 
     if (_scan_task_sched == nullptr) {
-        std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler;
+        std::unique_ptr<vectorized::ScannerScheduler> scan_scheduler;
         if (config::enable_task_executor_in_internal_table) {
             scan_scheduler = std::make_unique<vectorized::TaskExecutorSimplifiedScanScheduler>(
                     "ls_" + wg_name, cg_cpu_ctl_ptr, wg_name);
@@ -552,8 +559,9 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                     "ls_" + wg_name, cg_cpu_ctl_ptr, wg_name);
         }
 
-        Status ret = scan_scheduler->start(scan_thread_num, scan_thread_num,
-                                           config::doris_scanner_thread_pool_queue_size);
+        Status ret = scan_scheduler->start(
+                scan_thread_num, scan_thread_num, config::doris_scanner_thread_pool_queue_size,
+                vectorized::ScannerScheduler::default_min_active_scan_threads());
         if (ret.ok()) {
             _scan_task_sched = std::move(scan_scheduler);
         } else {
@@ -565,7 +573,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     if (_remote_scan_task_sched == nullptr) {
         int remote_scan_thread_queue_size =
                 vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
-        std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler;
+        std::unique_ptr<vectorized::ScannerScheduler> remote_scan_scheduler;
         if (config::enable_task_executor_in_external_table) {
             remote_scan_scheduler =
                     std::make_unique<vectorized::TaskExecutorSimplifiedScanScheduler>(
@@ -574,9 +582,10 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
             remote_scan_scheduler = std::make_unique<vectorized::ThreadPoolSimplifiedScanScheduler>(
                     "rs_" + wg_name, cg_cpu_ctl_ptr, wg_name);
         }
-        Status ret =
-                remote_scan_scheduler->start(max_remote_scan_thread_num, min_remote_scan_thread_num,
-                                             remote_scan_thread_queue_size);
+        Status ret = remote_scan_scheduler->start(
+                max_remote_scan_thread_num, min_remote_scan_thread_num,
+                remote_scan_thread_queue_size,
+                vectorized::ScannerScheduler::default_min_active_file_scan_threads());
         if (ret.ok()) {
             _remote_scan_task_sched = std::move(remote_scan_scheduler);
         } else {
@@ -607,12 +616,15 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
 
     // 2 update thread pool
     if (scan_thread_num > 0 && _scan_task_sched) {
-        _scan_task_sched->reset_thread_num(scan_thread_num, scan_thread_num);
+        _scan_task_sched->reset_thread_num(
+                scan_thread_num, scan_thread_num,
+                vectorized::ScannerScheduler::default_min_active_scan_threads());
     }
 
     if (max_remote_scan_thread_num >= min_remote_scan_thread_num && _remote_scan_task_sched) {
-        _remote_scan_task_sched->reset_thread_num(max_remote_scan_thread_num,
-                                                  min_remote_scan_thread_num);
+        _remote_scan_task_sched->reset_thread_num(
+                max_remote_scan_thread_num, min_remote_scan_thread_num,
+                vectorized::ScannerScheduler::default_min_active_file_scan_threads());
     }
 
     return upsert_ret;
@@ -639,8 +651,8 @@ Status WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
 }
 
 void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
-                                        vectorized::SimplifiedScanScheduler** scan_sched,
-                                        vectorized::SimplifiedScanScheduler** remote_scan_sched) {
+                                        vectorized::ScannerScheduler** scan_sched,
+                                        vectorized::ScannerScheduler** remote_scan_sched) {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     *exec_sched = _task_sched.get();
     *scan_sched = _scan_task_sched.get();

@@ -17,7 +17,6 @@
 
 suite("create_ann_index_test") {
     sql "set enable_common_expr_pushdown=true;"
-    // Test that CREATE INDEX for ANN is not supported
     sql "drop table if exists tbl_not_null"
     sql """
     CREATE TABLE `tbl_not_null` (
@@ -31,16 +30,14 @@ suite("create_ann_index_test") {
     );
     """
 
-    test {
-        sql """
-            CREATE INDEX idx_test_ann ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-                "index_type"="hnsw",
-                "metric_type"="l2_distance",
-                "dim"="1"
-            );
-        """
-        exception "ANN index can only be created during table creation, not through CREATE INDEX"
-    }
+    // Test that CREATE INDEX for ANN is supported
+    sql """
+    CREATE INDEX idx_test_ann ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
+        "index_type"="hnsw",
+        "metric_type"="l2_distance",
+        "dim"="1"
+    );
+    """
 
     // Test cases for creating tables with ANN indexes
 
@@ -182,7 +179,7 @@ suite("create_ann_index_test") {
                 id INT NOT NULL COMMENT "",
                 embedding ARRAY<FLOAT> NOT NULL COMMENT "",
                 INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
-                    "index_type"="ivf",
+                    "index_type"="unknown",
                     "metric_type"="l2_distance",
                     "dim"="1"
                 )
@@ -193,7 +190,7 @@ suite("create_ann_index_test") {
                 "replication_num" = "1"
             );
         """
-        exception "only support ann index with type hnsw"
+        exception "only support ann index with type hnsw or ivf"
     }
 
     // metric_type is incorrect
@@ -343,7 +340,7 @@ suite("create_ann_index_test") {
     """
 
     sql "drop table if exists tbl_efconstruction"
-    
+
     test {
         sql """
             CREATE TABLE tbl_efconstruction (

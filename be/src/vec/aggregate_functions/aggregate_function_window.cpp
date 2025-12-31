@@ -202,28 +202,6 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
                     argument_types);
         }
     }
-    case PrimitiveType::TYPE_DATE: {
-        if (arg_ignore_null_value) {
-            return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnDate, result_is_nullable, arg_is_nullable>, true>>>(
-                    argument_types);
-        } else {
-            return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnDate, result_is_nullable, arg_is_nullable>, false>>>(
-                    argument_types);
-        }
-    }
-    case PrimitiveType::TYPE_DATETIME: {
-        if (arg_ignore_null_value) {
-            return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnDateTime, result_is_nullable, arg_is_nullable>, true>>>(
-                    argument_types);
-        } else {
-            return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnDateTime, result_is_nullable, arg_is_nullable>, false>>>(
-                    argument_types);
-        }
-    }
     case PrimitiveType::TYPE_DATETIMEV2: {
         if (arg_ignore_null_value) {
             return std::make_shared<AggregateFunctionTemplate<
@@ -356,7 +334,8 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
                                                   FUNCTION_IMPL)                                   \
     AggregateFunctionPtr CREATE_FUNCTION_NAME(                                                     \
             const std::string& name, const DataTypes& argument_types,                              \
-            const bool result_is_nullable, const AggregateFunctionAttr& attr) {                    \
+            const DataTypePtr& result_type, const bool result_is_nullable,                         \
+            const AggregateFunctionAttr& attr) {                                                   \
         const bool arg_is_nullable = argument_types[0]->is_nullable();                             \
         AggregateFunctionPtr res = nullptr;                                                        \
                                                                                                    \
@@ -390,6 +369,7 @@ CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_nth_v
 template <typename AggregateFunctionTemplate>
 AggregateFunctionPtr create_empty_arg_window(const std::string& name,
                                              const DataTypes& argument_types,
+                                             const DataTypePtr& result_type,
                                              const bool result_is_nullable,
                                              const AggregateFunctionAttr& attr) {
     if (!argument_types.empty()) {

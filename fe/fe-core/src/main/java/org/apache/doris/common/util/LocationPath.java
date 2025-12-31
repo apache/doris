@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.AzurePropertyUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemType;
@@ -95,27 +96,25 @@ public class LocationPath {
     }
 
     private static String parseScheme(String finalLocation) {
-        String scheme = "";
-        String[] schemeSplit = finalLocation.split(SCHEME_DELIM);
-        if (schemeSplit.length > 1) {
-            scheme = schemeSplit[0];
-        } else {
-            schemeSplit = finalLocation.split(NONSTANDARD_SCHEME_DELIM);
-            if (schemeSplit.length > 1) {
-                scheme = schemeSplit[0];
-            }
+        // Use indexOf instead of split for better performance
+        int schemeDelimIndex = finalLocation.indexOf(SCHEME_DELIM);
+        if (schemeDelimIndex > 0) {
+            return finalLocation.substring(0, schemeDelimIndex);
+        }
+
+        int nonstandardDelimIndex = finalLocation.indexOf(NONSTANDARD_SCHEME_DELIM);
+        if (nonstandardDelimIndex > 0) {
+            return finalLocation.substring(0, nonstandardDelimIndex);
         }
 
         // if not get scheme, need consider /path/to/local to no scheme
-        if (scheme.isEmpty()) {
-            try {
-                Paths.get(finalLocation);
-            } catch (InvalidPathException exception) {
-                throw new IllegalArgumentException("Fail to parse scheme, invalid location: " + finalLocation);
-            }
+        try {
+            Paths.get(finalLocation);
+        } catch (InvalidPathException exception) {
+            throw new IllegalArgumentException("Fail to parse scheme, invalid location: " + finalLocation);
         }
 
-        return scheme;
+        return "";
     }
 
     /**
@@ -180,6 +179,87 @@ public class LocationPath {
                                   Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
         try {
             return LocationPath.of(location, storagePropertiesMap, true);
+        } catch (UserException e) {
+            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
+        }
+    }
+
+    public static LocationPath of(String location,
+                                  StorageProperties storageProperties) {
+        try {
+            String schema = extractScheme(location);
+            String normalizedLocation = storageProperties.validateAndNormalizeUri(location);
+            String encodedLocation = encodedLocation(normalizedLocation);
+            URI uri = URI.create(encodedLocation);
+            String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
+                    + Strings.nullToEmpty(uri.getAuthority());
+            return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+        } catch (UserException e) {
+            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
+        }
+    }
+
+    /**
+     * Ultra-fast factory method that directly constructs LocationPath without any parsing.
+     * This is used when the normalized location is already known (e.g., from prefix transformation).
+     *
+     * @param normalizedLocation the already-normalized location string
+     * @param schema             pre-computed schema
+     * @param fsIdentifier       pre-computed filesystem identifier
+     * @param storageProperties  the storage properties (can be null)
+     * @return a new LocationPath instance
+     */
+    public static LocationPath ofDirect(String normalizedLocation,
+                                        String schema,
+                                        String fsIdentifier,
+                                        StorageProperties storageProperties) {
+        return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+    }
+
+    /**
+     * Fast factory method that reuses pre-computed schema and fsIdentifier.
+     * This is optimized for batch processing where many files share the same bucket/prefix.
+     *
+     * @param location           the input URI location string
+     * @param storageProperties  pre-computed storage properties for normalization
+     * @param cachedSchema       pre-computed schema (can be null to compute)
+     * @param cachedFsIdPrefix   pre-computed fsIdentifier prefix like "s3://" (can be null to compute)
+     * @return a new LocationPath instance
+     */
+    public static LocationPath ofWithCache(String location,
+                                           StorageProperties storageProperties,
+                                           String cachedSchema,
+                                           String cachedFsIdPrefix) {
+        try {
+            String normalizedLocation = storageProperties.validateAndNormalizeUri(location);
+
+            String fsIdentifier;
+            if (cachedFsIdPrefix != null && normalizedLocation.startsWith(cachedFsIdPrefix)) {
+                // Fast path: extract authority from normalized location without full URI parsing
+                int authorityStart = cachedFsIdPrefix.length();
+                int authorityEnd = normalizedLocation.indexOf('/', authorityStart);
+                if (authorityEnd == -1) {
+                    authorityEnd = normalizedLocation.length();
+                }
+                String authority = normalizedLocation.substring(authorityStart, authorityEnd);
+                if (authority.isEmpty()) {
+                    throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
+                }
+                fsIdentifier = cachedFsIdPrefix + authority;
+            } else {
+                // Fallback to full URI parsing
+                String encodedLocation = encodedLocation(normalizedLocation);
+                URI uri = URI.create(encodedLocation);
+                String authority = uri.getAuthority();
+                if (Strings.isNullOrEmpty(authority)) {
+                    throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
+                }
+                fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
+                        + authority;
+            }
+
+            String schema = cachedSchema != null ? cachedSchema : extractScheme(location);
+            return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
         } catch (UserException e) {
             throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
         }
@@ -292,6 +372,13 @@ public class LocationPath {
     }
 
     public TFileType getTFileTypeForBE() {
+        if ((SchemaTypeMapper.ABFS.getSchema().equals(schema) || SchemaTypeMapper.ABFSS.getSchema()
+                .equals(schema)) && AzurePropertyUtils.isOneLakeLocation(normalizedLocation)) {
+            return TFileType.FILE_HDFS;
+        }
+        if (StringUtils.isNotBlank(normalizedLocation) && isHdfsOnOssEndpoint(normalizedLocation)) {
+            return TFileType.FILE_HDFS;
+        }
         return SchemaTypeMapper.fromSchemaToFileType(schema);
     }
 
@@ -306,6 +393,10 @@ public class LocationPath {
 
 
     public FileSystemType getFileSystemType() {
+        if ((SchemaTypeMapper.ABFS.getSchema().equals(schema) || SchemaTypeMapper.ABFSS.getSchema()
+                .equals(schema)) && AzurePropertyUtils.isOneLakeLocation(normalizedLocation)) {
+            return FileSystemType.HDFS;
+        }
         return SchemaTypeMapper.fromSchemaToFileSystemType(schema);
     }
 

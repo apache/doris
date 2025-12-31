@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.AuditLogHelper;
@@ -85,7 +86,7 @@ import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.iceberg.FileScanTask;
@@ -283,6 +284,7 @@ public class StatisticsUtil {
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMPTZ:
                 return new DateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
@@ -337,6 +339,9 @@ public class StatisticsUtil {
                 case DATETIME:
                     DateTimeLiteral dateTimeLiteral = new DateTimeLiteral(columnValue);
                     return dateTimeLiteral.getDouble();
+                case TIMESTAMPTZ:
+                    TimestampTzLiteral timestampTzLiteral = new TimestampTzLiteral(columnValue);
+                    return timestampTzLiteral.getDouble();
                 case CHAR:
                 case VARCHAR:
                 case STRING:

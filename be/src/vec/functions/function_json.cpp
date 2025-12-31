@@ -320,7 +320,7 @@ struct JsonParser<'7'> {
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         rapidjson::Document document;
-        JsonbValue* json_val = JsonbDocument::createValue(data.data, data.size);
+        const JsonbValue* json_val = JsonbDocument::createValue(data.data, data.size);
         convert_jsonb_to_rapidjson(*json_val, document, allocator);
         value.CopyFrom(document, allocator);
     }
@@ -509,13 +509,13 @@ public:
                     vec_to[i] = 0;
                     continue;
                 }
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
                 if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                     vec_to[i] = 0;
                     continue;
                 }
-                JsonbValue* value = doc->getValue();
+                const JsonbValue* value = doc->getValue();
                 if (UNLIKELY(!value)) {
                     vec_to[i] = 0;
                     continue;

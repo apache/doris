@@ -30,7 +30,7 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -91,7 +91,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
                 // Create primary storage properties from the given configuration
                 this.storageProperties = StorageProperties.createPrimary(this.properties);
                 // Override the storage type based on property configuration
-                this.storageType = StorageBackend.StorageType.valueOf(storageProperties.getStorageName());
+                this.storageType = StorageBackend.StorageType.valueOfIgnoreCase(storageProperties.getStorageName());
             } catch (StoragePropertiesException e) {
                 // Currently ignored: these properties might be broker-specific.
                 // Just keep the storage type as BROKER, and try to create BrokerProperties

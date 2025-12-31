@@ -101,7 +101,8 @@ enum TPrimitiveType {
   UINT32 = 40, // only used in BE to represent offsets
   UINT64 = 41,  // only used in BE to represent offsets
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
-  VARBINARY = 43 // represent varbinary type
+  VARBINARY = 43, // represent varbinary type
+  TIMESTAMPTZ = 44 //  timestamp with time zone
 }
 
 enum TTypeNodeType {
@@ -646,7 +647,8 @@ enum TTableType {
     MAX_COMPUTE_TABLE = 12,
     LAKESOUL_TABLE = 13,
     TRINO_CONNECTOR_TABLE = 14,
-    DICTIONARY_TABLE = 15
+    DICTIONARY_TABLE = 15,
+    REMOTE_DORIS_TABLE = 16
 }
 
 enum TKeysType {
@@ -692,6 +694,7 @@ enum TFileType {
     FILE_S3 = 3,
     FILE_HDFS = 4,
     FILE_NET = 5,       // read file by network, such as http
+    FILE_HTTP = 6,
 }
 
 struct TTabletCommitInfo {
@@ -750,6 +753,7 @@ enum TMetadataType {
   PARTITION_VALUES = 10,
   HUDI = 11,
   PAIMON = 12,
+  PARQUET = 13,
 }
 
 // deprecated
@@ -768,8 +772,12 @@ struct TUserIdentity {
     3: optional bool is_domain
 }
 
+struct TColumnGroup {
+    1: required i32 sequence_column = -1
+    2: required list<i32> columns_in_group
+}
+
 const i32 TSNAPSHOT_REQ_VERSION1 = 3; // corresponding to alpha rowset
 const i32 TSNAPSHOT_REQ_VERSION2 = 4; // corresponding to beta rowset
 // the snapshot request should always set prefer snapshot version to TPREFER_SNAPSHOT_REQ_VERSION
 const i32 TPREFER_SNAPSHOT_REQ_VERSION = TSNAPSHOT_REQ_VERSION2;
-

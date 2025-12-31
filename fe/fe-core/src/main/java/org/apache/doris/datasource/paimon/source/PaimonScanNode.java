@@ -34,11 +34,12 @@ import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
+import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
+import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -56,8 +57,10 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
+import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.TableScan;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -146,7 +149,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                           TupleDescriptor desc,
                           boolean needCheckColumnPriv,
                           SessionVariable sv) {
-        super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv, sv);
+        super(id, desc, "PAIMON_SCAN_NODE", needCheckColumnPriv, sv);
     }
 
     @Override
@@ -189,12 +192,21 @@ public class PaimonScanNode extends FileQueryScanNode {
         return Optional.of(serializedTable);
     }
 
+    @Override
+    public void createScanRangeLocations() throws UserException {
+        super.createScanRangeLocations();
+        // Set paimon_predicate at ScanNode level to avoid redundant serialization in each split
+        String serializedPredicate = PaimonUtil.encodeObjectToString(predicates);
+        params.setPaimonPredicate(serializedPredicate);
+    }
+
     private void putHistorySchemaInfo(Long schemaId) {
         if (currentQuerySchema.putIfAbsent(schemaId, Boolean.TRUE) == null) {
             PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
             TableSchema tableSchema = Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
                     .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
-            params.addToHistorySchemaInfo(PaimonUtil.getSchemaInfo(tableSchema));
+            params.addToHistorySchemaInfo(
+                    PaimonUtil.getSchemaInfo(tableSchema, source.getCatalog().getEnableMappingVarbinary()));
         }
     }
 
@@ -224,10 +236,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             fileDesc.setSchemaId(paimonSplit.getSchemaId());
         }
         fileDesc.setFileFormat(fileFormat);
-        fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));
-        // The hadoop conf should be same with
-        // PaimonExternalCatalog.createCatalog()#getConfiguration()
-        fileDesc.setHadoopConf(backendStorageProperties);
+        // Hadoop conf is set at ScanNode level via params.properties in createScanRangeLocations(),
+        // no need to set it for each split to avoid redundant configuration
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
@@ -407,9 +417,19 @@ public class PaimonScanNode extends FileQueryScanNode {
                 .filter(i -> i >= 0)
                 .toArray();
         ReadBuilder readBuilder = paimonTable.newReadBuilder();
-        return readBuilder.withFilter(predicates)
+        TableScan scan = readBuilder.withFilter(predicates)
                 .withProjection(projected)
-                .newScan().plan().splits();
+                .newScan();
+        PaimonMetricRegistry registry = new PaimonMetricRegistry();
+        if (scan instanceof InnerTableScan) {
+            scan = ((InnerTableScan) scan).withMetricsRegistry(registry);
+        }
+        List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
+        PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
+        if (!registry.getAllGroups().isEmpty()) {
+            registry.clear();
+        }
+        return splits;
     }
 
     private String getFileFormat(String path) {
@@ -548,8 +568,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (hasStartSnapshotId) {
                 try {
                     long startSId = Long.parseLong(params.get(DORIS_START_SNAPSHOT_ID));
-                    if (startSId <= 0) {
-                        throw new UserException("startSnapshotId must be greater than 0");
+                    if (startSId < 0) {
+                        throw new UserException("startSnapshotId must be greater than or equal to 0");
                     }
                 } catch (NumberFormatException e) {
                     throw new UserException("Invalid startSnapshotId format: " + e.getMessage());
@@ -559,8 +579,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (hasEndSnapshotId) {
                 try {
                     long endSId = Long.parseLong(params.get(DORIS_END_SNAPSHOT_ID));
-                    if (endSId <= 0) {
-                        throw new UserException("endSnapshotId must be greater than 0");
+                    if (endSId < 0) {
+                        throw new UserException("endSnapshotId must be greater than or equal to 0");
                     }
                 } catch (NumberFormatException e) {
                     throw new UserException("Invalid endSnapshotId format: " + e.getMessage());
@@ -572,8 +592,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                 try {
                     long startSId = Long.parseLong(params.get(DORIS_START_SNAPSHOT_ID));
                     long endSId = Long.parseLong(params.get(DORIS_END_SNAPSHOT_ID));
-                    if (startSId >= endSId) {
-                        throw new UserException("startSnapshotId must be less than endSnapshotId");
+                    if (startSId > endSId) {
+                        throw new UserException("startSnapshotId must be less than or equal to endSnapshotId");
                     }
                 } catch (NumberFormatException e) {
                     throw new UserException("Invalid snapshot ID format: " + e.getMessage());
@@ -693,4 +713,3 @@ public class PaimonScanNode extends FileQueryScanNode {
         return baseTable;
     }
 }
-

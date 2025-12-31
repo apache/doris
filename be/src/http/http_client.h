@@ -158,6 +158,8 @@ public:
 
     Status execute_post_request(const std::string& payload, std::string* response);
 
+    Status execute_put_request(const std::string& payload, std::string* response);
+
     Status execute_delete_request(const std::string& payload, std::string* response);
 
     // execute a simple method, and its response is saved in response argument
@@ -180,6 +182,13 @@ public:
     // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
     // https://datatracker.ietf.org/doc/html/rfc3986
     Status _escape_url(const std::string& url, std::string* escaped_url);
+
+    void set_range(size_t offset, size_t length) {
+        std::string range_header = "Range: bytes=" + std::to_string(offset) + "-" +
+                                   std::to_string(offset + length - 1);
+        _header_list = curl_slist_append(_header_list, range_header.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
+    }
 
 private:
     const char* _to_errmsg(CURLcode code) const;

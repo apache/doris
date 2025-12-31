@@ -40,7 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.ConnectContext;
 
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -85,9 +85,27 @@ public class MTMVUtil {
         return (MTMVRelatedTableIf) relatedTable;
     }
 
+    public static MTMV getMTMV(BaseTableInfo baseTableInfo) throws AnalysisException {
+        TableIf table = getTable(baseTableInfo);
+        if (!(table instanceof MTMV)) {
+            throw new AnalysisException(String.format("table is not MTMV, table: %s", baseTableInfo));
+        }
+        return (MTMV) table;
+    }
+
     public static MTMV getMTMV(long dbId, long mtmvId) throws DdlException, MetaNotFoundException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
+    }
+
+    public static TableIf getTable(List<String> names) throws AnalysisException {
+        if (names == null || names.size() != 3) {
+            throw new AnalysisException("size of names need 3, but names is:" + names);
+        }
+        return Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(names.get(0))
+                .getDbOrAnalysisException(names.get(1))
+                .getTableOrAnalysisException(names.get(2));
     }
 
     /**
@@ -97,7 +115,7 @@ public class MTMVUtil {
      * @return
      */
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
-        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevelAndFromView();
         for (BaseTableInfo baseTableInfo : baseTables) {
             if (!baseTableInfo.isInternalTable()) {
                 return true;

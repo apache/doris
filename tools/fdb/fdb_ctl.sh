@@ -36,7 +36,7 @@ else
 fi
 
 if [[ ! -d "${FDB_HOME}" ]]; then
-    echo "Please set and create FDB_HOME first"
+    echo "Please set and create FDB_HOME:${FDB_HOME} first"
     exit 1
 fi
 
@@ -265,10 +265,12 @@ function deploy_fdb() {
 ${CLUSTER_DESC}:${FDB_CLUSTER_ID}@$(get_coordinators)
 EOF
 
+    GROUP_NAME="$(id -gn 2>/dev/null || echo "${USER}")"
+
     cat >"${FDB_HOME}/conf/fdb.conf" <<EOF
 [fdbmonitor]
 user = ${USER}
-group = ${USER}
+group = ${GROUP_NAME}
 
 [general]
 restart-delay = 60
@@ -510,6 +512,9 @@ fdbcli)
     ;;
 config)
     generate_regression_config true
+    ;;
+download)
+    download_fdb
     ;;
 *)
     unknown_cmd "${cmd}"

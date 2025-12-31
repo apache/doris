@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -43,6 +45,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
@@ -55,12 +58,20 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     protected static final NereidsParser PARSER = new NereidsParser();
     protected ExpressionRuleExecutor executor;
 
+    protected CascadesContext cascadesContext;
     protected ExpressionRewriteContext context;
 
     public ExpressionRewriteTestHelper() {
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+        cascadesContext = MemoTestUtils.createCascadesContext(
                 new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
         context = new ExpressionRewriteContext(cascadesContext);
+    }
+
+    protected void setExpressionOnFilter() {
+        LogicalFilter<?> filter = new LogicalFilter<LogicalEmptyRelation>(ImmutableSet.of(),
+                new LogicalEmptyRelation(new RelationId(1), ImmutableList.of()));
+        // AddMinMax run in filter plan
+        context = new ExpressionRewriteContext(filter, cascadesContext);
     }
 
     protected void assertRewrite(String expression, String expected) {
@@ -118,8 +129,9 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
             String name = slot.getNameParts().get(slot.getNameParts().size() - 1);
             List<String> qualifier = slot.getQualifier();
             DataType dataType = getType(name.charAt(0));
+            boolean notNullable = name.charAt(0) == 'X' || name.length() >= 2 && name.charAt(1) == 'X';
             Column column = new Column(name, dataType.toCatalogDataType());
-            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column, null, null));
+            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, !notNullable, qualifier, null, column, null, null));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;

@@ -46,7 +46,10 @@ public:
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
+                          ColumnPtr& result_column) const override;
+    DataTypePtr execute_type(const Block* block) const override;
 
     const std::string& expr_name() const override;
     std::string expr_label() override;
@@ -67,9 +70,12 @@ public:
 
     MOCK_FUNCTION const std::string& column_name() const { return *_column_name; }
 
+    uint64_t get_digest(uint64_t seed) const override;
+
 private:
     int _slot_id;
     int _column_id;
+    int _column_uniq_id = -1;
     const std::string* _column_name = nullptr;
     const std::string _column_label;
 };

@@ -37,7 +37,11 @@ public abstract class CompoundPredicate extends Expression implements ExpectsInp
     private String symbol;
 
     public CompoundPredicate(List<Expression> children, String symbol) {
-        super(children);
+        this(children, symbol, false);
+    }
+
+    public CompoundPredicate(List<Expression> children, String symbol, boolean inferred) {
+        super(children, inferred);
         this.symbol = symbol;
     }
 

@@ -41,6 +41,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "util/slice.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -117,6 +118,76 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     }
 
     return Status::OK();
+}
+
+Status FileCacheFactory::reload_file_cache(const std::vector<CachePath>& cache_base_paths) {
+    {
+        std::unique_lock lock(_mtx);
+        for (const auto& cache_path : cache_base_paths) {
+            if (_path_to_cache.find(cache_path.path) == _path_to_cache.end()) {
+                return Status::InternalError(
+                        "Current file cache not support file cache num changes");
+            }
+        }
+
+        for (const auto& cache_path : cache_base_paths) {
+            auto cache_map_iter = _path_to_cache.find(cache_path.path);
+            auto cache_iter = std::find_if(_caches.begin(), _caches.end(),
+                                           [cache_map_iter](const auto& cache_uptr) {
+                                               return cache_uptr.get() == cache_map_iter->second;
+                                           });
+
+            if (cache_iter == _caches.end()) {
+                return Status::InternalError("Target relaod cache in path {} may has been released",
+                                             cache_path.path);
+            }
+
+            // deconstruct target reload first
+            *cache_iter = std::unique_ptr<BlockFileCache>();
+            // after deconstruct the BlockFileCache, construct the BlockFileCache again
+            *cache_iter =
+                    std::make_unique<BlockFileCache>(cache_path.path, cache_path.init_settings());
+            cache_map_iter->second = cache_iter->get();
+
+            RETURN_IF_ERROR(cache_iter->get()->initialize());
+        }
+    }
+
+    return Status::OK();
+}
+
+std::vector<doris::CacheBlockPB> FileCacheFactory::get_cache_data_by_path(const std::string& path) {
+    auto cache_hash = BlockFileCache::hash(path);
+    return get_cache_data_by_path(cache_hash);
+}
+
+std::vector<doris::CacheBlockPB> FileCacheFactory::get_cache_data_by_path(
+        const UInt128Wrapper& hash) {
+    std::vector<doris::CacheBlockPB> ret;
+    BlockFileCache* cache = FileCacheFactory::instance()->get_by_path(hash);
+    if (cache == nullptr) {
+        return ret;
+    }
+    auto blocks = cache->get_blocks_by_key(hash);
+    for (auto& [offset, fb] : blocks) {
+        doris::CacheBlockPB cb;
+        cb.set_block_offset(static_cast<int64_t>(offset));
+        cb.set_block_size(static_cast<int64_t>(fb->range().size()));
+        // try to read data into bytes
+        std::string data;
+        data.resize(fb->range().size());
+        Slice slice(data.data(), data.size());
+        // read from beginning of this block
+        Status st = fb->read(slice, /*read_offset=*/0);
+        if (st.ok()) {
+            cb.set_data(data);
+        } else {
+            // On read failure, skip setting data but still report meta
+            VLOG_DEBUG << "read cache block failed: " << st;
+        }
+        ret.emplace_back(std::move(cb));
+    }
+    return ret;
 }
 
 std::vector<std::string> FileCacheFactory::get_cache_file_by_path(const UInt128Wrapper& hash) {

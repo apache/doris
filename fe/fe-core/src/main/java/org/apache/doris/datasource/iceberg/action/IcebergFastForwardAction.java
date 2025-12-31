@@ -46,9 +46,8 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
 
     public IcebergFastForwardAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition,
-            IcebergExternalTable icebergTable) {
-        super("fast_forward", properties, partitionNamesInfo, whereCondition, icebergTable);
+            Optional<Expression> whereCondition) {
+        super("fast_forward", properties, partitionNamesInfo, whereCondition);
     }
 
     @Override

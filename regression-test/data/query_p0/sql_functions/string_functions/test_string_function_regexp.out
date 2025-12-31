@@ -154,6 +154,15 @@ d
 -- !sql --
 
 
+-- !regexp_extract_1 --
+123
+
+-- !regexp_extract_2 --
+EdgeCase1
+
+-- !regexp_extract_3 --
+AA-1
+
 -- !sql --
 b
 
@@ -162,6 +171,12 @@ d
 
 -- !sql --
 \N
+
+-- !regexp_extract_or_null_1 --
+123
+
+-- !regexp_extract_or_null_2 --
+B
 
 -- !sql --
 ['18','17']
@@ -181,7 +196,7 @@ d
 -- !sql --
 ['ab','c','c','c']
 
--- !sql_regexp_extract_all --
+-- !sql_regexp_extract_all_1 --
 	0
 	0
 	0
@@ -189,6 +204,18 @@ d
 	0
 	0
 	0
+
+-- !sql_regexp_extract_all_2 --
+['Apache/Doris']
+
+-- !sql_regexp_extract_all_3 --
+['123','456']
+
+-- !sql_regexp_extract_all_4 --
+['AA-1','BB-2','CC-3']
+
+-- !sql_regexp_extract_all_5 --
+['Case1','Case2','Case3']
 
 -- !sql --
 a-b-c
@@ -201,6 +228,33 @@ a-b c
 
 -- !sql --
 a <b> b
+
+-- !regexp_fn_1 --
+true
+
+-- !regexp_fn_2 --
+false
+
+-- !regexp_fn_3 --
+true
+
+-- !regexp_fn_4 --
+true
+
+-- !regexp_fn_5 --
+false
+
+-- !regexp_fn_6 --
+false
+
+-- !regexp_fn_7 --
+true
+
+-- !regexp_fn_8 --
+false
+
+-- !regexp_fn_9 --
+true
 
 -- !sql_utf1 --
 true

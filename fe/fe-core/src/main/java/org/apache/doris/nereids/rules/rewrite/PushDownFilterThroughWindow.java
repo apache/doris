@@ -64,7 +64,7 @@ public class PushDownFilterThroughWindow extends OneRewriteRuleFactory {
             Set<Expression> bottomConjuncts = Sets.newHashSet();
             Set<Expression> upperConjuncts = Sets.newHashSet();
             for (Expression expr : filter.getConjuncts()) {
-                if (commonPartitionKeys.containsAll(expr.getInputSlots())) {
+                if (canPushDown(expr, commonPartitionKeys)) {
                     bottomConjuncts.add(expr);
                 } else {
                     upperConjuncts.add(expr);
@@ -86,4 +86,7 @@ public class PushDownFilterThroughWindow extends OneRewriteRuleFactory {
         }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_WINDOW);
     }
 
+    public static boolean canPushDown(Expression conjunct, Set<SlotReference> commonPartitionKeys) {
+        return commonPartitionKeys.containsAll(conjunct.getInputSlots());
+    }
 }

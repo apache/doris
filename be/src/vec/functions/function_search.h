@@ -27,7 +27,7 @@
 
 #include "gen_cpp/Exprs_types.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator_boolean_query.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -93,6 +93,10 @@ public:
         return _field_readers;
     }
 
+    const std::unordered_map<std::string, FieldReaderBinding>& binding_cache() const {
+        return _cache;
+    }
+
     IndexIterator* get_iterator(const std::string& field_name) const {
         auto it = _iterators.find(field_name);
         return (it != _iterators.end()) ? it->second : nullptr;
@@ -148,6 +152,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
             InvertedIndexResultBitmap& bitmap_result) const override;
 
     Status evaluate_inverted_index_with_search_param(
@@ -173,13 +178,13 @@ public:
     // Map clause_type string to InvertedIndexQueryType
     InvertedIndexQueryType clause_type_to_query_type(const std::string& clause_type) const;
 
-    Status build_query_recursive(const FunctionSearch& function, const TSearchClause& clause,
+    Status build_query_recursive(const TSearchClause& clause,
                                  const std::shared_ptr<IndexQueryContext>& context,
                                  FieldReaderResolver& resolver,
                                  inverted_index::query_v2::QueryPtr* out,
                                  std::string* binding_key) const;
 
-    Status build_leaf_query(const FunctionSearch& function, const TSearchClause& clause,
+    Status build_leaf_query(const TSearchClause& clause,
                             const std::shared_ptr<IndexQueryContext>& context,
                             FieldReaderResolver& resolver, inverted_index::query_v2::QueryPtr* out,
                             std::string* binding_key) const;

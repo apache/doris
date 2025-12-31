@@ -4,7 +4,7 @@ bigint	bigint	Yes	true	\N	NONE
 bigint_u	largeint	Yes	true	\N	NONE
 binary	varbinary(12)	Yes	true	\N	NONE
 bit	text	Yes	true	\N	NONE
-blob	text	Yes	true	\N	NONE
+blob	varbinary(65535)	Yes	true	\N	NONE
 boolean	tinyint	Yes	true	\N	NONE
 char	char(5)	Yes	true	\N	NONE
 date	date	Yes	true	\N	NONE

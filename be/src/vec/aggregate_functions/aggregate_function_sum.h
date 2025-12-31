@@ -25,6 +25,7 @@
 #include <memory>
 #include <vector>
 
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
@@ -66,9 +67,18 @@ struct AggregateFunctionSumData {
     typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return sum; }
 };
 
+template <PrimitiveType T, PrimitiveType TResult, typename Data>
+class AggregateFunctionSum;
+
+template <PrimitiveType T, PrimitiveType TResult>
+constexpr static bool is_valid_sum_types =
+        (is_same_or_wider_decimalv3(T, TResult) || (is_decimalv2(T) && is_decimalv2(TResult)) ||
+         (is_float_or_double(T) && is_float_or_double(TResult)) ||
+         (is_int_or_bool(T) && is_int(TResult)));
 /// Counts the sum of the numbers.
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
-class AggregateFunctionSum final
+    requires(is_valid_sum_types<T, TResult>)
+class AggregateFunctionSum<T, TResult, Data> final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>,
           UnaryExpression,
           NullableAggregateFunction {
@@ -85,12 +95,14 @@ public:
               scale(get_decimal_scale(*argument_types_[0])) {}
 
     DataTypePtr get_return_type() const override {
-        if constexpr (is_decimal(T)) {
+        if constexpr (is_decimal(TResult)) {
             return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
         } else {
             return std::make_shared<ResultDataType>();
         }
     }
+
+    bool is_trivial() const override { return true; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
@@ -182,7 +194,6 @@ public:
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
         this->merge_vec(places, offset, rhs, arena, num_rows);
     }
 
@@ -190,7 +201,6 @@ public:
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
         this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
@@ -275,41 +285,38 @@ private:
     UInt32 scale;
 };
 
-template <PrimitiveType T, bool level_up>
+// TODO: use result type from FE plan
+template <PrimitiveType T>
 struct SumSimple {
+    static_assert(!is_decimalv3(T));
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
     static constexpr PrimitiveType ResultType =
-            level_up ? (T == TYPE_DECIMALV2
-                                ? TYPE_DECIMALV2
-                                : (is_decimal(T) ? TYPE_DECIMAL128I
-                                                 : PrimitiveTypeTraits<T>::NearestPrimitiveType))
-                     : T;
+            T == TYPE_DECIMALV2 ? TYPE_DECIMALV2 : PrimitiveTypeTraits<T>::NearestPrimitiveType;
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
     using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
 };
 
 template <PrimitiveType T>
-using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
+using AggregateFunctionSumSimple = typename SumSimple<T>::Function;
 
-template <PrimitiveType T, bool level_up>
-struct SumSimpleDecimal256 {
-    /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    static constexpr PrimitiveType ResultType =
-            level_up ? (T == TYPE_DECIMALV2
-                                ? TYPE_DECIMALV2
-                                : (is_decimal(T) ? TYPE_DECIMAL256
-                                                 : PrimitiveTypeTraits<T>::NearestPrimitiveType))
-                     : T;
+// use result type got from FE plan
+template <PrimitiveType InputType, PrimitiveType ResultType>
+struct SumDecimalV3 {
+    static_assert(is_decimalv3(InputType) && is_decimalv3(ResultType));
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
-    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
+    using Function = AggregateFunctionSum<InputType, ResultType, AggregateDataType>;
 };
+template <PrimitiveType InputType, PrimitiveType ResultType>
+using AggregateFunctionSumDecimalV3 = typename SumDecimalV3<InputType, ResultType>::Function;
 
 template <PrimitiveType T>
-using AggregateFunctionSumSimpleDecimal256 = typename SumSimpleDecimal256<T, true>::Function;
-
+struct SumSimpleForAggReader {
+    using AggregateDataType = AggregateFunctionSumData<T>;
+    using Function = AggregateFunctionSum<T, T, AggregateDataType>;
+};
 // do not level up return type for agg reader
 template <PrimitiveType T>
-using AggregateFunctionSumSimpleReader = typename SumSimple<T, false>::Function;
+using AggregateFunctionSumSimpleReader = typename SumSimpleForAggReader<T>::Function;
 
 } // namespace doris::vectorized
 

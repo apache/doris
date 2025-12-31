@@ -21,6 +21,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.aws.AwsProperties;
@@ -33,6 +34,7 @@ import java.util.Map;
 
 public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
 
+    @Getter
     public AWSGlueMetaStoreBaseProperties glueProperties;
 
     public S3Properties s3Properties;
@@ -53,6 +55,7 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         glueProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
+        glueProperties.requireExplicitGlueCredentials();
         s3Properties = S3Properties.of(origProps);
     }
 

@@ -461,6 +461,11 @@ public class DateLiteral extends Literal implements ComparableLiteral {
     }
 
     @Override
+    protected String castValueToString() {
+        return getStringValue();
+    }
+
+    @Override
     public int compareTo(ComparableLiteral other) {
         if (other instanceof DateLiteral) {
             int cmp = Long.compare(getValue(), ((DateLiteral) other).getValue());

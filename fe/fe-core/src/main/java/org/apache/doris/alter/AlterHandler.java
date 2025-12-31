@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -35,6 +34,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.AlterReplicaTask;
@@ -174,7 +174,7 @@ public abstract class AlterHandler extends MasterDaemon {
     /*
      * entry function. handle alter ops
      */
-    public abstract void process(String rawSql, List<AlterClause> alterClauses, Database db,
+    public abstract void process(String rawSql, List<AlterOp> alterOps, Database db,
                                  OlapTable olapTable)
             throws UserException;
 
@@ -185,9 +185,9 @@ public abstract class AlterHandler extends MasterDaemon {
     /*
      * entry function. handle alter ops
      */
-    public void process(List<AlterClause> alterClauses, Database db, OlapTable olapTable)
+    public void process(List<AlterOp> alterOps, Database db, OlapTable olapTable)
             throws UserException {
-        process("", alterClauses, db, olapTable);
+        process("", alterOps, db, olapTable);
     }
 
     public void processForNereids(List<AlterCommand> alterSystemCommands, Database db, OlapTable olapTable)
@@ -198,7 +198,7 @@ public abstract class AlterHandler extends MasterDaemon {
     /*
      * entry function. handle alter ops for external table
      */
-    public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
+    public void processExternalTable(List<AlterOp> alterOps, Database db, Table externalTable)
             throws UserException {}
 
     /*

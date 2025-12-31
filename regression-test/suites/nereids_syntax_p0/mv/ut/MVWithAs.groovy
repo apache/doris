@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("MVWithAs") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
@@ -40,23 +42,16 @@ suite ("MVWithAs") {
     sql """insert into MVWithAs values("2020-01-02",2,"b",2);"""
     sql """insert into MVWithAs values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view MVWithAs_mv as select user_id as a1, count(tag_id) from MVWithAs group by user_id;")
-
-    sleep(3000)
+    create_sync_mv(db, "MVWithAs", "MVWithAs_mv", "select user_id as a1, count(tag_id) from MVWithAs group by user_id;")
 
     sql """insert into MVWithAs values("2020-01-01",1,"a",1);"""
 
     sql "analyze table MVWithAs with sync;"
     sql """alter table MVWithAs modify column time_col set stats ('row_count'='7');"""
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from MVWithAs order by time_col;", "MVWithAs_mv")
     order_qt_select_star "select * from MVWithAs order by time_col;"
 
     mv_rewrite_success("select count(tag_id) from MVWithAs t;", "MVWithAs_mv")
     order_qt_select_mv "select count(tag_id) from MVWithAs t;"
-
-    mv_rewrite_fail("select * from MVWithAs order by time_col;", "MVWithAs_mv")
-
-    mv_rewrite_success("select count(tag_id) from MVWithAs t;", "MVWithAs_mv")
 }

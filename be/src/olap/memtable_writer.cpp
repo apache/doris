@@ -46,6 +46,8 @@
 #include "vec/core/block.h"
 
 namespace doris {
+bvar::Adder<uint64_t> g_flush_cuz_rowscnt_oveflow("flush_cuz_rowscnt_oveflow");
+
 using namespace ErrorCode;
 
 MemTableWriter::MemTableWriter(const WriteRequest& req) : _req(req) {}
@@ -108,6 +110,7 @@ Status MemTableWriter::write(const vectorized::Block* block,
     DBUG_EXECUTE_IF("MemTableWriter.too_many_raws",
                     { raw_rows = std::numeric_limits<int32_t>::max(); });
     if (raw_rows + row_idxs.size() > std::numeric_limits<int32_t>::max()) {
+        g_flush_cuz_rowscnt_oveflow << 1;
         RETURN_IF_ERROR(_flush_memtable());
     }
 
@@ -238,7 +241,7 @@ Status MemTableWriter::close() {
 
     auto s = _flush_memtable_async();
     {
-        std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
+        std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);
         _mem_table.reset();
     }
     _is_closed = true;
@@ -336,7 +339,7 @@ Status MemTableWriter::cancel_with_status(const Status& st) {
         return Status::OK();
     }
     {
-        std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
+        std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);
         _mem_table.reset();
     }
     if (_flush_token != nullptr) {

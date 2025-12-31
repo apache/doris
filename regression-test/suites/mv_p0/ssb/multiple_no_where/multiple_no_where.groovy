@@ -107,7 +107,8 @@ suite ("multiple_no_where") {
     qt_select_star "select * from lineorder_flat order by 1,2, P_MFGR;"
 
     sql """analyze table lineorder_flat with sync;"""
-    sql """set enable_stats=false;"""
+    sql """alter table lineorder_flat modify column C_CITY set stats ('row_count'='7');"""
+    sql """alter table lineorder_flat modify column a3 set stats ('row_count'='1');"""
 
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat

@@ -277,11 +277,12 @@ public class TypeCoercionUtilsTest {
         Assertions.assertEquals(DateTimeV2Type.of(0),
                 TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateTimeV2Type.of(0)).get().getDataType());
         // date
-        Assertions.assertEquals(DateType.INSTANCE,
-                TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateType.INSTANCE).get().getDataType());
+        Assertions.assertEquals(DateV2Type.INSTANCE,
+                        TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateType.INSTANCE).get()
+                                        .getDataType());
         // datetime
-        Assertions.assertEquals(DateTimeType.INSTANCE,
-                TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateTimeType.INSTANCE).get().getDataType());
+        Assertions.assertEquals(DateTimeV2Type.SYSTEM_DEFAULT,
+                                TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateTimeType.INSTANCE).get().getDataType());
     }
 
     @Test
@@ -311,7 +312,7 @@ public class TypeCoercionUtilsTest {
         // Hll type
         Assertions.assertEquals(DoubleType.INSTANCE, TypeCoercionUtils.getNumResultType(HllType.INSTANCE));
         // Time type
-        Assertions.assertEquals(DoubleType.INSTANCE, TypeCoercionUtils.getNumResultType(TimeV2Type.INSTANCE));
+        Assertions.assertEquals(DoubleType.INSTANCE, TypeCoercionUtils.getNumResultType(TimeV2Type.SYSTEM_DEFAULT));
         // Json
         Assertions.assertEquals(DoubleType.INSTANCE, TypeCoercionUtils.getNumResultType(JsonType.INSTANCE));
         // Other

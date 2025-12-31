@@ -26,7 +26,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.plugin.CloudPluginDownloader;
 import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 
 import com.google.common.base.Preconditions;
@@ -46,8 +48,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -134,7 +134,8 @@ public class JdbcResource extends Resource {
             CONNECTION_POOL_MAX_WAIT_TIME,
             CONNECTION_POOL_KEEP_ALIVE,
             TEST_CONNECTION,
-            ExternalCatalog.USE_META_CACHE
+            ExternalCatalog.USE_META_CACHE,
+            CatalogProperty.ENABLE_MAPPING_VARBINARY
     ).build();
 
     // The default value of optional properties
@@ -155,6 +156,7 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(TEST_CONNECTION, "true");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.USE_META_CACHE,
                 String.valueOf(ExternalCatalog.DEFAULT_USE_META_CACHE));
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.
@@ -203,7 +205,7 @@ public class JdbcResource extends Resource {
         this.configs = Maps.newHashMap(properties);
         validateProperties(this.configs);
         applyDefaultProperties();
-        String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
+        String currentDateTime = TimeUtils.longToTimeString(System.currentTimeMillis());
         configs.put(CREATE_TIME, currentDateTime);
         // check properties
         for (String property : ALL_PROPERTIES) {

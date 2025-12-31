@@ -305,4 +305,23 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
         }
     }
+
+    /**
+     *
+     * example:
+     * expression: x + 1
+     * project(a+b as x)
+     * then before project, the expression is a+b+1
+     *
+     */
+    public Expression pushDownExpressionPastProject(Expression expression) {
+        HashMap projectMap = new HashMap();
+        for (NamedExpression namedExpression : projects) {
+            if (namedExpression instanceof Alias) {
+                Alias alias = (Alias) namedExpression;
+                projectMap.put(alias.toSlot(), alias.child());
+            }
+        }
+        return ExpressionUtils.replace(expression, projectMap);
+    }
 }

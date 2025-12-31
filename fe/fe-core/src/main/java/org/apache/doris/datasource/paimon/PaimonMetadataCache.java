@@ -32,7 +32,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.partition.Partition;
@@ -60,7 +60,7 @@ public class PaimonMetadataCache {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), null, executor);
+        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), executor);
     }
 
     @NotNull

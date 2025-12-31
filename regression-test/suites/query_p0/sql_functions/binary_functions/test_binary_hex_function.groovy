@@ -52,5 +52,9 @@ suite("test_binary_hex_function") {
     sql " insert into test_binary_hex_function values(9, 'aaabbbcccdddeeefff'); "
     qt_sql_21 "select k1, k2, to_binary(k2) from test_binary_hex_function order by k1;"
     qt_sql_22 "select k1, k2, from_binary(to_binary(k2)) from test_binary_hex_function order by k1;"
+    qt_sql_23 "select k1, k2, cast(k2 as varbinary) from test_binary_hex_function order by k1;"
+    qt_sql_24 "select k1, k2, cast(cast(k2 as varbinary) as string) from test_binary_hex_function order by k1;"
+    qt_sql_25 "select cast(X'61' as string), cast(X'5A' as string), cast(X'616263647879' as string);"
+    qt_sql_26 "select cast('ab' as varbinary), cast('Hello, !^%' as varbinary), cast('Doris' as varbinary);"
 }
 
