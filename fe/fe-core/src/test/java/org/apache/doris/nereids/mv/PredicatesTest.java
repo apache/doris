@@ -37,7 +37,9 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-/** Test the method in Predicates*/
+/**
+ * Test the method in Predicates
+ */
 public class PredicatesTest extends SqlTestBase {
 
     @Override
@@ -110,7 +112,7 @@ public class PredicatesTest extends SqlTestBase {
         StructInfo mvStructInfo = StructInfo.of(mvPlan, mvPlan, mvContext);
         StructInfo queryStructInfo = StructInfo.of(queryPlan, queryPlan, queryContext);
         RelationMapping relationMapping = RelationMapping.generate(mvStructInfo.getRelations(),
-                        queryStructInfo.getRelations(), 16).get(0);
+                queryStructInfo.getRelations(), 16).get(0);
 
         SlotMapping mvToQuerySlotMapping = SlotMapping.generate(relationMapping);
         ComparisonResult comparisonResult = HyperGraphComparator.isLogicCompatible(
@@ -172,7 +174,8 @@ public class PredicatesTest extends SqlTestBase {
                 mvStructInfo.getHyperGraph(),
                 constructContext(queryPlan, mvPlan, queryContext));
 
-        Map<Expression, ExpressionInfo> compensateCouldNotPullUpPredicates = Predicates.compensateCouldNotPullUpPredicates(
+        Map<Expression, ExpressionInfo> compensateCouldNotPullUpPredicates
+                = Predicates.compensateCouldNotPullUpPredicates(
                 queryStructInfo, mvStructInfo, mvToQuerySlotMapping, comparisonResult);
         Assertions.assertNotNull(compensateCouldNotPullUpPredicates);
         Assertions.assertTrue(compensateCouldNotPullUpPredicates.isEmpty());
@@ -187,12 +190,12 @@ public class PredicatesTest extends SqlTestBase {
     @Test
     public void testResidualCompensateWithUncoveredRangeAsExtraResidual() {
         CascadesContext mvContext = createCascadesContext(
-                "select id, score from T1 where id = 5 or score = 1",
+                "select id, score from T1 where id = 5 or id = 2 or id > 10",
                 connectContext);
         Plan mvPlan = PlanChecker.from(mvContext).analyze().rewrite().getPlan().child(0);
 
         CascadesContext queryContext = createCascadesContext(
-                "select id, score from T1 where id = 5",
+                "select id, score from T1 where (id = 5 or id = 2) and score = 1",
                 connectContext);
         Plan queryPlan = PlanChecker.from(queryContext).analyze().rewrite().getAllPlan().get(0).child(0);
 
@@ -214,12 +217,17 @@ public class PredicatesTest extends SqlTestBase {
                 queryContext, uncoveredRanges);
         Assertions.assertNotNull(compensateRangePredicates);
         Assertions.assertTrue(compensateRangePredicates.isEmpty());
-        Assertions.assertEquals(1, uncoveredRanges.size());
+        Assertions.assertEquals(2, uncoveredRanges.size());
 
         Map<Expression, ExpressionInfo> residualComp = Predicates.compensateResidualPredicate(
                 queryStructInfo, mvStructInfo, mvToQuerySlotMapping, comparisonResult, uncoveredRanges);
-        Assertions.assertEquals(1, residualComp.size());
-
-        Assertions.assertEquals("[( not (score#1 = 1))]", residualComp.keySet().toString());
+        Assertions.assertNotNull(residualComp);
+        Assertions.assertEquals(2, residualComp.size());
+        Set<String> compensationSqls = residualComp.keySet().stream()
+                .map(Expression::toSql)
+                .collect(java.util.stream.Collectors.toSet());
+        Assertions.assertEquals(2, compensationSqls.size());
+        Assertions.assertTrue(compensationSqls.contains("(score = 1)"));
+        Assertions.assertTrue(compensationSqls.contains("( not (id > 10))"));
     }
 }
