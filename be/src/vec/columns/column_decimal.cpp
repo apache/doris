@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_decimal.h"
 
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 
 #include <limits>
@@ -158,6 +159,40 @@ void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primi
             for (size_t i = 0; i < s; i++) {
                 if (null_data[i] == 0) decimalv2_do_crc(i, hashes[i]);
             }
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                           const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hashes[i] = HashUtil::crc32c_fixed(data[i], hashes[i]);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hashes[i] = HashUtil::crc32c_fixed(data[i], hashes[i]);
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                            const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hash = HashUtil::crc32c_fixed(data[i], hash);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hash = HashUtil::crc32c_fixed(data[i], hash);
         }
     }
 }

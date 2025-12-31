@@ -400,6 +400,19 @@ public:
                                "Method update_crc_with_value is not supported for " + get_name());
     }
 
+    virtual void update_crc32c_batch(uint32_t* __restrict hashes,
+                                     const uint8_t* __restrict null_map) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method update_crc32c_batch is not supported for " + get_name());
+    }
+
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                      const uint8_t* __restrict null_map) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method update_crc32c_single is not supported for " + get_name());
+    }
+
     /** Removes elements that don't match the filter.
       * Is used in WHERE and HAVING operations.
       * If result_size_hint > 0, then makes advance reserve(result_size_hint) for the result column;
@@ -646,6 +659,9 @@ public:
     // usage: nested_column.replace_column_null_data(nested_null_map.data())
     // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
+    // whether support replace null data, default return false
+    // column_vector and column_decimal override this method to return true
+    virtual bool support_replace_column_null_data() const { return false; }
 
     // For float/double types, replace -0.0 with 0.0, set NaN to quiet NaN,
     // used to ensure data hash equality for -0.0 and +0.0, e.g. aggregate and join

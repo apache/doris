@@ -20,6 +20,8 @@
 
 #include "vec/columns/column_string.h"
 
+#include <crc32c/crc32c.h>
+
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
@@ -314,6 +316,44 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
                 hashes[i] = HashUtil::zlib_crc_hash(
                         data_ref.data, static_cast<uint32_t>(data_ref.size), hashes[i]);
             }
+        }
+    }
+}
+
+template <typename T>
+void ColumnStr<T>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                       const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; i++) {
+            if (null_map[i] == 0) {
+                auto data_ref = get_data_at(i);
+                hashes[i] =
+                        crc32c_extend(hashes[i], (const uint8_t*)(data_ref.data), data_ref.size);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; i++) {
+            auto data_ref = get_data_at(i);
+            hashes[i] = crc32c_extend(hashes[i], (const uint8_t*)(data_ref.data), data_ref.size);
+        }
+    }
+}
+
+template <typename T>
+void ColumnStr<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                        const uint8_t* __restrict null_map) const {
+    if (null_map) {
+        for (size_t i = start; i < end; i++) {
+            if (null_map[i] == 0) {
+                auto data_ref = get_data_at(i);
+                hash = crc32c_extend(hash, (const uint8_t*)(data_ref.data), data_ref.size);
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; i++) {
+            auto data_ref = get_data_at(i);
+            hash = crc32c_extend(hash, (const uint8_t*)(data_ref.data), data_ref.size);
         }
     }
 }
