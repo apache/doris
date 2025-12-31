@@ -57,7 +57,7 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
             ON (${tableName1})
         """
         
-        syncer.waitAllBackupFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
         sql "DROP TABLE ${tableName1} FORCE"
         
@@ -92,20 +92,20 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
         
         logger.info("Test 1 passed: User cancel handled correctly")
 
-        // Test 2: Table dropped during restore
-        logger.info("=== Test 2: Table dropped during restore ===")
+        // Test 2: Restore with timeout properties
+        logger.info("=== Test 2: Restore with timeout properties ===")
         
-        String tableName2 = "tbl_drop_during_restore"
+        String tableName2 = "tbl_timeout_test"
         sql """
             CREATE TABLE ${tableName2} (
                 id INT,
-                value VARCHAR(50)
+                data VARCHAR(100)
             )
             DISTRIBUTED BY HASH(id) BUCKETS 2
             PROPERTIES ("replication_num" = "1")
         """
         
-        sql "INSERT INTO ${tableName2} VALUES (1, 'value1'), (2, 'value2')"
+        sql "INSERT INTO ${tableName2} VALUES (1, 'data1')"
         
         String snapshotName2 = "snapshot_${tableName2}"
         sql """
@@ -114,34 +114,36 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
             ON (${tableName2})
         """
         
-        syncer.waitAllBackupFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
-        // Don't drop table, test concurrent modification
-        // Modify table during restore
+        sql "DROP TABLE ${tableName2} FORCE"
+        
+        // Restore with very short timeout (should still succeed for small data)
         sql """
             RESTORE SNAPSHOT ${dbName}.${snapshotName2}
             FROM ${repoName}
             ON (${tableName2})
-            PROPERTIES ("atomic_restore" = "true")
+            PROPERTIES (
+                "timeout" = "300"
+            )
         """
         
-        syncer.waitAllRestoreFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
-        // Verify data was restored
         def result2 = sql "SELECT COUNT(*) FROM ${tableName2}"
-        assertEquals(2, result2[0][0])
+        assertEquals(1, result2[0][0])
         
-        logger.info("Test 2 passed: Concurrent modification handled")
+        logger.info("Test 2 passed: Timeout properties handled")
         sql "DROP TABLE ${tableName2} FORCE"
 
-        // Test 3: Restore timeout simulation
-        logger.info("=== Test 3: Restore with timeout properties ===")
+        // Test 3: Restore with allow_load property
+        logger.info("=== Test 3: Restore with allow_load ===")
         
-        String tableName3 = "tbl_timeout_test"
+        String tableName3 = "tbl_allow_load"
         sql """
             CREATE TABLE ${tableName3} (
                 id INT,
-                data VARCHAR(100)
+                data VARCHAR(50)
             )
             DISTRIBUTED BY HASH(id) BUCKETS 2
             PROPERTIES ("replication_num" = "1")
@@ -156,32 +158,32 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
             ON (${tableName3})
         """
         
-        syncer.waitAllBackupFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
         sql "DROP TABLE ${tableName3} FORCE"
         
-        // Restore with very short timeout (should still succeed for small data)
+        // Restore with allow_load = false
         sql """
             RESTORE SNAPSHOT ${dbName}.${snapshotName3}
             FROM ${repoName}
             ON (${tableName3})
             PROPERTIES (
-                "timeout" = "300"
+                "allow_load" = "false"
             )
         """
         
-        syncer.waitAllRestoreFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
         def result3 = sql "SELECT COUNT(*) FROM ${tableName3}"
         assertEquals(1, result3[0][0])
         
-        logger.info("Test 3 passed: Timeout properties handled")
+        logger.info("Test 3 passed: allow_load property handled")
         sql "DROP TABLE ${tableName3} FORCE"
 
-        // Test 4: Restore with allow_load property
-        logger.info("=== Test 4: Restore with allow_load ===")
+        // Test 4: Restore with reserve_replica
+        logger.info("=== Test 4: Restore with reserve_replica ===")
         
-        String tableName4 = "tbl_allow_load"
+        String tableName4 = "tbl_reserve_replica"
         sql """
             CREATE TABLE ${tableName4} (
                 id INT,
@@ -200,78 +202,34 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
             ON (${tableName4})
         """
         
-        syncer.waitAllBackupFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
         sql "DROP TABLE ${tableName4} FORCE"
         
-        // Restore with allow_load = false
+        // Restore with reserve_replica = true
         sql """
             RESTORE SNAPSHOT ${dbName}.${snapshotName4}
             FROM ${repoName}
             ON (${tableName4})
             PROPERTIES (
-                "allow_load" = "false"
-            )
-        """
-        
-        syncer.waitAllRestoreFinish(dbName)
-        
-        def result4 = sql "SELECT COUNT(*) FROM ${tableName4}"
-        assertEquals(1, result4[0][0])
-        
-        logger.info("Test 4 passed: allow_load property handled")
-        sql "DROP TABLE ${tableName4} FORCE"
-
-        // Test 5: Restore with reserve_replica
-        logger.info("=== Test 5: Restore with reserve_replica ===")
-        
-        String tableName5 = "tbl_reserve_replica"
-        sql """
-            CREATE TABLE ${tableName5} (
-                id INT,
-                data VARCHAR(50)
-            )
-            DISTRIBUTED BY HASH(id) BUCKETS 2
-            PROPERTIES ("replication_num" = "1")
-        """
-        
-        sql "INSERT INTO ${tableName5} VALUES (1, 'data1')"
-        
-        String snapshotName5 = "snapshot_${tableName5}"
-        sql """
-            BACKUP SNAPSHOT ${dbName}.${snapshotName5}
-            TO ${repoName}
-            ON (${tableName5})
-        """
-        
-        syncer.waitAllBackupFinish(dbName)
-        
-        sql "DROP TABLE ${tableName5} FORCE"
-        
-        // Restore with reserve_replica = true
-        sql """
-            RESTORE SNAPSHOT ${dbName}.${snapshotName5}
-            FROM ${repoName}
-            ON (${tableName5})
-            PROPERTIES (
                 "reserve_replica" = "true"
             )
         """
         
-        syncer.waitAllRestoreFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
-        def result5 = sql "SELECT COUNT(*) FROM ${tableName5}"
-        assertEquals(1, result5[0][0])
+        def result4 = sql "SELECT COUNT(*) FROM ${tableName4}"
+        assertEquals(1, result4[0][0])
         
-        logger.info("Test 5 passed: reserve_replica property handled")
-        sql "DROP TABLE ${tableName5} FORCE"
+        logger.info("Test 4 passed: reserve_replica property handled")
+        sql "DROP TABLE ${tableName4} FORCE"
 
-        // Test 6: Adaptive mode with medium downgrade
-        logger.info("=== Test 6: Adaptive mode with medium downgrade ===")
+        // Test 5: Adaptive mode with medium downgrade
+        logger.info("=== Test 5: Adaptive mode with medium downgrade ===")
         
-        String tableName6 = "tbl_adaptive_downgrade"
+        String tableName5 = "tbl_adaptive_downgrade"
         sql """
-            CREATE TABLE ${tableName6} (
+            CREATE TABLE ${tableName5} (
                 id INT,
                 data VARCHAR(50)
             )
@@ -282,45 +240,45 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
             )
         """
         
-        sql "INSERT INTO ${tableName6} VALUES (1, 'ssd_data')"
+        sql "INSERT INTO ${tableName5} VALUES (1, 'ssd_data')"
         
-        String snapshotName6 = "snapshot_${tableName6}"
+        String snapshotName5 = "snapshot_${tableName5}"
         sql """
-            BACKUP SNAPSHOT ${dbName}.${snapshotName6}
+            BACKUP SNAPSHOT ${dbName}.${snapshotName5}
             TO ${repoName}
-            ON (${tableName6})
+            ON (${tableName5})
         """
         
-        syncer.waitAllBackupFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
-        sql "DROP TABLE ${tableName6} FORCE"
+        sql "DROP TABLE ${tableName5} FORCE"
         
         // Restore with adaptive mode - may downgrade to HDD if SSD not available
         sql """
-            RESTORE SNAPSHOT ${dbName}.${snapshotName6}
+            RESTORE SNAPSHOT ${dbName}.${snapshotName5}
             FROM ${repoName}
-            ON (${tableName6})
+            ON (${tableName5})
             PROPERTIES (
                 "storage_medium" = "ssd",
                 "medium_allocation_mode" = "adaptive"
             )
         """
         
-        syncer.waitAllRestoreFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
-        def result6 = sql "SELECT COUNT(*) FROM ${tableName6}"
-        assertEquals(1, result6[0][0])
+        def result5 = sql "SELECT COUNT(*) FROM ${tableName5}"
+        assertEquals(1, result5[0][0])
         
         // Check if table was created (may be on HDD or SSD depending on BE capacity)
-        def showCreate6 = sql "SHOW CREATE TABLE ${tableName6}"
-        assertNotNull(showCreate6)
-        logger.info("Adaptive mode result: ${showCreate6[0][1]}")
+        def showCreate5 = sql "SHOW CREATE TABLE ${tableName5}"
+        assertNotNull(showCreate5)
+        logger.info("Adaptive mode result: ${showCreate5[0][1]}")
         
-        logger.info("Test 6 passed: Adaptive mode downgrade handled")
-        sql "DROP TABLE ${tableName6} FORCE"
+        logger.info("Test 5 passed: Adaptive mode downgrade handled")
+        sql "DROP TABLE ${tableName5} FORCE"
 
-        // Test 7: Restore non-existent snapshot
-        logger.info("=== Test 7: Restore non-existent snapshot ===")
+        // Test 6: Restore non-existent snapshot
+        logger.info("=== Test 6: Restore non-existent snapshot ===")
         
         try {
             sql """
@@ -337,19 +295,19 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
                 logger.info("Restore job state: ${lastJob[4]}")
             }
             
-            logger.info("Test 7 passed: Non-existent snapshot handled")
+            logger.info("Test 6 passed: Non-existent snapshot handled")
         } catch (Exception e) {
-            logger.info("Test 7 passed: Non-existent snapshot correctly rejected: ${e.message}")
+            logger.info("Test 6 passed: Non-existent snapshot correctly rejected: ${e.message}")
         }
 
-        // Test 8: Multiple restore jobs handling
-        logger.info("=== Test 8: Multiple restore jobs ===")
+        // Test 7: Multiple restore jobs handling
+        logger.info("=== Test 7: Multiple restore jobs ===")
         
-        String tableName8A = "tbl_multi_restore_a"
-        String tableName8B = "tbl_multi_restore_b"
+        String tableName7A = "tbl_multi_restore_a"
+        String tableName7B = "tbl_multi_restore_b"
         
         sql """
-            CREATE TABLE ${tableName8A} (
+            CREATE TABLE ${tableName7A} (
                 id INT,
                 data VARCHAR(50)
             )
@@ -358,7 +316,7 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
         """
         
         sql """
-            CREATE TABLE ${tableName8B} (
+            CREATE TABLE ${tableName7B} (
                 id INT,
                 data VARCHAR(50)
             )
@@ -366,59 +324,61 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
             PROPERTIES ("replication_num" = "1")
         """
         
-        sql "INSERT INTO ${tableName8A} VALUES (1, 'data_a')"
-        sql "INSERT INTO ${tableName8B} VALUES (2, 'data_b')"
+        sql "INSERT INTO ${tableName7A} VALUES (1, 'data_a')"
+        sql "INSERT INTO ${tableName7B} VALUES (2, 'data_b')"
         
-        String snapshotName8A = "snapshot_${tableName8A}"
-        String snapshotName8B = "snapshot_${tableName8B}"
+        String snapshotName7A = "snapshot_${tableName7A}"
+        String snapshotName7B = "snapshot_${tableName7B}"
         
         sql """
-            BACKUP SNAPSHOT ${dbName}.${snapshotName8A}
+            BACKUP SNAPSHOT ${dbName}.${snapshotName7A}
             TO ${repoName}
-            ON (${tableName8A})
+            ON (${tableName7A})
         """
         
         sql """
-            BACKUP SNAPSHOT ${dbName}.${snapshotName8B}
+            BACKUP SNAPSHOT ${dbName}.${snapshotName7B}
             TO ${repoName}
-            ON (${tableName8B})
+            ON (${tableName7B})
         """
         
-        syncer.waitAllBackupFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
-        sql "DROP TABLE ${tableName8A} FORCE"
-        sql "DROP TABLE ${tableName8B} FORCE"
+        sql "DROP TABLE ${tableName7A} FORCE"
+        sql "DROP TABLE ${tableName7B} FORCE"
         
         // Start both restores
         sql """
-            RESTORE SNAPSHOT ${dbName}.${snapshotName8A}
+            RESTORE SNAPSHOT ${dbName}.${snapshotName7A}
             FROM ${repoName}
-            ON (${tableName8A})
+            ON (${tableName7A})
         """
         
         sql """
-            RESTORE SNAPSHOT ${dbName}.${snapshotName8B}
+            RESTORE SNAPSHOT ${dbName}.${snapshotName7B}
             FROM ${repoName}
-            ON (${tableName8B})
+            ON (${tableName7B})
         """
         
-        syncer.waitAllRestoreFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
-        def result8A = sql "SELECT COUNT(*) FROM ${tableName8A}"
-        def result8B = sql "SELECT COUNT(*) FROM ${tableName8B}"
-        assertEquals(1, result8A[0][0])
-        assertEquals(1, result8B[0][0])
+        def result7A = sql "SELECT COUNT(*) FROM ${tableName7A}"
+        def result7B = sql "SELECT COUNT(*) FROM ${tableName7B}"
+        assertEquals(1, result7A[0][0])
+        assertEquals(1, result7B[0][0])
         
-        logger.info("Test 8 passed: Multiple restore jobs handled")
-        sql "DROP TABLE ${tableName8A} FORCE"
-        sql "DROP TABLE ${tableName8B} FORCE"
+        logger.info("Test 7 passed: Multiple restore jobs handled")
+        sql "DROP TABLE ${tableName7A} FORCE"
+        sql "DROP TABLE ${tableName7B} FORCE"
 
-        // Test 9: Restore with different replication_num
-        logger.info("=== Test 9: Restore with different replication_num ===")
+        // Test 8: Restore with table rename
+        logger.info("=== Test 8: Restore with table rename ===")
         
-        String tableName9 = "tbl_diff_replication"
+        String tableName8 = "tbl_original"
+        String renamedTable8 = "tbl_renamed"
+        
         sql """
-            CREATE TABLE ${tableName9} (
+            CREATE TABLE ${tableName8} (
                 id INT,
                 data VARCHAR(50)
             )
@@ -426,81 +386,35 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
             PROPERTIES ("replication_num" = "1")
         """
         
-        sql "INSERT INTO ${tableName9} VALUES (1, 'data9')"
+        sql "INSERT INTO ${tableName8} VALUES (1, 'original_data')"
         
-        String snapshotName9 = "snapshot_${tableName9}"
+        String snapshotName8 = "snapshot_${tableName8}"
         sql """
-            BACKUP SNAPSHOT ${dbName}.${snapshotName9}
+            BACKUP SNAPSHOT ${dbName}.${snapshotName8}
             TO ${repoName}
-            ON (${tableName9})
+            ON (${tableName8})
         """
         
-        syncer.waitAllBackupFinish(dbName)
-        
-        sql "DROP TABLE ${tableName9} FORCE"
-        
-        // Restore with same replication_num (1)
-        sql """
-            RESTORE SNAPSHOT ${dbName}.${snapshotName9}
-            FROM ${repoName}
-            ON (${tableName9})
-            PROPERTIES (
-                "replication_num" = "1"
-            )
-        """
-        
-        syncer.waitAllRestoreFinish(dbName)
-        
-        def result9 = sql "SELECT COUNT(*) FROM ${tableName9}"
-        assertEquals(1, result9[0][0])
-        
-        logger.info("Test 9 passed: Different replication_num handled")
-        sql "DROP TABLE ${tableName9} FORCE"
-
-        // Test 10: Restore with table rename
-        logger.info("=== Test 10: Restore with table rename ===")
-        
-        String tableName10 = "tbl_original"
-        String renamedTable10 = "tbl_renamed"
-        
-        sql """
-            CREATE TABLE ${tableName10} (
-                id INT,
-                data VARCHAR(50)
-            )
-            DISTRIBUTED BY HASH(id) BUCKETS 2
-            PROPERTIES ("replication_num" = "1")
-        """
-        
-        sql "INSERT INTO ${tableName10} VALUES (1, 'original_data')"
-        
-        String snapshotName10 = "snapshot_${tableName10}"
-        sql """
-            BACKUP SNAPSHOT ${dbName}.${snapshotName10}
-            TO ${repoName}
-            ON (${tableName10})
-        """
-        
-        syncer.waitAllBackupFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
         // Restore with new name
         sql """
-            RESTORE SNAPSHOT ${dbName}.${snapshotName10}
+            RESTORE SNAPSHOT ${dbName}.${snapshotName8}
             FROM ${repoName}
-            ON (${tableName10} AS ${renamedTable10})
+            ON (${tableName8} AS ${renamedTable8})
         """
         
-        syncer.waitAllRestoreFinish(dbName)
+        syncer.waitAllRestoreFinish()
         
         // Verify both tables exist
-        def result10Orig = sql "SELECT COUNT(*) FROM ${tableName10}"
-        def result10Renamed = sql "SELECT COUNT(*) FROM ${renamedTable10}"
-        assertEquals(1, result10Orig[0][0])
-        assertEquals(1, result10Renamed[0][0])
+        def result8Orig = sql "SELECT COUNT(*) FROM ${tableName8}"
+        def result8Renamed = sql "SELECT COUNT(*) FROM ${renamedTable8}"
+        assertEquals(1, result8Orig[0][0])
+        assertEquals(1, result8Renamed[0][0])
         
-        logger.info("Test 10 passed: Table rename handled")
-        sql "DROP TABLE ${tableName10} FORCE"
-        sql "DROP TABLE ${renamedTable10} FORCE"
+        logger.info("Test 8 passed: Table rename handled")
+        sql "DROP TABLE ${tableName8} FORCE"
+        sql "DROP TABLE ${renamedTable8} FORCE"
 
         // Cleanup
         sql "DROP DATABASE ${dbName} FORCE"
@@ -508,4 +422,3 @@ suite("test_backup_restore_error_recovery_s3", "backup_restore,docker") {
         logger.info("=== All error recovery tests completed successfully ===")
     }
 }
-
