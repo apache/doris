@@ -37,6 +37,7 @@ suite("doc_date_functions_test") {
     // sql "set debug_skip_fold_constant=true;"
     // Test Group 1: Basic Date Functions(1 - 12)
     
+    sql """ set time_zone = '+08:00'; """
     // 1. CONVERT_TZ function tests
     // Convert China Shanghai time to America Los Angeles
     qt_convert_tz_1 """select CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATETIME), 'Asia/Shanghai', 'America/Los_Angeles')"""
@@ -1215,6 +1216,11 @@ suite("doc_date_functions_test") {
     qt_to_iso8601_3 """SELECT TO_ISO8601(CAST('2020-01-01 12:30:45.956' AS DATETIME)) AS datetime_result"""
     qt_to_iso8601_4 """SELECT TO_ISO8601('2023-02-30') AS invalid_date"""
     qt_to_iso8601_5 """SELECT TO_ISO8601(NULL) AS null_input"""
+    qt_to_iso8601_6 """SELECT TO_ISO8601('2025-10-10 11:22:33+03:00');"""
+    qt_to_iso8601_7 """SELECT TO_ISO8601('2025-10-10 11:22:33-05:00');"""
+    qt_to_iso8601_8 """SELECT TO_ISO8601('2025-10-10 11:22:33.123Z');"""
+    qt_to_iso8601_9 """SELECT TO_ISO8601('2025-10-10 11:22:33.1234567Z');"""
+    qt_to_iso8601_10 """SELECT TO_ISO8601('0000-01-01 00:00:00Z');"""
 
     // 81. TO_MONDAY function tests
     qt_to_monday_1 """SELECT TO_MONDAY('2022-09-10') AS result"""

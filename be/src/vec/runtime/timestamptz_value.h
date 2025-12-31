@@ -74,6 +74,61 @@ public:
     // Default column value (since the default value 0 for UInt64 is not a valid datetime)
     static underlying_value default_column_value() { return MIN_DATETIME_V2; }
 
+    // Check if the datetime part is valid
+    bool is_valid_date() const { return _utc_dt.is_valid_date(); }
+
+    uint16_t year() const { return _utc_dt.year(); }
+    uint8_t month() const { return _utc_dt.month(); }
+    uint8_t day() const { return _utc_dt.day(); }
+    uint8_t hour() const { return _utc_dt.hour(); }
+    uint8_t minute() const { return _utc_dt.minute(); }
+    uint8_t second() const { return _utc_dt.second(); }
+    uint32_t microsecond() const { return _utc_dt.microsecond(); }
+    int64_t daynr() const { return _utc_dt.daynr(); }
+    int quarter() const { return _utc_dt.quarter(); }
+
+    // Methods needed for time rounding
+    int64_t datetime_diff_in_seconds(const TimestampTzValue& other) const {
+        return _utc_dt.datetime_diff_in_seconds(other._utc_dt);
+    }
+
+    template <TimeUnit unit>
+    bool date_set_interval(const TimeInterval& interval) {
+        return _utc_dt.date_set_interval<unit>(interval);
+    }
+
+    template <TimeUnit unit>
+    void unchecked_set_time_unit(uint32_t value) {
+        _utc_dt.unchecked_set_time_unit<unit>(value);
+    }
+
+    void unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
+                            uint8_t minute, uint8_t second, uint32_t microsecond = 0) {
+        _utc_dt.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
+    }
+
+    bool check_range_and_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
+                                   uint8_t minute, uint8_t second, uint32_t microsecond = 0) {
+        return _utc_dt.check_range_and_set_time(year, month, day, hour, minute, second,
+                                                 microsecond);
+    }
+
+    void set_int_val(underlying_value value) { _utc_dt.set_int_val(value); }
+
+    // Special constant for first day
+    static const TimestampTzValue FIRST_DAY;
+
+    template <TimeUnit unit, bool need_check = true>
+    bool date_add_interval(const TimeInterval& interval) {
+        return _utc_dt.date_add_interval<unit, need_check>(interval);
+    }
+
+    // truncate datetime to specified unit
+    template<TimeUnit unit>
+    bool datetime_trunc() {
+        return _utc_dt.datetime_trunc<unit>();
+    }
+
     TimestampTzValue& operator++() {
         ++_utc_dt;
         return *this;

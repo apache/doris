@@ -21,6 +21,9 @@
 
 namespace doris {
 
+const TimestampTzValue TimestampTzValue::FIRST_DAY =
+        TimestampTzValue(DateV2Value<DateTimeV2ValueType>::FIRST_DAY.to_date_int_val());
+
 bool TimestampTzValue::from_string(const StringRef& str, const cctz::time_zone* local_time_zone,
                                    vectorized::CastParameters& params, uint32_t to_scale) {
     using namespace vectorized;

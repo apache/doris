@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -201,7 +202,7 @@ private:
 
             const auto& date_time_value = ts[i];
             res_offsets[i] = cast_set<UInt32>(
-                    Transform::execute(date_time_value, res_data, offset, names_ptr));
+                    Transform::execute(date_time_value, res_data, offset, names_ptr, context));
             DCHECK(date_time_value.is_valid_date());
         }
         res_data.resize(res_offsets[res_offsets.size() - 1]);
@@ -216,6 +217,7 @@ using FunctionDateTimeV2MonthName = FunctionDateOrDateTimeToString<MonthNameImpl
 
 using FunctionDateIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATEV2>>;
 using FunctionDateTimeIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATETIMEV2>>;
+using FunctionTimestampTzIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_TIMESTAMPTZ>>;
 
 void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayNameV2>();
@@ -224,6 +226,7 @@ void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2MonthName>();
     factory.register_function<FunctionDateIso8601>();
     factory.register_function<FunctionDateTimeIso8601>();
+    factory.register_function<FunctionTimestampTzIso8601>();
 }
 
 } // namespace doris::vectorized
