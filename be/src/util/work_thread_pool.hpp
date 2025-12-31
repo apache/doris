@@ -135,7 +135,7 @@ public:
     }
 
 protected:
-    virtual bool is_shutdown() { return _shutdown; }
+    virtual bool is_shutdown() const { return _shutdown; }
 
     // Collection of worker threads that process work from the queue.
     ThreadGroup _threads;
