@@ -130,6 +130,9 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                int64_t expiration_time,
                                                std::shared_ptr<bthread::CountdownEvent> wait,
                                                bool is_index, std::function<void(Status)> done_cb) {
+    VLOG_DEBUG << "submit warm up task for file: " << path << ", file_size: " << file_size
+               << ", expiration_time: " << expiration_time
+               << ", is_index: " << (is_index ? "true" : "false");
     if (file_size < 0) {
         auto st = file_system->file_size(path, &file_size);
         if (!st.ok()) [[unlikely]] {
