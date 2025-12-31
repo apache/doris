@@ -77,7 +77,7 @@ public:
     char* alloc(size_t length) { return _arena.alloc(length); }
 
     void insert(const Field& x) override {
-        auto value = vectorized::get<const doris::StringView&>(x);
+        const auto& value = vectorized::get<const StringViewField&>(x);
         insert_data(value.data(), value.size());
     }
 
@@ -184,6 +184,9 @@ public:
 
     void insert_many_strings_overflow(const StringRef* strings, size_t num,
                                       size_t max_length) override;
+
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
 
 private:
     Container _data;

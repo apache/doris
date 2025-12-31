@@ -739,6 +739,10 @@ std::string_view Field::as_string_view() const {
         const auto& s = get<String>();
         return {s.data(), s.size()};
     }
+    if (type == PrimitiveType::TYPE_VARBINARY) {
+        const auto& svf = get<StringViewField>();
+        return {svf.data(), svf.size()};
+    }
     // MATCH_PRIMITIVE_TYPE(INVALID_TYPE);
     // MATCH_PRIMITIVE_TYPE(TYPE_NULL);
     MATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN);
