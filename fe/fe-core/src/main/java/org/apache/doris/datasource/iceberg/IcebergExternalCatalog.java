@@ -33,14 +33,19 @@ import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldO
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
+    private static final Logger LOG = LogManager.getLogger(IcebergExternalCatalog.class);
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
     public static final String ICEBERG_REST = "rest";
     public static final String ICEBERG_HMS = "hms";
@@ -58,7 +63,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY_MB = 1024;
     public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND = 48 * 60 * 60;
     protected String icebergCatalogType;
-    protected Catalog catalog;
+    protected BaseMetastoreCatalog catalog;
 
     private AbstractIcebergProperties msProperties;
 
@@ -209,7 +214,11 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public void onClose() {
         super.onClose();
         if (null != catalog) {
-            catalog = null;
+            try {
+                catalog.close();
+            } catch (IOException e) {
+                LOG.warn("Failed to close iceberg catalog: {}", getName(), e);
+            }
         }
     }
 

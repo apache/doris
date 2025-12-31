@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
@@ -33,10 +34,10 @@ import java.util.Map;
 public class AbstractIcebergPropertiesTest {
 
     private static class TestIcebergProperties extends AbstractIcebergProperties {
-        private final Catalog catalogToReturn;
+        private final BaseMetastoreCatalog catalogToReturn;
         private Map<String, String> capturedCatalogProps;
 
-        TestIcebergProperties(Map<String, String> props, Catalog catalogToReturn) {
+        TestIcebergProperties(Map<String, String> props, BaseMetastoreCatalog catalogToReturn) {
             super(props);
             this.catalogToReturn = catalogToReturn;
         }
@@ -47,9 +48,9 @@ public class AbstractIcebergPropertiesTest {
         }
 
         @Override
-        protected Catalog initCatalog(String catalogName,
-                                      Map<String, String> catalogProps,
-                                      List<StorageProperties> storagePropertiesList) {
+        protected BaseMetastoreCatalog initCatalog(String catalogName,
+                                                   Map<String, String> catalogProps,
+                                                   List<StorageProperties> storagePropertiesList) {
             // Capture the catalogProps for verification
             this.capturedCatalogProps = new HashMap<>(catalogProps);
             return catalogToReturn;
@@ -62,13 +63,13 @@ public class AbstractIcebergPropertiesTest {
 
     @Test
     void testInitializeCatalogWithWarehouse() {
-        Catalog mockCatalog = Mockito.mock(Catalog.class);
+        BaseMetastoreCatalog mockCatalog = Mockito.mock(BaseMetastoreCatalog.class);
         Mockito.when(mockCatalog.name()).thenReturn("mocked-catalog");
         Map<String, String> props = new HashMap<>();
         props.put("k1", "v1");
         TestIcebergProperties properties = new TestIcebergProperties(props, mockCatalog);
         properties.warehouse = "s3://bucket/warehouse";
-        Catalog result = properties.initializeCatalog("testCatalog", Collections.emptyList());
+        BaseMetastoreCatalog result = properties.initializeCatalog("testCatalog", Collections.emptyList());
         Assertions.assertNotNull(result);
         Assertions.assertEquals("mocked-catalog", result.name());
         // Verify that warehouse is included in catalogProps
@@ -81,11 +82,11 @@ public class AbstractIcebergPropertiesTest {
 
     @Test
     void testInitializeCatalogWithoutWarehouse() {
-        Catalog mockCatalog = Mockito.mock(Catalog.class);
+        BaseMetastoreCatalog mockCatalog = Mockito.mock(Catalog.class);
         Mockito.when(mockCatalog.name()).thenReturn("no-warehouse");
         TestIcebergProperties properties = new TestIcebergProperties(new HashMap<>(), mockCatalog);
         properties.warehouse = null;
-        Catalog result = properties.initializeCatalog("testCatalog", Collections.emptyList());
+        BaseMetastoreCatalog result = properties.initializeCatalog("testCatalog", Collections.emptyList());
         Assertions.assertNotNull(result);
         Assertions.assertEquals("no-warehouse", result.name());
         // Verify that warehouse key is not present
@@ -102,7 +103,7 @@ public class AbstractIcebergPropertiesTest {
             }
 
             @Override
-            protected Catalog initCatalog(String catalogName,
+            protected BaseMetastoreCatalog initCatalog(String catalogName,
                                           Map<String, String> catalogProps,
                                           List<StorageProperties> storagePropertiesList) {
                 return null; // Simulate a failure case

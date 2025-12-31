@@ -23,8 +23,8 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.catalog.Catalog;
 
 import java.util.HashMap;
 import java.util.List;
@@ -111,7 +111,8 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      * This field is used to perform metadata operations like creating, querying,
      * and deleting Iceberg tables.
      */
-    public final Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public final BaseMetastoreCatalog initializeCatalog(String catalogName,
+                                                        List<StorageProperties> storagePropertiesList) {
         Map<String, String> catalogProps = new HashMap<>(getOrigProps());
         if (StringUtils.isNotBlank(warehouse)) {
             catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
@@ -120,7 +121,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         // Add manifest cache properties if configured
         addManifestCacheProperties(catalogProps);
 
-        Catalog catalog = initCatalog(catalogName, catalogProps, storagePropertiesList);
+        BaseMetastoreCatalog catalog = initCatalog(catalogName, catalogProps, storagePropertiesList);
 
         if (catalog == null) {
             throw new IllegalStateException("Catalog must not be null after initialization.");
@@ -153,7 +154,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
     /**
      * Subclasses must implement this to create the concrete Catalog instance.
      */
-    protected abstract Catalog initCatalog(
+    protected abstract BaseMetastoreCatalog initCatalog(
             String catalogName,
             Map<String, String> catalogProps,
             List<StorageProperties> storagePropertiesList

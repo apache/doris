@@ -25,7 +25,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import lombok.Getter;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.hive.HiveCatalog;
 
 import java.util.HashMap;
@@ -64,8 +64,8 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
     }
 
     @Override
-    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                               List<StorageProperties> storagePropertiesList) {
+    public BaseMetastoreCatalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                                            List<StorageProperties> storagePropertiesList) {
         checkInitialized();
         Configuration conf = buildHiveConfiguration(storagePropertiesList);
         HiveCatalog hiveCatalog = new HiveCatalog();

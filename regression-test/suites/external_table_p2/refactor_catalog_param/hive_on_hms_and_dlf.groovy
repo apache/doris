@@ -81,6 +81,10 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
             show databases  like "${db_name}";
         """
         assert dropResult.size() == 0
+
+        sql """
+            DROP CATALOG IF EXISTS ${catalog_name};
+        """
     }
 
     /*--------test partition table insert---------*/
@@ -181,6 +185,10 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
             show databases  like "${db_name}";
         """
         assert dropResult.size() == 0
+
+        sql """
+            DROP CATALOG IF EXISTS ${catalog_name};
+        """
     }
 
     /*--------test insert overwrite---------*/
@@ -278,6 +286,10 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
             show databases  like "${db_name}";
         """
         assert dropResult.size() == 0
+
+        sql """
+            DROP CATALOG IF EXISTS ${catalog_name};
+        """
     }
 
     /*--------only execute query---------*/
@@ -311,6 +323,10 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
             SELECT count(1) FROM ${table_name};
         """
         assert queryResult.get(0).get(0) == data_count
+
+        sql """
+            DROP CATALOG IF EXISTS ${catalog_name};
+        """
     }
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String keytab_root_dir = "/keytabs"

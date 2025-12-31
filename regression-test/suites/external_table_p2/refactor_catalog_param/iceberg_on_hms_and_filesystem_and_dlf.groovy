@@ -178,6 +178,9 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
             show databases  like "${db_name}";
         """
         assert dropResult.size() == 0
+        sql """
+            DROP CATALOG IF EXISTS ${catalog_name};
+        """
     }
 
     /*--------only execute query---------*/
@@ -211,6 +214,10 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
             SELECT count(1) FROM ${table_name};
         """
         assert queryResult.get(0).get(0) == data_count
+
+        sql """
+            DROP CATALOG IF EXISTS ${catalog_name};
+        """
     }
 
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
