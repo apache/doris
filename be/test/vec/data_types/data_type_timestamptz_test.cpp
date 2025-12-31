@@ -54,7 +54,7 @@ public:
 };
 
 TEST_F(DataTypeTimeStampTzTest, test_normal) {
-    EXPECT_EQ(type->get_family_name(), "TimeStampTz(6)");
+    EXPECT_EQ(type->get_family_name(), "TimeStampTz");
     EXPECT_EQ(type->get_primitive_type(), PrimitiveType::TYPE_TIMESTAMPTZ);
     EXPECT_EQ(type->get_scale(), 6);
 

@@ -53,7 +53,8 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     }
 
     public TimestampTzLiteral(long year, long month, long day, long hour, long minute, long second, long microSecond) {
-        super(TimeStampTzType.SYSTEM_DEFAULT, year, month, day, hour, minute, second, microSecond);
+        super(TimeStampTzType.forTypeFromMicroSeconds(microSecond),
+                year, month, day, hour, minute, second, microSecond);
     }
 
     public TimestampTzLiteral(TimeStampTzType dateType,

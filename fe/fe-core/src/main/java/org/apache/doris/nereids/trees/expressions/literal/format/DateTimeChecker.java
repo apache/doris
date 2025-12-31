@@ -98,6 +98,67 @@ public class DateTimeChecker extends FormatChecker {
         return INSTANCE.check(stringInspect).matched && stringInspect.eos();
     }
 
+    /** check weather a datetime has timezone part */
+    public static boolean hasTimeZone(String str) {
+        str = str.trim();
+
+        if (!isValidDateTime(str)) {
+            return false;
+        }
+
+        if (str.endsWith("Z")) {
+            return true;
+        }
+
+        // Find the separator between date and time parts (' ' or 'T')
+        int timeSeparatorIndex = -1;
+        for (int i = 0; i < str.length(); i++) {
+            if (str.charAt(i) == ' ' || str.charAt(i) == 'T') {
+                timeSeparatorIndex = i;
+                break;
+            }
+        }
+
+        // no time part found
+        if (timeSeparatorIndex == -1) {
+            return false;
+        }
+
+        // Find the end of time part (after seconds or nanoseconds)
+        int timeEndIndex = timeSeparatorIndex + 1;
+        // Skip time part
+        while (timeEndIndex < str.length() && (Character.isDigit(str.charAt(timeEndIndex))
+                || str.charAt(timeEndIndex) == ':'|| str.charAt(timeEndIndex) == '.'
+                || str.charAt(timeEndIndex) == ' ')) {
+            timeEndIndex++;
+        }
+
+        // Check if there's any content after the time part
+        if (timeEndIndex >= str.length()) {
+            return false;
+        }
+
+        // Check for offset timezone like +08:00 or -05:00
+        for (int i = timeEndIndex; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if (c == '+' || c == '-') {
+                if (i + 1 < str.length() && Character.isDigit(str.charAt(i + 1))) {
+                    return true;
+                }
+            }
+        }
+
+        // Check for named timezone like Europe/London, America/New_York, UTC, GMT
+        for (int i = timeEndIndex; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if (Character.isLetter(c) || c == '/' || c == '_') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     @Override
     protected boolean doCheck(StringInspect stringInspect) {
         return checker.check(stringInspect).matched;
