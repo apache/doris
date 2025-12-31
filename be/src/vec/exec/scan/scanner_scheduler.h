@@ -156,7 +156,7 @@ public:
 #ifndef BE_TEST
         stop();
 #endif
-        LOG(INFO) << "Scanner sche " << _sched_name << " shutdown";
+        LOG(INFO) << "Scanner sched " << _sched_name << " shutdown";
     }
 
     void stop() override {

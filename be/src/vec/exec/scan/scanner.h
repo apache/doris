@@ -149,6 +149,12 @@ public:
 
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
+    void update_sched_lock_timer(int64_t delta_ns) { _scanner_sched_lock_timer += delta_ns; }
+    void update_submit_count() { ++_scanner_submit_count; }
+
+    int64_t get_scanner_sched_lock_timer() const { return _scanner_sched_lock_timer; }
+    int64_t get_scanner_submit_count() const { return _scanner_submit_count; }
+
     void update_scan_cpu_timer();
 
     // Some counters need to be updated realtime, for example, workload group policy need
@@ -262,6 +268,9 @@ protected:
     int64_t _projection_timer = 0;
 
     bool _should_stop = false;
+
+    int64_t _scanner_sched_lock_timer = 0;
+    int64_t _scanner_submit_count = 0;
 };
 
 using ScannerSPtr = std::shared_ptr<Scanner>;
