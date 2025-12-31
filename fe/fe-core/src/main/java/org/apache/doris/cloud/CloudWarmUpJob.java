@@ -489,7 +489,7 @@ public class CloudWarmUpJob implements Writable {
         } finally {
             if (Config.isCloudMode()) {
                 LOG.debug("remove context from job");
-                ConnectContext.remove();
+                ConnectContext.get().cleanup();
             }
         }
     }

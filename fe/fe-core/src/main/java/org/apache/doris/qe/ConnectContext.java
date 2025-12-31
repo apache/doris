@@ -327,6 +327,9 @@ public class ConnectContext {
         return MoreFieldsThread.getConnectContext();
     }
 
+    // This method is used to remove ConnectContext from current thread, but do not clean up resource used.
+    // if you finish the whole job, should call cleanup method directly. Call this remove method
+    // only in the tmp state during job.
     public static void remove() {
         MoreFieldsThread.removeConnectContext();
     }

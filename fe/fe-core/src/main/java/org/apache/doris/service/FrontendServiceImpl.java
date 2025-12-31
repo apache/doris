@@ -1121,7 +1121,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             context.getState().setOk();
         }
-        ConnectContext.remove();
+        context.cleanup();
         clearCallback.run();
         return result;
     }
@@ -3255,7 +3255,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()) + ", command: " + restoreCommand);
         } finally {
-            ConnectContext.remove();
+            ConnectContext.get().cleanup();
         }
 
         return result;
@@ -4447,7 +4447,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
             return result;
         } finally {
-            ConnectContext.remove();
+            ctx.cleanup();
         }
     }
 

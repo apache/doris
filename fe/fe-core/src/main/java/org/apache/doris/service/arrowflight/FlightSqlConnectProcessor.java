@@ -201,6 +201,6 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
         returnResultFromRemoteExecutor.clear();
         executor.finalizeQuery();
         ctx.clear();
-        ConnectContext.remove();
+        ctx.cleanup();
     }
 }

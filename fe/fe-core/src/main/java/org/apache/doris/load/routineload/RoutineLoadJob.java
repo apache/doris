@@ -1066,7 +1066,7 @@ public abstract class RoutineLoadJob
             return planParams;
         } finally {
             if (needCleanCtx) {
-                ConnectContext.remove();
+                ConnectContext.get().cleanup();
             }
             table.readUnlock();
         }

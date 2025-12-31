@@ -266,7 +266,7 @@ public class CacheHotspotManagerUtils {
 
         @Override
         public void close() {
-            ConnectContext.remove();
+            connectContext.cleanup();
             if (previousContext != null) {
                 previousContext.setThreadLocalInfo();
             }
