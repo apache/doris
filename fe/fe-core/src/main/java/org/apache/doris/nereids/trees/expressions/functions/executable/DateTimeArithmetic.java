@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import java.time.LocalDateTime;
@@ -345,5 +346,41 @@ public class DateTimeArithmetic {
     public static Expression time(DateTimeV2Literal date) {
         return new TimeV2Literal((int) date.getHour(), (int) date.getMinute(), (int) date.getSecond(),
                 (int) date.getMicroSecond(), (int) date.getScale(), false);
+    }
+
+    /**
+     * datetime arithmetic function add_time.
+     */
+    @ExecFunction(name = "add_time")
+    public static Expression addTime(DateTimeV2Literal date, TimeV2Literal time) {
+        return date.plusMicroSeconds((long) time.getValue());
+    }
+
+    @ExecFunction(name = "add_time")
+    public static Expression addTime(TimeV2Literal t1, TimeV2Literal t2) {
+        return t1.plusMicroSeconds((long) t2.getValue());
+    }
+
+    @ExecFunction(name = "add_time")
+    public static Expression addTime(TimestampTzLiteral date, TimeV2Literal time) {
+        return date.plusMicroSeconds((long) time.getValue());
+    }
+
+    /**
+     * datetime arithmetic function sub_time.
+     */
+    @ExecFunction(name = "sub_time")
+    public static Expression subTime(DateTimeV2Literal date, TimeV2Literal time) {
+        return date.plusMicroSeconds(-(long) time.getValue());
+    }
+
+    @ExecFunction(name = "sub_time")
+    public static Expression subTime(TimeV2Literal t1, TimeV2Literal t2) {
+        return t1.plusMicroSeconds(-(long) t2.getValue());
+    }
+
+    @ExecFunction(name = "sub_time")
+    public static Expression subTime(TimestampTzLiteral date, TimeV2Literal time) {
+        return date.plusMicroSeconds(-(long) time.getValue());
     }
 }

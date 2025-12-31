@@ -121,8 +121,10 @@ using FunctionDatetimeSubYears =
 
 using FunctionAddTimeDatetime = FunctionNeedsToHandleNull<AddTimeDatetimeImpl, TYPE_DATETIMEV2>;
 using FunctionAddTimeTime = FunctionNeedsToHandleNull<AddTimeTimeImpl, TYPE_TIMEV2>;
+using FunctionAddTimeTimestampTz = FunctionNeedsToHandleNull<AddTimeTimestamptzImpl, TYPE_TIMESTAMPTZ>;
 using FunctionSubTimeDatetime = FunctionNeedsToHandleNull<SubTimeDatetimeImpl, TYPE_DATETIMEV2>;
 using FunctionSubTimeTime = FunctionNeedsToHandleNull<SubTimeTimeImpl, TYPE_TIMEV2>;
+using FunctionSubTimeTimestampTz = FunctionNeedsToHandleNull<SubTimeTimestamptzImpl, TYPE_TIMESTAMPTZ>;
 
 #define FUNCTION_TIME_DIFF(NAME, IMPL, TYPE) using NAME##_##TYPE = FunctionTimeDiff<IMPL<TYPE>>;
 
@@ -221,8 +223,10 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
 
     factory.register_function<FunctionAddTimeDatetime>();
     factory.register_function<FunctionAddTimeTime>();
+    factory.register_function<FunctionAddTimeTimestampTz>();
     factory.register_function<FunctionSubTimeDatetime>();
     factory.register_function<FunctionSubTimeTime>();
+    factory.register_function<FunctionSubTimeTimestampTz>();
 
 #define REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE) factory.register_function<NAME##_##TYPE>();
 

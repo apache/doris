@@ -1869,7 +1869,9 @@ public:
 
 using AddTimeDatetimeImpl = AddTimeImplBase<TYPE_DATETIMEV2, false>;
 using AddTimeTimeImpl = AddTimeImplBase<TYPE_TIMEV2, false>;
+using AddTimeTimestamptzImpl = AddTimeImplBase<TYPE_TIMESTAMPTZ, false>;
 using SubTimeDatetimeImpl = AddTimeImplBase<TYPE_DATETIMEV2, true>;
 using SubTimeTimeImpl = AddTimeImplBase<TYPE_TIMEV2, true>;
+using SubTimeTimestamptzImpl = AddTimeImplBase<TYPE_TIMESTAMPTZ, true>;
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized
