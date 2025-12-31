@@ -144,27 +144,28 @@ public class FuncDeps {
      * <p>
      * Example:
      * Given:
-     * - Initial slots: {{A, B, C}, {D, E}, {F, G}}
-     * - Required outputs: {A, D, F}
-     * - Valid functional dependencies: {A} -> {B}, {D, E} -> {G}, {F} -> {G}
+     * - Initial slots: {{A}, {B}, {C}, {D}, {E}}
+     * - Required outputs: {}
+     * - validItems: {A} -> {B}, {B} -> {C}, {C} -> {D}, {D} -> {A}, {A} -> {E}
      *
      * Process:
-     * 1. Start with minSlotSet = {{A, B, C}, {D, E}, {F, G}}
+     * 1. Start with minSlotSet = {{A}, {B}, {C}, {D}, {E}}
      * 2. For {A} -> {B}:
      *    - Both {A} and {B} are in minSlotSet, so mark {B} for elimination
-     * 3. For {D, E} -> {G}:
-     *    - Both {D, E} and {G} are in minSlotSet, so mark {G} for elimination
-     * 4. For {F} -> {G}:
-     *    - Both {F} and {G} are in minSlotSet, but {G} is already marked for elimination
-     * 5. Remove eliminated slots: {B} and {G}
+     * 3. For {B} -> {C}:
+     *    - Both {B} and {C} are in minSlotSet, so mark {C} for elimination
+     * 4. For {C} -> {D}:
+     *    - Both {C} and {D} are in minSlotSet, so mark {D} for elimination
+     * 4. For {D} -> {E}:
+     *    - Both {D} and {E} are in minSlotSet, so mark {E} for elimination
      *
-     * Result: {{A, C}, {D, E}, {F}}
+     * Result: {{A}}
      * </p>
      *
      * @param slots the initial set of slot sets to be reduced
      * @param requireOutputs the set of slots that must be preserved in the output
      * @return the minimal set of slot sets after applying all possible reductions
-    */
+     */
     public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots, Set<Slot> requireOutputs) {
         Set<Set<Slot>> minSlotSet = Sets.newHashSet(slots);
         Set<Set<Slot>> eliminatedSlots = new HashSet<>();

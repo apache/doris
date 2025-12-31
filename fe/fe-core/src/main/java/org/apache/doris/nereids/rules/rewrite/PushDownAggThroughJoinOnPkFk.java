@@ -47,7 +47,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Push down agg through join with foreign key:
@@ -136,14 +135,27 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         // group by primary_table_pk, primary_table_other
         // -> group by primary_table_pk
         Set<Set<Slot>> groupBySlots = new HashSet<>();
+        Set<Slot> validSlots = new HashSet<>();
         for (Expression expression : agg.getGroupByExpressions()) {
             groupBySlots.add(expression.getInputSlots());
+            validSlots.addAll(expression.getInputSlots());
         }
         DataTrait dataTrait = child.getLogicalProperties().getTrait();
-        FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(Sets.union(foreign.getOutputSet(), primary.getOutputSet()));
+        FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(validSlots);
         Set<Slot> foreignOutput = Sets.intersection(agg.getOutputSet(), foreign.getOutputSet());
         Set<Set<Slot>> minGroupBySlots = funcDeps.eliminateDeps(groupBySlots, foreignOutput);
-        List<Slot> minGroupBySlotList = minGroupBySlots.stream().flatMap(Set::stream).collect(Collectors.toList());
+        Set<Expression> removeExpression = new HashSet<>();
+        for (Set<Slot> slots : groupBySlots) {
+            if (!minGroupBySlots.contains(slots) && !foreignOutput.containsAll(slots)) {
+                removeExpression.add(slots.iterator().next());
+            }
+        }
+        List<Expression> minGroupBySlotList = new ArrayList<>();
+        for (Expression expression : agg.getGroupByExpressions()) {
+            if (!removeExpression.contains(expression)) {
+                minGroupBySlotList.add(expression);
+            }
+        }
 
         // Secondly, put bijective slot into map: {primary_table_pk : foreign_table_fk}
         // Bijective slots are mutually interchangeable within GROUP BY keys.
@@ -151,8 +163,9 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         Set<Slot> primaryOutputSet = primary.getOutputSet();
         Set<Slot> primarySlots = Sets.intersection(aggInputs, primaryOutputSet);
         HashMap<Slot, Slot> primaryToForeignDeps = new HashMap<>();
+        FuncDeps funcDepsForJoin = dataTrait.getAllValidFuncDeps(Sets.union(primaryOutputSet, foreign.getOutputSet()));
         for (Slot slot : primarySlots) {
-            Set<Set<Slot>> replacedSlotSets = funcDeps.findBijectionSlots(ImmutableSet.of(slot));
+            Set<Set<Slot>> replacedSlotSets = funcDepsForJoin.findBijectionSlots(ImmutableSet.of(slot));
             for (Set<Slot> replacedSlots : replacedSlotSets) {
                 if (primaryOutputSet.stream().noneMatch(replacedSlots::contains)
                         && replacedSlots.size() == 1) {
@@ -166,7 +179,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         Set<Expression> newGroupBySlots = constructNewGroupBy(minGroupBySlotList, primaryOutputSet,
                 primaryToForeignDeps);
         List<NamedExpression> newOutput = constructNewOutput(
-                agg, primaryOutputSet, primaryToForeignDeps, funcDeps, primary);
+                agg, primaryOutputSet, primaryToForeignDeps, funcDepsForJoin, primary);
         if (newGroupBySlots == null || newOutput == null) {
             return null;
         }
@@ -213,9 +226,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
                     && expression.child(0).child(0) instanceof Slot) {
                 // count(slot) can be rewritten by circle deps
                 Slot slot = (Slot) expression.child(0).child(0);
-                if (primaryToForeignDeps.containsKey(slot)
-                        && funcDeps.isCircleDeps(
-                                ImmutableSet.of(slot), ImmutableSet.of(primaryToForeignDeps.get(slot)))) {
+                if (primaryToForeignDeps.containsKey(slot)) {
                     expression = (NamedExpression) expression.rewriteUp(e ->
                             e instanceof Slot
                                     ? primaryToForeignDeps.getOrDefault((Slot) e, (Slot) e)
