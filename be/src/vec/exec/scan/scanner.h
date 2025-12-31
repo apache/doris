@@ -103,13 +103,14 @@ protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
 
-    void _merge_padding_block() {
+    Status _merge_padding_block() {
         if (_padding_block.empty()) {
             _padding_block.swap(_origin_block);
+        } else if (_origin_block.rows()) {
+            RETURN_IF_ERROR(
+                    MutableBlock::build_mutable_block(&_padding_block).merge(_origin_block));
         }
-        if (_origin_block.rows()) {
-            (void)MutableBlock::build_mutable_block(&_padding_block).merge(_origin_block);
-        }
+        return Status::OK();
     }
 
     // Update the counters before closing this scanner
