@@ -358,18 +358,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         }
     }
 
-    private PhysicalOlapScan findBucketShuffleCandidate(Plan plan) {
-        if (plan instanceof PhysicalOlapScan) {
-            return (PhysicalOlapScan) plan;
-        } else if (plan instanceof GroupPlan) {
-            return findDownGradeBucketShuffleCandidate((GroupPlan) plan);
-        } else if (plan.arity() > 0) {
-            return findBucketShuffleCandidate(plan.child(0));
-        } else {
-            return null;
-        }
-    }
-
     private boolean couldNotRightBucketShuffleJoin(JoinType joinType, DistributionSpecHash leftHashSpec,
             DistributionSpecHash rightHashSpec) {
         boolean isJoinTypeInScope = (joinType == JoinType.RIGHT_ANTI_JOIN
