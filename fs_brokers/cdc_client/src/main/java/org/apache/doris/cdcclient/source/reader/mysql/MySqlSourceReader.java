@@ -826,7 +826,7 @@ public class MySqlSourceReader implements SourceReader {
                         splitState.asSnapshotSplitState().setHighWatermark(watermark);
                     }
                 } else if (RecordUtils.isHeartbeatEvent(element)) {
-                    LOG.info("Receive heartbeat event: {}", element);
+                    LOG.debug("Receive heartbeat event: {}", element);
                     if (splitState.isBinlogSplitState()) {
                         BinlogOffset position = RecordUtils.getBinlogPosition(element);
                         splitState.asBinlogSplitState().setStartingOffset(position);
@@ -839,7 +839,7 @@ public class MySqlSourceReader implements SourceReader {
                     nextRecord = element;
                     return true;
                 } else {
-                    LOG.info("Ignore event: {}", element);
+                    LOG.debug("Ignore event: {}", element);
                 }
             }
             return false;

@@ -142,7 +142,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                     return;
                 }
             } catch (JsonProcessingException e) {
-                log.error("Failed to parse write records response: {}", response, e);
+                log.warn("Failed to parse write records response: {}", response);
                 throw new JobException("Failed to parse write records response: " + response);
             }
             throw new JobException("Failed to send write records request , error message: " + response);

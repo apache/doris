@@ -214,7 +214,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 }
                 endBinlogOffset = responseObj.getData();
             } catch (JsonProcessingException e) {
-                log.warn("Failed to parse end offset response: {}", response, e);
+                log.warn("Failed to parse end offset response: {}", response);
                 throw new JobException(response);
             }
         } catch (ExecutionException | InterruptedException ex) {
@@ -286,7 +286,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 );
                 return responseObj.getData() > 0;
             } catch (JsonProcessingException e) {
-                log.warn("Failed to parse compare offset response: {}", response, e);
+                log.warn("Failed to parse compare offset response: {}", response);
                 throw new JobException("Failed to parse compare offset response: " + response);
             }
         } catch (ExecutionException | InterruptedException ex) {
@@ -473,7 +473,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 List<SnapshotSplit> splits = responseObj.getData();
                 return splits;
             } catch (JsonProcessingException e) {
-                log.warn("Failed to parse split response: {}", response, e);
+                log.warn("Failed to parse split response: {}", response);
                 throw new JobException("Failed to parse split response: " + response);
             }
         } catch (ExecutionException | InterruptedException ex) {
