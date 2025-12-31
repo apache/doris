@@ -188,6 +188,7 @@ private:
     // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 
+    RuntimeProfile::Counter* _statistics_collect_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
