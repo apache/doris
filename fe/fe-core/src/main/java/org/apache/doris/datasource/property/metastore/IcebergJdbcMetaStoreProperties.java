@@ -159,7 +159,8 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
         for (StorageProperties storageProperties : storagePropertiesList) {
             if (storageProperties instanceof AbstractS3CompatibleProperties) {
                 toS3FileIOProperties((AbstractS3CompatibleProperties) storageProperties, fileIOProperties);
-            } else if (storageProperties.getHadoopStorageConfig() != null) {
+            }
+            if (storageProperties.getHadoopStorageConfig() != null) {
                 conf.addResource(storageProperties.getHadoopStorageConfig());
             }
         }
@@ -167,9 +168,6 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
 
     private static void toS3FileIOProperties(AbstractS3CompatibleProperties s3Properties,
             Map<String, String> options) {
-        // Set S3FileIO as the FileIO implementation for S3-compatible storage
-        options.put(CatalogProperties.FILE_IO_IMPL, "org.apache.iceberg.aws.s3.S3FileIO");
-
         if (StringUtils.isNotBlank(s3Properties.getEndpoint())) {
             options.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
         }
