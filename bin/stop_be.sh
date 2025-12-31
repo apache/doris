@@ -73,12 +73,24 @@ if [[ -f "${pidfile}" ]]; then
         exit 1
     fi
 
+    count=0
+    timeout=240
     # kill PID process and check it
     if kill "-${signum}" "${pid}" >/dev/null 2>&1; then
         while true; do
             if kill -0 "${pid}" >/dev/null 2>&1; then
                 echo "Waiting for be process with PID ${pid} to terminate"
                 sleep 2
+		if [[ ${count} -ge ${timeout} ]]; then
+                    gdb --version
+		    echo "超时！打印 PID ${pid} 堆栈后退出"
+                    # gdb 打印所有线程栈（直接输出到控制台）
+                    gdb -q -batch -ex "thread apply all bt" -p "${pid}" 2>/dev/null
+                    echo "完成打印堆栈"
+		    sleep 10
+		    exit 1
+            	fi
+		count=$((count + 2))
             else
                 echo "stop ${pidcomm} and remove PID file"
                 if [[ -f "${pidfile}" ]]; then rm "${pidfile}"; fi
