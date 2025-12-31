@@ -1,182 +1,169 @@
 -- Create partition tables with different partition column types
-USE regression_hudi;
+use regression_hudi;
 
--- Drop existing tables if they exist
+DROP TABLE IF EXISTS one_partition_tb;
+CREATE TABLE one_partition_tb (
+    id INT,
+    name string
+)
+USING HUDI
+PARTITIONED BY (part1 INT);
+INSERT INTO one_partition_tb PARTITION (part1=2024) VALUES (1, 'Alice');
+INSERT INTO one_partition_tb PARTITION (part1=2024) VALUES (2, 'Bob');
+INSERT INTO one_partition_tb PARTITION (part1=2024) VALUES (3, 'Charlie');
+INSERT INTO one_partition_tb PARTITION (part1=2025) VALUES (4, 'David');
+INSERT INTO one_partition_tb PARTITION (part1=2025) VALUES (5, 'Eva');
+
+DROP TABLE IF EXISTS two_partition_tb;
+CREATE TABLE two_partition_tb (
+    id INT,
+    name string
+)
+USING HUDI
+PARTITIONED BY (part1 STRING, part2 int);
+INSERT INTO two_partition_tb PARTITION (part1='US', part2=1) VALUES (1, 'Alice');
+INSERT INTO two_partition_tb PARTITION (part1='US', part2=1) VALUES (2, 'Bob');
+INSERT INTO two_partition_tb PARTITION (part1='US', part2=1) VALUES (3, 'Charlie');
+INSERT INTO two_partition_tb PARTITION (part1='US', part2=2) VALUES (4, 'David');
+INSERT INTO two_partition_tb PARTITION (part1='US', part2=2) VALUES (5, 'Eva');
+INSERT INTO two_partition_tb PARTITION (part1='EU', part2=1) VALUES (6, 'Frank');
+INSERT INTO two_partition_tb PARTITION (part1='EU', part2=1) VALUES (7, 'Grace');
+INSERT INTO two_partition_tb PARTITION (part1='EU', part2=2) VALUES (8, 'Hannah');
+INSERT INTO two_partition_tb PARTITION (part1='EU', part2=2) VALUES (9, 'Ivy');
+INSERT INTO two_partition_tb PARTITION (part1='EU', part2=2) VALUES (10, 'Jack');
+
+DROP TABLE IF EXISTS three_partition_tb;
+CREATE TABLE three_partition_tb (
+    id INT,
+    name string
+)
+USING HUDI
+PARTITIONED BY (part1 STRING, part2 INT, part3 STRING);
+INSERT INTO three_partition_tb PARTITION (part1='US', part2=2024, part3='Q1') VALUES (1, 'Alice');
+INSERT INTO three_partition_tb PARTITION (part1='US', part2=2024, part3='Q1') VALUES (2, 'Bob');
+INSERT INTO three_partition_tb PARTITION (part1='US', part2=2024, part3='Q1') VALUES (3, 'Charlie');
+INSERT INTO three_partition_tb PARTITION (part1='US', part2=2024, part3='Q2') VALUES (4, 'David');
+INSERT INTO three_partition_tb PARTITION (part1='US', part2=2024, part3='Q2') VALUES (5, 'Eva');
+INSERT INTO three_partition_tb PARTITION (part1='US', part2=2025, part3='Q1') VALUES (6, 'Frank');
+INSERT INTO three_partition_tb PARTITION (part1='US', part2=2025, part3='Q2') VALUES (7, 'Grace');
+INSERT INTO three_partition_tb PARTITION (part1='EU', part2=2024, part3='Q1') VALUES (8, 'Hannah');
+INSERT INTO three_partition_tb PARTITION (part1='EU', part2=2024, part3='Q1') VALUES (9, 'Ivy');
+INSERT INTO three_partition_tb PARTITION (part1='EU', part2=2025, part3='Q2') VALUES (10, 'Jack');
+INSERT INTO three_partition_tb PARTITION (part1='EU', part2=2025, part3='Q2') VALUES (11, 'Leo');
+INSERT INTO three_partition_tb PARTITION (part1='EU', part2=2025, part3='Q3') VALUES (12, 'Mia');
+INSERT INTO three_partition_tb PARTITION (part1='AS', part2=2025, part3='Q1') VALUES (13, 'Nina');
+INSERT INTO three_partition_tb PARTITION (part1='AS', part2=2025, part3='Q2') VALUES (14, 'Oscar');
+INSERT INTO three_partition_tb PARTITION (part1='AS', part2=2025, part3='Q3') VALUES (15, 'Paul');
+
+-- partition pruning with different data types
+-- boolean
 DROP TABLE IF EXISTS boolean_partition_tb;
+CREATE TABLE boolean_partition_tb (
+    id INT,
+    name STRING
+)
+USING HUDI
+PARTITIONED BY (part1 BOOLEAN);
+
+INSERT INTO boolean_partition_tb PARTITION (part1=true) VALUES (1, 'Alice');
+INSERT INTO boolean_partition_tb PARTITION (part1=true) VALUES (2, 'Bob');
+INSERT INTO boolean_partition_tb PARTITION (part1=false) VALUES (3, 'Charlie');
+INSERT INTO boolean_partition_tb PARTITION (part1=false) VALUES (4, 'David');
+
+-- tinyint
 DROP TABLE IF EXISTS tinyint_partition_tb;
+CREATE TABLE tinyint_partition_tb (
+    id INT,
+    name STRING
+)
+USING HUDI
+PARTITIONED BY (part1 TINYINT);
+
+INSERT INTO tinyint_partition_tb PARTITION (part1=1) VALUES (1, 'Alice');
+INSERT INTO tinyint_partition_tb PARTITION (part1=1) VALUES (2, 'Bob');
+INSERT INTO tinyint_partition_tb PARTITION (part1=2) VALUES (3, 'Charlie');
+INSERT INTO tinyint_partition_tb PARTITION (part1=2) VALUES (4, 'David');
+
+-- smallint
 DROP TABLE IF EXISTS smallint_partition_tb;
+CREATE TABLE smallint_partition_tb (
+    id INT,
+    name STRING
+)
+USING HUDI
+PARTITIONED BY (part1 SMALLINT);
+
+INSERT INTO smallint_partition_tb PARTITION (part1=10) VALUES (1, 'Alice');
+INSERT INTO smallint_partition_tb PARTITION (part1=10) VALUES (2, 'Bob');
+INSERT INTO smallint_partition_tb PARTITION (part1=20) VALUES (3, 'Charlie');
+INSERT INTO smallint_partition_tb PARTITION (part1=20) VALUES (4, 'David');
+
+-- int
 DROP TABLE IF EXISTS int_partition_tb;
+CREATE TABLE int_partition_tb (
+    id INT,
+    name STRING
+)
+USING HUDI
+PARTITIONED BY (part1 INT);
+
+INSERT INTO int_partition_tb PARTITION (part1=100) VALUES (1, 'Alice');
+INSERT INTO int_partition_tb PARTITION (part1=100) VALUES (2, 'Bob');
+INSERT INTO int_partition_tb PARTITION (part1=200) VALUES (3, 'Charlie');
+INSERT INTO int_partition_tb PARTITION (part1=200) VALUES (4, 'David');
+
+-- bigint
 DROP TABLE IF EXISTS bigint_partition_tb;
+CREATE TABLE bigint_partition_tb (
+    id INT,
+    name STRING
+)
+USING HUDI
+PARTITIONED BY (part1 BIGINT);
+
+INSERT INTO bigint_partition_tb PARTITION (part1=1234567890) VALUES (1, 'Alice');
+INSERT INTO bigint_partition_tb PARTITION (part1=1234567890) VALUES (2, 'Bob');
+INSERT INTO bigint_partition_tb PARTITION (part1=9876543210) VALUES (3, 'Charlie');
+INSERT INTO bigint_partition_tb PARTITION (part1=9876543210) VALUES (4, 'David');
+
+-- string
 DROP TABLE IF EXISTS string_partition_tb;
+CREATE TABLE string_partition_tb (
+    id INT,
+    name STRING
+)
+USING HUDI
+PARTITIONED BY (part1 STRING);
+
+INSERT INTO string_partition_tb PARTITION (part1='RegionA') VALUES (1, 'Alice');
+INSERT INTO string_partition_tb PARTITION (part1='RegionA') VALUES (2, 'Bob');
+INSERT INTO string_partition_tb PARTITION (part1='RegionB') VALUES (3, 'Charlie');
+INSERT INTO string_partition_tb PARTITION (part1='RegionB') VALUES (4, 'David');
+
+-- date
 DROP TABLE IF EXISTS date_partition_tb;
+CREATE TABLE date_partition_tb (
+    id INT,
+    name STRING
+)
+USING HUDI
+PARTITIONED BY (part1 DATE);
+
+INSERT INTO date_partition_tb PARTITION (part1=DATE '2023-12-01') VALUES (1, 'Alice');
+INSERT INTO date_partition_tb PARTITION (part1=DATE '2023-12-01') VALUES (2, 'Bob');
+INSERT INTO date_partition_tb PARTITION (part1=DATE '2024-01-01') VALUES (3, 'Charlie');
+INSERT INTO date_partition_tb PARTITION (part1=DATE '2024-01-01') VALUES (4, 'David');
+
+-- timestamp
 DROP TABLE IF EXISTS timestamp_partition_tb;
-
-CREATE TABLE IF NOT EXISTS boolean_partition_tb (
-  id BIGINT,
-  name STRING,
-  part1 BOOLEAN
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'id',
-  hoodie.metadata.enable = 'false',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms'
+CREATE TABLE timestamp_partition_tb (
+    id INT,
+    name STRING
 )
-PARTITIONED BY (part1)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/boolean_partition_tb';
+USING HUDI
+PARTITIONED BY (part1 TIMESTAMP);
 
-CREATE TABLE IF NOT EXISTS tinyint_partition_tb (
-  id BIGINT,
-  name STRING,
-  part1 TINYINT
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'id',
-  hoodie.metadata.enable = 'false',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms'
-)
-PARTITIONED BY (part1)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/tinyint_partition_tb';
-
-CREATE TABLE IF NOT EXISTS smallint_partition_tb (
-  id BIGINT,
-  name STRING,
-  part1 SMALLINT
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'id',
-  hoodie.metadata.enable = 'false',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms'
-)
-PARTITIONED BY (part1)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/smallint_partition_tb';
-
-CREATE TABLE IF NOT EXISTS int_partition_tb (
-  id BIGINT,
-  name STRING,
-  part1 INT
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'id',
-  hoodie.metadata.enable = 'false',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms'
-)
-PARTITIONED BY (part1)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/int_partition_tb';
-
-CREATE TABLE IF NOT EXISTS bigint_partition_tb (
-  id BIGINT,
-  name STRING,
-  part1 BIGINT
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'id',
-  hoodie.metadata.enable = 'false',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms'
-)
-PARTITIONED BY (part1)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/bigint_partition_tb';
-
-CREATE TABLE IF NOT EXISTS string_partition_tb (
-  id BIGINT,
-  name STRING,
-  part1 STRING
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'id',
-  hoodie.metadata.enable = 'false',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms'
-)
-PARTITIONED BY (part1)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/string_partition_tb';
-
-CREATE TABLE IF NOT EXISTS date_partition_tb (
-  id BIGINT,
-  name STRING,
-  part1 DATE
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'id',
-  hoodie.metadata.enable = 'false',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms'
-)
-PARTITIONED BY (part1)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/date_partition_tb';
-
-CREATE TABLE IF NOT EXISTS timestamp_partition_tb (
-  id BIGINT,
-  name STRING,
-  part1 TIMESTAMP
-) USING hudi
-TBLPROPERTIES (
-  type = 'cow',
-  primaryKey = 'id',
-  hoodie.metadata.enable = 'false',
-  hoodie.datasource.hive_sync.enable = 'true',
-  hoodie.datasource.hive_sync.metastore.uris = '${HIVE_METASTORE_URIS}',
-  hoodie.datasource.hive_sync.mode = 'hms'
-)
-PARTITIONED BY (part1)
-LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/timestamp_partition_tb';
-
--- Insert data
-INSERT INTO boolean_partition_tb VALUES
-  (1, 'name1', true),
-  (2, 'name2', true),
-  (3, 'name3', false);
-
-INSERT INTO tinyint_partition_tb VALUES
-  (1, 'name1', 1),
-  (2, 'name2', 1),
-  (3, 'name3', 2);
-
-INSERT INTO smallint_partition_tb VALUES
-  (1, 'name1', 10),
-  (2, 'name2', 10),
-  (3, 'name3', 20);
-
-INSERT INTO int_partition_tb VALUES
-  (1, 'name1', 100),
-  (2, 'name2', 100),
-  (3, 'name3', 200);
-
-INSERT INTO bigint_partition_tb VALUES
-  (1, 'name1', 1234567890),
-  (2, 'name2', 1234567890),
-  (3, 'name3', 9876543210);
-
-INSERT INTO string_partition_tb VALUES
-  (1, 'name1', 'RegionA'),
-  (2, 'name2', 'RegionA'),
-  (3, 'name3', 'RegionB');
-
-INSERT INTO date_partition_tb VALUES
-  (1, 'name1', DATE '2023-12-01'),
-  (2, 'name2', DATE '2023-12-01'),
-  (3, 'name3', DATE '2023-12-02');
-
-INSERT INTO timestamp_partition_tb VALUES
-  (1, 'name1', TIMESTAMP '2023-12-01 08:00:00'),
-  (2, 'name2', TIMESTAMP '2023-12-01 08:00:00'),
-  (3, 'name3', TIMESTAMP '2023-12-01 09:00:00');
-
+INSERT INTO timestamp_partition_tb PARTITION (part1=TIMESTAMP '2023-12-01 08:00:00') VALUES (1, 'Alice');
+INSERT INTO timestamp_partition_tb PARTITION (part1=TIMESTAMP '2023-12-01 08:00:00') VALUES (2, 'Bob');
+INSERT INTO timestamp_partition_tb PARTITION (part1=TIMESTAMP '2024-01-01 10:00:00') VALUES (3, 'Charlie');
+INSERT INTO timestamp_partition_tb PARTITION (part1=TIMESTAMP '2024-01-01 10:00:00') VALUES (4, 'David');

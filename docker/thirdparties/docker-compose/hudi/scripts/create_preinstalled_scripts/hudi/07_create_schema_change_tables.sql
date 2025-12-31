@@ -1,21 +1,19 @@
 -- Create schema change test tables
 -- These tables are used to test schema evolution capabilities
--- Note: Tables are created with final schema (after evolution) to match test expectations
+-- Tables are created with initial schema, then ALTER TABLE is used to add columns
 USE regression_hudi;
 
 -- Drop existing tables if they exist
 DROP TABLE IF EXISTS hudi_sc_orc_cow;
 DROP TABLE IF EXISTS hudi_sc_parquet_cow;
 
--- Create hudi_sc_orc_cow table with final schema after evolution
--- Final schema: id, score (DOUBLE), full_name, location, age
--- This matches the expected schema after all ALTER TABLE operations
+-- Create hudi_sc_orc_cow table with initial schema (before evolution)
+-- Initial schema: id, score, full_name, location
 CREATE TABLE IF NOT EXISTS hudi_sc_orc_cow (
   id INT,
   score DOUBLE,
   full_name STRING,
-  location STRING,
-  age INT
+  location STRING
 ) USING hudi
 OPTIONS (
   type = 'cow',
@@ -30,13 +28,32 @@ OPTIONS (
 )
 LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/hudi_sc_orc_cow';
 
--- Create hudi_sc_parquet_cow table with final schema after evolution
+-- Insert initial data (without age column)
+INSERT INTO hudi_sc_orc_cow (id, score, full_name, location) VALUES
+  (1, NULL, 'Alice', NULL),
+  (2, NULL, 'Bob', NULL),
+  (3, NULL, 'Charlie', 'New York'),
+  (4, NULL, 'David', 'Los Angeles'),
+  (5, NULL, 'Eve', 'Chicago'),
+  (6, 85.5, 'Frank', 'San Francisco'),
+  (7, 90.0, 'Grace', 'Seattle'),
+  (8, 95.5, 'Heidi', 'Portland'),
+  (9, 88.0, 'Ivan', 'Denver'),
+  (10, 101.1, 'Judy', 'Austin');
+
+-- Execute schema change: Add age column
+ALTER TABLE hudi_sc_orc_cow ADD COLUMNS (age INT);
+
+-- Insert data with the new age column
+INSERT INTO hudi_sc_orc_cow (id, score, full_name, location, age) VALUES
+  (11, 222.2, 'QQ', 'cn', 24);
+
+-- Create hudi_sc_parquet_cow table with initial schema (before evolution)
 CREATE TABLE IF NOT EXISTS hudi_sc_parquet_cow (
   id INT,
   score DOUBLE,
   full_name STRING,
-  location STRING,
-  age INT
+  location STRING
 ) USING hudi
 OPTIONS (
   type = 'cow',
@@ -51,26 +68,14 @@ OPTIONS (
 )
 LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/hudi_sc_parquet_cow';
 
--- Insert data matching the expected test results
--- Data structure matches the test case expectations from p2 test comments
-INSERT INTO hudi_sc_orc_cow VALUES
-  (1, NULL, 'Alice', NULL, NULL),
-  (2, NULL, 'Bob', NULL, NULL),
-  (3, NULL, 'Charlie', 'New York', NULL),
-  (4, NULL, 'David', 'Los Angeles', NULL),
-  (5, NULL, 'Eve', 'Chicago', NULL),
-  (6, 85.5, 'Frank', 'San Francisco', NULL),
-  (7, 90.0, 'Grace', 'Seattle', NULL),
-  (8, 95.5, 'Heidi', 'Portland', NULL),
-  (9, 88.0, 'Ivan', 'Denver', NULL),
-  (10, 101.1, 'Judy', 'Austin', NULL),
-  (11, 222.2, 'QQ', 'cn', 24);
+-- Insert initial data (without age column)
+INSERT INTO hudi_sc_parquet_cow (id, score, full_name, location) VALUES
+  (1, NULL, 'Alice', NULL),
+  (2, NULL, 'Bob', NULL),
+  (3, NULL, 'Charlie', 'New York'),
+  (4, NULL, 'David', 'Los Angeles'),
+  (5, NULL, 'Eve', 'Chicago'),
+  (6, 85.5, 'Frank', 'San Francisco');
 
-INSERT INTO hudi_sc_parquet_cow VALUES
-  (1, NULL, 'Alice', NULL, NULL),
-  (2, NULL, 'Bob', NULL, NULL),
-  (3, NULL, 'Charlie', 'New York', NULL),
-  (4, NULL, 'David', 'Los Angeles', NULL),
-  (5, NULL, 'Eve', 'Chicago', NULL),
-  (6, 85.5, 'Frank', 'San Francisco', NULL);
-
+-- Execute schema change: Add age column
+ALTER TABLE hudi_sc_parquet_cow ADD COLUMNS (age INT);

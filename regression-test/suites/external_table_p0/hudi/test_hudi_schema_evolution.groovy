@@ -46,27 +46,51 @@ suite("test_hudi_schema_evolution", "p0,external,hudi,external_docker,external_d
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
     
+    // Test with JNI scanner
     sql """set force_jni_scanner = true;"""
-    qt_adding_simple_columns_table """ select * from adding_simple_columns_table order by id """
-    qt_altering_simple_columns_table """ select * from altering_simple_columns_table order by id """
-    // qt_deleting_simple_columns_table """ select * from deleting_simple_columns_table order by id """
-    // qt_renaming_simple_columns_table """ select * from renaming_simple_columns_table order by id """
-
-    qt_adding_complex_columns_table """ select * from adding_complex_columns_table order by id """
-    qt_altering_complex_columns_table """ select * from altering_complex_columns_table order by id """
-    // qt_deleting_complex_columns_table """ select * from deleting_complex_columns_table order by id """
-    // qt_renaming_complex_columns_table """ select * from renaming_complex_columns_table order by id """
     
-   sql """set force_jni_scanner = false;"""
-    qt_adding_simple_columns_table """ select * from adding_simple_columns_table order by id """
-    qt_altering_simple_columns_table """ select * from altering_simple_columns_table order by id """
-    // qt_deleting_simple_columns_table """ select * from deleting_simple_columns_table order by id """
-    // qt_renaming_simple_columns_table """ select * from renaming_simple_columns_table order by id """
-
-    qt_adding_complex_columns_table """ select * from adding_complex_columns_table order by id """
-    qt_altering_complex_columns_table """ select * from altering_complex_columns_table order by id """
-    // qt_deleting_complex_columns_table """ select * from deleting_complex_columns_table order by id """
-    // qt_renaming_complex_columns_table """ select * from renaming_complex_columns_table order by id """
+    // Test adding_simple_columns_table: schema evolution from (id, name) to (id, name, age)
+    qt_jni_adding_simple_columns_table_all """ select * from adding_simple_columns_table order by id """
+    qt_jni_adding_simple_columns_table_old_data """ select id, name, age from adding_simple_columns_table where id in ('1', '2', '3') order by id """
+    qt_jni_adding_simple_columns_table_new_data """ select id, name, age from adding_simple_columns_table where id in ('4', '5', '6') order by id """
+    
+    // Test altering_simple_columns_table: schema evolution from age INT to age DOUBLE
+    qt_jni_altering_simple_columns_table_all """ select * from altering_simple_columns_table order by id """
+    qt_jni_altering_simple_columns_table_int_age """ select id, name, age from altering_simple_columns_table where id in ('1', '2', '3') order by id """
+    qt_jni_altering_simple_columns_table_double_age """ select id, name, age from altering_simple_columns_table where id in ('4', '5', '6') order by id """
+    
+    // Test adding_complex_columns_table: schema evolution adding email field to struct
+    qt_jni_adding_complex_columns_table_all """ select * from adding_complex_columns_table order by id """
+    qt_jni_adding_complex_columns_table_old_struct """ select id, name, info from adding_complex_columns_table where id in ('1', '2', '3') order by id """
+    qt_jni_adding_complex_columns_table_new_struct """ select id, name, info from adding_complex_columns_table where id in ('4', '5', '6') order by id """
+    
+    // Test altering_complex_columns_table: schema evolution changing age from INT to DOUBLE in struct
+    qt_jni_altering_complex_columns_table_all """ select * from altering_complex_columns_table order by id """
+    qt_jni_altering_complex_columns_table_int_age """ select id, name, info from altering_complex_columns_table where id in ('1', '2', '3') order by id """
+    qt_jni_altering_complex_columns_table_double_age """ select id, name, info from altering_complex_columns_table where id in ('4', '5', '6') order by id """
+    
+    // Test with native scanner
+    sql """set force_jni_scanner = false;"""
+    
+    // Test adding_simple_columns_table: schema evolution from (id, name) to (id, name, age)
+    qt_native_adding_simple_columns_table_all """ select * from adding_simple_columns_table order by id """
+    qt_native_adding_simple_columns_table_old_data """ select id, name, age from adding_simple_columns_table where id in ('1', '2', '3') order by id """
+    qt_native_adding_simple_columns_table_new_data """ select id, name, age from adding_simple_columns_table where id in ('4', '5', '6') order by id """
+    
+    // Test altering_simple_columns_table: schema evolution from age INT to age DOUBLE
+    qt_native_altering_simple_columns_table_all """ select * from altering_simple_columns_table order by id """
+    qt_native_altering_simple_columns_table_int_age """ select id, name, age from altering_simple_columns_table where id in ('1', '2', '3') order by id """
+    qt_native_altering_simple_columns_table_double_age """ select id, name, age from altering_simple_columns_table where id in ('4', '5', '6') order by id """
+    
+    // Test adding_complex_columns_table: schema evolution adding email field to struct
+    qt_native_adding_complex_columns_table_all """ select * from adding_complex_columns_table order by id """
+    qt_native_adding_complex_columns_table_old_struct """ select id, name, info from adding_complex_columns_table where id in ('1', '2', '3') order by id """
+    qt_native_adding_complex_columns_table_new_struct """ select id, name, info from adding_complex_columns_table where id in ('4', '5', '6') order by id """
+    
+    // Test altering_complex_columns_table: schema evolution changing age from INT to DOUBLE in struct
+    qt_native_altering_complex_columns_table_all """ select * from altering_complex_columns_table order by id """
+    qt_native_altering_complex_columns_table_int_age """ select id, name, info from altering_complex_columns_table where id in ('1', '2', '3') order by id """
+    qt_native_altering_complex_columns_table_double_age """ select id, name, info from altering_complex_columns_table where id in ('4', '5', '6') order by id """
 
     sql """drop catalog if exists ${catalog_name};"""
 }

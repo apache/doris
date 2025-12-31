@@ -87,24 +87,94 @@ TBLPROPERTIES (
 )
 LOCATION 's3a://${HUDI_BUCKET}/warehouse/regression_hudi/user_activity_log_mor_non_partition';
 
--- Insert demo data into tables
-INSERT OVERWRITE TABLE user_activity_log_cow_partition VALUES
-  (1, 1710000000000, 'login', '2024-03-01'),
-  (2, 1710000001000, 'click', '2024-03-01'),
+-- Insert demo data into tables with multiple small inserts for timetravel testing
+-- Each INSERT creates a new commit, allowing us to test timetravel queries
+
+-- Insert data into user_activity_log_cow_partition (10 commits)
+INSERT INTO user_activity_log_cow_partition VALUES
+  (1, 1710000000000, 'login', '2024-03-01');
+INSERT INTO user_activity_log_cow_partition VALUES
+  (2, 1710000001000, 'click', '2024-03-01');
+INSERT INTO user_activity_log_cow_partition VALUES
   (3, 1710000002000, 'logout', '2024-03-02');
+INSERT INTO user_activity_log_cow_partition VALUES
+  (4, 1710000003000, 'view', '2024-03-01');
+INSERT INTO user_activity_log_cow_partition VALUES
+  (5, 1710000004000, 'purchase', '2024-03-02');
+INSERT INTO user_activity_log_cow_partition VALUES
+  (6, 1710000005000, 'search', '2024-03-01');
+INSERT INTO user_activity_log_cow_partition VALUES
+  (7, 1710000006000, 'add_to_cart', '2024-03-02');
+INSERT INTO user_activity_log_cow_partition VALUES
+  (8, 1710000007000, 'remove_from_cart', '2024-03-01');
+INSERT INTO user_activity_log_cow_partition VALUES
+  (9, 1710000008000, 'share', '2024-03-02');
+INSERT INTO user_activity_log_cow_partition VALUES
+  (10, 1710000009000, 'comment', '2024-03-01');
 
-INSERT OVERWRITE TABLE user_activity_log_cow_non_partition VALUES
-  (1, 1710000000000, 'login'),
-  (2, 1710000001000, 'click'),
+-- Insert data into user_activity_log_cow_non_partition (10 commits)
+INSERT INTO user_activity_log_cow_non_partition VALUES
+  (1, 1710000000000, 'login');
+INSERT INTO user_activity_log_cow_non_partition VALUES
+  (2, 1710000001000, 'click');
+INSERT INTO user_activity_log_cow_non_partition VALUES
   (3, 1710000002000, 'logout');
+INSERT INTO user_activity_log_cow_non_partition VALUES
+  (4, 1710000003000, 'view');
+INSERT INTO user_activity_log_cow_non_partition VALUES
+  (5, 1710000004000, 'purchase');
+INSERT INTO user_activity_log_cow_non_partition VALUES
+  (6, 1710000005000, 'search');
+INSERT INTO user_activity_log_cow_non_partition VALUES
+  (7, 1710000006000, 'add_to_cart');
+INSERT INTO user_activity_log_cow_non_partition VALUES
+  (8, 1710000007000, 'remove_from_cart');
+INSERT INTO user_activity_log_cow_non_partition VALUES
+  (9, 1710000008000, 'share');
+INSERT INTO user_activity_log_cow_non_partition VALUES
+  (10, 1710000009000, 'comment');
 
-INSERT OVERWRITE TABLE user_activity_log_mor_partition VALUES
-  (1, 1710000000000, 'login', '2024-03-01'),
-  (2, 1710000001000, 'click', '2024-03-01'),
+-- Insert data into user_activity_log_mor_partition (10 commits)
+INSERT INTO user_activity_log_mor_partition VALUES
+  (1, 1710000000000, 'login', '2024-03-01');
+INSERT INTO user_activity_log_mor_partition VALUES
+  (2, 1710000001000, 'click', '2024-03-01');
+INSERT INTO user_activity_log_mor_partition VALUES
   (3, 1710000002000, 'logout', '2024-03-02');
+INSERT INTO user_activity_log_mor_partition VALUES
+  (4, 1710000003000, 'view', '2024-03-01');
+INSERT INTO user_activity_log_mor_partition VALUES
+  (5, 1710000004000, 'purchase', '2024-03-02');
+INSERT INTO user_activity_log_mor_partition VALUES
+  (6, 1710000005000, 'search', '2024-03-01');
+INSERT INTO user_activity_log_mor_partition VALUES
+  (7, 1710000006000, 'add_to_cart', '2024-03-02');
+INSERT INTO user_activity_log_mor_partition VALUES
+  (8, 1710000007000, 'remove_from_cart', '2024-03-01');
+INSERT INTO user_activity_log_mor_partition VALUES
+  (9, 1710000008000, 'share', '2024-03-02');
+INSERT INTO user_activity_log_mor_partition VALUES
+  (10, 1710000009000, 'comment', '2024-03-01');
 
-INSERT OVERWRITE TABLE user_activity_log_mor_non_partition VALUES
-  (1, 1710000000000, 'login'),
-  (2, 1710000001000, 'click'),
+-- Insert data into user_activity_log_mor_non_partition (10 commits)
+INSERT INTO user_activity_log_mor_non_partition VALUES
+  (1, 1710000000000, 'login');
+INSERT INTO user_activity_log_mor_non_partition VALUES
+  (2, 1710000001000, 'click');
+INSERT INTO user_activity_log_mor_non_partition VALUES
   (3, 1710000002000, 'logout');
+INSERT INTO user_activity_log_mor_non_partition VALUES
+  (4, 1710000003000, 'view');
+INSERT INTO user_activity_log_mor_non_partition VALUES
+  (5, 1710000004000, 'purchase');
+INSERT INTO user_activity_log_mor_non_partition VALUES
+  (6, 1710000005000, 'search');
+INSERT INTO user_activity_log_mor_non_partition VALUES
+  (7, 1710000006000, 'add_to_cart');
+INSERT INTO user_activity_log_mor_non_partition VALUES
+  (8, 1710000007000, 'remove_from_cart');
+INSERT INTO user_activity_log_mor_non_partition VALUES
+  (9, 1710000008000, 'share');
+INSERT INTO user_activity_log_mor_non_partition VALUES
+  (10, 1710000009000, 'comment');
 
