@@ -18,12 +18,15 @@
 #pragma once
 
 #include <bvar/bvar.h>
+#include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/types.h>
 
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -99,6 +102,36 @@ public:
     // Get the meta store instance (only available for DISK storage type)
     CacheBlockMetaStore* get_meta_store() { return _meta_store.get(); }
 
+    struct InodeKey {
+        dev_t device;
+        ino_t inode;
+        bool operator==(const InodeKey& other) const {
+            return device == other.device && inode == other.inode;
+        }
+    };
+    struct InodeKeyHash {
+        size_t operator()(const InodeKey& key) const {
+            return std::hash<uint64_t>()((static_cast<uint64_t>(key.device) << 32) ^
+                                         static_cast<uint64_t>(key.inode));
+        }
+    };
+
+#ifdef BE_TEST
+    struct InodeEstimationTestHooks {
+        std::function<int(const std::string&, struct statvfs*)> statvfs_override;
+        std::function<int(const std::string&, struct stat*)> lstat_override;
+        std::function<size_t(const FSFileCacheStorage&)> non_cache_override;
+        std::function<size_t(const FSFileCacheStorage&)> cache_dir_override;
+        std::function<std::filesystem::path(const FSFileCacheStorage&, dev_t)>
+                find_mount_root_override;
+        std::function<size_t(const FSFileCacheStorage&, const std::filesystem::path&, dev_t,
+                             const std::filesystem::path&,
+                             std::unordered_set<InodeKey, InodeKeyHash>&)>
+                count_inodes_override;
+    };
+    static void set_inode_estimation_test_hooks(InodeEstimationTestHooks* hooks);
+#endif
+
 private:
     void remove_old_version_directories();
 
@@ -127,19 +160,6 @@ private:
 private:
     // Helper function to count files in cache directory using inode stats
     size_t estimate_file_count_from_inode() const;
-    struct InodeKey {
-        dev_t device;
-        ino_t inode;
-        bool operator==(const InodeKey& other) const {
-            return device == other.device && inode == other.inode;
-        }
-    };
-    struct InodeKeyHash {
-        size_t operator()(const InodeKey& key) const {
-            return std::hash<uint64_t>()((static_cast<uint64_t>(key.device) << 32) ^
-                                         static_cast<uint64_t>(key.inode));
-        }
-    };
     size_t estimate_non_cache_inode_usage() const;
     size_t estimate_cache_directory_inode_usage() const;
     size_t count_inodes_for_path(const std::filesystem::path& path, dev_t target_dev,

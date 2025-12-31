@@ -60,6 +60,21 @@
 
 namespace doris::io {
 
+#ifdef BE_TEST
+namespace {
+FSFileCacheStorage::InodeEstimationTestHooks* g_inode_estimation_hooks = nullptr;
+
+FSFileCacheStorage::InodeEstimationTestHooks* inode_test_hooks() {
+    return g_inode_estimation_hooks;
+}
+} // namespace
+
+void FSFileCacheStorage::set_inode_estimation_test_hooks(
+        FSFileCacheStorage::InodeEstimationTestHooks* hooks) {
+    g_inode_estimation_hooks = hooks;
+}
+#endif
+
 struct BatchLoadArgs {
     UInt128Wrapper hash;
     CacheContext ctx;
@@ -686,7 +701,9 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* mgr
         for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
             auto key_with_suffix = key_it->path().filename().native();
             auto delim_pos = key_with_suffix.find('_');
-            DCHECK(delim_pos != std::string::npos);
+            if (delim_pos == std::string::npos || delim_pos != sizeof(uint128_t) * 2) {
+                continue;
+            }
             std::string key_str = key_with_suffix.substr(0, delim_pos);
             std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
             auto hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(key_str.c_str()));
@@ -800,7 +817,9 @@ Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& info
         for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
             auto key_with_suffix = key_it->path().filename().native();
             auto delim_pos = key_with_suffix.find('_');
-            DCHECK(delim_pos != std::string::npos);
+            if (delim_pos == std::string::npos || delim_pos != sizeof(uint128_t) * 2) {
+                continue;
+            }
             std::string key_str = key_with_suffix.substr(0, delim_pos);
             std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
             long expiration_time = std::stoul(expiration_time_str);
@@ -1050,8 +1069,17 @@ size_t FSFileCacheStorage::estimate_file_count_from_inode() const {
     {
         SCOPED_RAW_TIMER(&duration_ns);
         do {
-            struct statvfs vfs;
-            if (statvfs(_cache_base_path.c_str(), &vfs) != 0) {
+            struct statvfs vfs {};
+            int statvfs_res = 0;
+#ifdef BE_TEST
+            if (auto* hooks = inode_test_hooks(); hooks && hooks->statvfs_override) {
+                statvfs_res = hooks->statvfs_override(_cache_base_path, &vfs);
+            } else
+#endif
+            {
+                statvfs_res = statvfs(_cache_base_path.c_str(), &vfs);
+            }
+            if (statvfs_res != 0) {
                 LOG(WARNING) << "Failed to get filesystem statistics for path: " << _cache_base_path
                              << ", error: " << strerror(errno);
                 break;
@@ -1064,7 +1092,16 @@ size_t FSFileCacheStorage::estimate_file_count_from_inode() const {
             }
 
             struct stat cache_stat {};
-            if (lstat(_cache_base_path.c_str(), &cache_stat) != 0) {
+            int lstat_res = 0;
+#ifdef BE_TEST
+            if (auto* hooks = inode_test_hooks(); hooks && hooks->lstat_override) {
+                lstat_res = hooks->lstat_override(_cache_base_path, &cache_stat);
+            } else
+#endif
+            {
+                lstat_res = lstat(_cache_base_path.c_str(), &cache_stat);
+            }
+            if (lstat_res != 0) {
                 LOG(WARNING) << "Failed to stat cache base path " << _cache_base_path << ": "
                              << strerror(errno);
                 break;
@@ -1097,6 +1134,11 @@ size_t FSFileCacheStorage::count_inodes_for_path(
         const std::filesystem::path& path, dev_t target_dev,
         const std::filesystem::path& excluded_root,
         std::unordered_set<InodeKey, InodeKeyHash>& visited) const {
+#ifdef BE_TEST
+    if (auto* hooks = inode_test_hooks(); hooks && hooks->count_inodes_override) {
+        return hooks->count_inodes_override(*this, path, target_dev, excluded_root, visited);
+    }
+#endif
     if (!excluded_root.empty()) {
         std::error_code eq_ec;
         bool is_excluded = std::filesystem::equivalent(path, excluded_root, eq_ec);
@@ -1151,6 +1193,11 @@ bool FSFileCacheStorage::is_cache_prefix_directory(
 }
 
 std::filesystem::path FSFileCacheStorage::find_mount_root(dev_t cache_dev) const {
+#ifdef BE_TEST
+    if (auto* hooks = inode_test_hooks(); hooks && hooks->find_mount_root_override) {
+        return hooks->find_mount_root_override(*this, cache_dev);
+    }
+#endif
     std::error_code ec;
     std::filesystem::path current = std::filesystem::absolute(_cache_base_path, ec);
     if (ec) {
@@ -1179,6 +1226,11 @@ std::filesystem::path FSFileCacheStorage::find_mount_root(dev_t cache_dev) const
 }
 
 size_t FSFileCacheStorage::estimate_non_cache_inode_usage() const {
+#ifdef BE_TEST
+    if (auto* hooks = inode_test_hooks(); hooks && hooks->non_cache_override) {
+        return hooks->non_cache_override(*this);
+    }
+#endif
     struct stat cache_stat {};
     if (lstat(_cache_base_path.c_str(), &cache_stat) != 0) {
         LOG(WARNING) << "Failed to stat cache base path " << _cache_base_path << ": "
@@ -1205,6 +1257,11 @@ size_t FSFileCacheStorage::estimate_non_cache_inode_usage() const {
 }
 
 size_t FSFileCacheStorage::estimate_cache_directory_inode_usage() const {
+#ifdef BE_TEST
+    if (auto* hooks = inode_test_hooks(); hooks && hooks->cache_dir_override) {
+        return hooks->cache_dir_override(*this);
+    }
+#endif
     constexpr size_t kSampleLimit = 3;
     size_t prefix_dirs = 0;
     std::vector<std::filesystem::path> samples;
@@ -1260,7 +1317,12 @@ size_t FSFileCacheStorage::snapshot_metadata_block_count(BlockFileCache* /*mgr*/
     size_t block_count = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        block_count = _meta_store->approximate_entry_count();
+        if (_meta_store) {
+            block_count = _meta_store->approximate_entry_count();
+        } else {
+            LOG(INFO) << "snapshot_metadata_block_count skipped because meta store is null";
+            block_count = 0;
+        }
     }
     const double duration_ms = static_cast<double>(duration_ns) / 1'000'000.0;
     LOG(INFO) << fmt::format("snapshot_metadata_block_count duration_ms={:.3f}, blocks={}",
@@ -1285,9 +1347,21 @@ std::vector<size_t> FSFileCacheStorage::snapshot_metadata_for_hash_offsets(
 
 void FSFileCacheStorage::start_leak_cleaner(BlockFileCache* mgr) {
     if (config::file_cache_leak_scan_interval_seconds <= 0) {
-        LOG(INFO) << "File cache leak cleaner disabled because interval <= 0";
+        LOG(WARNING) << "File cache leak cleaner disabled because interval <= 0";
         return;
     }
+
+    // if version file not 3.0 then just return, clean nothing
+    std::string version;
+    if (auto st = read_file_cache_version(&version); !st.ok()) {
+        LOG(WARNING) << "Failed to read file cache version: " << st.to_string();
+        return;
+    }
+    if (version != "3.0") {
+        LOG(WARNING) << "File cache leak cleaner skipped because version is not 3.0";
+        return;
+    }
+
     _stop_leak_cleaner.store(false, std::memory_order_relaxed);
     _cache_leak_cleaner_thread = std::thread([this]() { leak_cleaner_loop(); });
 }
@@ -1301,6 +1375,8 @@ void FSFileCacheStorage::stop_leak_cleaner() {
 }
 
 void FSFileCacheStorage::leak_cleaner_loop() {
+    Thread::set_self_name("leak_cleaner_loop");
+
     // randomly waiting before start the loop helps avoid thundering herd problem
     // for all strorages.
     const int64_t interval_seconds =
@@ -1342,15 +1418,13 @@ void FSFileCacheStorage::leak_cleaner_loop() {
 
 void FSFileCacheStorage::run_leak_cleanup(BlockFileCache* mgr) {
     size_t metadata_blocks = snapshot_metadata_block_count(mgr);
-    size_t fs_files = estimate_file_count_from_inode();
-
-    double ratio = 0.0;
-    if (metadata_blocks <= 0) {
+    if (metadata_blocks == 0) {
         LOG(INFO) << "file cache leak scan found zero metadata blocks, skip cleanup";
         return;
-    } else {
-        ratio = static_cast<double>(fs_files) / static_cast<double>(metadata_blocks);
     }
+
+    size_t fs_files = estimate_file_count_from_inode();
+    double ratio = static_cast<double>(fs_files) / static_cast<double>(metadata_blocks);
 
     LOG(INFO) << fmt::format(
             "file cache leak scan stats: fs_files={}, metadata_blocks={}, ratio={:.4f}", fs_files,
@@ -1490,7 +1564,7 @@ void FSFileCacheStorage::cleanup_leaked_files(BlockFileCache* mgr, size_t metada
                     }
                     auto key_with_suffix = key_it->path().filename().native();
                     auto delim_pos = key_with_suffix.find('_');
-                    if (delim_pos == std::string::npos) {
+                    if (delim_pos == std::string::npos || delim_pos != sizeof(uint128_t) * 2) {
                         continue;
                     }
 
@@ -1605,7 +1679,9 @@ void FSFileCacheStorage::cleanup_leaked_files(BlockFileCache* mgr, size_t metada
             examined_files, removed_files, ns_to_ms(cleanup_wall_time_ns),
             ns_to_ms(metadata_hash_time_ns), ns_to_ms(metadata_index_time_ns),
             ns_to_ms(remove_candidates_time_ns), ns_to_ms(directory_loop_time_ns));
-    *_leak_scan_removed_files << removed_files;
+    if (_leak_scan_removed_files) {
+        *_leak_scan_removed_files << removed_files;
+    }
 }
 
 } // namespace doris::io
