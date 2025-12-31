@@ -501,15 +501,13 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     DorisMetrics::instance()->load_rows->increment(input_rows);
     DorisMetrics::instance()->load_bytes->increment(input_bytes);
 
-    int64_t filtered_rows = 0;
-
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
     _row_distribution_watch.start();
 
     std::shared_ptr<vectorized::Block> block;
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-            input_block, block, filtered_rows, _row_part_tablet_ids, _number_input_rows));
+            input_block, block, _row_part_tablet_ids, _number_input_rows));
     RowsForTablet rows_for_tablet;
     _generate_rows_for_tablet(_row_part_tablet_ids, rows_for_tablet);
 

@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <algorithm>
-#include <functional>
-#include <iostream>
+#include <memory>
 #include <vector>
 
 #include "vec/core/block.h"
@@ -67,8 +65,7 @@ public:
 
     Status close(RuntimeState* state) override { return _crc_partitioner->close(state); }
 
-    Status do_partitioning(RuntimeState* state, Block* block, bool eos,
-                           bool* already_sent) const override {
+    Status do_partitioning(RuntimeState* state, Block* block) const override {
         _hash_vals.resize(block->rows());
         for (int partition_id = 0; partition_id < _partition_row_counts.size(); partition_id++) {
             _partition_row_counts[partition_id] = 0;
@@ -102,14 +99,14 @@ public:
     }
 
     ChannelField get_channel_ids() const override {
-        return {_hash_vals.data(), sizeof(HashValType)};
+        return {.channel_id = _hash_vals.data(), .len = sizeof(HashValType)};
     }
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override {
-        partitioner.reset(new ScaleWriterPartitioner(
+        partitioner = std::make_unique<ScaleWriterPartitioner>(
                 _channel_size, (int)_partition_count, _task_count, _task_bucket_count,
                 _min_partition_data_processed_rebalance_threshold,
-                _min_data_processed_rebalance_threshold));
+                _min_data_processed_rebalance_threshold);
         return Status::OK();
     }
 

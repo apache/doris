@@ -46,17 +46,17 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs>
-VRowDistribution::_get_partition_function() {
+std::pair<VExprContextSPtrs, VExprSPtrs> VRowDistribution::_get_partition_function() {
     return {_vpartition->get_part_func_ctx(), _vpartition->get_partition_function()};
 }
 
 Status VRowDistribution::_save_missing_values(
+        const Block& input_block,
         std::vector<std::vector<std::string>>& col_strs, // non-const ref for move
         int col_size, Block* block, const std::vector<int64_t>& filter,
         const std::vector<const NullMap*>& col_null_maps) {
     // de-duplication for new partitions but save all rows.
-    RETURN_IF_ERROR(_batching_block->add_rows(block, filter));
+    RETURN_IF_ERROR(_batching_block->add_rows(&input_block, filter));
     std::vector<TNullableStringLiteral> cur_row_values;
     for (int row = 0; row < col_strs[0].size(); ++row) {
         cur_row_values.clear();
@@ -81,7 +81,7 @@ Status VRowDistribution::_save_missing_values(
     if (_batching_block->rows() > _batch_size) {
         _deal_batched = true;
     }
-
+    _batching_rows = _batching_block->rows();
     VLOG_NOTICE << "pushed some batching lines, now numbers = " << _batching_rows;
 
     return Status::OK();
@@ -212,7 +212,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
     return status;
 }
 
-void VRowDistribution::_get_tablet_ids(vectorized::Block* block, int32_t index_idx,
+void VRowDistribution::_get_tablet_ids(Block* block, int32_t index_idx,
                                        std::vector<int64_t>& tablet_ids) {
     tablet_ids.resize(block->rows());
     for (int row_idx = 0; row_idx < block->rows(); row_idx++) {
@@ -228,8 +228,7 @@ void VRowDistribution::_get_tablet_ids(vectorized::Block* block, int32_t index_i
     }
 }
 
-void VRowDistribution::_filter_block_by_skip(vectorized::Block* block,
-                                             RowPartTabletIds& row_part_tablet_id) {
+void VRowDistribution::_filter_block_by_skip(Block* block, RowPartTabletIds& row_part_tablet_id) {
     auto& row_ids = row_part_tablet_id.row_ids;
     auto& partition_ids = row_part_tablet_id.partition_ids;
     auto& tablet_ids = row_part_tablet_id.tablet_ids;
@@ -247,8 +246,7 @@ void VRowDistribution::_filter_block_by_skip(vectorized::Block* block,
 }
 
 Status VRowDistribution::_filter_block_by_skip_and_where_clause(
-        vectorized::Block* block, const vectorized::VExprContextSPtr& where_clause,
-        RowPartTabletIds& row_part_tablet_id) {
+        Block* block, const VExprContextSPtr& where_clause, RowPartTabletIds& row_part_tablet_id) {
     // TODO
     //SCOPED_RAW_TIMER(&_stat.where_clause_ns);
     int result_index = -1;
@@ -260,8 +258,7 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
     auto& row_ids = row_part_tablet_id.row_ids;
     auto& partition_ids = row_part_tablet_id.partition_ids;
     auto& tablet_ids = row_part_tablet_id.tablet_ids;
-    if (const auto* nullable_column =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(*filter_column)) {
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         auto rows = block->rows();
         // row count of a block should not exceed UINT32_MAX
         auto rows_uint32 = cast_set<uint32_t>(rows);
@@ -272,8 +269,7 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
                 tablet_ids.emplace_back(_tablet_ids[i]);
             }
         }
-    } else if (const auto* const_column =
-                       vectorized::check_and_get_column<vectorized::ColumnConst>(*filter_column)) {
+    } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
             return Status::OK();
@@ -281,7 +277,7 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
         // should we optimize?
         _filter_block_by_skip(block, row_part_tablet_id);
     } else {
-        const auto& filter = assert_cast<const vectorized::ColumnUInt8&>(*filter_column).get_data();
+        const auto& filter = assert_cast<const ColumnUInt8&>(*filter_column).get_data();
         auto rows = block->rows();
         // row count of a block should not exceed UINT32_MAX
         auto rows_uint32 = cast_set<uint32_t>(rows);
@@ -300,7 +296,7 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
     return Status::OK();
 }
 
-Status VRowDistribution::_filter_block(vectorized::Block* block,
+Status VRowDistribution::_filter_block(Block* block,
                                        std::vector<RowPartTabletIds>& row_part_tablet_ids) {
     for (int i = 0; i < _schema->indexes().size(); i++) {
         _get_tablet_ids(block, i, _tablet_ids);
@@ -316,8 +312,7 @@ Status VRowDistribution::_filter_block(vectorized::Block* block,
 }
 
 Status VRowDistribution::_generate_rows_distribution_for_non_auto_partition(
-        vectorized::Block* block, bool has_filtered_rows,
-        std::vector<RowPartTabletIds>& row_part_tablet_ids) {
+        Block* block, bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids) {
     int num_rows = cast_set<int>(block->rows());
 
     RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
@@ -331,7 +326,7 @@ Status VRowDistribution::_generate_rows_distribution_for_non_auto_partition(
     return Status::OK();
 }
 
-Status VRowDistribution::_deal_missing_map(vectorized::Block* block,
+Status VRowDistribution::_deal_missing_map(const Block& input_block, Block* block,
                                            const std::vector<uint16_t>& partition_cols_idx,
                                            int64_t& rows_stat_val) {
     // for missing partition keys, calc the missing partition and save in _partitions_need_create
@@ -364,8 +359,8 @@ Status VRowDistribution::_deal_missing_map(vectorized::Block* block,
     }
 
     // calc the end value and save them. in the end of sending, we will create partitions for them and deal them.
-    RETURN_IF_ERROR(
-            _save_missing_values(col_strs, part_col_num, block, _missing_map, col_null_maps));
+    RETURN_IF_ERROR(_save_missing_values(input_block, col_strs, part_col_num, block, _missing_map,
+                                         col_null_maps));
 
     size_t new_bt_rows = _batching_block->rows();
     size_t new_bt_bytes = _batching_block->bytes();
@@ -381,7 +376,7 @@ Status VRowDistribution::_deal_missing_map(vectorized::Block* block,
 }
 
 Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
-        vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
+        const Block& input_block, Block* block, const std::vector<uint16_t>& partition_cols_idx,
         bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
         int64_t& rows_stat_val) {
     int num_rows = cast_set<int>(block->rows());
@@ -403,13 +398,14 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
     RETURN_IF_ERROR(_filter_block(block, row_part_tablet_ids));
 
     if (!_missing_map.empty()) {
-        RETURN_IF_ERROR(_deal_missing_map(block, partition_cols_idx, rows_stat_val));
+        RETURN_IF_ERROR(_deal_missing_map(input_block, block, partition_cols_idx,
+                                          rows_stat_val)); // send input block to save
     }
     return Status::OK();
 }
 
 Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
-        vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
+        const Block& input_block, Block* block, const std::vector<uint16_t>& partition_cols_idx,
         bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
         int64_t& rows_stat_val) {
     int num_rows = cast_set<int>(block->rows());
@@ -432,7 +428,8 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
 
         // allow and really need to create during auto-detect-overwriting.
         if (!_missing_map.empty()) {
-            RETURN_IF_ERROR(_deal_missing_map(block, partition_cols_idx, rows_stat_val));
+            RETURN_IF_ERROR(
+                    _deal_missing_map(input_block, block, partition_cols_idx, rows_stat_val));
         }
     } else {
         RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
@@ -486,21 +483,19 @@ void VRowDistribution::_reset_row_part_tablet_ids(
 }
 
 Status VRowDistribution::generate_rows_distribution(
-        vectorized::Block& input_block, std::shared_ptr<vectorized::Block>& block,
-        int64_t& filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
-        int64_t& rows_stat_val) {
+        Block& input_block, std::shared_ptr<Block>& block,
+        std::vector<RowPartTabletIds>& row_part_tablet_ids, int64_t& rows_stat_val) {
     auto input_rows = input_block.rows();
     _reset_row_part_tablet_ids(row_part_tablet_ids, input_rows);
 
-    int64_t prev_filtered_rows =
-            _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
+    // we store the batching block with value of `input_block`. so just do all of these again.
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             _state, &input_block, block, *_vec_output_expr_ctxs, input_rows, has_filtered_rows));
 
     // batching block rows which need new partitions. deal together at finish.
     if (!_batching_block) [[unlikely]] {
-        std::unique_ptr<Block> tmp_block = block->create_same_struct_block(0);
+        std::unique_ptr<Block> tmp_block = input_block.create_same_struct_block(0);
         _batching_block = MutableBlock::create_unique(std::move(*tmp_block));
     }
 
@@ -518,7 +513,7 @@ Status VRowDistribution::generate_rows_distribution(
             // we just calc left range here. leave right to FE to avoid dup calc.
             RETURN_IF_ERROR(part_funcs[i]->execute(part_ctxs[i].get(), block.get(), &result_idx));
 
-            VLOG_DEBUG << "Partition-calculated block:" << block->dump_data(0, 1);
+            VLOG_DEBUG << "Partition-calculated block:\n" << block->dump_data(0, 1);
             DCHECK(result_idx != -1);
 
             partition_cols_idx.push_back(cast_set<uint16_t>(result_idx));
@@ -531,20 +526,18 @@ Status VRowDistribution::generate_rows_distribution(
     Status st = Status::OK();
     if (_vpartition->is_auto_detect_overwrite() && !_deal_batched) {
         // when overwrite, no auto create partition allowed.
-        st = _generate_rows_distribution_for_auto_overwrite(block.get(), partition_cols_idx,
-                                                            has_filtered_rows, row_part_tablet_ids,
-                                                            rows_stat_val);
+        st = _generate_rows_distribution_for_auto_overwrite(input_block, block.get(),
+                                                            partition_cols_idx, has_filtered_rows,
+                                                            row_part_tablet_ids, rows_stat_val);
     } else if (_vpartition->is_auto_partition() && !_deal_batched) {
-        st = _generate_rows_distribution_for_auto_partition(block.get(), partition_cols_idx,
-                                                            has_filtered_rows, row_part_tablet_ids,
-                                                            rows_stat_val);
+        st = _generate_rows_distribution_for_auto_partition(input_block, block.get(),
+                                                            partition_cols_idx, has_filtered_rows,
+                                                            row_part_tablet_ids, rows_stat_val);
     } else { // not auto partition
         st = _generate_rows_distribution_for_non_auto_partition(block.get(), has_filtered_rows,
                                                                 row_part_tablet_ids);
     }
 
-    filtered_rows = _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() -
-                    prev_filtered_rows;
     return st;
 }
 

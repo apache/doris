@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -31,26 +33,60 @@ namespace pipeline {
 #include "common/compile_check_begin.h"
 class ExchangeSinkLocalState;
 
-class Writer {
+class WriterBase {
 public:
-    Writer() = default;
+    WriterBase() = default;
+
+protected:
+    template <typename ChannelPtrType>
+    Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const;
+    Status _add_rows_impl(RuntimeState* state,
+                          std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+                          size_t channel_count, vectorized::Block* block, bool eos);
+
+    // _origin_row_idx[i]: row id in original block for the i-th's data we send.
+    vectorized::PaddedPODArray<uint32_t> _origin_row_idx;
+    // _channel_rows_histogram[i]: number of rows for channel i in current batch
+    vectorized::PaddedPODArray<uint32_t> _channel_rows_histogram;
+    // _channel_start_offsets[i]: the start offset of channel i in _row_idx
+    // its value equals to prefix sum of _channel_rows_histogram
+    // after calculation, it will be end offset for channel i.
+    vectorized::PaddedPODArray<uint32_t> _channel_pos_offsets;
+};
+
+class TrivialWriter final : public WriterBase {
+public:
+    TrivialWriter() = default;
 
     Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
                  bool eos);
 
 private:
-    template <typename ChannelIdType>
     Status _channel_add_rows(RuntimeState* state,
                              std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                             size_t partition_count, const ChannelIdType* __restrict channel_ids,
+                             size_t channel_count, const uint32_t* __restrict channel_ids,
                              size_t rows, vectorized::Block* block, bool eos);
+};
 
-    template <typename ChannelPtrType>
-    Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const;
+// maybe auto partition
+class OlapWriter final : public WriterBase {
+public:
+    OlapWriter() = default;
 
-    vectorized::PaddedPODArray<uint32_t> _row_idx;
-    vectorized::PaddedPODArray<uint32_t> _partition_rows_histogram;
-    vectorized::PaddedPODArray<uint32_t> _channel_start_offsets;
+    Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
+                 bool eos);
+
+private:
+    Status _write_normal(ExchangeSinkLocalState* local_state, RuntimeState* state,
+                         vectorized::Block* block);
+    // write batched data(if exists)
+    Status _write_last(ExchangeSinkLocalState* local_state, RuntimeState* state,
+                       vectorized::Block* block);
+    template <bool NeedCheck>
+    Status _channel_add_rows(RuntimeState* state,
+                             std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+                             size_t channel_count, const int64_t* __restrict channel_ids,
+                             size_t rows, vectorized::Block* block, bool eos);
 };
 #include "common/compile_check_end.h"
 } // namespace pipeline
