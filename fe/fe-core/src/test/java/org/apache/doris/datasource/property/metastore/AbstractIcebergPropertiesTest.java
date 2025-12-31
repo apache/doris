@@ -21,7 +21,6 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -82,7 +81,7 @@ public class AbstractIcebergPropertiesTest {
 
     @Test
     void testInitializeCatalogWithoutWarehouse() {
-        BaseMetastoreCatalog mockCatalog = Mockito.mock(Catalog.class);
+        BaseMetastoreCatalog mockCatalog = Mockito.mock(BaseMetastoreCatalog.class);
         Mockito.when(mockCatalog.name()).thenReturn("no-warehouse");
         TestIcebergProperties properties = new TestIcebergProperties(new HashMap<>(), mockCatalog);
         properties.warehouse = null;
@@ -119,7 +118,7 @@ public class AbstractIcebergPropertiesTest {
 
     @Test
     void testExecutionAuthenticatorNotNull() {
-        Catalog mockCatalog = Mockito.mock(Catalog.class);
+        BaseMetastoreCatalog mockCatalog = Mockito.mock(BaseMetastoreCatalog.class);
         TestIcebergProperties properties = new TestIcebergProperties(new HashMap<>(), mockCatalog);
         Assertions.assertNotNull(properties.executionAuthenticator);
     }
