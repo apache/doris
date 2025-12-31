@@ -392,7 +392,6 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
                 }
 
                 Iterator<Integer> assignedJoinBuckets = new LinkedHashSet<>(workerToBuckets.getValue()).iterator();
-
                 while (assignedJoinBuckets.hasNext()) {
                     Integer bucketIndex = assignedJoinBuckets.next();
                     assignedJoinBuckets.remove();

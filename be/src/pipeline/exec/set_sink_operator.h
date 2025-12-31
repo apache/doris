@@ -86,9 +86,10 @@ public:
               _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
                                         : tnode.except_node.is_colocate),
               _partition_exprs(tnode.__isset.distribute_expr_lists
-                    ? tnode.distribute_expr_lists[child_id]
-                    : (is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
-                                            : tnode.except_node.result_expr_lists[child_id])),
+                                       ? tnode.distribute_expr_lists[child_id]
+                                       : (is_intersect
+                                                  ? tnode.intersect_node.result_expr_lists[child_id]
+                                                  : tnode.except_node.result_expr_lists[child_id])),
               _runtime_filter_descs(tnode.runtime_filters) {
         DCHECK_EQ(child_id, _cur_child_id);
         DCHECK_GT(_child_quantity, 1);
