@@ -31,6 +31,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
@@ -456,7 +457,7 @@ public class MysqlLoadManager {
         }
 
         StringBuilder sb = new StringBuilder();
-        if (Config.enable_tls) {
+        if (Config.enable_tls && CertificateManager.isProtocolIncluded(CertificateManager.Protocol.http)) {
             sb.append("https://");
         } else {
             sb.append("http://");
