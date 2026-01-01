@@ -873,12 +873,14 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             prepare_st = Status::Aborted("FragmentMgr.exec_plan_fragment.prepare_failed");
         });
         if (!prepare_st.ok()) {
+            LOG(INFO) << "prepare failed " << prepare_st.to_json();
             query_ctx->cancel(prepare_st, params.fragment_id);
             return prepare_st;
         }
     }
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
+    LOG(INFO) << "prepare success";
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
     {
