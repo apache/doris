@@ -156,13 +156,10 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                 .applyBottomUp(new InApplyToJoin())
                 .matches(
                         logicalFilter(
-                                logicalProject(
-                                        logicalJoin(
-                                                logicalAggregate(),
-                                                logicalProject()
-                                        )
+                                logicalJoin(
+                                        logicalAggregate(),
+                                        logicalProject()
                                 )
-
                         )
                 );
     }

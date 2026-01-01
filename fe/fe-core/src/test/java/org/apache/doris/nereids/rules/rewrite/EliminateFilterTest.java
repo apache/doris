@@ -139,7 +139,7 @@ class EliminateFilterTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
                 .applyTopDown(new EliminateFilter())
                 .matches(logicalFilter().when(
-                        f -> f.getPredicate().toSql().equals("( not AND[(id = 1),(name > 1),NULL,NULL])"))
+                        f -> f.getPredicate().toSql().equals("OR[( not (id = 1)),(name <= 1)]"))
                 );
     }
 

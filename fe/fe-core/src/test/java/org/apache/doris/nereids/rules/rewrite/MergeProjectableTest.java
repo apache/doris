@@ -89,7 +89,7 @@ public class MergeProjectableTest implements MemoPatternMatchSupported {
                         logicalProject(
                                 logicalOlapScan()
                         ).when(project -> Objects.equals(project.getProjects().toString(),
-                                "[((sid#10000 + 1) + 2) AS `Y`#" + ySlot.getExprId().asInt() + "]"))
+                                "[(sid#10000 + 3) AS `Y`#" + ySlot.getExprId().asInt() + "]"))
                 );
     }
 
@@ -108,7 +108,7 @@ public class MergeProjectableTest implements MemoPatternMatchSupported {
                         logicalProject(
                                 logicalOlapScan()
                         ).when(project -> Objects.equals(project.getProjects().get(0).toSql(),
-                                "((sid + 1) + 1) AS `b`"))
+                                "(sid + 2) AS `b`"))
                 );
     }
 }

@@ -128,17 +128,13 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
                     logicalProject(
                         logicalJoin(
                             logicalProject(
-                                logicalSubQueryAlias(
-                                    logicalProject(
-                                        logicalOlapScan()
-                                    )
+                                logicalProject(
+                                    logicalOlapScan()
                                 )
                             ),
                             logicalProject(
-                                    logicalSubQueryAlias(
-                                    logicalProject(
-                                        logicalOlapScan()
-                                    )
+                                logicalProject(
+                                    logicalOlapScan()
                                 )
                             )
                         )
@@ -160,14 +156,13 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
                                                 logicalOlapScan()
                                         ),
                                         logicalProject(
-                                                logicalSubQueryAlias(
-                                                        logicalProject(
-                                                                logicalAggregate(
-                                                                        logicalProject(
-                                                                                logicalOlapScan()
-                                                                        )))
-                                                )
+                                                logicalProject(
+                                                        logicalAggregate(
+                                                                logicalProject(
+                                                                        logicalOlapScan()
+                                                                )))
                                         )
+
                                 )
                         )
                 );
@@ -187,14 +182,10 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
                                 logicalOlapScan()
                             ),
                             logicalProject(
-                                logicalSubQueryAlias(
-                                    logicalSort(
+                                logicalProject(
+                                    logicalAggregate(
                                         logicalProject(
-                                            logicalAggregate(
-                                                logicalProject(
-                                                    logicalOlapScan()
-                                                )
-                                            )
+                                            logicalOlapScan()
                                         )
                                     )
                                 )
@@ -229,6 +220,7 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
         Expression markConjuncts = new EqualTo(markLeft, markRight);
         Expression otherConjuncts = new Add(left.getOutput().get(0), new IntegerLiteral(1));
 
+        connectContext.getSessionVariable().setDisableNereidsRules("REWRITE_JOIN_EXPRESSION");
         plan = plan.withJoinConjuncts(ImmutableList.of(sameConjuncts, hashConjuncts), ImmutableList.of(otherConjuncts),
                 ImmutableList.of(sameConjuncts, markConjuncts, otherConjuncts),
                 new JoinReorderContext());
