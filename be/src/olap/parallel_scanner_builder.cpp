@@ -184,7 +184,7 @@ Status ParallelScannerBuilder::_load() {
 
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                     std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle,
-                    enable_segment_cache, false));
+                    enable_segment_cache, false, &_builder_stats));
 
             for (const auto& segment : segment_cache_handle.get_segments()) {
                 _all_segments_rows[rowset_id].emplace_back(segment->num_rows());
