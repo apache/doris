@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseCboRuleHint;
@@ -28,17 +29,21 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -56,6 +61,11 @@ public class CostBasedRewriteJob implements RewriteJob {
         // need to generate real rewrite job list
     }
 
+    private void restoreCteProducerMap(StatementContext context, Map<CTEId, LogicalPlan> currentCteProducers) {
+        context.getRewrittenCteProducer().clear();
+        currentCteProducers.forEach(context.getRewrittenCteProducer()::put);
+    }
+
     @Override
     public void execute(JobContext jobContext) {
         // checkHint.first means whether it use hint and checkHint.second means what kind of hint it used
@@ -69,14 +79,21 @@ public class CostBasedRewriteJob implements RewriteJob {
         CascadesContext applyCboRuleCtx = CascadesContext.newCurrentTreeContext(currentCtx);
         // execute cbo rule on one candidate
         Rewriter.getCteChildrenRewriter(applyCboRuleCtx, rewriteJobs).execute();
+        Plan applyCboPlan = applyCboRuleCtx.getRewritePlan();
         if (skipCboRuleCtx.getRewritePlan().deepEquals(applyCboRuleCtx.getRewritePlan())) {
             // this means rewrite do not do anything
             return;
         }
 
+        Map<CTEId, LogicalPlan> currentCteProducers = Maps.newHashMap();
+        // cost based rewrite job may contaminate StatementContext.rewrittenCteProducer
+        // clone current rewrittenCteProducer, and restore it after getCost(.).
+        currentCtx.getStatementContext().getRewrittenCteProducer().forEach(currentCteProducers::put);
         // compare two candidates
         Optional<Pair<Cost, GroupExpression>> skipCboRuleCost = getCost(currentCtx, skipCboRuleCtx, jobContext);
+        restoreCteProducerMap(currentCtx.getStatementContext(), currentCteProducers);
         Optional<Pair<Cost, GroupExpression>> appliedCboRuleCost = getCost(currentCtx, applyCboRuleCtx, jobContext);
+        restoreCteProducerMap(currentCtx.getStatementContext(), currentCteProducers);
         // If one of them optimize failed, just return
         if (!skipCboRuleCost.isPresent() || !appliedCboRuleCost.isPresent()) {
             LOG.warn("Cbo rewrite execute failed on sql: {}, jobs are {}, plan is {}.",
@@ -94,8 +111,7 @@ public class CostBasedRewriteJob implements RewriteJob {
         }
         // If the candidate applied cbo rule is better, replace the original plan with it.
         if (appliedCboRuleCost.get().first.getValue() < skipCboRuleCost.get().first.getValue()) {
-            currentCtx.addPlanProcesses(applyCboRuleCtx.getPlanProcesses());
-            currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
+            currentCtx.setRewritePlan(applyCboPlan);
         }
     }
 
