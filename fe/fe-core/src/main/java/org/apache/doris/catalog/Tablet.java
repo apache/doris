@@ -111,9 +111,6 @@ public class Tablet extends MetaObject {
     protected List<Replica> replicas;
     @SerializedName(value = "cv", alternate = {"checkedVersion"})
     private long checkedVersion;
-    @Deprecated
-    @SerializedName(value = "cvs", alternate = {"checkedVersionHash"})
-    private long checkedVersionHash;
     @SerializedName(value = "ic", alternate = {"isConsistent"})
     private boolean isConsistent;
 
@@ -156,10 +153,6 @@ public class Tablet extends MetaObject {
         checkedVersion = -1L;
 
         isConsistent = true;
-    }
-
-    public void setIdForRestore(long tabletId) {
-        this.id = tabletId;
     }
 
     public long getId() {
@@ -447,11 +440,6 @@ public class Tablet extends MetaObject {
 
     public void setTabletId(long tabletId) {
         this.id = tabletId;
-    }
-
-    public static void sortReplicaByVersionDesc(List<Replica> replicas) {
-        // sort replicas by version. higher version in the tops
-        replicas.sort(Replica.VERSION_DESC_COMPARATOR);
     }
 
     @Override
