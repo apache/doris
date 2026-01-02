@@ -50,31 +50,31 @@ suite("test_hudi_schema_evolution", "p0,external,hudi,external_docker,external_d
     sql """set force_jni_scanner = true;"""
     
     // Test adding_simple_columns_table: schema evolution adding columns (id, name) -> (id, name, age, city)
-    qt_jni_adding_simple_columns_table_all """ select * from adding_simple_columns_table order by id """
+    qt_jni_adding_simple_columns_table_all """ select id, name, age, city from adding_simple_columns_table order by id """
     qt_jni_adding_simple_columns_table_old_data """ select id, name, age, city from adding_simple_columns_table where id in ('1', '2', '3') order by id """
     qt_jni_adding_simple_columns_table_new_data """ select id, name, age, city from adding_simple_columns_table where id in ('4', '5', '6') order by id """
     
     // Test deleting_simple_columns_table: schema evolution dropping columns (id, name, age, city) -> (id, name)
-    qt_jni_deleting_simple_columns_table_all """ select * from deleting_simple_columns_table order by id """
+    qt_jni_deleting_simple_columns_table_all """ select id, name from deleting_simple_columns_table order by id """
     qt_jni_deleting_simple_columns_table_old_data """ select id, name from deleting_simple_columns_table where id in ('1', '2', '3') order by id """
     qt_jni_deleting_simple_columns_table_new_data """ select id, name from deleting_simple_columns_table where id in ('4', '5', '6') order by id """
     
     // Test renaming_simple_columns_table: schema evolution renaming column name -> full_name
     // Note: Hudi doesn't support RENAME COLUMN, so this test is skipped
-    // qt_jni_renaming_simple_columns_table_all """ select * from renaming_simple_columns_table order by id """
+    // qt_jni_renaming_simple_columns_table_all """ select id, full_name from renaming_simple_columns_table order by id """
     // qt_jni_renaming_simple_columns_table_old_data """ select id, full_name from renaming_simple_columns_table where id in ('1', '2', '3') order by id """
     // qt_jni_renaming_simple_columns_table_new_data """ select id, full_name from renaming_simple_columns_table where id in ('4', '5', '6') order by id """
     
     // Test reordering_columns_table: schema evolution reordering columns
-    qt_jni_reordering_columns_table_all """ select * from reordering_columns_table order by id """
+    qt_jni_reordering_columns_table_all """ select id, name, age from reordering_columns_table order by id """
     
     // Test adding_complex_columns_table: schema evolution adding email field to struct
-    qt_jni_adding_complex_columns_table_all """ select * from adding_complex_columns_table order by id """
+    qt_jni_adding_complex_columns_table_all """ select id, name, info from adding_complex_columns_table order by id """
     qt_jni_adding_complex_columns_table_old_struct """ select id, name, info from adding_complex_columns_table where id in ('1', '2', '3') order by id """
     qt_jni_adding_complex_columns_table_new_struct """ select id, name, info from adding_complex_columns_table where id in ('4', '5', '6') order by id """
     
     // Test deleting_complex_columns_table: schema evolution dropping email field from struct
-    qt_jni_deleting_complex_columns_table_all """ select * from deleting_complex_columns_table order by id """
+    qt_jni_deleting_complex_columns_table_all """ select id, name, info from deleting_complex_columns_table order by id """
     qt_jni_deleting_complex_columns_table_old_struct """ select id, name, info from deleting_complex_columns_table where id in ('1', '2', '3') order by id """
     qt_jni_deleting_complex_columns_table_new_struct """ select id, name, info from deleting_complex_columns_table where id in ('4', '5', '6') order by id """
     
@@ -88,31 +88,31 @@ suite("test_hudi_schema_evolution", "p0,external,hudi,external_docker,external_d
     sql """set force_jni_scanner = false;"""
     
     // Test adding_simple_columns_table: schema evolution adding columns (id, name) -> (id, name, age, city)
-    qt_native_adding_simple_columns_table_all """ select * from adding_simple_columns_table order by id """
+    qt_native_adding_simple_columns_table_all """ select id, name, age, city from adding_simple_columns_table order by id """
     qt_native_adding_simple_columns_table_old_data """ select id, name, age, city from adding_simple_columns_table where id in ('1', '2', '3') order by id """
     qt_native_adding_simple_columns_table_new_data """ select id, name, age, city from adding_simple_columns_table where id in ('4', '5', '6') order by id """
     
     // Test deleting_simple_columns_table: schema evolution dropping columns (id, name, age, city) -> (id, name)
-    qt_native_deleting_simple_columns_table_all """ select * from deleting_simple_columns_table order by id """
+    qt_native_deleting_simple_columns_table_all """ select id, name from deleting_simple_columns_table order by id """
     qt_native_deleting_simple_columns_table_old_data """ select id, name from deleting_simple_columns_table where id in ('1', '2', '3') order by id """
     qt_native_deleting_simple_columns_table_new_data """ select id, name from deleting_simple_columns_table where id in ('4', '5', '6') order by id """
     
     // Test renaming_simple_columns_table: schema evolution renaming column name -> full_name
     // Note: Hudi doesn't support RENAME COLUMN, so this test is skipped
-    // qt_native_renaming_simple_columns_table_all """ select * from renaming_simple_columns_table order by id """
+    // qt_native_renaming_simple_columns_table_all """ select id, full_name from renaming_simple_columns_table order by id """
     // qt_native_renaming_simple_columns_table_old_data """ select id, full_name from renaming_simple_columns_table where id in ('1', '2', '3') order by id """
     // qt_native_renaming_simple_columns_table_new_data """ select id, full_name from renaming_simple_columns_table where id in ('4', '5', '6') order by id """
     
     // Test reordering_columns_table: schema evolution reordering columns
-    qt_native_reordering_columns_table_all """ select * from reordering_columns_table order by id """
+    qt_native_reordering_columns_table_all """ select id, name, age from reordering_columns_table order by id """
     
     // Test adding_complex_columns_table: schema evolution adding email field to struct
-    qt_native_adding_complex_columns_table_all """ select * from adding_complex_columns_table order by id """
+    qt_native_adding_complex_columns_table_all """ select id, name, info from adding_complex_columns_table order by id """
     qt_native_adding_complex_columns_table_old_struct """ select id, name, info from adding_complex_columns_table where id in ('1', '2', '3') order by id """
     qt_native_adding_complex_columns_table_new_struct """ select id, name, info from adding_complex_columns_table where id in ('4', '5', '6') order by id """
     
     // Test deleting_complex_columns_table: schema evolution dropping email field from struct
-    qt_native_deleting_complex_columns_table_all """ select * from deleting_complex_columns_table order by id """
+    qt_native_deleting_complex_columns_table_all """ select id, name, info from deleting_complex_columns_table order by id """
     qt_native_deleting_complex_columns_table_old_struct """ select id, name, info from deleting_complex_columns_table where id in ('1', '2', '3') order by id """
     qt_native_deleting_complex_columns_table_new_struct """ select id, name, info from deleting_complex_columns_table where id in ('4', '5', '6') order by id """
     

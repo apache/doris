@@ -48,12 +48,12 @@ suite("test_hudi_catalog", "p0,external,hudi,external_docker,external_docker_hud
     def tables = sql """ show tables; """
     assertTrue(tables.size() > 0)
     order_qt_test_select_table """
-        select * from bigint_partition_tb order by id;
+        select id, name, part1 from bigint_partition_tb order by id;
     """
     try {
         sql """ set force_jni_scanner = true;    """
         order_qt_test_select_table """
-            select * from bigint_partition_tb order by id;
+            select id, name, part1 from bigint_partition_tb order by id;
         """
     } finally {
         sql """ set force_jni_scanner = false;    """

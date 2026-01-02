@@ -46,8 +46,8 @@ suite("test_hudi_orc_tables", "p0,external,hudi,external_docker,external_docker_
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
     
-    qt_cow """ select * from  orc_hudi_table_cow; """
-    qt_mor """ select * from  orc_hudi_table_mor; """
+    qt_cow """ select id, name, value from  orc_hudi_table_cow; """
+    qt_mor """ select id, name, value from  orc_hudi_table_mor; """
 
     sql """drop catalog if exists ${catalog_name};"""
 }

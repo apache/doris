@@ -48,11 +48,11 @@ suite("test_hudi_timestamp", "p0,external,hudi,external_docker,external_docker_h
 
     def test_timestamp_different_timezones = {
         sql """set time_zone = 'America/Los_Angeles';"""
-        qt_timestamp1 """ select * from hudi_table_with_timestamp order by id; """
+        qt_timestamp1 """ select id, name, event_time from hudi_table_with_timestamp order by id; """
         sql """set time_zone = 'Asia/Shanghai';"""
-        qt_timestamp2 """ select * from hudi_table_with_timestamp order by id; """
+        qt_timestamp2 """ select id, name, event_time from hudi_table_with_timestamp order by id; """
         sql """set time_zone = 'UTC';"""
-        qt_timestamp3 """ select * from hudi_table_with_timestamp order by id; """
+        qt_timestamp3 """ select id, name, event_time from hudi_table_with_timestamp order by id; """
     }
 
     // test native reader

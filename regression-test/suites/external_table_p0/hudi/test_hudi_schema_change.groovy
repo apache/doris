@@ -50,7 +50,7 @@ suite("test_hudi_schema_change", "p0,external,hudi,external_docker,external_dock
     def hudi_sc_tbs = ["hudi_sc_orc_cow","hudi_sc_parquet_cow"]
 
     for (String hudi_sc_tb : hudi_sc_tbs) {
-        qt_hudi_0  """ SELECT * FROM ${hudi_sc_tb} ORDER BY id; """
+        qt_hudi_0  """ SELECT id, name, age, city, score FROM ${hudi_sc_tb} ORDER BY id; """
         qt_hudi_1 """ SELECT id, score, full_name, location FROM ${hudi_sc_tb} WHERE score > 90 ORDER BY id; """
         qt_hudi_2 """ SELECT id, score, full_name, location FROM ${hudi_sc_tb} WHERE score < 90 ORDER BY id; """    
         qt_hudi_3 """ SELECT id, score, full_name, location FROM ${hudi_sc_tb} WHERE score = 90 ORDER BY id; """    
