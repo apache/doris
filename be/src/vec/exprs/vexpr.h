@@ -155,10 +155,18 @@ public:
 
     Status execute_checked(VExprContext* context, const Block* block, size_t count,
                            ColumnPtr& result_column) const {
+#ifndef NDEBUG
         RETURN_IF_ERROR(execute_column(context, block, count, result_column));
         auto result_type = execute_type(block);
         RETURN_IF_ERROR(result_type->check_column(*result_column));
+        RETURN_IF_ERROR(result_column->column_self_check());
+        DCHECK_EQ(result_column->size(), count)
+                << "expr: " << debug_string() << ", expected size: " << count
+                << ", actual size: " << result_column->size();
         return Status::OK();
+#else
+        return execute_column(context, block, count, result_column);
+#endif
     }
 
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)

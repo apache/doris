@@ -284,8 +284,8 @@ public:
             //3. child[0]->execute(new_block)
 
             ColumnPtr res_col;
-            RETURN_IF_ERROR(children[0]->execute_checked(context, &lambda_block, lambda_block.rows(),
-                                                        res_col));
+            RETURN_IF_ERROR(children[0]->execute_checked(context, &lambda_block,
+                                                         lambda_block.rows(), res_col));
             res_col = res_col->convert_to_full_column_if_const();
             res_type = children[0]->execute_type(&lambda_block);
 
