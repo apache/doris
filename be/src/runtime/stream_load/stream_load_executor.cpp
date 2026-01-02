@@ -83,10 +83,12 @@ Status StreamLoadExecutor::execute_plan_fragment(
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << ctx->id;
     Status st;
+    // todo: maybe can be deleted
     std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
     std::shared_ptr<bool> is_done = std::make_shared<bool>(false);
+    std::shared_ptr<bool> is_prepare_success =  std::make_shared<bool>(false);
 
-    auto exec_fragment = [ctx, cb, this, lock, is_done](RuntimeState* state, Status* status) {
+    auto exec_fragment = [ctx, cb, this, lock, is_done, is_prepare_success](RuntimeState* state, Status* status) {
         std::lock_guard<std::mutex> lock1(*lock);
         if (*is_done) {
             return;
@@ -161,10 +163,13 @@ Status StreamLoadExecutor::execute_plan_fragment(
             }
         }
 
-        cb(ctx);
+        if (*is_prepare_success) {
+            // if prepare failed, on_header will send reply
+            cb(ctx);
+        }
     };
     st = _exec_env->fragment_mgr()->exec_plan_fragment(
-            ctx->put_result.pipeline_params, QuerySource::STREAM_LOAD, exec_fragment, parent);
+            ctx->put_result.pipeline_params, QuerySource::STREAM_LOAD, exec_fragment, parent, is_prepare_success);
 
     if (!st.ok()) {
         // no need to check unref's return value

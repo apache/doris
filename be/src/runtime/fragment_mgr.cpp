@@ -846,7 +846,8 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb,
-                                       const TPipelineFragmentParamsList& parent) {
+                                       const TPipelineFragmentParamsList& parent,
+                                       std::shared_ptr<bool> is_prepare_success) {
     VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TPipelineFragmentParams debug string is too long and glog
@@ -873,14 +874,12 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             prepare_st = Status::Aborted("FragmentMgr.exec_plan_fragment.prepare_failed");
         });
         if (!prepare_st.ok()) {
-            LOG(INFO) << "prepare failed " << prepare_st.to_json();
             query_ctx->cancel(prepare_st, params.fragment_id);
             return prepare_st;
         }
     }
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
-    LOG(INFO) << "prepare success";
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
     {
@@ -907,6 +906,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     query_ctx->set_pipeline_context(params.fragment_id, context);
 
     RETURN_IF_ERROR(context->submit());
+    if (is_prepare_success != nullptr) {
+        *is_prepare_success = true;
+    }
     return Status::OK();
 }
 
