@@ -46,12 +46,48 @@ suite("test_hudi_meta", "p0,external,hudi,external_docker,external_docker_hudi")
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
     
-    qt_hudi_meta1 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_non_partition", "query_type" = "timeline"); """
-    qt_hudi_meta2 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_mor_non_partition", "query_type" = "timeline"); """
-    qt_hudi_meta3 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_partition", "query_type" = "timeline"); """
-    qt_hudi_meta4 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_partition", "query_type" = "timeline"); """
-    qt_hudi_meta5 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.timetravel_cow", "query_type" = "timeline"); """
-    qt_hudi_meta6 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.timetravel_mor", "query_type" = "timeline"); """
+    // Query timeline and verify structure (action, state) without relying on specific timestamps
+    // For user_activity_log_cow_non_partition: expect 5 commits (we changed from 10 to 5 commits)
+    qt_hudi_meta1 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_non_partition", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
+    
+    // For user_activity_log_mor_non_partition: expect 5 deltacommits
+    qt_hudi_meta2 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_mor_non_partition", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
+    
+    // For user_activity_log_cow_partition: expect 5 commits
+    qt_hudi_meta3 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_partition", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
+    
+    // Same table as hudi_meta3, should have same result
+    qt_hudi_meta4 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_partition", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
+    
+    // For timetravel_cow: expect 1 commit
+    qt_hudi_meta5 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.timetravel_cow", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
+    
+    // For timetravel_mor: expect 1 deltacommit
+    qt_hudi_meta6 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.timetravel_mor", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
 
     sql """drop catalog if exists ${catalog_name};"""
 }

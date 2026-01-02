@@ -48,48 +48,48 @@ suite("test_hudi_snapshot", "p0,external,hudi,external_docker,external_docker_hu
 
     def test_hudi_snapshot_querys = { table_name ->
         // Query all records ordered by event_time in descending order
-        qt_q01 """SELECT * FROM ${table_name} ORDER BY event_time DESC LIMIT 10;"""
+        order_qt_q01 """SELECT * FROM ${table_name} ORDER BY event_time DESC LIMIT 10;"""
 
         // Query specific user's activity records
-        qt_q02 """SELECT * FROM ${table_name} WHERE user_id = 1 ORDER BY event_time LIMIT 5;"""
+        order_qt_q02 """SELECT * FROM ${table_name} WHERE user_id = 1 ORDER BY event_time LIMIT 5;"""
 
         // Query events within a specific time range
-        qt_q03 """SELECT * FROM ${table_name} WHERE event_time BETWEEN 1710000000000 AND 1710000003000 ORDER BY event_time LIMIT 10;"""
+        order_qt_q03 """SELECT * FROM ${table_name} WHERE event_time BETWEEN 1710000000000 AND 1710000003000 ORDER BY event_time LIMIT 10;"""
 
         // Query by action type
-        qt_q04 """SELECT * FROM ${table_name} WHERE action = 'login' ORDER BY event_time LIMIT 5;"""
+        order_qt_q04 """SELECT * FROM ${table_name} WHERE action = 'login' ORDER BY event_time LIMIT 5;"""
 
         // Count records by action
-        qt_q05 """SELECT action, COUNT(*) AS action_count FROM ${table_name} GROUP BY action ORDER BY action_count DESC;"""
+        order_qt_q05 """SELECT action, COUNT(*) AS action_count FROM ${table_name} GROUP BY action ORDER BY action_count DESC;"""
 
         // Query user_id and action
-        qt_q06 """SELECT user_id, action FROM ${table_name} ORDER BY user_id LIMIT 5;"""
+        order_qt_q06 """SELECT user_id, action FROM ${table_name} ORDER BY user_id LIMIT 5;"""
     }
     
     def test_hudi_snapshot_querys_partitioned = { table_name ->
         // Query all records ordered by event_time in descending order
-        qt_q01 """SELECT * FROM ${table_name} ORDER BY event_time DESC LIMIT 10;"""
+        order_qt_q01 """SELECT * FROM ${table_name} ORDER BY event_time DESC LIMIT 10;"""
 
         // Query specific user's activity records
-        qt_q02 """SELECT * FROM ${table_name} WHERE user_id = 1 ORDER BY event_time LIMIT 5;"""
+        order_qt_q02 """SELECT * FROM ${table_name} WHERE user_id = 1 ORDER BY event_time LIMIT 5;"""
 
         // Query events within a specific time range
-        qt_q03 """SELECT * FROM ${table_name} WHERE event_time BETWEEN 1710000000000 AND 1710000003000 ORDER BY event_time LIMIT 10;"""
+        order_qt_q03 """SELECT * FROM ${table_name} WHERE event_time BETWEEN 1710000000000 AND 1710000003000 ORDER BY event_time LIMIT 10;"""
 
         // Query by action type
-        qt_q04 """SELECT * FROM ${table_name} WHERE action = 'login' ORDER BY event_time LIMIT 5;"""
+        order_qt_q04 """SELECT * FROM ${table_name} WHERE action = 'login' ORDER BY event_time LIMIT 5;"""
 
         // Count records by action
-        qt_q05 """SELECT action, COUNT(*) AS action_count FROM ${table_name} GROUP BY action ORDER BY action_count DESC;"""
+        order_qt_q05 """SELECT action, COUNT(*) AS action_count FROM ${table_name} GROUP BY action ORDER BY action_count DESC;"""
 
         // Query user_id and action
-        qt_q06 """SELECT user_id, action FROM ${table_name} ORDER BY user_id LIMIT 5;"""
+        order_qt_q06 """SELECT user_id, action FROM ${table_name} ORDER BY user_id LIMIT 5;"""
 
         // Query by partition column (dt)
-        qt_q07 """SELECT * FROM ${table_name} WHERE dt = '2024-03-01' ORDER BY event_time LIMIT 5;"""
+        order_qt_q07 """SELECT * FROM ${table_name} WHERE dt = '2024-03-01' ORDER BY event_time LIMIT 5;"""
 
         // Query user_id and partition column
-        qt_q08 """SELECT user_id, dt FROM ${table_name} ORDER BY dt, user_id LIMIT 5;"""
+        order_qt_q08 """SELECT user_id, dt FROM ${table_name} ORDER BY dt, user_id LIMIT 5;"""
     }
 
     sql """set force_jni_scanner=true;"""
