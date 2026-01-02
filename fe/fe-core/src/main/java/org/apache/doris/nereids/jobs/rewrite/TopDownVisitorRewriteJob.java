@@ -47,6 +47,7 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext jobContext) {
+        jobContext.getCascadesContext().getStatementContext().incrementCurrentRewriteId();
         Plan originPlan = jobContext.getCascadesContext().getRewritePlan();
         Optional<Rules> relateRules = getRelatedRules(originPlan, rules, jobContext.getCascadesContext());
         if (!relateRules.isPresent()) {
@@ -118,7 +119,9 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
                         String afterShape = processState.updateChildAndGetNewest(originParent, childIndex, newPlan)
                                 .treeString(true, newPlan);
                         cascadesContext.addPlanProcess(
-                                new PlanProcess(currentRule.getRuleType().name(), beforeShape, afterShape)
+                                new PlanProcess(
+                                        cascadesContext.getStatementContext().getCurrentRewriteId().asInt(),
+                                        currentRule.getRuleType().name(), beforeShape, afterShape)
                         );
                     }
                     // if rewrite success, record the rule type

@@ -50,6 +50,7 @@ public class CustomRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext context) {
+        context.getCascadesContext().getStatementContext().incrementCurrentRewriteId();
         BitSet disableRules = Job.getDisableRules(context);
         if (disableRules.get(ruleType.type())) {
             return;
@@ -68,6 +69,7 @@ public class CustomRewriteJob implements RewriteJob {
         if (!root.deepEquals(rewrittenRoot)) {
             if (cascadesContext.showPlanProcess()) {
                 PlanProcess planProcess = new PlanProcess(
+                        cascadesContext.getStatementContext().getCurrentRewriteId().asInt(),
                         ruleType.name(),
                         root.treeString(true, root),
                         rewrittenRoot.treeString(true, rewrittenRoot));

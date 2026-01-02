@@ -58,6 +58,7 @@ public class CostBasedRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext jobContext) {
+        jobContext.getCascadesContext().getStatementContext().incrementCurrentRewriteId();
         // checkHint.first means whether it use hint and checkHint.second means what kind of hint it used
         Pair<Boolean, Hint> checkHint = checkRuleHint();
         // this means it no_use_cbo_rule(xxx) hint

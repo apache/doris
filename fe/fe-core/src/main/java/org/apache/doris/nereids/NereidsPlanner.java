@@ -234,7 +234,7 @@ public class NereidsPlanner extends Planner {
                         case OPTIMIZED_PLAN:
                         case ALL_PLAN:
                             cascadesContext.addPlanProcess(
-                                    new PlanProcess("ImplementSqlCache",
+                                    new PlanProcess(0, "ImplementSqlCache",
                                             parsedPlan.treeString(false, parsedPlan),
                                             physicalPlan.treeString(false, physicalPlan)
                                     )

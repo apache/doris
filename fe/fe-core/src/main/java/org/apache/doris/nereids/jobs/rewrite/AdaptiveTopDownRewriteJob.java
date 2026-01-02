@@ -34,6 +34,7 @@ public class AdaptiveTopDownRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext jobContext) {
+        jobContext.getCascadesContext().getStatementContext().incrementCurrentRewriteId();
         int depth = jobContext.getCascadesContext().getRewritePlan().depth();
         int depthThreshold = jobContext.getCascadesContext().getConnectContext()
                 .getSessionVariable().enableVisitorRewriterDepthThreshold;
