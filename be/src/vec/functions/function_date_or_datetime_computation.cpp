@@ -88,6 +88,24 @@ using FunctionDatetimeAddWeeks = FunctionDateOrDateTimeComputation<AddWeeksImpl<
 using FunctionDatetimeAddMonths = FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeAddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_DATETIMEV2>>;
 
+using FunctionTimestamptzAddMicroseconds =
+        FunctionDateOrDateTimeComputation<AddMicrosecondsImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddMilliseconds =
+        FunctionDateOrDateTimeComputation<AddMillisecondsImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddSeconds =
+        FunctionDateOrDateTimeComputation<AddSecondsImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddMinutes =
+        FunctionDateOrDateTimeComputation<AddMinutesImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddHours =
+        FunctionDateOrDateTimeComputation<AddHoursImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddDays = FunctionDateOrDateTimeComputation<AddDaysImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddWeeks =
+        FunctionDateOrDateTimeComputation<AddWeeksImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddMonths =
+        FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddYears =
+        FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+
 using FunctionDatetimeAddQuarters =
         FunctionDateOrDateTimeComputation<AddQuartersImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeAddDaySecond =
@@ -118,6 +136,37 @@ using FunctionDatetimeSubQuarters =
         FunctionDateOrDateTimeComputation<SubtractQuartersImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeSubYears =
         FunctionDateOrDateTimeComputation<SubtractYearsImpl<TYPE_DATETIMEV2>>;
+
+using FunctionTimestamptzAddQuarters =
+        FunctionDateOrDateTimeComputation<AddQuartersImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddDaySecond =
+        FunctionDateOrDateTimeComputation<AddDaySecondImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddDayHour =
+        FunctionDateOrDateTimeComputation<AddDayHourImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddMinuteSecond =
+        FunctionDateOrDateTimeComputation<AddMinuteSecondImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzAddSecondMicrosecond =
+        FunctionDateOrDateTimeComputation<AddSecondMicrosecondImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzSubMicroseconds =
+        FunctionDateOrDateTimeComputation<SubtractMicrosecondsImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzSubMilliseconds =
+        FunctionDateOrDateTimeComputation<SubtractMillisecondsImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzSubSeconds =
+        FunctionDateOrDateTimeComputation<SubtractSecondsImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzSubMinutes =
+        FunctionDateOrDateTimeComputation<SubtractMinutesImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzSubHours =
+        FunctionDateOrDateTimeComputation<SubtractHoursImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzSubDays =
+        FunctionDateOrDateTimeComputation<SubtractDaysImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzSubWeeks =
+        FunctionDateOrDateTimeComputation<SubtractWeeksImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzSubMonths =
+        FunctionDateOrDateTimeComputation<SubtractMonthsImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzSubQuarters =
+        FunctionDateOrDateTimeComputation<SubtractQuartersImpl<TYPE_TIMESTAMPTZ>>;
+using FunctionTimestamptzSubYears =
+        FunctionDateOrDateTimeComputation<SubtractYearsImpl<TYPE_TIMESTAMPTZ>>;
 
 using FunctionAddTimeDatetime = FunctionNeedsToHandleNull<AddTimeDatetimeImpl, TYPE_DATETIMEV2>;
 using FunctionAddTimeTime = FunctionNeedsToHandleNull<AddTimeTimeImpl, TYPE_TIMEV2>;
@@ -203,6 +252,20 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDatetimeAddDayHour>();
     factory.register_function<FunctionDatetimeAddMinuteSecond>();
     factory.register_function<FunctionDatetimeAddSecondMicrosecond>();
+    factory.register_function<FunctionTimestamptzAddMicroseconds>();
+    factory.register_function<FunctionTimestamptzAddMilliseconds>();
+    factory.register_function<FunctionTimestamptzAddSeconds>();
+    factory.register_function<FunctionTimestamptzAddMinutes>();
+    factory.register_function<FunctionTimestamptzAddHours>();
+    factory.register_function<FunctionTimestamptzAddDays>();
+    factory.register_function<FunctionTimestamptzAddWeeks>();
+    factory.register_function<FunctionTimestamptzAddMonths>();
+    factory.register_function<FunctionTimestamptzAddYears>();
+    factory.register_function<FunctionTimestamptzAddQuarters>();
+    factory.register_function<FunctionTimestamptzAddDaySecond>();
+    factory.register_function<FunctionTimestamptzAddDayHour>();
+    factory.register_function<FunctionTimestamptzAddMinuteSecond>();
+    factory.register_function<FunctionTimestamptzAddSecondMicrosecond>();
 
     factory.register_function<FunctionSubDays>();
     factory.register_function<FunctionSubMonths>();
@@ -220,6 +283,17 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDatetimeSubYears>();
     factory.register_function<FunctionDatetimeSubQuarters>();
     factory.register_function<FunctionDatetimeSubWeeks>();
+
+    factory.register_function<FunctionTimestamptzSubMicroseconds>();
+    factory.register_function<FunctionTimestamptzSubMilliseconds>();
+    factory.register_function<FunctionTimestamptzSubSeconds>();
+    factory.register_function<FunctionTimestamptzSubMinutes>();
+    factory.register_function<FunctionTimestamptzSubHours>();
+    factory.register_function<FunctionTimestamptzSubDays>();
+    factory.register_function<FunctionTimestamptzSubMonths>();
+    factory.register_function<FunctionTimestamptzSubYears>();
+    factory.register_function<FunctionTimestamptzSubQuarters>();
+    factory.register_function<FunctionTimestamptzSubWeeks>();
 
     factory.register_function<FunctionAddTimeDatetime>();
     factory.register_function<FunctionAddTimeTime>();
