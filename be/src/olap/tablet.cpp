@@ -1247,7 +1247,8 @@ std::vector<RowsetSharedPtr> Tablet::_pick_visible_rowsets_to_compaction(
             update_time_long ? config::compaction_keep_invisible_version_min_count
                              : config::compaction_keep_invisible_version_max_count;
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
+    std::vector<RowsetSharedPtr> candidate_rowsets_visible;
+    std::vector<RowsetSharedPtr> candidate_rowsets_invisible;
     {
         std::shared_lock rlock(_meta_lock);
         for (const auto& [version, rs] : _rs_version_map) {
@@ -1262,13 +1263,16 @@ std::vector<RowsetSharedPtr> Tablet::_pick_visible_rowsets_to_compaction(
             // 1. had been visible;
             // 2. exceeds the limit of keep invisible versions.
             int64_t version_end = version.second;
-            if (version_end <= visible_version || ((candidate_rowsets.empty() || candidate_rowsets.front()->version().second > visible_version) 
-                    && version_end > visible_version + keep_invisible_version_limit) {
-                candidate_rowsets.push_back(rs);
+            if (version_end <= visible_version) {
+                candidate_rowsets_visible.push_back(rs);
+            } else if (version_end > visible_version + keep_invisible_version_limit) {
+                candidate_rowsets_invisible.push_back(rs);
             }
         }
     }
-    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    std::vector<RowsetSharedPtr> candidate_rowsets = candidate_rowsets_visible.empty()
+                                                             ? candidate_rowsets_invisible
+                                                             : candidate_rowsets_visible;
     return candidate_rowsets;
 }
 
