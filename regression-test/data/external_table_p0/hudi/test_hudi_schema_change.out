@@ -12,3 +12,16 @@
 10	Judy	27	Austin	101.1
 11	QQ	24	cn	222.2
 
+-- !hudi_0 --
+1	Alice	25	\N	\N
+2	Bob	30	\N	\N
+3	Charlie	28	New York	\N
+4	David	35	Los Angeles	\N
+5	Eve	28	Chicago	\N
+6	Frank	32	San Francisco	85.5
+7	Grace	29	Seattle	90
+8	Heidi	31	Portland	95.5
+9	Ivan	26	Denver	88
+10	Judy	27	Austin	101.1
+11	QQ	24	cn	222.2
+
