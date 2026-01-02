@@ -78,6 +78,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
 import javax.annotation.Nullable;
 
 /**
@@ -121,11 +122,6 @@ public class CascadesContext implements ScheduleContext {
     private boolean isLeadingDisableJoinReorder = false;
 
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
-    private final ThreadLocal<Boolean> showPlanProcess = new ThreadLocal<>();
-
-    // This list is used to listen the change event of the plan which
-    // trigger by rule and show by `explain plan process` statement
-    private final List<PlanProcess> planProcesses = new ArrayList<>();
 
     // this field is modified by FoldConstantRuleOnFE, it matters current traverse
     // into AggregateFunction with distinct, we can not fold constant in this case
@@ -138,7 +134,7 @@ public class CascadesContext implements ScheduleContext {
      * Constructor of OptimizerContext.
      *
      * @param statementContext {@link StatementContext} reference
-     * @param memo {@link Memo} reference
+     * @param memo             {@link Memo} reference
      */
     private CascadesContext(Optional<CascadesContext> parent, Optional<CTEId> currentTree,
             StatementContext statementContext, Plan plan, Memo memo,
@@ -194,14 +190,14 @@ public class CascadesContext implements ScheduleContext {
     }
 
     /**
-     * use for analyze cte. we must pass CteContext from outer since we need to get right scope of cte
+     * use for analyze cte. we must pass CteContext from outer since we need to get
+     * right scope of cte
      */
     public static CascadesContext newContextWithCteContext(CascadesContext cascadesContext,
             Plan initPlan, CTEContext cteContext) {
         return newContext(Optional.of(cascadesContext), Optional.empty(),
                 cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY,
-                cascadesContext.isLeadingDisableJoinReorder
-        );
+                cascadesContext.isLeadingDisableJoinReorder);
     }
 
     public static CascadesContext newCurrentTreeContext(CascadesContext context) {
@@ -223,7 +219,7 @@ public class CascadesContext implements ScheduleContext {
             StatementContext statementContext, Plan initPlan, CTEContext cteContext,
             PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder) {
         return new CascadesContext(parent, subtree, statementContext, initPlan, null,
-            cteContext, requireProperties, isLeadingDisableJoinReorder);
+                cteContext, requireProperties, isLeadingDisableJoinReorder);
     }
 
     public CascadesContext getRoot() {
@@ -259,11 +255,12 @@ public class CascadesContext implements ScheduleContext {
         if (!statementContext.getRewrittenPlansByMv().isEmpty()) {
             // copy tmp plan for mv rewrite firstly
             for (Plan rewrittenPlan : rewrittenPlansByMv) {
-                // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties
+                // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ
+                // in logical properties
                 // tmp rewritten plan output is different from final rewritten plan output
                 if (!rewrittenPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
                     LOG.error("rewritten plan in rbo logical properties are "
-                                    + "different from original plan, query id is {}",
+                            + "different from original plan, query id is {}",
                             getConnectContext().getQueryIdentifier());
                     continue;
                 }
@@ -462,8 +459,8 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void addCTEConsumerGroup(CTEId cteId, Group g, Multimap<Slot, Slot> producerSlotToConsumerSlot) {
-        List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups =
-                this.statementContext.getCteIdToConsumerGroup().computeIfAbsent(cteId, k -> new ArrayList<>());
+        List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups = this.statementContext.getCteIdToConsumerGroup()
+                .computeIfAbsent(cteId, k -> new ArrayList<>());
         consumerGroups.add(Pair.of(producerSlotToConsumerSlot, g));
     }
 
@@ -471,8 +468,8 @@ public class CascadesContext implements ScheduleContext {
      * Update CTE consumer group as producer's stats update
      */
     public void updateConsumerStats(CTEId cteId, Statistics statistics) {
-        List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups
-                = this.statementContext.getCteIdToConsumerGroup().get(cteId);
+        List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups = this.statementContext.getCteIdToConsumerGroup()
+                .get(cteId);
         for (Pair<Multimap<Slot, Slot>, Group> p : consumerGroups) {
             Multimap<Slot, Slot> producerSlotToConsumerSlot = p.first;
             Statistics updatedConsumerStats = new StatisticsBuilder(statistics).build();
@@ -508,70 +505,12 @@ public class CascadesContext implements ScheduleContext {
         return hintMap;
     }
 
-    public void addPlanProcess(PlanProcess planProcess) {
-        planProcesses.add(planProcess);
-    }
-
-    public void addPlanProcesses(List<PlanProcess> planProcesses) {
-        this.planProcesses.addAll(planProcesses);
-    }
-
-    public List<PlanProcess> getPlanProcesses() {
-        return planProcesses;
-    }
-
     public Optional<RootRewriteJobContext> getCurrentRootRewriteJobContext() {
         return currentRootRewriteJobContext;
     }
 
     public void setCurrentRootRewriteJobContext(RootRewriteJobContext currentRootRewriteJobContext) {
         this.currentRootRewriteJobContext = Optional.ofNullable(currentRootRewriteJobContext);
-    }
-
-    /** showPlanProcess */
-    public boolean showPlanProcess() {
-        Boolean show = showPlanProcess.get();
-        if (show != null && show) {
-            return true;
-        }
-        if (parent.isPresent()) {
-            return parent.get().showPlanProcess();
-        }
-        return false;
-    }
-
-    /** set showPlanProcess in task scope */
-    public void withPlanProcess(boolean showPlanProcess, Runnable task) {
-        Boolean originSetting = this.showPlanProcess.get();
-        try {
-            this.showPlanProcess.set(showPlanProcess);
-            task.run();
-        } finally {
-            if (originSetting == null) {
-                this.showPlanProcess.remove();
-            } else {
-                this.showPlanProcess.set(originSetting);
-            }
-        }
-    }
-
-    /** keepOrShowPlanProcess */
-    public void keepOrShowPlanProcess(boolean showPlanProcess, Runnable task) {
-        if (showPlanProcess) {
-            withPlanProcess(showPlanProcess, task);
-        } else {
-            task.run();
-        }
-    }
-
-    public void printPlanProcess() {
-        printPlanProcess(this.planProcesses);
-    }
-
-    public static void printPlanProcess(List<PlanProcess> planProcesses) {
-        for (PlanProcess row : planProcesses) {
-            LOG.info("RULE: {}\nBEFORE:\n{}\nafter:\n{}", row.ruleName, row.beforeShape, row.afterShape);
-        }
     }
 
     public void incrementDistinctAggLevel() {

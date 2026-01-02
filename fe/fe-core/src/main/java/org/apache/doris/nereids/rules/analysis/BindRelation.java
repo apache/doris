@@ -212,20 +212,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 Long indexId = olapTable.getIndexIdByName(indexName.get());
                 if (indexId == null) {
                     throw new AnalysisException("Table " + olapTable.getName()
-                        + " doesn't have materialized view " + indexName.get());
+                            + " doesn't have materialized view " + indexName.get());
                 }
                 PreAggStatus preAggStatus = olapTable.isDupKeysOrMergeOnWrite() ? PreAggStatus.unset()
                         : PreAggStatus.off("For direct index scan on mor/agg.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifier, tabletIds,
-                    CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() : partIds, indexId,
-                    preAggStatus, CollectionUtils.isEmpty(partIds) ? ImmutableList.of() : partIds,
-                    unboundRelation.getHints(), unboundRelation.getTableSample(), ImmutableList.of());
+                        (OlapTable) table, qualifier, tabletIds,
+                        CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() : partIds, indexId,
+                        preAggStatus, CollectionUtils.isEmpty(partIds) ? ImmutableList.of() : partIds,
+                        unboundRelation.getHints(), unboundRelation.getTableSample(), ImmutableList.of());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
-                    unboundRelation.getTableSample(), ImmutableList.of());
+                        (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
+                        unboundRelation.getTableSample(), ImmutableList.of());
             }
         }
         if (!tabletIds.isEmpty()) {
@@ -250,7 +250,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (ConnectContext.get() != null && ConnectContext.get().getState() != null
                 && ConnectContext.get().getState().isQuery()) {
             // we only need to add an agg node for query, and should not do it for deleting
-            // from random distributed table. see https://github.com/apache/doris/pull/37985 for more info
+            // from random distributed table. see https://github.com/apache/doris/pull/37985
+            // for more info
             OlapTable olapTable = olapScan.getTable();
             KeysType keysType = olapTable.getKeysType();
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
@@ -263,6 +264,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     /**
      * add LogicalAggregate above olapScan for preAgg
+     * 
      * @param olapScan olap scan plan
      * @return rewritten plan
      */
@@ -279,8 +281,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         for (Column col : columns) {
             // use exist slot in the plan
             SlotReference slot = SlotReference.fromColumn(
-                    exprIdGenerator.getNextId(), olapTable, col, olapScan.qualified()
-            );
+                    exprIdGenerator.getNextId(), olapTable, col, olapScan.qualified());
             ExprId exprId = slot.getExprId();
             for (Slot childSlot : childOutputSlots) {
                 if (childSlot instanceof SlotReference && childSlot.getName().equals(col.getName())) {
@@ -382,7 +383,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
-                                       List<String> qualifiedTableName, CascadesContext cascadesContext) {
+            List<String> qualifiedTableName, CascadesContext cascadesContext) {
         // for create view stmt replace tableName to ctl.db.tableName
         unboundRelation.getIndexInSqlString().ifPresent(pair -> {
             StatementContext statementContext = cascadesContext.getStatementContext();
@@ -450,7 +451,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             // or else this exception will not be thrown
                             // because legacy planner will retry and thrown other exception
                             throw new UnsupportedOperationException(
-                                "iceberg view not supported with snapshot time/version travel");
+                                    "iceberg view not supported with snapshot time/version travel");
                         }
                         isView = true;
                         String icebergCatalog = icebergExternalTable.getCatalog().getName();
@@ -462,13 +463,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     }
                     if (icebergExternalTable.isView()) {
                         throw new UnsupportedOperationException(
-                            "please set enable_query_iceberg_views=true to enable query iceberg views");
+                                "please set enable_query_iceberg_views=true to enable query iceberg views");
                     }
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                        qualifierWithoutTableName, ImmutableList.of(),
-                        unboundRelation.getTableSample(),
-                        unboundRelation.getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
+                            qualifierWithoutTableName, ImmutableList.of(),
+                            unboundRelation.getTableSample(),
+                            unboundRelation.getTableSnapshot(),
+                            Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
@@ -483,7 +484,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     RemoteDorisExternalTable externalTable = (RemoteDorisExternalTable) table;
                     if (!externalTable.useArrowFlight()) {
                         if (!ctx.getSessionVariable().isEnableNereidsDistributePlanner()) {
-                            // use isEnableNereidsDistributePlanner instead of canUseNereidsDistributePlanner
+                            // use isEnableNereidsDistributePlanner instead of
+                            // canUseNereidsDistributePlanner
                             // because it cannot work in explain command
                             throw new AnalysisException("query remote doris only support NereidsDistributePlanner"
                                     + " when catalog use_arrow_flight is false");
@@ -543,8 +545,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
         } finally {
             if (!isView) {
-                Optional<SqlCacheContext> sqlCacheContextOpt
-                        = cascadesContext.getStatementContext().getSqlCacheContext();
+                Optional<SqlCacheContext> sqlCacheContextOpt = cascadesContext.getStatementContext()
+                        .getSqlCacheContext();
                 if (sqlCacheContextOpt.isPresent()) {
                     SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
                     try {
@@ -591,8 +593,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         Pair<String, Map<String, String>> viewInfo = parentContext.getStatementContext()
                 .getAndCacheViewInfo(tableQualifier, view);
         Plan analyzedPlan;
-        Map<String, String> currentSessionVars =
-                parentContext.getConnectContext().getSessionVariable().getAffectQueryResultInPlanVariables();
+        Map<String, String> currentSessionVars = parentContext.getConnectContext().getSessionVariable()
+                .getAffectQueryResultInPlanVariables();
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
                 viewInfo.second)) {
             analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);
@@ -630,11 +632,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
-        viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(), () -> {
-            viewContext.newAnalyzer().analyze();
-        });
-        parentContext.addPlanProcesses(viewContext.getPlanProcesses());
-        // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
+        viewContext.getStatementContext().keepOrShowPlanProcess(
+                parentContext.getStatementContext().showPlanProcess(), () -> {
+                    viewContext.newAnalyzer().analyze();
+                });
+        // we should remove all group expression of the plan which in other memo, so the
+        // groupId would not conflict
         return viewContext.getRewritePlan();
     }
 
@@ -646,7 +649,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (!t.isManagedTable()) {
             throw new AnalysisException(String.format(
                     "Only OLAP table is support select by partition for now,"
-                            + "Table: %s is not OLAP table", t.getName()));
+                            + "Table: %s is not OLAP table",
+                    t.getName()));
         }
         return parts.stream().map(name -> {
             Partition part = ((OlapTable) t).getPartition(name, unboundRelation.isTempPart());

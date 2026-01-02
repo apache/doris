@@ -88,7 +88,8 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * Utility to apply rules to plan and check output plan matches the expected pattern.
+ * Utility to apply rules to plan and check output plan matches the expected
+ * pattern.
  */
 public class PlanChecker {
     private final ConnectContext connectContext;
@@ -180,7 +181,7 @@ public class PlanChecker {
 
     public PlanChecker customRewrite(CustomRewriter customRewriter) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                        ImmutableList.of(Rewriter.custom(RuleType.TEST_REWRITE, () -> customRewriter)))
+                ImmutableList.of(Rewriter.custom(RuleType.TEST_REWRITE, () -> customRewriter)))
                 .execute();
         MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
@@ -203,9 +204,10 @@ public class PlanChecker {
     public List<PlanProcess> explainPlanProcess() {
         NereidsPlanner planner = new NereidsPlanner(
                 new StatementContext(connectContext, new OriginStatement("", 0)));
-        planner.planWithLock((LogicalPlan) cascadesContext.getRewritePlan(), PhysicalProperties.ANY, ExplainLevel.ALL_PLAN, true);
+        planner.planWithLock((LogicalPlan) cascadesContext.getRewritePlan(), PhysicalProperties.ANY,
+                ExplainLevel.ALL_PLAN, true);
         this.cascadesContext = planner.getCascadesContext();
-        return cascadesContext.getPlanProcesses();
+        return cascadesContext.getStatementContext().getPlanProcesses();
     }
 
     public List<PlanProcess> explainPlanProcess(String sql) {
@@ -215,7 +217,7 @@ public class PlanChecker {
                 new StatementContext(connectContext, new OriginStatement(sql, 0)));
         planner.planWithLock(command, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN, true);
         this.cascadesContext = planner.getCascadesContext();
-        return cascadesContext.getPlanProcesses();
+        return cascadesContext.getStatementContext().getPlanProcesses();
     }
 
     public PlanChecker applyTopDown(RuleFactory ruleFactory) {
@@ -228,7 +230,8 @@ public class PlanChecker {
 
     public PlanChecker applyTopDown(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                        ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteTopDownJob::new, true)))
+                ImmutableList
+                        .of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
         MemoTestUtils.initMemoAndValidState(cascadesContext);
         cascadesContext.getStatementContext().setNeedPreMvRewrite(
@@ -248,7 +251,8 @@ public class PlanChecker {
     /**
      * apply a top down rewrite rule if you not care the ruleId
      *
-     * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
+     * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan
+     *                       -> olapScan)
      * @return this checker, for call chaining of follow-up check
      */
     public PlanChecker applyTopDownInMemo(PatternMatcher patternMatcher) {
@@ -267,7 +271,7 @@ public class PlanChecker {
 
     public PlanChecker applyBottomUp(RuleFactory rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                        ImmutableList.of(Rewriter.bottomUp(rule)))
+                ImmutableList.of(Rewriter.bottomUp(rule)))
                 .execute();
         MemoTestUtils.initMemoAndValidState(cascadesContext);
         cascadesContext.getStatementContext().setNeedPreMvRewrite(
@@ -278,7 +282,8 @@ public class PlanChecker {
 
     public PlanChecker applyBottomUp(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                        ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteBottomUpJob::new, true)))
+                ImmutableList
+                        .of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteBottomUpJob::new, true)))
                 .execute();
         MemoTestUtils.initMemoAndValidState(cascadesContext);
         cascadesContext.getStatementContext().setNeedPreMvRewrite(
@@ -290,7 +295,8 @@ public class PlanChecker {
     /**
      * apply a bottom up rewrite rule if you not care the ruleId
      *
-     * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
+     * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan
+     *                       -> olapScan)
      * @return this checker, for call chaining of follow-up check
      */
     public PlanChecker applyBottomUpInMemo(PatternMatcher patternMatcher) {
@@ -310,7 +316,7 @@ public class PlanChecker {
     public PlanChecker rewrite() {
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
         try {
-            cascadesContext.withPlanProcess(true, () -> {
+            cascadesContext.getStatementContext().withPlanProcess(true, () -> {
                 Rewriter.getWholeTreeRewriter(cascadesContext).execute();
                 cascadesContext.toMemo();
                 cascadesContext.getStatementContext().setNeedPreMvRewrite(
@@ -318,7 +324,8 @@ public class PlanChecker {
                 collectTableInfoAndInitHook(cascadesContext);
             });
         } finally {
-            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // revert Session Value, because setVarOnceInSql will set some session variable,
+            // this would influence
             // other test cases
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -366,12 +373,14 @@ public class PlanChecker {
             }
             plansWhichContainMv.add(ruleOptimizedPlan);
         }
-        // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
+        // if rule-based optimized, would not be rewritten by cbo, so clear materialized
+        // hooks
         this.cascadesContext.getStatementContext().setPreMvRewritten(true);
         if (plansWhichContainMv.isEmpty()) {
             return this;
         }
-        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+        // clear the rewritten plans which are tmp optimized, should be filled by full
+        // optimize later
         statementContext.getRewrittenPlansByMv().clear();
         plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
         return this;
@@ -402,7 +411,8 @@ public class PlanChecker {
         try {
             planner.plan(parsedPlanAdaptor);
         } finally {
-            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // revert Session Value, because setVarOnceInSql will set some session variable,
+            // this would influence
             // other test cases
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -451,8 +461,7 @@ public class PlanChecker {
 
     private Plan transformToPhysicalPlan(Group group) {
         PhysicalPlan current = null;
-        loop:
-        for (Rule rule : RuleSet.IMPLEMENTATION_RULES) {
+        loop: for (Rule rule : RuleSet.IMPLEMENTATION_RULES) {
             GroupExpressionMatching matching = new GroupExpressionMatching(rule.getPattern(),
                     group.getLogicalExpression());
             for (Plan plan : matching) {
@@ -525,10 +534,13 @@ public class PlanChecker {
     private PlanChecker applyExploration(Group group, Rule rule) {
         // copy children expression, because group may be changed after apply rule.
         List<GroupExpression> logicalExpressions = Lists.newArrayList(group.getLogicalExpressions());
-        // due to mergeGroup, the children Group of groupExpression may be replaced, so we need to use lambda to
+        // due to mergeGroup, the children Group of groupExpression may be replaced, so
+        // we need to use lambda to
         // get the child to make we can get child at the time we use child.
-        // If we use for child: groupExpression.children(), it means that we take it in advance. It may cause NPE,
-        // work flow: get children() to get left, right -> copyIn left() -> mergeGroup -> right is merged -> NPE
+        // If we use for child: groupExpression.children(), it means that we take it in
+        // advance. It may cause NPE,
+        // work flow: get children() to get left, right -> copyIn left() -> mergeGroup
+        // -> right is merged -> NPE
         for (int i = 0; i < logicalExpressions.size(); i++) {
             final int childIdx = i;
             applyExploration(() -> logicalExpressions.get(childIdx), rule);
@@ -600,8 +612,8 @@ public class PlanChecker {
 
     public PlanChecker deriveStats() {
         MemoTestUtils.initMemoAndValidState(cascadesContext);
-        cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression ->
-                cascadesContext.pushJob(new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
+        cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression -> cascadesContext
+                .pushJob(new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         return this;
     }
@@ -672,8 +684,7 @@ public class PlanChecker {
         Assertions.assertTrue(asserter.get(),
                 () -> "pattern not match, plan :\n"
                         + memo.copyOut().treeString()
-                        + "\n"
-        );
+                        + "\n");
         return this;
     }
 
@@ -712,8 +723,7 @@ public class PlanChecker {
                             throw new IllegalStateException(ruleType + " invoke too many times: " + maxInvokeTime);
                         }
                     }
-                }
-        );
+                });
         return this;
     }
 
@@ -729,7 +739,8 @@ public class PlanChecker {
         try {
             nereidsPlanner.plan(adapter);
         } finally {
-            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // revert Session Value, because setVarOnceInSql will set some session variable,
+            // this would influence
             // other test cases
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -754,7 +765,8 @@ public class PlanChecker {
         try {
             nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         } finally {
-            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // revert Session Value, because setVarOnceInSql will set some session variable,
+            // this would influence
             // other test cases
             try {
                 VariableMgr.revertSessionValue(sessionVariable);

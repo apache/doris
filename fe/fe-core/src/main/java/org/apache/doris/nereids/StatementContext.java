@@ -184,6 +184,10 @@ public class StatementContext implements Closeable {
     private final List<Hint> hints = new ArrayList<>();
     private boolean hintForcePreAggOn = false;
 
+    // plan process trace
+    private final ThreadLocal<Boolean> showPlanProcess = new ThreadLocal<>();
+    private final List<PlanProcess> planProcesses = new ArrayList<>();
+
     private RewriteId currentRewriteId;
 
     // the columns in Plan.getExpressions(), such as columns in join condition or
@@ -650,6 +654,54 @@ public class StatementContext implements Closeable {
 
     public List<Hint> getHints() {
         return ImmutableList.copyOf(hints);
+    }
+
+    /** showPlanProcess */
+    public boolean showPlanProcess() {
+        Boolean show = showPlanProcess.get();
+        return show != null && show;
+    }
+
+    /** set showPlanProcess in task scope */
+    public void withPlanProcess(boolean showPlanProcess, Runnable task) {
+        Boolean originSetting = this.showPlanProcess.get();
+        try {
+            this.showPlanProcess.set(showPlanProcess);
+            task.run();
+        } finally {
+            if (originSetting == null) {
+                this.showPlanProcess.remove();
+            } else {
+                this.showPlanProcess.set(originSetting);
+            }
+        }
+    }
+
+    /** keepOrShowPlanProcess */
+    public void keepOrShowPlanProcess(boolean showPlanProcess, Runnable task) {
+        if (showPlanProcess) {
+            withPlanProcess(showPlanProcess, task);
+        } else {
+            task.run();
+        }
+    }
+
+    public void addPlanProcess(PlanProcess planProcess) {
+        planProcesses.add(planProcess);
+    }
+
+    public List<PlanProcess> getPlanProcesses() {
+        return planProcesses;
+    }
+
+    public void printPlanProcess() {
+        printPlanProcess(this.planProcesses);
+    }
+
+    public static void printPlanProcess(List<PlanProcess> planProcesses) {
+        for (PlanProcess row : planProcesses) {
+            LOG.info("RULE: {}\nBEFORE:\n{}\nafter:\n{}", row.ruleName, row.beforeShape, row.afterShape);
+        }
     }
 
     public List<Expression> getJoinFilters() {

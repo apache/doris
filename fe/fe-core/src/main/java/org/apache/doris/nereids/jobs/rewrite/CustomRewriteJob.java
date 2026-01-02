@@ -31,9 +31,12 @@ import java.util.function.Supplier;
 
 /**
  * Custom rewrite the plan.
- * Just pass the plan node to the 'CustomRewriter', and the 'CustomRewriter' rule will handle it.
- * The 'CustomRewriter' rule use the 'Visitor' design pattern to implement the rule.
- * You can check the 'CustomRewriter' interface to see which rules use this way to do rewrite.
+ * Just pass the plan node to the 'CustomRewriter', and the 'CustomRewriter'
+ * rule will handle it.
+ * The 'CustomRewriter' rule use the 'Visitor' design pattern to implement the
+ * rule.
+ * You can check the 'CustomRewriter' interface to see which rules use this way
+ * to do rewrite.
  */
 public class CustomRewriteJob implements RewriteJob {
 
@@ -57,8 +60,9 @@ public class CustomRewriteJob implements RewriteJob {
         }
         CascadesContext cascadesContext = context.getCascadesContext();
         Plan root = cascadesContext.getRewritePlan();
-        // COUNTER_TRACER.log(CounterEvent.of(Memo.get=-StateId(), CounterType.JOB_EXECUTION, group, logicalExpression,
-        //         root));
+        // COUNTER_TRACER.log(CounterEvent.of(Memo.get=-StateId(),
+        // CounterType.JOB_EXECUTION, group, logicalExpression,
+        // root));
         Plan rewrittenRoot = customRewriter.get().rewriteRoot(root, context);
         if (rewrittenRoot == null) {
             return;
@@ -67,13 +71,13 @@ public class CustomRewriteJob implements RewriteJob {
         // don't remove this comment, it can help us to trace some bug when developing.
 
         if (!root.deepEquals(rewrittenRoot)) {
-            if (cascadesContext.showPlanProcess()) {
+            if (cascadesContext.getStatementContext().showPlanProcess()) {
                 PlanProcess planProcess = new PlanProcess(
                         cascadesContext.getStatementContext().getCurrentRewriteId().asInt(),
                         ruleType.name(),
                         root.treeString(true, root),
                         rewrittenRoot.treeString(true, rewrittenRoot));
-                cascadesContext.addPlanProcess(planProcess);
+                cascadesContext.getStatementContext().addPlanProcess(planProcess);
             }
             // if rewrite success, record the rule type
             context.getCascadesContext().getStatementContext().ruleSetApplied(ruleType);

@@ -54,8 +54,7 @@ public class ExplainCommand extends Command implements NoForward {
         SHAPE_PLAN(true),
         MEMO_PLAN(true),
         DISTRIBUTED_PLAN(true),
-        ALL_PLAN(true)
-        ;
+        ALL_PLAN(true);
 
         public final boolean isPlanLevel;
 
@@ -91,9 +90,8 @@ public class ExplainCommand extends Command implements NoForward {
             ctx.getStatementContext().setSkipPrunePredicate(true);
         }
         explainPlan = ((LogicalPlan) explainable.getExplainPlan(ctx));
-        NereidsPlanner planner = explainable.getExplainPlanner(explainPlan, ctx.getStatementContext()).orElseGet(() ->
-            new NereidsPlanner(ctx.getStatementContext())
-        );
+        NereidsPlanner planner = explainable.getExplainPlanner(explainPlan, ctx.getStatementContext())
+                .orElseGet(() -> new NereidsPlanner(ctx.getStatementContext()));
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
         ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
@@ -106,7 +104,8 @@ public class ExplainCommand extends Command implements NoForward {
         executor.setPlanner(planner);
         executor.checkBlockRules();
         if (showPlanProcess) {
-            executor.handleExplainPlanProcessStmt(planner.getCascadesContext().getPlanProcesses());
+            executor.handleExplainPlanProcessStmt(
+                    planner.getCascadesContext().getStatementContext().getPlanProcesses());
         } else {
             executor.handleExplainStmt(planner.getExplainString(explainOptions), true);
         }
