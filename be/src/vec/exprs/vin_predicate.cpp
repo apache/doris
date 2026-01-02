@@ -134,7 +134,7 @@ Status VInPredicate::execute_column(VExprContext* context, const Block* block, s
     Block temp_block;
     for (int i = 0; i < args_size; ++i) {
         ColumnPtr column;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, column));
+        RETURN_IF_ERROR(_children[i]->execute_checked(context, block, count, column));
         arguments.push_back(i);
         temp_block.insert({column, _children[i]->execute_type(block), _children[i]->expr_name()});
     }

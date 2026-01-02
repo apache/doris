@@ -114,7 +114,7 @@ Status VCastExpr::execute_column(VExprContext* context, const Block* block, size
     // for each child call execute
 
     ColumnPtr from_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, from_column));
+    RETURN_IF_ERROR(_children[0]->execute_checked(context, block, count, from_column));
 
     Block temp_block;
     temp_block.insert({from_column, _children[0]->execute_type(block), _children[0]->expr_name()});
@@ -157,7 +157,7 @@ Status TryCastExpr::execute_column(VExprContext* context, const Block* block, si
     // execute child first
 
     ColumnPtr from_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, from_column));
+    RETURN_IF_ERROR(_children[0]->execute_checked(context, block, count, from_column));
     auto from_type = _children[0]->execute_type(block);
 
     // prepare block

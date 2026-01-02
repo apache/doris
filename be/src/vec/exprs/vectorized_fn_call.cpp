@@ -217,7 +217,7 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, 
 
     for (int i = 0; i < _children.size(); ++i) {
         ColumnPtr tmp_arg_column;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, tmp_arg_column));
+        RETURN_IF_ERROR(_children[i]->execute_checked(context, block, count, tmp_arg_column));
         auto arg_type = _children[i]->execute_type(block);
         temp_block.insert({tmp_arg_column, arg_type, _children[i]->expr_name()});
         args[i] = i;

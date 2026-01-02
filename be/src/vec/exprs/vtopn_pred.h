@@ -95,7 +95,7 @@ public:
 
         // slot
         ColumnPtr slot_column;
-        RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, slot_column));
+        RETURN_IF_ERROR(_children[0]->execute_checked(context, block, count, slot_column));
         auto slot_type = _children[0]->execute_type(block);
         temp_block.insert({slot_column, slot_type, _children[0]->expr_name()});
         int slot_id = 0;

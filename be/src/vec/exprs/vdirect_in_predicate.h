@@ -120,7 +120,7 @@ private:
         DCHECK(_open_finished || block == nullptr);
 
         ColumnPtr argument_column;
-        RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, argument_column));
+        RETURN_IF_ERROR(_children[0]->execute_checked(context, block, count, argument_column));
         argument_column = argument_column->convert_to_full_column_if_const();
 
         if (arg_column != nullptr) {

@@ -45,7 +45,7 @@ public:
     Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override {
         DCHECK(_open_finished || block == nullptr);
-        return get_child(0)->execute_column(context, block, count, result_column);
+        return get_child(0)->execute_checked(context, block, count, result_column);
     }
 
     DataTypePtr execute_type(const Block* block) const override {

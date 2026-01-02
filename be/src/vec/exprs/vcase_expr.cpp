@@ -90,7 +90,7 @@ Status VCaseExpr::execute_column(VExprContext* context, const Block* block, size
 
     if (_has_else_expr) {
         ColumnPtr else_column_ptr;
-        RETURN_IF_ERROR(_children.back()->execute_column(context, block, count, else_column_ptr));
+        RETURN_IF_ERROR(_children.back()->execute_checked(context, block, count, else_column_ptr));
         then_columns.emplace_back(else_column_ptr);
     } else {
         then_columns.emplace_back(nullptr);
@@ -98,13 +98,13 @@ Status VCaseExpr::execute_column(VExprContext* context, const Block* block, size
 
     for (int i = 0; i < _children.size() - _has_else_expr; i += 2) {
         ColumnPtr when_column_ptr;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, when_column_ptr));
+        RETURN_IF_ERROR(_children[i]->execute_checked(context, block, count, when_column_ptr));
         if (calculate_false_number(when_column_ptr) == rows_count) {
             continue;
         }
         when_columns.emplace_back(when_column_ptr);
         ColumnPtr then_column_ptr;
-        RETURN_IF_ERROR(_children[i + 1]->execute_column(context, block, count, then_column_ptr));
+        RETURN_IF_ERROR(_children[i + 1]->execute_checked(context, block, count, then_column_ptr));
         then_columns.emplace_back(then_column_ptr);
     }
 

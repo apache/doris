@@ -153,6 +153,14 @@ public:
     // Therefore we need a function like this to return the actual type produced by execution.
     virtual DataTypePtr execute_type(const Block* block) const { return _data_type; }
 
+    Status execute_checked(VExprContext* context, const Block* block, size_t count,
+                           ColumnPtr& result_column) const {
+        RETURN_IF_ERROR(execute_column(context, block, count, result_column));
+        auto result_type = execute_type(block);
+        RETURN_IF_ERROR(result_type->check_column(*result_column));
+        return Status::OK();
+    }
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
