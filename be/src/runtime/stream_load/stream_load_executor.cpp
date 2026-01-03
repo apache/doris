@@ -85,8 +85,7 @@ Status StreamLoadExecutor::execute_plan_fragment(
     Status st;
     std::shared_ptr<bool> is_prepare_success = std::make_shared<bool>(false);
 
-    auto exec_fragment = [ctx, cb, this, is_prepare_success](RuntimeState* state,
-                                                                            Status* status) {
+    auto exec_fragment = [ctx, cb, this, is_prepare_success](RuntimeState* state, Status* status) {
         if (ctx->group_commit) {
             ctx->label = state->import_label();
             ctx->txn_id = state->wal_id();
