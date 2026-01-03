@@ -129,6 +129,12 @@ public:
         return _utc_dt.datetime_trunc<unit>();
     }
 
+    // Convert UTC time to local time based on the given timezone
+    void convert_utc_to_local(const cctz::time_zone& local_time_zone);
+
+    // Convert local time to UTC time based on the given timezone
+    void convert_local_to_utc(const cctz::time_zone& local_time_zone);
+
     TimestampTzValue& operator++() {
         ++_utc_dt;
         return *this;

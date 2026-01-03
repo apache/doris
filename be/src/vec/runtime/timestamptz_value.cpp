@@ -130,4 +130,28 @@ bool TimestampTzValue::to_datetime(DateV2Value<DateTimeV2ValueType>& dt,
                                        dt.microsecond());
 }
 
+void TimestampTzValue::convert_utc_to_local(const cctz::time_zone& local_time_zone) {
+    cctz::civil_second utc_cs(_utc_dt.year(), _utc_dt.month(), _utc_dt.day(), _utc_dt.hour(),
+                              _utc_dt.minute(), _utc_dt.second());
+    cctz::time_point<cctz::seconds> utc_tp = cctz::convert(utc_cs, cctz::utc_time_zone());
+    auto local_cs = cctz::convert(utc_tp, local_time_zone);
+
+    _utc_dt.unchecked_set_time((uint16_t)local_cs.year(), (uint8_t)local_cs.month(),
+                               (uint8_t)local_cs.day(), (uint8_t)local_cs.hour(),
+                               (uint8_t)local_cs.minute(), (uint8_t)local_cs.second(),
+                               _utc_dt.microsecond());
+}
+
+void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zone) {
+    cctz::civil_second local_cs(_utc_dt.year(), _utc_dt.month(), _utc_dt.day(), _utc_dt.hour(),
+                                _utc_dt.minute(), _utc_dt.second());
+    cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
+    auto utc_cs = cctz::convert(local_tp, cctz::utc_time_zone());
+
+    _utc_dt.unchecked_set_time((uint16_t)utc_cs.year(), (uint8_t)utc_cs.month(),
+                               (uint8_t)utc_cs.day(), (uint8_t)utc_cs.hour(),
+                               (uint8_t)utc_cs.minute(), (uint8_t)utc_cs.second(),
+                               _utc_dt.microsecond());
+}
+
 } // namespace doris

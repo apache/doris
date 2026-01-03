@@ -113,6 +113,77 @@ suite("doc_date_functions_test") {
         
         return true
     }
+
+    /**
+     * Use datetime version to validate timestamptz DATE_TRUNC function
+     * The first parameter can be timestamptz type, and we need to verify:
+     * resTz should equal resDttm + '+08:00'
+     * E.g., "2019-01-01 00:00:00+08:00" should equal "2019-01-01 00:00:00" + '+08:00'
+     */
+    def validateTimestamptzTrunc = { sqlWithTz ->
+        sqlWithTz = sqlWithTz.replaceAll(/;\s*$/, '').trim()
+        
+        // Extract function name and parameters
+        def matcher = sqlWithTz =~ /(\w+)\s*\((.*)\)/
+        if (!matcher) {
+            logger.error("Failed to parse SQL: ${sqlWithTz}")
+            return false
+        }
+        
+        def funcName = matcher[0][1]
+        def params = matcher[0][2].split(',').collect { it.trim() }
+        
+        // Check if first parameter exists and is timestamptz
+        if (params.size() < 1) {
+            logger.error("No parameters found in: ${sqlWithTz}")
+            return false
+        }
+        
+        def firstParam = params[0]
+        def isTimestamptz = firstParam =~ /[+-]\d{2}:\d{2}['"]?\s*$/ || firstParam =~ /Z['"]?\s*$/
+        
+        if (!isTimestamptz) {
+            logger.info("First parameter is not timestamptz, skipping validation: ${sqlWithTz}")
+            return true
+        }
+        
+        // Convert first parameter to datetime in +08:00 timezone
+        def tzMatcher = firstParam =~ /'([^']+)'/
+        if (!tzMatcher) {
+            logger.error("Failed to extract timestamptz value from: ${firstParam}")
+            return false
+        }
+        
+        def tzValue = tzMatcher[0][1]
+        def convertedResult = sql("SELECT CAST(CAST('${tzValue}' AS DATETIME) AS STRING)")[0][0]
+        
+        // Build datetime query with converted first parameter
+        def convertedParams = ["'${convertedResult}'"] + params.drop(1)
+        
+        // Execute both queries
+        def resTz = sql("SELECT CAST((${sqlWithTz}) AS STRING)")[0][0]
+        def sqlWithDt = "SELECT CAST((${funcName}(${convertedParams.join(', ')})) AS STRING)"
+        logger.info("Datetime query: ${sqlWithDt}")
+        def resDttm = sql(sqlWithDt)[0][0]
+        
+        // Validate: resTz should equal resDttm + '+08:00'
+        def resTzStr = resTz.toString()
+        def resDttmStr = resDttm.toString()
+        
+        def expectedTz = "${resDttmStr}+08:00"
+        
+        if (!resTzStr.equals(expectedTz)) {
+            logger.error("Validation failed for DATE_TRUNC with timestamptz: ${sqlWithTz}")
+            logger.error("Expected: ${expectedTz}")
+            logger.error("Got: ${resTzStr}")
+            logger.error("Datetime result: ${resDttmStr}")
+            return false
+        }
+        
+        logger.info("DATE_TRUNC timestamptz validation passed: resTz=${resTzStr}, resDttm=${resDttmStr}")
+        return true
+    }
+
     // 1. CONVERT_TZ function tests
     // Convert China Shanghai time to America Los Angeles
     qt_convert_tz_1 """select CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATETIME), 'Asia/Shanghai', 'America/Los_Angeles')"""
@@ -377,6 +448,28 @@ suite("doc_date_functions_test") {
     
     // Parameter is NULL
     qt_date_trunc_5 """SELECT DATE_TRUNC(NULL, 'year')"""
+
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2023-03-15 14:25:38.999999+02:00', 'second')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2024-06-20 09:47:59.123456-04:00', 'second')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2024-06-20 09:59:45-04:00', 'minute')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2023-11-08 23:59:30+09:00', 'minute')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2023-11-08 23:35:12+09:00', 'hour')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2024-02-29 23:45:30-05:00', 'hour')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2023-05-15 22:30:15+05:30', 'hour')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2024-01-31 23:18:45Z', 'day')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2023-12-31 20:30:15+02:00', 'day')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2024-03-31 22:15:40-06:00', 'day')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2023-09-10 23:22:33+05:30', 'week')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2024-12-29 22:15:40-05:00', 'week')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2024-01-31 23:41:56-07:00', 'month')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2023-12-31 20:30:00+01:00', 'month')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2024-06-30 23:45:20+05:00', 'month')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2023-03-31 23:29:14+01:00', 'quarter')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2024-09-30 22:45:30-06:00', 'quarter')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2023-12-31 21:15:45+02:00', 'quarter')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2024-12-31 23:52:27-11:00', 'year')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2025-12-31 22:30:15+03:00', 'year')")
+    validateTimestamptzTrunc("SELECT DATE_TRUNC('2023-12-31 20:15:45+01:00', 'year')")
 
     // Group 2: Day functions and related date extraction functions
     
@@ -2156,6 +2249,27 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT DATE_TRUNC('2019-05-09 12:30:45', 'day')")
     testFoldConst("SELECT DATE_TRUNC('2019-05-09 12:30:45', 'hour')")
     testFoldConst("SELECT DATE_TRUNC(NULL, 'day')")
+    testFoldConst("SELECT DATE_TRUNC('2023-03-15 14:25:38.999999+02:00', 'second')")
+    testFoldConst("SELECT DATE_TRUNC('2024-06-20 09:47:59.123456-04:00', 'second')")
+    testFoldConst("SELECT DATE_TRUNC('2024-06-20 09:59:45-04:00', 'minute')")
+    testFoldConst("SELECT DATE_TRUNC('2023-11-08 23:59:30+09:00', 'minute')")
+    testFoldConst("SELECT DATE_TRUNC('2023-11-08 23:35:12+09:00', 'hour')")
+    testFoldConst("SELECT DATE_TRUNC('2024-02-29 23:45:30-05:00', 'hour')")
+    testFoldConst("SELECT DATE_TRUNC('2023-05-15 22:30:15+05:30', 'hour')")
+    testFoldConst("SELECT DATE_TRUNC('2024-01-31 23:18:45Z', 'day')")
+    testFoldConst("SELECT DATE_TRUNC('2023-12-31 20:30:15+02:00', 'day')")
+    testFoldConst("SELECT DATE_TRUNC('2024-03-31 22:15:40-06:00', 'day')")
+    testFoldConst("SELECT DATE_TRUNC('2023-09-10 23:22:33+05:30', 'week')")
+    testFoldConst("SELECT DATE_TRUNC('2024-12-29 22:15:40-05:00', 'week')")
+    testFoldConst("SELECT DATE_TRUNC('2024-01-31 23:41:56-07:00', 'month')")
+    testFoldConst("SELECT DATE_TRUNC('2023-12-31 20:30:00+01:00', 'month')")
+    testFoldConst("SELECT DATE_TRUNC('2024-06-30 23:45:20+05:00', 'month')")
+    testFoldConst("SELECT DATE_TRUNC('2023-03-31 23:29:14+01:00', 'quarter')")
+    testFoldConst("SELECT DATE_TRUNC('2024-09-30 22:45:30-06:00', 'quarter')")
+    testFoldConst("SELECT DATE_TRUNC('2023-12-31 21:15:45+02:00', 'quarter')")
+    testFoldConst("SELECT DATE_TRUNC('2024-12-31 23:52:27-11:00', 'year')")
+    testFoldConst("SELECT DATE_TRUNC('2025-12-31 22:30:15+03:00', 'year')")
+    testFoldConst("SELECT DATE_TRUNC('2023-12-31 20:15:45+01:00', 'year')")
 
     // Test constant folding for Group 2 functions (Day functions and related)
     
