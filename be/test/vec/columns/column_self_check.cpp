@@ -22,6 +22,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_map.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -117,6 +118,36 @@ TEST(ColumnSelfCheckTest, nullmap_check_test) {
         auto col_const = ColumnConst::create(col, 2);
 
         EXPECT_EQ(col_const->column_self_check(), false);
+    }
+}
+TEST(ColumnSelfCheckTest, complex_type_data_nullable_check) {
+    // array/map data column is nullable check
+    {
+        auto data_col = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
+        auto offsets_col = ColumnArray::ColumnOffsets::create(0, 3);
+        auto array_col = ColumnArray::create(data_col, std::move(offsets_col));
+
+        EXPECT_EQ(array_col->complex_type_data_nullable_check(), true);
+    }
+    {
+        auto data_col = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+        auto offsets_col = ColumnArray::ColumnOffsets::create(0, 3);
+        auto array_col = ColumnArray::create(data_col, std::move(offsets_col));
+        EXPECT_EQ(array_col->complex_type_data_nullable_check(), false);
+    }
+    {
+        auto keys_col = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
+        auto values_col = ColumnHelper::create_nullable_column<DataTypeInt32>({4, 5, 6}, {0, 0, 0});
+        auto offsets_col = ColumnArray::ColumnOffsets::create(0, 3);
+        auto map_col = ColumnMap::create(keys_col, values_col, std::move(offsets_col));
+        EXPECT_EQ(map_col->complex_type_data_nullable_check(), true);
+    }
+    {
+        auto keys_col = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+        auto values_col = ColumnHelper::create_nullable_column<DataTypeInt32>({4, 5, 6}, {0, 0, 0});
+        auto offsets_col = ColumnArray::ColumnOffsets::create(0, 3);
+        auto map_col = ColumnMap::create(keys_col, values_col, std::move(offsets_col));
+        EXPECT_EQ(map_col->complex_type_data_nullable_check(), false);
     }
 }
 
