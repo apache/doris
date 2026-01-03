@@ -32,8 +32,8 @@ suite('test_create_partition_idempotence', 'docker') {
     // cloud mode
     def options = new ClusterOptions()
     options.feConfigs += [
-        'enable_debug_points = true',
-        'sys_log_verbose_modules = org.apache.doris',
+        'enable_debug_points=true',
+        'sys_log_verbose_modules=org.apache.doris',
     ]
     options.cloudMode = true
     options.beNum = 3 
@@ -43,7 +43,17 @@ suite('test_create_partition_idempotence', 'docker') {
         sql """ set load_stream_per_node = 2 """
 
         def sourceTable1 = "test_partition_source_table_positive"
+        def tableName1 = "test_partition_idempotence_table_positive"
+        def sourceTable2 = "test_partition_source_table_negative"
+        def tableName2 = "test_partition_idempotence_table_negative"
+
         sql "DROP TABLE IF EXISTS ${sourceTable1}"
+        sql "DROP TABLE IF EXISTS ${tableName1}"
+        sql "DROP TABLE IF EXISTS ${sourceTable2}"
+        sql "DROP TABLE IF EXISTS ${tableName2}"
+
+        // create table
+
         sql """
             CREATE TABLE ${sourceTable1} (
                 `date` DATE NOT NULL,
@@ -56,11 +66,18 @@ suite('test_create_partition_idempotence', 'docker') {
             );
         """
 
-        sql """ INSERT INTO ${sourceTable1} VALUES ("2025-11-04", 1, "test1"); """
-        sql """ INSERT INTO ${sourceTable1} SELECT "2025-11-04", number, "test" FROM numbers("number" = "20000"); """
+        sql """
+            CREATE TABLE ${sourceTable2} (
+                `date` DATE NOT NULL,
+                `id` INT,
+                `value` VARCHAR(100)
+            )
+            DISTRIBUTED BY HASH(`date`) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
 
-        def tableName1 = "test_partition_idempotence_table_positive"
-        sql "DROP TABLE IF EXISTS ${tableName1}"
         sql """
             CREATE TABLE ${tableName1} (
                 `date` DATE NOT NULL,
@@ -73,6 +90,25 @@ suite('test_create_partition_idempotence', 'docker') {
                 "replication_num" = "1"
             );
         """
+
+        sql """
+            CREATE TABLE ${tableName2} (
+                `date` DATE NOT NULL,
+                `id` INT,
+                `value` VARCHAR(100)
+            )
+            AUTO PARTITION BY RANGE (date_trunc(`date`, 'day')) ()
+            DISTRIBUTED BY HASH(id) BUCKETS 4
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+
+        sql """ INSERT INTO ${sourceTable1} VALUES ("2025-11-04", 1, "test1"); """
+        sql """ INSERT INTO ${sourceTable1} SELECT "2025-11-04", number, "test" FROM numbers("number" = "20000"); """
+
+        sql """ INSERT INTO ${sourceTable2} VALUES ("2025-11-04", 1, "test1"); """
+        sql """ INSERT INTO ${sourceTable2} SELECT "2025-11-04", number, "test" FROM numbers("number" = "20000"); """
 
         GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
         try {
@@ -90,38 +126,6 @@ suite('test_create_partition_idempotence', 'docker') {
         } finally {
             GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
         }
-
-        def sourceTable2 = "test_partition_source_table_negative"
-        sql "DROP TABLE IF EXISTS ${sourceTable2}"
-        sql """
-            CREATE TABLE ${sourceTable2} (
-                `date` DATE NOT NULL,
-                `id` INT,
-                `value` VARCHAR(100)
-            )
-            DISTRIBUTED BY HASH(`date`) BUCKETS 2
-            PROPERTIES (
-                "replication_num" = "1"
-            );
-        """
-
-        sql """ INSERT INTO ${sourceTable2} VALUES ("2025-11-05", 1, "test1"); """
-        sql """ INSERT INTO ${sourceTable2} SELECT "2025-11-05", number, "test" FROM numbers("number" = "20000"); """
-
-        def tableName2 = "test_partition_idempotence_table_negative"
-        sql "DROP TABLE IF EXISTS ${tableName2}"
-        sql """
-            CREATE TABLE ${tableName2} (
-                `date` DATE NOT NULL,
-                `id` INT,
-                `value` VARCHAR(100)
-            )
-            AUTO PARTITION BY RANGE (date_trunc(`date`, 'day')) ()
-            DISTRIBUTED BY HASH(id) BUCKETS 4
-            PROPERTIES (
-                "replication_num" = "1"
-            );
-        """
 
         GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
         GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.DisableCache")
