@@ -39,107 +39,87 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_needs_to_handle_null.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-class FunctionIntervalImpl {
+class FunctionInterval : public IFunction {
 public:
     static constexpr auto name = "interval";
-    static size_t get_number_of_arguments() { return 0; }
-    static bool is_variadic() { return true; }
-    static DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) {
+    static FunctionPtr create() { return std::make_shared<FunctionInterval>(); }
+    String get_name() const override { return name; }
+    bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeInt32>();
     }
 
-    static bool is_return_nullable(bool has_nullable,
-                                   const std::vector<ColumnWithConstAndNullMap>& cols_info) {
-        return false;
-    }
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto res_col = ColumnInt32::create();
 
-    static bool execute_const_null(ColumnInt32::MutablePtr& res_col,
-                                   PaddedPODArray<UInt8>& res_null_map_data,
-                                   size_t input_rows_count, size_t null_index) {
-        if (null_index == 0) {
-            res_col->insert_many_vals(-1, input_rows_count);
-            return true;
-        }
-        return false;
-    }
-
-    static void collect_columns_info(std::vector<ColumnWithConstAndNullMap>& columns_info,
-                                     Block& block, const ColumnNumbers& arguments,
-                                     bool& has_nullable) {
         const size_t arg_size = arguments.size();
-        std::vector<ColumnPtr> arg_col(arg_size);
+        std::vector<ColumnPtr> arg_cols(arg_size);
         std::vector<uint8_t> is_const(arg_size);
         std::vector<size_t> param_idx(arg_size - 1);
         bool all_const = true;
-        for (size_t i = 0; i < arg_size; ++i) {
+        for (int i = 0; i < arg_size; ++i) {
             is_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
             if (i != 0) {
                 param_idx[i - 1] = i;
                 all_const = all_const & is_const[i];
             }
         }
-        arg_col[0] = is_const[0] ? assert_cast<const ColumnConst&>(
-                                           *block.get_by_position(arguments[0]).column)
-                                           .get_data_column_ptr()
-                                 : block.get_by_position(arguments[0]).column;
-        default_preprocess_parameter_columns(arg_col.data(),
+        arg_cols[0] = is_const[0] ? assert_cast<const ColumnConst&>(
+                                            *block.get_by_position(arguments[0]).column)
+                                            .get_data_column_ptr()
+                                  : block.get_by_position(arguments[0]).column;
+        default_preprocess_parameter_columns(arg_cols.data(),
                                              reinterpret_cast<const bool*>(is_const.data()),
                                              param_idx, block, arguments);
-
-        // The second parameter's `is_const` is used to indicate whether all the parameters are constants.
-        columns_info[0].is_const = is_const[0];
-        columns_info[1].is_const = all_const;
-        for (size_t i = 0; i < arguments.size(); ++i) {
-            ColumnPtr col_ptr = arg_col[i];
-            columns_info[i].type = block.get_by_position(arguments[i]).type;
-            columns_info[i].column = col_ptr;
-
-            if (const auto* nullable = check_and_get_column<ColumnNullable>(col_ptr.get())) {
-                has_nullable = true;
-                columns_info[i].nested_col = &nullable->get_nested_column();
-                columns_info[i].null_map = &nullable->get_null_map_data();
-            } else {
-                columns_info[i].nested_col = col_ptr.get();
-            }
+        for (int i = 1; i < arg_size; ++i) {
+            arg_cols[i] = remove_nullable(arg_cols[i]);
         }
-    }
 
-    static void execute(const std::vector<ColumnWithConstAndNullMap>& columns_info,
-                        ColumnInt32::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
-                        size_t input_rows_count) {
-        res_col->resize(input_rows_count);
-        const auto& compare_data =
-                assert_cast<const ColumnInt64&>(*columns_info[0].nested_col).get_data();
-        const size_t num_thresholds = columns_info.size() - 1;
-
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            if (columns_info[0].is_null_at(row)) {
-                res_col->get_data()[row] = -1;
+        const NullMap* compare_null_map = VectorizedUtils::get_null_map(arg_cols[0]);
+        arg_cols[0] = remove_nullable(arg_cols[0]);
+        const auto& compare_data = assert_cast<const ColumnInt64&>(*arg_cols[0]).get_data();
+        for (int row = 0; row < input_rows_count; ++row) {
+            const size_t compare_idx = index_check_const(row, is_const[0]);
+            const size_t arr_idx = all_const ? 0 : row;
+            if (compare_null_map && (*compare_null_map)[compare_idx]) {
+                res_col->insert_value(-1);
                 continue;
             }
 
-            // Determine whether all the threshold columns are constant columns.
-            size_t row_idx = columns_info[1].is_const ? 0 : row;
-            auto compare_val = compare_data[index_check_const(row, columns_info[0].is_const)];
-            std::vector<int64_t> thresholds;
-            thresholds.reserve(num_thresholds);
-
-            for (size_t i = 1; i < columns_info.size(); ++i) {
-                const auto& th_col = assert_cast<const ColumnInt64&>(*columns_info[i].nested_col);
-                thresholds.push_back(
-                        columns_info[i].is_null_at(row_idx) ? 0 : th_col.get_data()[row_idx]);
-            }
-
-            auto it = std::upper_bound(thresholds.begin(), thresholds.end(), compare_val);
-            res_col->get_data()[row] = static_cast<Int32>(it - thresholds.begin());
+            res_col->insert_value(compute_interval(compare_data[compare_idx], arg_cols, is_const,
+                                                   arr_idx, arg_size));
         }
+        block.get_by_position(result).column = std::move(res_col);
+        return Status::OK();
+    }
+
+private:
+    int32_t compute_interval(int64_t compare_val, const std::vector<ColumnPtr>& arg_cols,
+                             std::vector<uint8_t>& is_const, size_t row_idx,
+                             size_t arg_size) const {
+        size_t l = 1, r = arg_size;
+        while (l < r) {
+            size_t mid = (l + r) >> 1;
+            const auto mid_val =
+                    assert_cast<const ColumnInt64&>(*arg_cols[mid]).get_data()[row_idx];
+            if (mid_val <= compare_val) {
+                l = mid + 1;
+            } else {
+                r = mid;
+            }
+        }
+        return static_cast<int32_t>(l - 1);
     }
 };
 
 void register_function_interval(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionNeedsToHandleNull<FunctionIntervalImpl, TYPE_INT>>();
+    factory.register_function<FunctionInterval>();
 }
 
 } // namespace doris::vectorized

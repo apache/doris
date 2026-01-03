@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -45,6 +46,7 @@ import org.apache.commons.math3.util.FastMath;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /**
  * executable functions:
@@ -1121,21 +1123,27 @@ public class NumericArithmetic {
      * interval
      */
     @ExecFunction(name = "interval")
-    public static Expression interval(BigIntLiteral compareValue, BigIntLiteral... thresholds) {
+    public static Expression interval(BigIntLiteral compareValue, Literal... thresholds) {
         long value = compareValue.getValue();
-        if (value < thresholds[0].getValue()) {
-            return new IntegerLiteral(0);
-        }
-        int l = 0;
-        int r = thresholds.length;
-        while (l < r) {
-            int mid = (l + r) >> 1;
-            if (thresholds[mid].getValue() <= value) {
-                l = mid + 1;
+
+        long[] thresholdValues = new long[thresholds.length];
+        for (int i = 0; i < thresholds.length; i++) {
+            if (thresholds[i] instanceof NullLiteral) {
+                thresholdValues[i] = 0;
+            } else if (thresholds[i] instanceof BigIntLiteral) {
+                thresholdValues[i] = ((BigIntLiteral) thresholds[i]).getValue();
             } else {
-                r = mid;
+                throw new AnalysisException("Thresholds must be BigIntLiteral or NullLiteral");
             }
         }
-        return new IntegerLiteral(l);
+
+        int pos = Arrays.binarySearch(thresholdValues, value);
+
+        if (pos >= 0) {
+            return new IntegerLiteral(pos + 1);
+        } else {
+            int insertionPoint = -(pos + 1);
+            return new IntegerLiteral(insertionPoint);
+        }
     }
 }
