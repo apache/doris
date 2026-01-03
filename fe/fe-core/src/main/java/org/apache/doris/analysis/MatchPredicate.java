@@ -127,10 +127,8 @@ public class MatchPredicate extends Predicate {
         // When table has no inverted index (invertedIndex == null), and analyzer is not explicitly
         // specified, we should pass "__default__" to BE to let it use default tokenization.
         // This enables match functions to work on tables without inverted index.
-        // When user explicitly specifies "using analyzer none", or when index is configured with
-        // parser=none, we should pass "none" to skip tokenization.
-        if (invertedIndex == null && !selection.explicit()
-                && InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(selection.analyzer())) {
+        // When user explicitly specifies "using analyzer xxx", we use that explicit analyzer.
+        if (invertedIndex == null && !selection.explicit()) {
             // Table has no index, use default tokenization
             this.invertedIndexAnalyzerName = "__default__";
         } else {
