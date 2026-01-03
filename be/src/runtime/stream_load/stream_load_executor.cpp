@@ -83,18 +83,10 @@ Status StreamLoadExecutor::execute_plan_fragment(
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << ctx->id;
     Status st;
-    // todo: maybe can be deleted
-    std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
-    std::shared_ptr<bool> is_done = std::make_shared<bool>(false);
     std::shared_ptr<bool> is_prepare_success = std::make_shared<bool>(false);
 
-    auto exec_fragment = [ctx, cb, this, lock, is_done, is_prepare_success](RuntimeState* state,
+    auto exec_fragment = [ctx, cb, this, is_prepare_success](RuntimeState* state,
                                                                             Status* status) {
-        std::lock_guard<std::mutex> lock1(*lock);
-        if (*is_done) {
-            return;
-        }
-        *is_done = true;
         if (ctx->group_commit) {
             ctx->label = state->import_label();
             ctx->txn_id = state->wal_id();
