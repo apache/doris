@@ -128,7 +128,7 @@ public class DateTimeChecker extends FormatChecker {
         int timeEndIndex = timeSeparatorIndex + 1;
         // Skip time part
         while (timeEndIndex < str.length() && (Character.isDigit(str.charAt(timeEndIndex))
-                || str.charAt(timeEndIndex) == ':'|| str.charAt(timeEndIndex) == '.'
+                || str.charAt(timeEndIndex) == ':' || str.charAt(timeEndIndex) == '.'
                 || str.charAt(timeEndIndex) == ' ')) {
             timeEndIndex++;
         }

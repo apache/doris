@@ -170,10 +170,12 @@ using FunctionTimestamptzSubYears =
 
 using FunctionAddTimeDatetime = FunctionNeedsToHandleNull<AddTimeDatetimeImpl, TYPE_DATETIMEV2>;
 using FunctionAddTimeTime = FunctionNeedsToHandleNull<AddTimeTimeImpl, TYPE_TIMEV2>;
-using FunctionAddTimeTimestampTz = FunctionNeedsToHandleNull<AddTimeTimestamptzImpl, TYPE_TIMESTAMPTZ>;
+using FunctionAddTimeTimestampTz =
+        FunctionNeedsToHandleNull<AddTimeTimestamptzImpl, TYPE_TIMESTAMPTZ>;
 using FunctionSubTimeDatetime = FunctionNeedsToHandleNull<SubTimeDatetimeImpl, TYPE_DATETIMEV2>;
 using FunctionSubTimeTime = FunctionNeedsToHandleNull<SubTimeTimeImpl, TYPE_TIMEV2>;
-using FunctionSubTimeTimestampTz = FunctionNeedsToHandleNull<SubTimeTimestamptzImpl, TYPE_TIMESTAMPTZ>;
+using FunctionSubTimeTimestampTz =
+        FunctionNeedsToHandleNull<SubTimeTimestamptzImpl, TYPE_TIMESTAMPTZ>;
 
 #define FUNCTION_TIME_DIFF(NAME, IMPL, TYPE) using NAME##_##TYPE = FunctionTimeDiff<IMPL<TYPE>>;
 

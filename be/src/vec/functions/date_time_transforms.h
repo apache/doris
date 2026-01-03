@@ -235,15 +235,15 @@ struct ToIso8601Impl<TYPE_TIMESTAMPTZ> {
     // Format: YYYY-MM-DDTHH:MM:SS.SSSSSS+HH:MM
     static constexpr auto max_size = 32;
 
-    static auto execute(const TimestampTzValue& tz_value,
-                        ColumnString::Chars& res_data, size_t& offset,
-                        const char* const* /*names_ptr*/, FunctionContext* context) {
+    static auto execute(const TimestampTzValue& tz_value, ColumnString::Chars& res_data,
+                        size_t& offset, const char* const* /*names_ptr*/,
+                        FunctionContext* context) {
         // Get timezone
         const auto& local_time_zone = context->state()->timezone_obj();
 
         // Convert UTC time to local time
-        cctz::civil_second utc_sec(tz_value.year(), tz_value.month(), tz_value.day(), tz_value.hour(),
-                                  tz_value.minute(), tz_value.second());
+        cctz::civil_second utc_sec(tz_value.year(), tz_value.month(), tz_value.day(),
+                                   tz_value.hour(), tz_value.minute(), tz_value.second());
         cctz::time_point<cctz::seconds> local_time = cctz::convert(utc_sec, cctz::utc_time_zone());
 
         auto lookup_result = local_time_zone.lookup(local_time);

@@ -102,15 +102,15 @@ public:
         _utc_dt.unchecked_set_time_unit<unit>(value);
     }
 
-    void unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                            uint8_t minute, uint8_t second, uint32_t microsecond = 0) {
+    void unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
+                            uint8_t second, uint32_t microsecond = 0) {
         _utc_dt.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
     }
 
     bool check_range_and_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                                   uint8_t minute, uint8_t second, uint32_t microsecond = 0) {
+                                  uint8_t minute, uint8_t second, uint32_t microsecond = 0) {
         return _utc_dt.check_range_and_set_time(year, month, day, hour, minute, second,
-                                                 microsecond);
+                                                microsecond);
     }
 
     void set_int_val(underlying_value value) { _utc_dt.set_int_val(value); }
@@ -124,7 +124,7 @@ public:
     }
 
     // truncate datetime to specified unit
-    template<TimeUnit unit>
+    template <TimeUnit unit>
     bool datetime_trunc() {
         return _utc_dt.datetime_trunc<unit>();
     }
