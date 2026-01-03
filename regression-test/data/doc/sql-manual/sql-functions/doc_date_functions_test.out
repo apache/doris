@@ -2171,9 +2171,6 @@ da fanadur
 -- !week_floor_7 --
 2023-07-03T12:00
 
--- !week_floor_9 --
-\N
-
 -- !week_1 --
 0
 
@@ -2681,4 +2678,46 @@ PM 12 12 12 12 12:34:56 000001
 1	124
 2	3
 3	4
+
+-- !quarter_ceil_1 --
+2023-10-01T00:00
+
+-- !quarter_ceil_2 --
+2024-01-01T00:00
+
+-- !quarter_ceil_3 --
+2024-01-01T00:00
+
+-- !quarter_ceil_4 --
+2024-01-01T00:00
+
+-- !quarter_ceil_5 --
+2024-01-01T00:00
+
+-- !quarter_ceil_6 --
+2023-10-01T00:00
+
+-- !quarter_ceil_7 --
+\N	\N
+
+-- !quarter_floor_1 --
+2023-07-01T00:00
+
+-- !quarter_floor_2 --
+2023-07-01T00:00
+
+-- !quarter_floor_3 --
+2023-07-01T00:00
+
+-- !quarter_floor_4 --
+2023-07-01T00:00
+
+-- !quarter_floor_5 --
+2023-07-01T00:00
+
+-- !quarter_floor_6 --
+2023-07-01T00:00
+
+-- !quarter_floor_7 --
+\N	\N
 

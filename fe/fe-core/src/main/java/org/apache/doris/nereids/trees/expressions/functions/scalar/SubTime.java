@@ -40,7 +40,7 @@ public class SubTime extends ScalarFunction implements BinaryExpression, Explici
         PropagateNullable, DateAddSubMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD,
                     TimeV2Type.WILDCARD),
             FunctionSignature.ret(TimeV2Type.WILDCARD).args(TimeV2Type.WILDCARD, TimeV2Type.WILDCARD),
             FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD,
