@@ -30,6 +30,24 @@ suite("test_iceberg_mixed_format", "p0,external,iceberg,external_docker,external
     String default_fs = "hdfs://${externalEnvIp}:${hdfsPort}"
     String warehouse = "${default_fs}/warehouse"
 
+    hive_docker """create database if not exists test_mixed_format_db"""
+    hive_docker """use test_mixed_format_db"""
+    hive_docker """drop table if exists mixed_format_table"""
+    hive_docker """
+        CREATE TABLE mixed_format_table (
+            id INT,
+            data STRING
+        ) USING iceberg
+        PARTITIONED BY (id)
+        PROPERTIES (
+            'write-format'='parquet'
+        )
+    """
+
+    hive_docker """INSERT INTO mixed_format_table VALUES (1, 'parquet_data')"""
+    hive_docker """ALTER TABLE mixed_format_table SET TBLPROPERTIES ('write.format.default'='orc')"""
+    hive_docker """INSERT INTO mixed_format_table VALUES (2, 'orc_data')"""
+
     sql """drop catalog if exists ${catalog_name}"""
     sql """create catalog if not exists ${catalog_name} properties (
         'type'='iceberg',
@@ -38,32 +56,12 @@ suite("test_iceberg_mixed_format", "p0,external,iceberg,external_docker,external
         'fs.defaultFS' = '${default_fs}',
         'warehouse' = '${warehouse}',
         'use_meta_cache' = 'true'
-    );"""
+    )"""
 
     sql """switch ${catalog_name}"""
-    sql """create database if not exists test_mixed_format_db"""
     sql """use test_mixed_format_db"""
-
-    sql """drop table if exists mixed_format_table"""
-    sql """
-        CREATE TABLE mixed_format_table (
-            id INT,
-            data STRING
-        )
-        PARTITIONED BY (id)
-        PROPERTIES (
-            'write-format'='parquet'
-        );
-    """
-
-    sql """INSERT INTO mixed_format_table VALUES (1, 'parquet_data')"""
-
-    sql """ALTER TABLE mixed_format_table SET TBLPROPERTIES ('write.format.default'='orc')"""
-
-    sql """INSERT INTO mixed_format_table VALUES (2, 'orc_data')"""
-
     qt_select_mixed """SELECT * FROM mixed_format_table ORDER BY id"""
 
-    sql """drop table mixed_format_table"""
     sql """drop catalog ${catalog_name}"""
+    hive_docker """drop test_mixed_format_db"""
 }
