@@ -25,9 +25,9 @@ export DORIS_HOME="${ROOT}/../.."
 
 export CDC_CLIENT_HOME="${ROOT}"
 
+"${DORIS_HOME}"/generated-source.sh noclean
 cd "${DORIS_HOME}/fe"
 "${MVN_CMD}" install -pl fe-common -Dskip.doc=true -DskipTests
-
 
 echo "Install cdc client..."
 cd "${CDC_CLIENT_HOME}"
