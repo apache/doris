@@ -47,6 +47,7 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
     private PasswordOptions passwordOptions;
 
     private String comment;
+    private TlsOptions tlsOptions;
 
     // Only support doing one of these operation at one time.
     public enum OpType {
@@ -55,18 +56,20 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
         SET_PASSWORD_POLICY,
         LOCK_ACCOUNT,
         UNLOCK_ACCOUNT,
-        MODIFY_COMMENT
+        MODIFY_COMMENT,
+        SET_TLS_REQUIRE
     }
 
     private Set<OpType> ops = Sets.newHashSet();
 
     public AlterUserStmt(boolean ifExist, UserDesc userDesc, String role, PasswordOptions passwordOptions,
-            String comment) {
+            String comment, TlsOptions tlsOptions) {
         this.ifExist = ifExist;
         this.userDesc = userDesc;
         this.role = role;
-        this.passwordOptions = passwordOptions;
+        this.passwordOptions = passwordOptions == null ? PasswordOptions.UNSET_OPTION : passwordOptions;
         this.comment = comment;
+        this.tlsOptions = tlsOptions == null ? TlsOptions.notSpecified() : tlsOptions;
     }
 
     public boolean isIfExist() {
@@ -93,7 +96,7 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     public OpType getOpType() {
-        Preconditions.checkState(ops.size() == 1);
+        Preconditions.checkState(ops.size() == 1, "AlterUserStmt should only carry one operation");
         return ops.iterator().next();
     }
 
@@ -115,6 +118,14 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
             ops.add(OpType.SET_ROLE);
         }
 
+        if (tlsOptions.hasRequireClause()) {
+            ops.add(OpType.SET_TLS_REQUIRE);
+            // Analyze and apply TLS options to UserIdentity so TLS requirements persist even
+            // when this statement also carries exactly one non-TLS change.
+            tlsOptions.analyze();
+            userDesc.getUserIdent().applyTlsOptions(tlsOptions);
+        }
+
         // may be set comment to "", so not use `Strings.isNullOrEmpty`
         if (comment != null) {
             ops.add(OpType.MODIFY_COMMENT);
@@ -131,6 +142,7 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
             ops.add(OpType.SET_PASSWORD_POLICY);
         }
 
+        // Allow exactly one op (including TLS). Any combination is rejected.
         if (ops.size() != 1) {
             throw new AnalysisException("Only support doing one type of operation at one time");
         }
@@ -164,8 +176,17 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
         if (passwordOptions != null) {
             sb.append(passwordOptions.toSql());
         }
+        String tlsSql = tlsOptions == null ? "" : tlsOptions.toSql();
+        if (!tlsSql.isEmpty()) {
+            sb.append(' ').append(tlsSql);
+        }
 
         return sb.toString();
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
     }
 
     @Override

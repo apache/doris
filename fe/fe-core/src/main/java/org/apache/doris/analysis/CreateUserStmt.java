@@ -57,41 +57,29 @@ public class CreateUserStmt extends DdlStmt implements NotFallbackInParser {
     private String role;
     private PasswordOptions passwordOptions;
     private String comment;
+    private TlsOptions tlsOptions;
 
     private String userId;
 
     public CreateUserStmt() {
+        this.tlsOptions = TlsOptions.notSpecified();
     }
 
     public CreateUserStmt(UserDesc userDesc) {
-        userIdent = userDesc.getUserIdent();
-        String uId = Env.getCurrentEnv().getAuth().getUserId(ClusterNamespace.getNameFromFullName(userIdent.getUser()));
-        LOG.debug("create user stmt userIdent {}, userName {}, userId {}",
-                userIdent, ClusterNamespace.getNameFromFullName(userIdent.getUser()), uId);
-        // avoid this case "jack@'192.1'" and "jack@'192.2'", jack's uid different
-        if (Strings.isNullOrEmpty(uId)) {
-            userId = UUID.randomUUID().toString();
-        } else {
-            userId = uId;
-        }
-        passVar = userDesc.getPassVar();
-        if (this.passwordOptions == null) {
-            this.passwordOptions = PasswordOptions.UNSET_OPTION;
-        }
+        this(false, userDesc, null, null, null, TlsOptions.notSpecified());
     }
 
     public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role) {
-        this(ifNotExist, userDesc, role, null, null);
+        this(ifNotExist, userDesc, role, null, null, TlsOptions.notSpecified());
     }
 
     public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role, PasswordOptions passwordOptions,
-            String comment) {
+            String comment, TlsOptions tlsOptions) {
         this.ifNotExist = ifNotExist;
         userIdent = userDesc.getUserIdent();
         String uId = Env.getCurrentEnv().getAuth().getUserId(ClusterNamespace.getNameFromFullName(userIdent.getUser()));
         LOG.debug("create user stmt by role userIdent {}, userName {}, userId {}",
                 userIdent, ClusterNamespace.getNameFromFullName(userIdent.getUser()), uId);
-        // avoid this case "jack@'192.1'" and "jack@'192.2'", jack's uid different
         if (Strings.isNullOrEmpty(uId)) {
             userId = UUID.randomUUID().toString();
         } else {
@@ -99,12 +87,11 @@ public class CreateUserStmt extends DdlStmt implements NotFallbackInParser {
         }
         passVar = userDesc.getPassVar();
         this.role = role;
-        this.passwordOptions = passwordOptions;
-        if (this.passwordOptions == null) {
-            this.passwordOptions = PasswordOptions.UNSET_OPTION;
-        }
+        this.passwordOptions = passwordOptions == null ? PasswordOptions.UNSET_OPTION : passwordOptions;
         this.comment = Strings.nullToEmpty(comment);
+        this.tlsOptions = tlsOptions == null ? TlsOptions.notSpecified() : tlsOptions;
     }
+
 
     public boolean isIfNotExist() {
         return ifNotExist;
@@ -139,6 +126,10 @@ public class CreateUserStmt extends DdlStmt implements NotFallbackInParser {
         return comment;
     }
 
+    public TlsOptions getTlsOptions() {
+        return tlsOptions;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -162,6 +153,10 @@ public class CreateUserStmt extends DdlStmt implements NotFallbackInParser {
 
         passwordOptions.analyze();
 
+        // Analyze and apply TLS options to UserIdentity
+        tlsOptions.analyze();
+        userIdent.applyTlsOptions(tlsOptions);
+
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }
@@ -184,6 +179,10 @@ public class CreateUserStmt extends DdlStmt implements NotFallbackInParser {
         }
         if (passwordOptions != null) {
             sb.append(passwordOptions.toSql());
+        }
+        String tlsSql = tlsOptions == null ? "" : tlsOptions.toSql();
+        if (!tlsSql.isEmpty()) {
+            sb.append(' ').append(tlsSql);
         }
         if (!StringUtils.isEmpty(comment)) {
             sb.append(" COMMENT \"").append(comment).append("\"");
