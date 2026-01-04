@@ -48,6 +48,7 @@ public:
     Status do_pre_agg(RuntimeState* state, vectorized::Block* input_block,
                       vectorized::Block* output_block);
     void make_nullable_output_key(vectorized::Block* block);
+    void build_limit_heap(size_t hash_table_size);
 
 private:
     friend class StreamingAggOperatorX;
@@ -55,6 +56,10 @@ private:
     friend class StatefulOperatorX;
 
     size_t _memory_usage() const;
+    void _add_limit_heap_top(vectorized::ColumnRawPtrs& key_columns, size_t rows);
+    bool _do_limit_filter(size_t num_rows, vectorized::ColumnRawPtrs& key_columns);
+    void _refresh_limit_heap(size_t i, vectorized::ColumnRawPtrs& key_columns);
+
     Status _pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
                                         doris::vectorized::Block* out_block);
     bool _should_expand_preagg_hash_tables();
@@ -68,11 +73,15 @@ private:
                                             bool* eos);
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                   vectorized::ColumnRawPtrs& key_columns, const uint32_t num_rows);
+    bool _emplace_into_hash_table_limit(vectorized::AggregateDataPtr* places,
+                                        vectorized::Block* block,
+                                        vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
     Status _create_agg_status(vectorized::AggregateDataPtr data);
     size_t _get_hash_table_size();
 
     RuntimeProfile::Counter* _streaming_agg_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
@@ -96,9 +105,69 @@ private:
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::unique_ptr<vectorized::Arena> _agg_profile_arena = nullptr;
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container = nullptr;
-    bool _should_limit_output = false;
     bool _reach_limit = false;
     size_t _input_num_rows = 0;
+
+    int64_t limit = -1;
+    int need_do_sort_limit = -1;
+    bool do_sort_limit = false;
+    vectorized::MutableColumns limit_columns;
+    int limit_columns_min = -1;
+    vectorized::PaddedPODArray<uint8_t> need_computes;
+    std::vector<uint8_t> cmp_res;
+    std::vector<int> order_directions;
+    std::vector<int> null_directions;
+
+    struct HeapLimitCursor {
+        HeapLimitCursor(int row_id, vectorized::MutableColumns& limit_columns,
+                        std::vector<int>& order_directions, std::vector<int>& null_directions)
+                : _row_id(row_id),
+                  _limit_columns(limit_columns),
+                  _order_directions(order_directions),
+                  _null_directions(null_directions) {}
+
+        HeapLimitCursor(const HeapLimitCursor& other) = default;
+
+        HeapLimitCursor(HeapLimitCursor&& other) noexcept
+                : _row_id(other._row_id),
+                  _limit_columns(other._limit_columns),
+                  _order_directions(other._order_directions),
+                  _null_directions(other._null_directions) {}
+
+        HeapLimitCursor& operator=(const HeapLimitCursor& other) noexcept {
+            _row_id = other._row_id;
+            return *this;
+        }
+
+        HeapLimitCursor& operator=(HeapLimitCursor&& other) noexcept {
+            _row_id = other._row_id;
+            return *this;
+        }
+
+        bool operator<(const HeapLimitCursor& rhs) const {
+            for (int i = 0; i < _limit_columns.size(); ++i) {
+                const auto& _limit_column = _limit_columns[i];
+                auto res = _limit_column->compare_at(_row_id, rhs._row_id, *_limit_column,
+                                                     _null_directions[i]) *
+                           _order_directions[i];
+                if (res < 0) {
+                    return true;
+                } else if (res > 0) {
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        int _row_id;
+        vectorized::MutableColumns& _limit_columns;
+        std::vector<int>& _order_directions;
+        std::vector<int>& _null_directions;
+    };
+
+    std::priority_queue<HeapLimitCursor> limit_heap;
+
+    vectorized::MutableColumns _get_keys_hash_table();
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
@@ -180,7 +249,6 @@ private:
     TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc = nullptr;
     bool _needs_finalize;
-    bool _is_merge;
     const bool _is_first_phase;
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
@@ -197,6 +265,13 @@ private:
     std::vector<size_t> _make_nullable_keys;
     bool _have_conjuncts;
     RowDescriptor _agg_fn_output_row_descriptor;
+
+    // For sort limit
+    bool _do_sort_limit = false;
+    int64_t _sort_limit = -1;
+    std::vector<int> _order_directions;
+    std::vector<int> _null_directions;
+
     const std::vector<TExpr> _partition_exprs;
 };
 
