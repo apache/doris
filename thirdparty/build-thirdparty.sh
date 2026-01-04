@@ -1408,7 +1408,11 @@ build_xml2() {
 
     export ACLOCAL_PATH='/usr/share/aclocal'
 
-    sed '/(libtoolize/,/}/d' autogen.sh | bash
+    sed '/(libtoolize/,/}/d' autogen.sh > autogen_fixed.sh
+    chmod +x autogen_fixed.sh
+    ./autogen_fixed.sh
+    rm -f autogen_fixed.sh
+    
     make distclean
 
     mkdir -p "${BUILD_DIR}"

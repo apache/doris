@@ -254,10 +254,8 @@ add_compile_options(-g
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
-                    $<$<COMPILE_LANGUAGE:CXX>:-Wno-incompatible-pointer-types>
-                    -Wno-unknown-warning-option
+                    $<$<COMPILE_LANGUAGE:C>:-Wno-incompatible-pointer-types>
                     -Wno-deprecated-declarations
-                    -Wno-missing-designated-field-initializers
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
