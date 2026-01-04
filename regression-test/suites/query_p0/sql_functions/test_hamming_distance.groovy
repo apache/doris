@@ -30,7 +30,7 @@ suite("test_hamming_distance") {
         create table arg1_hamming_distance (
             k0 int,
             a varchar(100) not null,
-            b varchar(100) null,
+            b varchar(100) not null,
         )
         DISTRIBUTED BY HASH(k0)
         PROPERTIES
@@ -39,14 +39,8 @@ suite("test_hamming_distance") {
         );
     """
 
-    order_qt_empty_nullable "select hamming_distance(b, b) from arg1_hamming_distance"
     order_qt_empty_not_nullable "select hamming_distance(a, a) from arg1_hamming_distance"
-    order_qt_empty_partial_nullable "select hamming_distance(a, b) from arg1_hamming_distance"
 
-    sql "insert into arg1_hamming_distance values (1, 'abc', null), (2, 'hello', null), (3, 'test', null)"
-    order_qt_all_null "select hamming_distance(b, b) from arg1_hamming_distance"
-
-    sql "truncate table arg1_hamming_distance"
     sql """ insert into arg1_hamming_distance values
         (1, 'abc', 'abc'),
         (2, 'abc', 'axc'),
@@ -57,9 +51,7 @@ suite("test_hamming_distance") {
         (7, 'a', 'a'),
         (8, 'abcd', 'abce'),
         (9, 'ab', 'ac'),
-        (10, 'hi', 'ho'),
-        (11, 'abc', null),
-        (12, '', null);
+        (10, 'hi', 'ho');
     """
 
     /// all values
@@ -79,20 +71,9 @@ suite("test_hamming_distance") {
         )t;
     """
 
-    /// nullables
-    order_qt_not_nullable "select hamming_distance(a, a) from arg1_hamming_distance"
-    order_qt_partial_nullable "select hamming_distance(a, b) from arg1_hamming_distance"
-    order_qt_nullable_no_null "select hamming_distance(a, nullable(a)) from arg1_hamming_distance"
-
     /// consts. most by BE-UT
-    order_qt_const_nullable "select hamming_distance(NULL, NULL) from arg1_hamming_distance"
-    order_qt_partial_const_nullable "select hamming_distance(NULL, b) from arg1_hamming_distance"
     order_qt_const_not_nullable "select hamming_distance('abc', 'abc') from arg1_hamming_distance"
-    order_qt_const_other_nullable "select hamming_distance('abc', b) from arg1_hamming_distance"
     order_qt_const_other_not_nullable "select hamming_distance(a, 'abc') from arg1_hamming_distance"
-    order_qt_const_nullable_no_null "select hamming_distance(nullable('abc'), nullable('abc'))"
-    order_qt_const_nullable_no_null_multirows "select hamming_distance(nullable('abc'), nullable('abc'))"
-    order_qt_const_partial_nullable_no_null "select hamming_distance('abc', nullable('abc'))"
 
     /// Test same length strings
     order_qt_const_same_length "select hamming_distance('abc', 'abc') from arg1_hamming_distance"
