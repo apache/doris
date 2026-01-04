@@ -59,14 +59,14 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
     private String uri = "";
 
     @ConnectorProperty(
-            names = {"jdbc.user"},
+            names = {"iceberg.jdbc.user"},
             required = false,
             description = "Username for the Iceberg JDBC catalog."
     )
     private String jdbcUser;
 
     @ConnectorProperty(
-            names = {"jdbc.password"},
+            names = {"iceberg.jdbc.password"},
             required = false,
             sensitive = true,
             description = "Password for the Iceberg JDBC catalog."
@@ -74,28 +74,28 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
     private String jdbcPassword;
 
     @ConnectorProperty(
-            names = {"jdbc.init-catalog-tables"},
+            names = {"iceberg.jdbc.init-catalog-tables"},
             required = false,
             description = "Whether to create catalog tables if they do not exist."
     )
     private String jdbcInitCatalogTables;
 
     @ConnectorProperty(
-            names = {"jdbc.schema-version"},
+            names = {"iceberg.jdbc.schema-version"},
             required = false,
             description = "Iceberg JDBC catalog schema version (V0/V1)."
     )
     private String jdbcSchemaVersion;
 
     @ConnectorProperty(
-            names = {"jdbc.strict-mode"},
+            names = {"iceberg.jdbc.strict-mode"},
             required = false,
             description = "Whether to enforce strict JDBC catalog schema checks."
     )
     private String jdbcStrictMode;
 
     @ConnectorProperty(
-            names = {"driver_url"},
+            names = {"iceberg.driver_url"},
             required = false,
             description = "JDBC driver JAR file path or URL. "
                     + "Can be a local file name (will look in $DORIS_HOME/plugins/jdbc_drivers/) "
@@ -104,7 +104,7 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
     private String driverUrl;
 
     @ConnectorProperty(
-            names = {"driver_class"},
+            names = {"iceberg.driver_class"},
             required = false,
             description = "JDBC driver class name. If not specified, will be auto-detected from the JDBC URI."
     )
