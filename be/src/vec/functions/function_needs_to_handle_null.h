@@ -17,7 +17,6 @@
 #pragma once
 #include <boost/mpl/aux_/na_fwd.hpp>
 
-#include "udf/udf.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -25,9 +24,7 @@ namespace doris::vectorized {
 
 // Helper struct to store information about const+nullable columns
 struct ColumnWithConstAndNullMap {
-    ColumnPtr column = nullptr;
     const IColumn* nested_col = nullptr;
-    DataTypePtr type = nullptr;
     const NullMap* null_map = nullptr;
     bool is_const = false;
 
@@ -83,12 +80,8 @@ public:
             if (columns_info[i].is_const && columns_info[i].null_map &&
                 (*columns_info[i].null_map)[0] &&
                 execute_const_null(res_col, null_map_data, input_rows_count, i)) {
-                if (is_return_nullable(has_nullable, columns_info)) {
-                    block.replace_by_position(result, ColumnNullable::create(std::move(res_col),
-                                                                             std::move(null_map)));
-                } else {
-                    block.replace_by_position(result, std::move(res_col));
-                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
                 return Status::OK();
             }
         }
@@ -128,23 +121,17 @@ private:
 
     // Collect the required information for each column into columns_info
     // Including whether it is a constant column, nested column and null map(if exists).
-    void collect_columns_info(std::vector<ColumnWithConstAndNullMap>& columns_info, Block& block,
-                              const ColumnNumbers& arguments, bool& has_nullable) const {
-        if constexpr (requires {
-                          Impl::collect_columns_info(columns_info, block, arguments, has_nullable);
-                      }) {
-            Impl::collect_columns_info(columns_info, block, arguments, has_nullable);
-            return;
-        }
+    void collect_columns_info(std::vector<ColumnWithConstAndNullMap>& columns_info,
+                              const Block& block, const ColumnNumbers& arguments,
+                              bool& has_nullable) const {
         for (size_t i = 0; i < arguments.size(); ++i) {
             ColumnPtr col_ptr;
             const auto& col_with_type = block.get_by_position(arguments[i]);
             std::tie(col_ptr, columns_info[i].is_const) = unpack_if_const(col_with_type.column);
-            columns_info[i].type = col_with_type.type;
-            columns_info[i].column = col_ptr;
 
-            if (const auto* nullable = check_and_get_column<ColumnNullable>(col_ptr.get())) {
+            if (is_column_nullable(*col_ptr)) {
                 has_nullable = true;
+                const auto* nullable = check_and_get_column<ColumnNullable>(col_ptr.get());
                 columns_info[i].nested_col = &nullable->get_nested_column();
                 columns_info[i].null_map = &nullable->get_null_map_data();
             } else {
