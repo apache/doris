@@ -610,6 +610,15 @@ void PackedFileManager::process_uploading_packed_files() {
             first_slice = false;
             slices_stream << small_file_path << "(txn=" << index.txn_id
                           << ", offset=" << index.offset << ", size=" << index.size << ")";
+
+            // Update packed_file_size in global index
+            {
+                std::lock_guard<std::mutex> global_lock(_global_index_mutex);
+                auto it = _global_slice_locations.find(small_file_path);
+                if (it != _global_slice_locations.end()) {
+                    it->second.packed_file_size = packed_file->total_size;
+                }
+            }
         }
         LOG(INFO) << "Packed file " << packed_file->packed_file_path
                   << " uploaded; slices=" << packed_file->slice_locations.size()
