@@ -298,7 +298,13 @@ Status StorageEngine::_open() {
     auto dirs = get_stores();
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
-    _disk_num = cast_set<int>(dirs.size());
+    if (config::is_cloud_mode()) {
+        // (Refrian) In cloud mode, the number of flush threads currently depends on the file cache setting.
+        // A more precise adaptive algorithm is needed.
+        _disk_num = cast_set<int>(io::FileCacheFactory::instance()->get_cache_instance_size());
+    } else {
+        _disk_num = cast_set<int>(dirs.size());
+    }
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
     _memtable_flush_executor->init(_disk_num);
 
