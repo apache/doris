@@ -64,11 +64,12 @@ public class AggregationNode extends PlanNode {
      * Create an agg node that is not an intermediate node.
      * isIntermediate is true if it is a slave node in a 2-part agg plan.
      */
-    public AggregationNode(PlanNodeId id, PlanNode input, AggregateInfo aggInfo) {
+    public AggregationNode(PlanNodeId id, PlanNode input, AggregateInfo aggInfo, boolean useStreamingPreagg) {
         super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE");
         this.aggInfo = aggInfo;
         this.children.add(input);
         this.needsFinalize = true;
+        this.useStreamingPreagg = useStreamingPreagg;
         updateplanNodeName();
     }
 
@@ -78,11 +79,6 @@ public class AggregationNode extends PlanNode {
         Preconditions.checkState(needsFinalize);
         needsFinalize = false;
         updateplanNodeName();
-    }
-
-    // Used by new optimizer
-    public void setUseStreamingPreagg(boolean useStreamingPreagg) {
-        this.useStreamingPreagg = useStreamingPreagg;
     }
 
     private void updateplanNodeName() {

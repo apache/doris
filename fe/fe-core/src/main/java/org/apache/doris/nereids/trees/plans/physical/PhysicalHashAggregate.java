@@ -92,7 +92,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
      * @param partitionExpressions hash distribute expr list
      * @param maybeUsingStream whether it's stream agg.
      */
-    public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
+    private PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam, boolean maybeUsingStream,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_HASH_AGGREGATE, groupExpression, logicalProperties, child);
@@ -116,7 +116,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
      * @param partitionExpressions hash distribute expr list
      * @param maybeUsingStream whether it's stream agg.
      */
-    public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
+    private PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam, boolean maybeUsingStream,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
