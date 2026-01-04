@@ -58,8 +58,8 @@ public:
     }
 
     // Restarts the timer. Returns the elapsed time until this point.
-    uint64_t reset() {
-        uint64_t ret = elapsed_time();
+    int64_t reset() {
+        int64_t ret = elapsed_time();
 
         if (_running) {
             clock_gettime(Clock, &_start);
@@ -69,7 +69,8 @@ public:
     }
 
     // Returns time in nanosecond.
-    uint64_t elapsed_time() const {
+    // Sometimes the time will rollback, so that the value will be negative.
+    int64_t elapsed_time() const {
         if (!_running) {
             return _total_time;
         }
@@ -81,10 +82,10 @@ public:
     }
 
     // Return time in microseconds
-    uint64_t elapsed_time_microseconds() const { return elapsed_time() / 1000; }
+    int64_t elapsed_time_microseconds() const { return elapsed_time() / 1000; }
 
     // Return time in milliseconds
-    uint64_t elapsed_time_milliseconds() const { return elapsed_time() / 1000 / 1000; }
+    int64_t elapsed_time_milliseconds() const { return elapsed_time() / 1000 / 1000; }
 
     // Returns time in nanosecond.
     int64_t elapsed_time_seconds(timespec end) const {
@@ -96,7 +97,7 @@ public:
 
 private:
     timespec _start;
-    uint64_t _total_time; // in nanosec
+    int64_t _total_time; // in nanosec
     bool _running;
 };
 

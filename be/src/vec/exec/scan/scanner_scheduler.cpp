@@ -156,14 +156,16 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     MonotonicStopWatch max_run_time_watch;
     max_run_time_watch.start();
     scanner->update_wait_worker_timer();
-    scanner->start_scan_cpu_timer();
+    ThreadCpuStopWatch _cpu_watch;
+    _cpu_watch.start();
     Defer defer_scanner(
             [&] { // WorkloadGroup Policy will check cputime realtime, so that should update the counter
                 // as soon as possible, could not update it on close.
                 if (scanner->has_prepared()) {
                     // Counter update need prepare successfully, or it maybe core. For example, olap scanner
                     // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
-                    scanner->update_scan_cpu_timer();
+                    int64_t cpu_time = _cpu_watch.elasped_time();
+                    scanner->update_scan_cpu_timer(cpu_time);
                     scanner->update_realtime_counters();
                     scanner->start_wait_worker_timer();
                 }

@@ -50,7 +50,7 @@ namespace doris {
 class TRuntimeProfileNode;
 class TRuntimeProfileTree;
 class RuntimeProfileCounterTreeNode;
-
+inline thread_local bool enable_profile_counter_check = true;
 // Some macro magic to generate unique ids using __COUNTER__
 #define CONCAT_IMPL(x, y) x##y
 #define MACRO_CONCAT(x, y) CONCAT_IMPL(x, y)
@@ -190,15 +190,56 @@ public:
 
         virtual Counter* clone() const { return new Counter(type(), value(), _level); }
 
-        virtual void update(int64_t delta) { _value.fetch_add(delta, std::memory_order_relaxed); }
+        virtual void update(int64_t delta) {
+#ifndef NDEBUG
+            int64_t prev_value = _value.load(std::memory_order_seq_cst);
+            // Using memory_order_seq_cst to make sure no concurrency issues, it may affect
+            // performance. So that only in debug mode, we check the counter value.
+            _value.fetch_add(delta, std::memory_order_seq_cst);
+#else
+            _value.fetch_add(delta, std::memory_order_relaxed);
+#endif
+#ifndef NDEBUG
+            if (enable_profile_counter_check) {
+                if (delta < 0) {
+                    DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L)
+                            << " delta: " << delta << " prev_value: " << prev_value;
+                }
+            }
+#endif
+        }
 
         void bit_or(int64_t delta) { _value.fetch_or(delta, std::memory_order_relaxed); }
 
-        virtual void set(int64_t value) { _value.store(value, std::memory_order_relaxed); }
+        virtual void set(int64_t value) {
+#ifndef NDEBUG
+            int64_t prev_value = _value.load(std::memory_order_seq_cst);
+            _value.store(value, std::memory_order_seq_cst);
+#else
+            _value.store(value, std::memory_order_relaxed);
+#endif
+#ifndef NDEBUG
+            if (enable_profile_counter_check) {
+                DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L)
+                        << " new value: " << value << " prev_value: " << prev_value;
+            }
+#endif
+        }
 
         virtual void set(double value) {
             DCHECK_EQ(sizeof(value), sizeof(int64_t));
+#ifndef NDEBUG
+            int64_t prev_value = _value.load(std::memory_order_seq_cst);
+            _value.store(binary_cast<double, int64_t>(value), std::memory_order_seq_cst);
+#else
             _value.store(binary_cast<double, int64_t>(value), std::memory_order_relaxed);
+#endif
+#ifndef NDEBUG
+            if (enable_profile_counter_check) {
+                DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L)
+                        << " new value: " << value << " prev_value: " << prev_value;
+            }
+#endif
         }
 
         virtual int64_t value() const { return _value.load(std::memory_order_relaxed); }
@@ -266,10 +307,21 @@ public:
         }
 
         void add(int64_t delta) {
+#ifndef NDEBUG
+            current_value_.fetch_add(delta, std::memory_order_seq_cst);
+            if (delta > 0) {
+                UpdateMax(current_value_);
+            }
+            if (enable_profile_counter_check) {
+                DCHECK_GT(current_value_.load(std::memory_order_seq_cst), -1L);
+            }
+#else
             current_value_.fetch_add(delta, std::memory_order_relaxed);
             if (delta > 0) {
                 UpdateMax(current_value_);
             }
+            DCHECK_GT(current_value_.load(std::memory_order_seq_cst), -1L);
+#endif
         }
         virtual void update(int64_t delta) override { add(delta); }
 
@@ -329,8 +381,23 @@ public:
         }
 
         void set(int64_t v) override {
+#ifndef NDEBUG
+            int64_t prev_value = current_value_.load(std::memory_order_seq_cst);
+            int64_t prev_max_value = _value.load(std::memory_order_seq_cst);
+            current_value_.store(v, std::memory_order_seq_cst);
+#else
             current_value_.store(v, std::memory_order_relaxed);
+#endif
             UpdateMax(v);
+#ifndef NDEBUG
+
+            if (enable_profile_counter_check) {
+                DCHECK_GT(current_value_.load(std::memory_order_seq_cst), -1L)
+                        << " prev_value: " << prev_value;
+                DCHECK_GT(_value.load(std::memory_order_seq_cst), -1L)
+                        << " prev_max_value: " << prev_max_value << " prev_value: " << prev_value;
+            }
+#endif
         }
 
         int64_t current_value() const { return current_value_.load(std::memory_order_relaxed); }

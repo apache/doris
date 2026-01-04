@@ -143,11 +143,6 @@ public:
         _watch.start();
     }
 
-    void start_scan_cpu_timer() {
-        _cpu_watch.reset();
-        _cpu_watch.start();
-    }
-
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
 
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
