@@ -29,6 +29,7 @@
 #include <mutex>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/cast_set.h"
@@ -98,6 +99,9 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
     rowset_meta.set_segments_key_bounds(segments_key_bounds);
+    std::vector<uint32_t> num_segment_rows;
+    spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
+    rowset_meta.set_num_segment_rows(num_segment_rows);
 }
 
 } // namespace
