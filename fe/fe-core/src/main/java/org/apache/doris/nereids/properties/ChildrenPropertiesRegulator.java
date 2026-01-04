@@ -623,7 +623,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
 
     @Override
     public List<List<PhysicalProperties>> visitPhysicalSetOperation(PhysicalSetOperation setOperation, Void context) {
-        setOperation.setMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX, null);
         // process must shuffle
         visit(setOperation, context);
         // union with only constant exprs list
