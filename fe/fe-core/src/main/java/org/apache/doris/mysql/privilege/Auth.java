@@ -1850,7 +1850,8 @@ public class Auth implements Writable {
     }
 
     private void alterUserInternal(boolean ifExists, OpType opType, UserIdentity userIdent, byte[] password,
-            String role, PasswordOptions passwordOptions, String comment, boolean isReplay) throws DdlException {
+            String role, PasswordOptions passwordOptions, String comment, boolean isReplay)
+            throws DdlException {
         writeLock();
         try {
             if (!doesUserExist(userIdent)) {
@@ -1875,6 +1876,10 @@ public class Auth implements Writable {
                 case MODIFY_COMMENT:
                     modifyComment(userIdent, comment);
                     break;
+                case SET_TLS_REQUIRE:
+                    // TLS info is already in userIdent, just update the User object
+                    updateUserTlsRequirements(userIdent);
+                    break;
                 default:
                     throw new DdlException("Unknown alter user operation type: " + opType.name());
             }
@@ -1888,6 +1893,15 @@ public class Auth implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    private void updateUserTlsRequirements(UserIdentity userIdent) throws DdlException {
+        User user = userManager.getUserByUserIdentity(userIdent);
+        if (user == null) {
+            throw new DdlException("user: " + userIdent + " does not exist");
+        }
+        // Update the UserIdentity in the User object to apply TLS requirements
+        user.setUserIdentity(userIdent);
     }
 
     // tmp for current user can only has one role

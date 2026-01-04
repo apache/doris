@@ -585,7 +585,7 @@ unsupportedAlterStatement
     | ALTER STORAGE POLICY name=identifierOrText
         properties=propertyClause                                                   #alterStoragePlicy
     | ALTER USER (IF EXISTS)? grantUserIdentify
-        passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
+        passwordOption requireClause? (COMMENT STRING_LITERAL)?                     #alterUser
     | ALTER ROLE role=identifier commentSpec                                        #alterRole
     | ALTER REPOSITORY name=identifier properties=propertyClause?                   #alterRepository
     ;
@@ -807,7 +807,7 @@ unsupportedCreateStatement
         AS expression                                                           #createAliasFunction
     | CREATE USER (IF NOT EXISTS)? grantUserIdentify
         (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
-        passwordOption (COMMENT STRING_LITERAL)?                                #createUser
+        passwordOption requireClause? (COMMENT STRING_LITERAL)?                 #createUser
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
     | CREATE ROLE (IF NOT EXISTS)? name=identifier (COMMENT STRING_LITERAL)?    #createRole
     | CREATE FILE name=STRING_LITERAL
@@ -867,6 +867,17 @@ passwordOption
         (PASSWORD_LOCK_TIME (lockUnbounded=UNBOUNDED
             | lockValue=INTEGER_VALUE lockTimeUint=(DAY | HOUR | SECOND)))?
         (ACCOUNT_LOCK | ACCOUNT_UNLOCK)?
+    ;
+
+requireClause
+    : REQUIRE (NONE | tlsOption (AND? tlsOption)*)
+    ;
+
+tlsOption
+    : SAN STRING_LITERAL
+    | ISSUER STRING_LITERAL
+    | CIPHER STRING_LITERAL
+    | SUBJECT STRING_LITERAL
     ;
 
 functionArguments
