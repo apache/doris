@@ -32,6 +32,9 @@ suite("bucket_shuffle_set_operation") {
         set runtime_filter_mode=off;
         """
 
+    // make bucket shuffle set operation stable
+    sql "set parallel_pipeline_task_num=5"
+
     def checkShapeAndResult = { String tag, String sqlStr ->
         quickTest(tag + "_shape", "explain shape plan " + sqlStr)
         quickTest(tag + "_result", sqlStr, true)

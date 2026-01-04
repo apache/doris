@@ -85,8 +85,10 @@ public:
               _cur_child_id(child_id),
               _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
                                         : tnode.except_node.is_colocate),
-              _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
-                                            : tnode.except_node.result_expr_lists[child_id]) {}
+              _partition_exprs(tnode.__isset.distribute_expr_lists
+                             ? tnode.distribute_expr_lists[child_id]
+                             : (is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
+                                            : tnode.except_node.result_expr_lists[child_id])) {}
 
 #ifdef BE_TEST
     SetProbeSinkOperatorX(int cur_child_id)
