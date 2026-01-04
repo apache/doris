@@ -3442,6 +3442,11 @@ public class Config extends ConfigBase {
         "Thread pool size for asynchronous warm-up RPC dispatch during cloud tablet rebalancing, default 4"})
     public static int cloud_warm_up_rpc_async_pool_size = 4;
 
+    @ConfField(masterOnly = true, description = {"云上tablet均衡时，是否开启活跃tablet优先调度策略，默认打开"
+            + "When tablets are being balanced in the cloud, "
+            + "is the active tablet priority scheduling strategy enabled?  (Default: Enabled)"})
+    public static boolean enable_cloud_active_tablet_priority_scheduling = true;
+
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
 

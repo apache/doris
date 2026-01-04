@@ -69,6 +69,25 @@ public abstract class TabletInvertedIndex {
         return this.lock.readLock();
     }
 
+    /**
+     * Try to acquire read lock with timeout to prevent deadlock.
+     * @param timeoutMs timeout in milliseconds
+     * @return stamp if lock acquired, 0 if timeout
+     */
+    private long readLockWithTimeout(long timeoutMs) {
+        try {
+            long stamp = this.lock.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS);
+            if (stamp == 0) {
+                LOG.warn("Failed to acquire read lock within {} ms, possible deadlock", timeoutMs);
+            }
+            return stamp;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("Interrupted while trying to acquire read lock", e);
+            return 0;
+        }
+    }
+
     protected void readUnlock(long stamp) {
         this.lock.unlockRead(stamp);
     }
@@ -147,6 +166,41 @@ public abstract class TabletInvertedIndex {
     public abstract Replica getReplica(long tabletId, long backendId);
 
     public abstract List<Replica> getReplicasByTabletId(long tabletId);
+
+
+    /**
+     * Get tablet id by replica id.
+     * This method searches through replicaMetaTable to find the tablet that contains the given replica.
+     * @param replicaId the replica id
+     * @return the tablet id, or NOT_EXIST_VALUE (-1) if not found or lock timeout
+     */
+    public long getTabletIdByReplicaId(long replicaId) {
+        // Use timeout to prevent deadlock, default timeout: 2 seconds
+        long timeoutMs = 2000L;
+        long stamp = readLockWithTimeout(timeoutMs);
+        if (stamp == 0) {
+            // Lock timeout, return NOT_EXIST_VALUE to avoid blocking
+            LOG.warn("Failed to acquire lock for getTabletIdByReplicaId(replicaId={}), "
+                    + "returning NOT_EXIST_VALUE", replicaId);
+            return NOT_EXIST_VALUE;
+        }
+        try {
+            // replicaMetaTable structure: tablet id -> (backend id -> replica)
+            // We need to iterate through all tablets to find the one containing this replica
+            for (Map.Entry<Long, Map<Long, Replica>> tabletEntry : replicaMetaTable.rowMap().entrySet()) {
+                long tabletId = tabletEntry.getKey();
+                Map<Long, Replica> replicaMap = tabletEntry.getValue();
+                for (Replica replica : replicaMap.values()) {
+                    if (replica.getId() == replicaId) {
+                        return tabletId;
+                    }
+                }
+            }
+            return NOT_EXIST_VALUE;
+        } finally {
+            readUnlock(stamp);
+        }
+    }
 
     public Long getTabletSizeByBackendId(long backendId) {
         throw new UnsupportedOperationException(

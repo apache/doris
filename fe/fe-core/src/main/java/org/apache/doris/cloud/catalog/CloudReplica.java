@@ -302,6 +302,8 @@ public class CloudReplica extends Replica {
         if (Strings.isNullOrEmpty(clusterId)) {
             return -1L;
         }
+        // Use async version to avoid blocking getBackendIdImpl which is called frequently
+        CloudTabletAccessStats.getInstance().recordAccessAsync(getId(), getTableId(), getPartitionId(), getIndexId());
 
         if (isColocated()) {
             return getColocatedBeId(clusterId);

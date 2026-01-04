@@ -1475,6 +1475,11 @@ public class CloudTabletRebalancer extends MasterDaemon {
         LOG.debug("balance type {}, be num {}, total tablets num {}, avg num {}, transfer num {}",
                 currentBalanceType, beNum, totalTabletsNum, avgNum, transferNum);
 
+        // Prefer scheduling active tablets (recently accessed)
+        final Set<Long> activeTabletIds = getActiveTabletIds();
+        final Map<Long, List<Tablet>> activeTabletsByBeCache =
+                activeTabletIds.isEmpty() ? null : new HashMap<>();
+
         for (int i = 0; i < transferNum; i++) {
             TransferPairInfo pairInfo = new TransferPairInfo();
             if (!getTransferPair(bes, beToTablets, avgNum, pairInfo)) {
@@ -1486,7 +1491,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
             long srcBe = pairInfo.srcBe;
             long destBe = pairInfo.destBe;
 
-            Tablet pickedTablet = pickRandomTablet(beToTablets.get(srcBe));
+            Tablet pickedTablet = pickTabletPreferActive(srcBe, beToTablets.get(srcBe),
+                    activeTabletIds, activeTabletsByBeCache);
             if (pickedTablet == null) {
                 continue; // No tablet to pick
             }
@@ -1551,6 +1557,49 @@ public class CloudTabletRebalancer extends MasterDaemon {
         } else if (balanceType == BalanceType.TABLE) {
             tableBalanced = false;
         }
+    }
+
+    private Set<Long> getActiveTabletIds() {
+        try {
+            // get topN active tablets
+            List<CloudTabletAccessStats.AccessStatsResult> active =
+                    CloudTabletAccessStats.getInstance().getTopNActiveTablets(10000);
+            if (active == null || active.isEmpty()) {
+                return Collections.emptySet();
+            }
+            Set<Long> ids = new HashSet<>(active.size() * 2);
+            for (CloudTabletAccessStats.AccessStatsResult r : active) {
+                ids.add(r.id);
+            }
+            return ids;
+        } catch (Throwable t) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Failed to get active tablets from CloudTabletAccessStats, fallback to random pick", t);
+            }
+            return Collections.emptySet();
+        }
+    }
+
+    // choose active tablet first to re-balance, otherwise random pick
+    private Tablet pickTabletPreferActive(long srcBe, Set<Tablet> tablets, Set<Long> activeTabletIds,
+                                          Map<Long, List<Tablet>> activeTabletsByBeCache) {
+        if (tablets == null || tablets.isEmpty()) {
+            return null;
+        }
+        if (activeTabletIds == null || activeTabletIds.isEmpty() || activeTabletsByBeCache == null) {
+            return pickRandomTablet(tablets);
+        }
+
+        // Compute srcBe active tablets once, cache for subsequent iterations in this balanceImpl call.
+        List<Tablet> activeInSrc = activeTabletsByBeCache.computeIfAbsent(srcBe, k -> tablets.stream()
+                .filter(t -> activeTabletIds.contains(t.getId()))
+                .collect(Collectors.toList()));
+
+        if (activeInSrc != null && !activeInSrc.isEmpty()) {
+            return activeInSrc.get(rand.nextInt(activeInSrc.size()));
+        }
+
+        return pickRandomTablet(tablets);
     }
 
     private Tablet pickRandomTablet(Set<Tablet> tablets) {
