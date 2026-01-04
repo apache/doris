@@ -134,8 +134,8 @@ suite("test_backup_restore_job_lifecycle", "backup_restore") {
     syncer.waitSnapshotFinish(dbName)
     def snapshot3 = syncer.getSnapshotTimestamp(repoName, "snap_atomic")
     
-    // Modify data
-    sql "UPDATE ${dbName}.${tableName}_atomic SET value = 999 WHERE id = 1"
+    // Modify data (insert new row since UPDATE is not supported for duplicate key table)
+    sql "INSERT INTO ${dbName}.${tableName}_atomic VALUES (1, 999), (3, 300)"
     
     // Atomic restore - this covers bindLocalAndRemoteOlapTableReplicas()
     sql """
@@ -151,9 +151,14 @@ suite("test_backup_restore_job_lifecycle", "backup_restore") {
     
     syncer.waitAllRestoreFinish(dbName)
     
-    result = sql "SELECT * FROM ${dbName}.${tableName}_atomic WHERE id = 1"
-    assertEquals(1, result.size())
-    assertEquals(100, result[0][1]) // Should be restored to original value
+    // After atomic restore, the table should be completely replaced with backup data
+    result = sql "SELECT * FROM ${dbName}.${tableName}_atomic ORDER BY id, value"
+    assertEquals(2, result.size()) // Should have only the 2 original rows
+    assertEquals(1, result[0][0])
+    assertEquals(100, result[0][1]) // Row (1, 100)
+    assertEquals(2, result[1][0])
+    assertEquals(200, result[1][1]) // Row (2, 200)
+    // Row (1, 999) and (3, 300) should not exist after restore
     
     sql "DROP TABLE ${dbName}.${tableName}_atomic FORCE"
 
@@ -249,7 +254,7 @@ suite("test_backup_restore_job_lifecycle", "backup_restore") {
     sql """
         CREATE TABLE ${dbName}.${tableName}_complex (
             `k1` INT,
-            `k2` STRING,
+            `k2` VARCHAR(50),
             `v1` INT SUM
         )
         AGGREGATE KEY(`k1`, `k2`)

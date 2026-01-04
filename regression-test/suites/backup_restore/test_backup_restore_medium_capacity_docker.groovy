@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import backup_restore.BackupRestoreTestHelper
+import org.apache.doris.regression.util.BackupRestoreHelper
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.util.NodeType
@@ -48,7 +48,7 @@ suite("test_backup_restore_medium_capacity_docker", "docker,backup_restore") {
     ]
     options.enableDebugPoints()
     options.feConfigs += [
-        'sys_log_verbose_modules=org.apache.doris.backup',
+        'sys_log_verbose_modules=org.apache.doris.backup,org.apache.doris.catalog,org.apache.doris.system',
         'sys_log_level=DEBUG'
     ]
 
@@ -58,7 +58,7 @@ suite("test_backup_restore_medium_capacity_docker", "docker,backup_restore") {
         String tableName = "test_table"
 
         def feHttpAddress = context.config.feHttpAddress.split(":")
-        def helper = new BackupRestoreTestHelper(
+        def helper = new BackupRestoreHelper(
             sql, getSyncer(), 
             feHttpAddress[0], 
             feHttpAddress[1] as int
@@ -200,6 +200,75 @@ suite("test_backup_restore_medium_capacity_docker", "docker,backup_restore") {
         
         helper.dropTable(dbName, "${tableName}_5")
         helper.logTestEnd("same_with_upstream with adaptive fallback", true)
+
+        // ============================================================
+        // Test 6: HDD capacity limit with adaptive fallback to SSD
+        // ============================================================
+        helper.logTestStart("HDD capacity limit with adaptive fallback to SSD")
+        
+        helper.createSimpleTable(dbName, "${tableName}_6", [:])
+        helper.insertData(dbName, "${tableName}_6", ["(6, 'hdd_limit_test')"])
+        
+        assertTrue(helper.backupToS3(dbName, "snap6", repoName, "${tableName}_6"))
+        helper.dropTable(dbName, "${tableName}_6")
+        
+        helper.withDebugPoint("DiskInfo.exceedLimit.hdd.alwaysTrue") {
+            assertTrue(helper.restoreFromS3(dbName, "snap6", repoName, "${tableName}_6", [
+                "storage_medium": "hdd",
+                "medium_allocation_mode": "adaptive"
+            ]))
+            assertTrue(helper.verifyRowCount(dbName, "${tableName}_6", 1))
+            logger.info("✓ Successfully fell back from HDD to SSD due to capacity")
+        }
+        
+        helper.dropTable(dbName, "${tableName}_6")
+        helper.logTestEnd("HDD capacity limit with adaptive fallback to SSD", true)
+
+        // ============================================================
+        // Test 7: Force SSD available (alwaysFalse debug point)
+        // ============================================================
+        helper.logTestStart("Force SSD available with alwaysFalse debug point")
+        
+        helper.createSimpleTable(dbName, "${tableName}_7", [:])
+        helper.insertData(dbName, "${tableName}_7", ["(7, 'ssd_available_test')"])
+        
+        assertTrue(helper.backupToS3(dbName, "snap7", repoName, "${tableName}_7"))
+        helper.dropTable(dbName, "${tableName}_7")
+        
+        helper.withDebugPoint("DiskInfo.exceedLimit.ssd.alwaysFalse") {
+            assertTrue(helper.restoreFromS3(dbName, "snap7", repoName, "${tableName}_7", [
+                "storage_medium": "ssd",
+                "medium_allocation_mode": "strict"
+            ]))
+            assertTrue(helper.verifyRowCount(dbName, "${tableName}_7", 1))
+            logger.info("✓ SSD marked as available via debug point, strict mode succeeded")
+        }
+        
+        helper.dropTable(dbName, "${tableName}_7")
+        helper.logTestEnd("Force SSD available with alwaysFalse debug point", true)
+
+        // ============================================================
+        // Test 8: Force HDD available (alwaysFalse debug point)
+        // ============================================================
+        helper.logTestStart("Force HDD available with alwaysFalse debug point")
+        
+        helper.createSimpleTable(dbName, "${tableName}_8", [:])
+        helper.insertData(dbName, "${tableName}_8", ["(8, 'hdd_available_test')"])
+        
+        assertTrue(helper.backupToS3(dbName, "snap8", repoName, "${tableName}_8"))
+        helper.dropTable(dbName, "${tableName}_8")
+        
+        helper.withDebugPoint("DiskInfo.exceedLimit.hdd.alwaysFalse") {
+            assertTrue(helper.restoreFromS3(dbName, "snap8", repoName, "${tableName}_8", [
+                "storage_medium": "hdd",
+                "medium_allocation_mode": "strict"
+            ]))
+            assertTrue(helper.verifyRowCount(dbName, "${tableName}_8", 1))
+            logger.info("✓ HDD marked as available via debug point, strict mode succeeded")
+        }
+        
+        helper.dropTable(dbName, "${tableName}_8")
+        helper.logTestEnd("Force HDD available with alwaysFalse debug point", true)
 
         // ============================================================
         // Cleanup

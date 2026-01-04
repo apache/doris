@@ -78,6 +78,7 @@ suite("test_backup_restore_advanced_scenarios", "backup_restore") {
             `id` INT,
             `value` STRING
         )
+        UNIQUE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES ("replication_num" = "1")
     """
