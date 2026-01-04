@@ -700,19 +700,9 @@ extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_data_lag_storage_server_ns;
 extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_durability_lag_storage_server_ns;
 extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_log_server_queue_bytes;
 extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_storage_server_queue_bytes;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_conflict_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_location_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_keys_read_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_read_bytes_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_read_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_write_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_written_bytes_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent;
-extern mBvarStatus<int64_t> g_bvar_fdb_process_status_int;
-extern mBvarStatus<double> g_bvar_fdb_process_status_float;
+extern mBvarStatus<double> g_bvar_fdb_cluster_processes;
+extern mBvarStatus<double> g_bvar_fdb_cluster_workload;
 
 // checker
 extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;
