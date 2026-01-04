@@ -43,14 +43,14 @@
 #include "runtime/types.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
-#include "testutil/mock/mock_slot_ref.h"
 #include "util/debug_points.h"
 #include "util/hash_util.hpp"
 #include "util/runtime_profile.h"
+#include "vec/common/assert_cast.h"
+#include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/sink/vrow_distribution.h"
-#include "vec/sink/vtablet_block_convertor.h"
+#include "vec/sink/sink_test_utils.h"
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris::vectorized {
@@ -61,201 +61,7 @@ using doris::pipeline::ExchangeSinkLocalState;
 using doris::pipeline::ExchangeSinkOperatorX;
 using doris::pipeline::OperatorContext;
 
-TExprNode _make_int_literal(int32_t v) {
-    TExprNode node;
-    node.__set_node_type(TExprNodeType::INT_LITERAL);
-    node.__set_num_children(0);
-    node.__set_output_scale(0);
-
-    TIntLiteral int_lit;
-    int_lit.__set_value(v);
-    node.__set_int_literal(int_lit);
-
-    TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_INT);
-    type_desc.__set_is_nullable(false);
-    node.__set_type(type_desc);
-    node.__set_is_nullable(false);
-
-    return node;
-}
-
-TExpr _make_slot_ref_expr(TSlotId slot_id, TTupleId tuple_id) {
-    TExprNode node;
-    node.__set_node_type(TExprNodeType::SLOT_REF);
-    node.__set_num_children(0);
-
-    TSlotRef slot_ref;
-    slot_ref.__set_slot_id(slot_id);
-    slot_ref.__set_tuple_id(tuple_id);
-    node.__set_slot_ref(slot_ref);
-
-    TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_INT);
-    type_desc.__set_is_nullable(false);
-    node.__set_type(type_desc);
-    node.__set_is_nullable(false);
-
-    TExpr expr;
-    expr.nodes.emplace_back(node);
-    return expr;
-}
-
-[[maybe_unused]] int64_t _calc_channel_id(int64_t tablet_id, size_t partition_count) {
-    auto hash = HashUtil::zlib_crc_hash(&tablet_id, sizeof(int64_t), 0);
-    return static_cast<int64_t>(hash % partition_count);
-}
-
-TExprNode _make_bool_literal(bool v) {
-    TExprNode node;
-    node.__set_node_type(TExprNodeType::BOOL_LITERAL);
-    node.__set_num_children(0);
-    node.__set_output_scale(0);
-
-    TBoolLiteral bool_lit;
-    bool_lit.__set_value(v);
-    node.__set_bool_literal(bool_lit);
-
-    TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
-    type_desc.__set_is_nullable(false);
-    node.__set_type(type_desc);
-    node.__set_is_nullable(false);
-
-    return node;
-}
-
-void _build_desc_tbl_and_schema(OperatorContext& ctx, TOlapTableSchemaParam& tschema,
-                               TTupleId& tablet_sink_tuple_id, int64_t& schema_index_id,
-                               bool is_nullable = true) {
-    TDescriptorTableBuilder dtb;
-    {
-        TTupleDescriptorBuilder tuple_builder;
-        tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                       .type(TYPE_INT)
-                                       .nullable(is_nullable)
-                                       .column_name("c1")
-                                       .column_pos(1)
-                                       .build());
-        tuple_builder.build(&dtb);
-    }
-
-    auto thrift_desc_tbl = dtb.desc_tbl();
-    DescriptorTbl* desc_tbl = nullptr;
-    auto st = DescriptorTbl::create(ctx.state.obj_pool(), thrift_desc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ctx.state.set_desc_tbl(desc_tbl);
-
-    tschema.db_id = 1;
-    tschema.table_id = 2;
-    tschema.version = 0;
-    tschema.slot_descs = thrift_desc_tbl.slotDescriptors;
-    tschema.tuple_desc = thrift_desc_tbl.tupleDescriptors[0];
-
-    TOlapTableIndexSchema index_schema;
-    index_schema.id = 10;
-    index_schema.columns = {"c1"};
-    index_schema.schema_hash = 123;
-    tschema.indexes = {index_schema};
-
-    tablet_sink_tuple_id = tschema.tuple_desc.id;
-    schema_index_id = index_schema.id;
-}
-
-TOlapTablePartitionParam _build_partition_param(int64_t schema_index_id) {
-    TOlapTablePartitionParam param;
-    param.db_id = 1;
-    param.table_id = 2;
-    param.version = 0;
-
-    param.__set_partition_type(TPartitionType::RANGE_PARTITIONED);
-    param.__set_partition_columns({"c1"});
-    param.__set_distributed_columns({"c1"});
-
-    TOlapTablePartition p1;
-    p1.id = 1;
-    p1.num_buckets = 1;
-    p1.__set_is_mutable(true);
-    {
-        TOlapTableIndexTablets index_tablets;
-        index_tablets.index_id = schema_index_id;
-        index_tablets.tablets = {100};
-        p1.indexes = {index_tablets};
-    }
-    p1.__set_start_keys({_make_int_literal(0)});
-    p1.__set_end_keys({_make_int_literal(10)});
-
-    TOlapTablePartition p2;
-    p2.id = 2;
-    p2.num_buckets = 1;
-    p2.__set_is_mutable(true);
-    {
-        TOlapTableIndexTablets index_tablets;
-        index_tablets.index_id = schema_index_id;
-        index_tablets.tablets = {200};
-        p2.indexes = {index_tablets};
-    }
-    p2.__set_start_keys({_make_int_literal(20)});
-    p2.__set_end_keys({_make_int_literal(1000)});
-
-    param.partitions = {p1, p2};
-    return param;
-}
-
-TOlapTablePartitionParam _build_auto_partition_param(int64_t schema_index_id,
-                                                      TTupleId tuple_id, TSlotId slot_id) {
-    auto param = _build_partition_param(schema_index_id);
-    param.__set_enable_automatic_partition(true);
-    param.__set_partition_function_exprs({
-            _make_slot_ref_expr(slot_id, tuple_id),
-    });
-    return param;
-}
-
-TOlapTablePartitionParam _build_partition_param_with_load_tablet_idx(int64_t schema_index_id,
-                                                                       int64_t load_tablet_idx) {
-    TOlapTablePartitionParam param;
-    param.db_id = 1;
-    param.table_id = 2;
-    param.version = 0;
-
-    param.__set_partition_type(TPartitionType::RANGE_PARTITIONED);
-    param.__set_partition_columns({"c1"});
-
-    TOlapTablePartition p1;
-    p1.id = 1;
-    p1.num_buckets = 2;
-    p1.__set_is_mutable(true);
-    p1.__set_load_tablet_idx(load_tablet_idx);
-    {
-        TOlapTableIndexTablets index_tablets;
-        index_tablets.index_id = schema_index_id;
-        index_tablets.tablets = {100, 101};
-        p1.indexes = {index_tablets};
-    }
-    p1.__set_start_keys({_make_int_literal(0)});
-    p1.__set_end_keys({_make_int_literal(1000)});
-
-    param.partitions = {p1};
-    return param;
-}
-
-TOlapTableLocationParam _build_location_param() {
-    TOlapTableLocationParam location;
-    location.db_id = 1;
-    location.table_id = 2;
-    location.version = 0;
-
-    TTabletLocation t1;
-    t1.tablet_id = 100;
-    t1.node_ids = {1};
-
-    TTabletLocation t2;
-    t2.tablet_id = 200;
-    t2.node_ids = {1};
-
-    location.tablets = {t1, t2};
-    return location;
-}
-
-[[maybe_unused]] std::shared_ptr<ExchangeSinkOperatorX> _create_parent_operator(
+std::shared_ptr<ExchangeSinkOperatorX> _create_parent_operator(
         OperatorContext& ctx, const std::shared_ptr<doris::MockRowDescriptor>& row_desc_holder) {
     TDataStreamSink sink;
     sink.dest_node_id = 0;
@@ -266,19 +72,10 @@ TOlapTableLocationParam _build_location_param() {
                                                    std::vector<TUniqueId> {});
 }
 
-[[maybe_unused]] std::unique_ptr<TabletSinkHashPartitioner> _create_partitioner(
-        OperatorContext& ctx,
-                                                               ExchangeSinkLocalState* local_state,
-                                                               size_t partition_count,
-                                                               int64_t txn_id) {
-    TOlapTableSchemaParam schema;
-    TTupleId tablet_sink_tuple_id = 0;
-    int64_t schema_index_id = 0;
-    _build_desc_tbl_and_schema(ctx, schema, tablet_sink_tuple_id, schema_index_id);
-
-    auto partition = _build_partition_param(schema_index_id);
-    auto location = _build_location_param();
-
+std::unique_ptr<TabletSinkHashPartitioner> _create_partitioner(
+        OperatorContext& ctx, ExchangeSinkLocalState* local_state, size_t partition_count,
+        int64_t txn_id, const TOlapTableSchemaParam& schema, const TOlapTablePartitionParam& partition,
+        const TOlapTableLocationParam& location, TTupleId tablet_sink_tuple_id) {
     auto partitioner = std::make_unique<TabletSinkHashPartitioner>(
             partition_count, txn_id, schema, partition, location, tablet_sink_tuple_id,
             local_state);
@@ -287,210 +84,73 @@ TOlapTableLocationParam _build_location_param() {
     return partitioner;
 }
 
-struct VRowDistributionHarness {
-    std::shared_ptr<OlapTableSchemaParam> schema;
-    std::unique_ptr<VOlapTablePartitionParam> vpartition;
-    std::unique_ptr<OlapTableLocationParam> location;
-    std::unique_ptr<OlapTabletFinder> tablet_finder;
-    std::unique_ptr<OlapTableBlockConvertor> block_convertor;
-    VExprContextSPtrs output_expr_ctxs;
-    std::unique_ptr<RowDescriptor> output_row_desc;
-    VRowDistribution row_distribution;
-};
-
-Status _noop_create_partition_callback(void*, TCreatePartitionResult*) {
-    return Status::OK();
-}
-
-std::unique_ptr<VRowDistributionHarness> _build_vrow_distribution_harness(
-        OperatorContext& ctx, const TOlapTableSchemaParam& tschema,
-        const TOlapTablePartitionParam& tpartition, const TOlapTableLocationParam& tlocation,
-        TTupleId tablet_sink_tuple_id, int64_t txn_id) {
-    auto h = std::make_unique<VRowDistributionHarness>();
-
-    h->schema = std::make_shared<OlapTableSchemaParam>();
-    auto st = h->schema->init(tschema);
-    EXPECT_TRUE(st.ok()) << st.to_string();
-
-    h->vpartition = std::make_unique<VOlapTablePartitionParam>(h->schema, tpartition);
-    st = h->vpartition->init();
-    EXPECT_TRUE(st.ok()) << st.to_string();
-
-    h->location = std::make_unique<OlapTableLocationParam>(tlocation);
-    h->tablet_finder = std::make_unique<OlapTabletFinder>(h->vpartition.get(),
-                                                          OlapTabletFinder::FIND_TABLET_EVERY_ROW);
-    h->block_convertor = std::make_unique<OlapTableBlockConvertor>(h->schema->tuple_desc());
-
-    h->output_row_desc = std::make_unique<RowDescriptor>(
-            ctx.state.desc_tbl(), std::vector<TTupleId> {tablet_sink_tuple_id});
-
-    VRowDistribution::VRowDistributionContext rctx;
-    rctx.state = &ctx.state;
-    rctx.block_convertor = h->block_convertor.get();
-    rctx.tablet_finder = h->tablet_finder.get();
-    rctx.vpartition = h->vpartition.get();
-    rctx.add_partition_request_timer = nullptr;
-    rctx.txn_id = txn_id;
-    rctx.pool = &ctx.pool;
-    rctx.location = h->location.get();
-    rctx.vec_output_expr_ctxs = &h->output_expr_ctxs;
-    rctx.schema = h->schema;
-    rctx.caller = nullptr;
-    rctx.write_single_replica = false;
-    rctx.create_partition_callback = &_noop_create_partition_callback;
-    h->row_distribution.init(rctx);
-
-    st = h->row_distribution.open(h->output_row_desc.get());
-    EXPECT_TRUE(st.ok()) << st.to_string();
-
-    return h;
-}
-
-TEST(VRowDistributionTest, GenerateRowsDistributionNonAutoPartitionBasic) {
+TEST(TabletSinkHashPartitionerTest, DoPartitioningSkipsImmutablePartitionAndHashesOthers) {
     OperatorContext ctx;
+    constexpr size_t partition_count = 8;
     constexpr int64_t txn_id = 1;
 
     TOlapTableSchemaParam tschema;
     TTupleId tablet_sink_tuple_id = 0;
     int64_t schema_index_id = 0;
-    _build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id, false);
+    sink_test_utils::build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id,
+                                               false);
 
-    auto tpartition = _build_partition_param(schema_index_id);
-    auto tlocation = _build_location_param();
+    auto row_desc_holder = std::make_shared<doris::MockRowDescriptor>(
+            std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>()}, &ctx.pool);
+    auto parent_op = _create_parent_operator(ctx, row_desc_holder);
+    ExchangeSinkLocalState local_state(parent_op.get(), &ctx.state);
 
-    auto h = _build_vrow_distribution_harness(ctx, tschema, tpartition, tlocation,
-                                               tablet_sink_tuple_id, txn_id);
+    auto tpartition = sink_test_utils::build_partition_param(schema_index_id);
+    ASSERT_EQ(tpartition.partitions.size(), 2);
+    tpartition.partitions[0].__set_is_mutable(false);
+    auto tlocation = sink_test_utils::build_location_param();
 
-    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 25});
-    std::shared_ptr<Block> converted_block;
-    std::vector<RowPartTabletIds> row_part_tablet_ids;
-    int64_t rows_stat_val = input_block.rows();
-    auto st = h->row_distribution.generate_rows_distribution(input_block, converted_block,
-                                                             row_part_tablet_ids, rows_stat_val);
+    auto partitioner = _create_partitioner(ctx, &local_state, partition_count, txn_id, tschema,
+                                           tpartition, tlocation, tablet_sink_tuple_id);
+
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 25});
+    auto st = partitioner->do_partitioning(&ctx.state, &block);
     ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_NE(converted_block, nullptr);
 
-    ASSERT_EQ(row_part_tablet_ids.size(), 1);
-    ASSERT_EQ(row_part_tablet_ids[0].row_ids.size(), 2);
-    EXPECT_EQ(row_part_tablet_ids[0].row_ids[0], 0);
-    EXPECT_EQ(row_part_tablet_ids[0].row_ids[1], 1);
-    EXPECT_EQ(row_part_tablet_ids[0].partition_ids[0], 1);
-    EXPECT_EQ(row_part_tablet_ids[0].partition_ids[1], 2);
+    const auto& skipped = partitioner->get_skipped(cast_set<int>(block.rows()));
+    ASSERT_EQ(skipped.size(), block.rows());
+    EXPECT_TRUE(skipped[0]);
+    EXPECT_FALSE(skipped[1]);
+
+    auto channel_ids = partitioner->get_channel_ids();
+    auto* hashes = reinterpret_cast<const TabletSinkHashPartitioner::HashValType*>(
+            channel_ids.channel_id);
+    ASSERT_NE(hashes, nullptr);
+    EXPECT_EQ(hashes[0], -1);
+
+    int64_t tablet_id = 200;
+    auto hash = HashUtil::zlib_crc_hash(&tablet_id, sizeof(int64_t), 0);
+    EXPECT_EQ(hashes[1], static_cast<int64_t>(hash % partition_count));
 }
 
-TEST(VRowDistributionTest, GenerateRowsDistributionWhereClauseConstFalseFiltersAllRows) {
+TEST(TabletSinkHashPartitionerTest, TryCutInLineCreatesPartitionAndReturnsBatchedBlock) {
     OperatorContext ctx;
+    constexpr size_t partition_count = 8;
     constexpr int64_t txn_id = 1;
 
     TOlapTableSchemaParam tschema;
     TTupleId tablet_sink_tuple_id = 0;
     int64_t schema_index_id = 0;
-    _build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id, false);
-
-    auto tpartition = _build_partition_param(schema_index_id);
-    auto tlocation = _build_location_param();
-
-    auto h = _build_vrow_distribution_harness(ctx, tschema, tpartition, tlocation,
-                                               tablet_sink_tuple_id, txn_id);
-
-    TExpr texpr;
-    texpr.nodes.emplace_back(_make_bool_literal(false));
-    VExprContextSPtr where_ctx;
-    auto st = VExpr::create_expr_tree(texpr, where_ctx);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    st = where_ctx->prepare(&ctx.state, *h->output_row_desc);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    st = where_ctx->open(&ctx.state);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    h->schema->indexes()[0]->where_clause = where_ctx;
-
-    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 25});
-    std::shared_ptr<Block> converted_block;
-    std::vector<RowPartTabletIds> row_part_tablet_ids;
-    int64_t rows_stat_val = input_block.rows();
-    st = h->row_distribution.generate_rows_distribution(input_block, converted_block,
-                                                         row_part_tablet_ids, rows_stat_val);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_EQ(row_part_tablet_ids.size(), 1);
-    EXPECT_TRUE(row_part_tablet_ids[0].row_ids.empty());
-    EXPECT_TRUE(row_part_tablet_ids[0].partition_ids.empty());
-    EXPECT_TRUE(row_part_tablet_ids[0].tablet_ids.empty());
-}
-
-TEST(VRowDistributionTest, GenerateRowsDistributionWhereClauseUInt8ColumnFiltersSomeRows) {
-    OperatorContext ctx;
-    constexpr int64_t txn_id = 1;
-
-    TOlapTableSchemaParam tschema;
-    TTupleId tablet_sink_tuple_id = 0;
-    int64_t schema_index_id = 0;
-    _build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id, false);
-
-    auto tpartition = _build_partition_param(schema_index_id);
-    auto tlocation = _build_location_param();
-
-    auto h = _build_vrow_distribution_harness(ctx, tschema, tpartition, tlocation,
-                                               tablet_sink_tuple_id, txn_id);
-
-    auto where_ctx = VExprContext::create_shared(
-            std::make_shared<MockSlotRef>(1, std::make_shared<DataTypeUInt8>()));
-    auto st = where_ctx->prepare(&ctx.state, *h->output_row_desc);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    st = where_ctx->open(&ctx.state);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    h->schema->indexes()[0]->where_clause = where_ctx;
-
-    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 25, 2});
-    auto filter_col_mut = ColumnUInt8::create();
-    filter_col_mut->get_data().push_back(1);
-    filter_col_mut->get_data().push_back(0);
-    filter_col_mut->get_data().push_back(1);
-    ColumnPtr filter_col = std::move(filter_col_mut);
-    input_block.insert({filter_col, std::make_shared<DataTypeUInt8>(), "f"});
-
-    std::shared_ptr<Block> converted_block;
-    std::vector<RowPartTabletIds> row_part_tablet_ids;
-    int64_t rows_stat_val = input_block.rows();
-    st = h->row_distribution.generate_rows_distribution(input_block, converted_block,
-                                                        row_part_tablet_ids, rows_stat_val);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-
-    ASSERT_EQ(row_part_tablet_ids.size(), 1);
-    ASSERT_EQ(row_part_tablet_ids[0].row_ids.size(), 2);
-    EXPECT_EQ(row_part_tablet_ids[0].row_ids[0], 0);
-    EXPECT_EQ(row_part_tablet_ids[0].row_ids[1], 2);
-}
-
-TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreatePartition) {
-    OperatorContext ctx;
-    constexpr int64_t txn_id = 1;
-
-    TOlapTableSchemaParam tschema;
-    TTupleId tablet_sink_tuple_id = 0;
-    int64_t schema_index_id = 0;
-    _build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id, false);
-
+    sink_test_utils::build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id,
+                                               false);
     TSlotId partition_slot_id = tschema.slot_descs[0].id;
-    auto tpartition =
-            _build_auto_partition_param(schema_index_id, tablet_sink_tuple_id, partition_slot_id);
-    auto tlocation = _build_location_param();
 
-    auto h = _build_vrow_distribution_harness(ctx, tschema, tpartition, tlocation,
-                                               tablet_sink_tuple_id, txn_id);
+    auto row_desc_holder = std::make_shared<doris::MockRowDescriptor>(
+            std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>()}, &ctx.pool);
+    auto parent_op = _create_parent_operator(ctx, row_desc_holder);
+    ExchangeSinkLocalState local_state(parent_op.get(), &ctx.state);
 
-    auto input_block = ColumnHelper::create_block<DataTypeInt32>({15, 15});
-    std::shared_ptr<Block> converted_block;
-    std::vector<RowPartTabletIds> row_part_tablet_ids;
-    int64_t rows_stat_val = input_block.rows();
-    auto st = h->row_distribution.generate_rows_distribution(input_block, converted_block,
-                                                            row_part_tablet_ids, rows_stat_val);
-    ASSERT_TRUE(st.ok()) << st.to_string();
+    auto tpartition = sink_test_utils::build_auto_partition_param(
+            schema_index_id, tablet_sink_tuple_id, partition_slot_id);
+    auto tlocation = sink_test_utils::build_location_param();
 
-    ASSERT_TRUE(h->row_distribution._batching_block);
-    EXPECT_EQ(h->row_distribution._batching_block->rows(), 2);
-
-    h->row_distribution._deal_batched = true;
-    EXPECT_TRUE(h->row_distribution.need_deal_batching());
+    auto partitioner = _create_partitioner(ctx, &local_state, partition_count, txn_id, tschema,
+                                           tpartition, tlocation, tablet_sink_tuple_id);
 
     doris::config::enable_debug_points = true;
     doris::DebugPoints::instance()->clear();
@@ -519,8 +179,8 @@ TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreateParti
                     index_tablets.tablets = {300};
                     new_part.indexes = {index_tablets};
                 }
-                new_part.__set_start_keys({_make_int_literal(10)});
-                new_part.__set_end_keys({_make_int_literal(20)});
+                new_part.__set_start_keys({sink_test_utils::make_int_literal(10)});
+                new_part.__set_end_keys({sink_test_utils::make_int_literal(20)});
                 res->__set_partitions({new_part});
 
                 doris::TTabletLocation new_location;
@@ -531,124 +191,24 @@ TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreateParti
     doris::DebugPoints::instance()->add_with_callback(
             "VRowDistribution.automatic_create_partition.inject_result", handler);
 
-    st = h->row_distribution.automatic_create_partition();
-    EXPECT_TRUE(st.ok()) << st.to_string();
-    EXPECT_TRUE(injected);
-
-    auto check_block = ColumnHelper::create_block<DataTypeInt32>({15});
-    std::vector<VOlapTablePartition*> parts(1, nullptr);
-    h->vpartition->find_partition(&check_block, 0, parts[0]);
-    ASSERT_NE(parts[0], nullptr);
-    EXPECT_EQ(parts[0]->id, 3);
-
-    h->row_distribution.clear_batching_stats();
-    EXPECT_FALSE(h->row_distribution.need_deal_batching());
-
-    doris::DebugPoints::instance()->clear();
-    doris::config::enable_debug_points = false;
-}
-
-TEST(VRowDistributionTest, ReplaceOverwritingPartitionInjectedRequestDedupAndReplace) {
-    OperatorContext ctx;
-    constexpr int64_t txn_id = 1;
-
-    TOlapTableSchemaParam tschema;
-    TTupleId tablet_sink_tuple_id = 0;
-    int64_t schema_index_id = 0;
-    _build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id, false);
-
-    auto tpartition = _build_partition_param(schema_index_id);
-    tpartition.__set_enable_auto_detect_overwrite(true);
-    tpartition.__set_overwrite_group_id(123);
-    auto tlocation = _build_location_param();
-
-    auto h = _build_vrow_distribution_harness(ctx, tschema, tpartition, tlocation,
-                                               tablet_sink_tuple_id, txn_id);
-
-    doris::config::enable_debug_points = true;
-    doris::DebugPoints::instance()->clear();
-
-    int injected_times = 0;
-    std::function<void(doris::TReplacePartitionRequest*, doris::TReplacePartitionResult*)>
-            handler = [&](doris::TReplacePartitionRequest* req, doris::TReplacePartitionResult* res) {
-                injected_times++;
-                ASSERT_TRUE(req->__isset.partition_ids);
-                ASSERT_EQ(req->partition_ids.size(), 2);
-                EXPECT_EQ(req->partition_ids[0], 1);
-                EXPECT_EQ(req->partition_ids[1], 2);
-                ASSERT_TRUE(req->__isset.overwrite_group_id);
-                EXPECT_EQ(req->overwrite_group_id, 123);
-
-                doris::TStatus tstatus;
-                tstatus.__set_status_code(doris::TStatusCode::OK);
-                res->__set_status(tstatus);
-
-                doris::TOlapTablePartition new_p1;
-                new_p1.id = 11;
-                new_p1.num_buckets = 1;
-                new_p1.__set_is_mutable(true);
-                {
-                    doris::TOlapTableIndexTablets index_tablets;
-                    index_tablets.index_id = schema_index_id;
-                    index_tablets.tablets = {1100};
-                    new_p1.indexes = {index_tablets};
-                }
-
-                doris::TOlapTablePartition new_p2;
-                new_p2.id = 12;
-                new_p2.num_buckets = 1;
-                new_p2.__set_is_mutable(true);
-                {
-                    doris::TOlapTableIndexTablets index_tablets;
-                    index_tablets.index_id = schema_index_id;
-                    index_tablets.tablets = {1200};
-                    new_p2.indexes = {index_tablets};
-                }
-
-                res->__set_partitions({new_p1, new_p2});
-
-                doris::TTabletLocation loc1;
-                loc1.__set_tablet_id(1100);
-                loc1.__set_node_ids({1});
-                doris::TTabletLocation loc2;
-                loc2.__set_tablet_id(1200);
-                loc2.__set_node_ids({1});
-                res->__set_tablets({loc1, loc2});
-            };
-    doris::DebugPoints::instance()->add_with_callback(
-            "VRowDistribution.replace_overwriting_partition.inject_result", handler);
-
-    Status st;
     {
-        auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 25});
-        std::shared_ptr<Block> converted_block;
-        std::vector<RowPartTabletIds> row_part_tablet_ids;
-        int64_t rows_stat_val = input_block.rows();
-        st = h->row_distribution.generate_rows_distribution(input_block, converted_block,
-                                                            row_part_tablet_ids, rows_stat_val);
-        EXPECT_TRUE(st.ok()) << st.to_string();
-        EXPECT_EQ(injected_times, 1);
+        auto block = ColumnHelper::create_block<DataTypeInt32>({15, 15});
+        auto st = partitioner->do_partitioning(&ctx.state, &block);
+        ASSERT_TRUE(st.ok()) << st.to_string();
 
-        ASSERT_EQ(row_part_tablet_ids.size(), 1);
-        ASSERT_EQ(row_part_tablet_ids[0].partition_ids.size(), 2);
-        EXPECT_EQ(row_part_tablet_ids[0].partition_ids[0], 11);
-        EXPECT_EQ(row_part_tablet_ids[0].partition_ids[1], 12);
-        ASSERT_EQ(row_part_tablet_ids[0].tablet_ids.size(), 2);
-        EXPECT_EQ(row_part_tablet_ids[0].tablet_ids[0], 1100);
-        EXPECT_EQ(row_part_tablet_ids[0].tablet_ids[1], 1200);
-    }
+        // Flush batching data at end-of-stream.
+        partitioner->mark_last_block();
+        Block batched;
+        st = partitioner->try_cut_in_line(batched);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_TRUE(injected);
 
-    // The replaced partitions are recorded as "new" inside VRowDistribution, so the second call
-    // should not request replacement again.
-    {
-        auto input_block = ColumnHelper::create_block<DataTypeInt32>({1});
-        std::shared_ptr<Block> converted_block;
-        std::vector<RowPartTabletIds> row_part_tablet_ids;
-        int64_t rows_stat_val = input_block.rows();
-        st = h->row_distribution.generate_rows_distribution(input_block, converted_block,
-                                                            row_part_tablet_ids, rows_stat_val);
-        EXPECT_TRUE(st.ok()) << st.to_string();
-        EXPECT_EQ(injected_times, 1);
+        ASSERT_EQ(batched.rows(), 2);
+        ASSERT_EQ(batched.columns(), 1);
+        const auto& col = batched.get_by_position(0).column;
+        ASSERT_EQ(col->size(), 2);
+        EXPECT_EQ(assert_cast<const ColumnInt32&>(*col).get_data()[0], 15);
+        EXPECT_EQ(assert_cast<const ColumnInt32&>(*col).get_data()[1], 15);
     }
 
     doris::DebugPoints::instance()->clear();
@@ -661,13 +221,15 @@ TEST(TabletSinkHashPartitionerTest, OlapTabletFinderRoundRobinEveryBatch) {
     TOlapTableSchemaParam tschema;
     TTupleId tablet_sink_tuple_id = 0;
     int64_t schema_index_id = 0;
-    _build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id, false);
+    sink_test_utils::build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id,
+                                               false);
 
     auto schema = std::make_shared<OlapTableSchemaParam>();
     auto st = schema->init(tschema);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
-    auto tpartition = _build_partition_param_with_load_tablet_idx(schema_index_id, 0);
+    auto tpartition =
+            sink_test_utils::build_partition_param_with_load_tablet_idx(schema_index_id, 0);
     auto vpartition = std::make_unique<VOlapTablePartitionParam>(schema, tpartition);
     st = vpartition->init();
     ASSERT_TRUE(st.ok()) << st.to_string();
