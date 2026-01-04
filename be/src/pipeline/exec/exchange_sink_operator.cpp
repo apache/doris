@@ -510,13 +510,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         auto input_rows = block->rows();
 
         if (input_rows > 0) {
-            bool has_filtered_rows = false;
-            int64_t filtered_rows = 0;
             local_state._number_input_rows += input_rows;
 
             RETURN_IF_ERROR(local_state._row_distribution.generate_rows_distribution(
-                    *block, convert_block, filtered_rows, has_filtered_rows,
-                    local_state._row_part_tablet_ids, local_state._number_input_rows));
+                    *block, convert_block, local_state._row_part_tablet_ids,
+                    local_state._number_input_rows));
             if (local_state._row_distribution.batching_rows() > 0) {
                 SCOPED_TIMER(local_state._send_new_partition_timer);
                 RETURN_IF_ERROR(local_state._send_new_partition_batch(block));
