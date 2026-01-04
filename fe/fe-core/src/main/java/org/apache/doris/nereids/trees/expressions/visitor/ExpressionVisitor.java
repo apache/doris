@@ -91,6 +91,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -153,6 +154,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitUnicodeNormalize(org.apache.doris.nereids.trees.expressions.functions.scalar.UnicodeNormalize unicodeNormalize, C context) {
         return visitScalarFunction(unicodeNormalize, context);
+    }
+
+    public R visitHammingDistance(org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance hammingDistance, C context) {
+        return visitScalarFunction(hammingDistance, context);
     }
 
     public R visitSearchExpression(SearchExpression searchExpression, C context) {
