@@ -147,7 +147,7 @@ public:
 
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
-    void update_scan_cpu_timer();
+    void update_scan_cpu_timer(int64_t cpu_time_delta);
 
     // Some counters need to be updated realtime, for example, workload group policy need
     // scan bytes to cancel the query exceed limit.

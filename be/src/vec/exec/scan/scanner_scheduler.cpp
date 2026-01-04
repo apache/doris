@@ -164,7 +164,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 if (scanner->has_prepared()) {
                     // Counter update need prepare successfully, or it maybe core. For example, olap scanner
                     // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
-                    int64_t cpu_time = _cpu_watch.elasped_time();
+                    int64_t cpu_time = _cpu_watch.elapsed_time();
                     scanner->update_scan_cpu_timer(cpu_time);
                     scanner->update_realtime_counters();
                     scanner->start_wait_worker_timer();
