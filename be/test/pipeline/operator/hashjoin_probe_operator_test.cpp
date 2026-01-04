@@ -105,7 +105,8 @@ public:
         }
 
         auto sorted_block = block.clone_empty();
-        sort_block(block, sorted_block, sort_description);
+        uint32_t extremum_num;
+        EXPECT_TRUE(sort_block(block, sorted_block, sort_description, &extremum_num).ok());
         return sorted_block;
     }
 

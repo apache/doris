@@ -140,15 +140,12 @@ Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized:
 Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) {
     size_t num_cols = src_block.columns();
     RETURN_IF_ERROR(_prepare_sort_columns(src_block, dest_block, reversed));
-    {
-        SCOPED_TIMER(_partial_sort_timer);
-        uint64_t limit = reversed ? 0 : (_offset + _limit);
-        sort_block(_materialize_sort_exprs ? dest_block : src_block, dest_block, _sort_description,
-                   limit);
-    }
-
+    SCOPED_TIMER(_partial_sort_timer);
+    uint64_t limit = reversed ? 0 : (_offset + _limit);
+    Status st = sort_block(_materialize_sort_exprs ? dest_block : src_block, dest_block,
+                           _sort_description, &_extremum_num, limit, _offset + _limit);
     src_block.clear_column_data(num_cols);
-    return Status::OK();
+    return st;
 }
 
 Status Sorter::_prepare_sort_columns(Block& src_block, Block& dest_block, bool reversed) {
