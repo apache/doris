@@ -34,6 +34,7 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
+#include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -97,6 +98,7 @@ Status VRowDistribution::automatic_create_partition() {
     SCOPED_TIMER(_add_partition_request_timer);
     TCreatePartitionRequest request;
     TCreatePartitionResult result;
+    bool injected = false;
     std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_txn_id(_txn_id);
     request.__set_db_id(_vpartition->db_id());
@@ -109,15 +111,26 @@ Status VRowDistribution::automatic_create_partition() {
         request.__set_query_id(_state->get_query_ctx()->query_id());
     }
 
+    DBUG_EXECUTE_IF("VRowDistribution.automatic_create_partition.inject_result", {
+        DBUG_RUN_CALLBACK(&request, &result);
+        injected = true;
+    });
+
     VLOG_NOTICE << "automatic partition rpc begin request " << request;
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
-    int time_out = _state->execution_timeout() * 1000;
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->createPartition(result, request);
-            },
-            time_out));
+    if (!injected) {
+        auto* cluster_info = ExecEnv::GetInstance()->cluster_info();
+        if (cluster_info == nullptr) {
+            return Status::InternalError("cluster_info is null");
+        }
+        TNetworkAddress master_addr = cluster_info->master_fe_addr;
+        int time_out = _state->execution_timeout() * 1000;
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->createPartition(result, request);
+                },
+                time_out));
+    }
 
     Status status(Status::create(result.status));
     VLOG_NOTICE << "automatic partition rpc end response " << result;
@@ -150,6 +163,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
     SCOPED_TIMER(_add_partition_request_timer); // also for replace_partition
     TReplacePartitionRequest request;
     TReplacePartitionResult result;
+    bool injected = false;
     request.__set_overwrite_group_id(_vpartition->get_overwrite_group_id());
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
@@ -184,15 +198,26 @@ Status VRowDistribution::_replace_overwriting_partition() {
     std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_be_endpoint(be_endpoint);
 
+    DBUG_EXECUTE_IF("VRowDistribution.replace_overwriting_partition.inject_result", {
+        DBUG_RUN_CALLBACK(&request, &result);
+        injected = true;
+    });
+
     VLOG_NOTICE << "auto detect replace partition request: " << request;
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
-    int time_out = _state->execution_timeout() * 1000;
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->replacePartition(result, request);
-            },
-            time_out));
+    if (!injected) {
+        auto* cluster_info = ExecEnv::GetInstance()->cluster_info();
+        if (cluster_info == nullptr) {
+            return Status::InternalError("cluster_info is null");
+        }
+        TNetworkAddress master_addr = cluster_info->master_fe_addr;
+        int time_out = _state->execution_timeout() * 1000;
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->replacePartition(result, request);
+                },
+                time_out));
+    }
 
     Status status(Status::create(result.status));
     VLOG_NOTICE << "auto detect replace partition result: " << result;
