@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -178,7 +179,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     if (arg instanceof Literal) {
                         continue;
                     }
-                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class, PreferPushDownProject.class)) {
+                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class, Unnest.class,
+                            PreferPushDownProject.class)) {
                         needPushDownSelfExprs.add(arg);
                     } else {
                         needPushDownInputs.add(arg);

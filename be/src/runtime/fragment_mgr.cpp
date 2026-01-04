@@ -851,6 +851,22 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb,
                                        const TPipelineFragmentParamsList& parent) {
+    auto dbg_str = apache::thrift::ThriftDebugString(params);
+    if (dbg_str.find("category_ids") != std::string::npos) {
+        constexpr size_t max_log_size = 30000 - 100;
+        size_t pos = 0;
+        size_t total_size = dbg_str.size();
+        size_t tmp_size = std::min(max_log_size, total_size);
+        LOG(WARNING) << "xxxx Query: " << print_id(params.query_id)
+                     << " exec_plan_fragment params size: " << total_size;
+        while (pos < total_size) {
+            tmp_size = std::min(max_log_size, total_size - pos);
+            LOG(WARNING) << "xxxx =========" << std::string(dbg_str.data() + pos, tmp_size);
+            pos += tmp_size;
+        }
+        LOG(WARNING) << "Query: " << print_id(params.query_id) << "query options is "
+                     << apache::thrift::ThriftDebugString(params.query_options).c_str();
+    }
     VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TPipelineFragmentParams debug string is too long and glog
