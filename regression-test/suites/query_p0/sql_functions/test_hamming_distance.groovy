@@ -58,12 +58,8 @@ suite("test_hamming_distance") {
         (8, 'abcd', 'abce'),
         (9, 'ab', 'ac'),
         (10, 'hi', 'ho'),
-        (13, 'abc', null),
-<<<<<<< HEAD
-        (14, '', 'abc'),
-=======
->>>>>>> b9554332c65 (fix: resolve hamming distance test issues)
-        (15, '', null);
+        (11, 'abc', null),
+        (12, '', null);
     """
 
     /// all values
