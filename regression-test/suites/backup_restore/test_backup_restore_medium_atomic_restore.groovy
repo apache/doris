@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import backup_restore.BackupRestoreTestHelper
+import org.apache.doris.regression.util.BackupRestoreHelper
 
 /**
  * Test atomic restore functionality for S3 repository
@@ -30,7 +30,7 @@ suite("test_backup_restore_medium_atomic_restore", "backup_restore") {
     String repoName = "test_br_atomic_repo_" + UUID.randomUUID().toString().replace("-", "")
     String tableName = "test_table"
 
-    def helper = new BackupRestoreTestHelper(sql, getSyncer())
+    def helper = new BackupRestoreHelper(sql, getSyncer())
     getSyncer().createS3Repository(repoName)
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
 

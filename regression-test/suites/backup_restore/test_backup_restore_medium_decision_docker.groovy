@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import backup_restore.BackupRestoreTestHelper
+import org.apache.doris.regression.util.BackupRestoreHelper
 import org.apache.doris.regression.suite.ClusterOptions
 
 /**
@@ -51,7 +51,7 @@ suite("test_backup_restore_medium_decision_docker", "docker,backup_restore") {
         String repoName = "test_br_decision_repo"
         String tableName = "test_table"
         
-        def helper = new BackupRestoreTestHelper(sql, getSyncer())
+        def helper = new BackupRestoreHelper(sql, getSyncer())
         getSyncer().createS3Repository(repoName)
         sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
         

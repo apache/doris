@@ -269,8 +269,8 @@ suite("test_backup_restore_state_and_error_docker", "docker,backup_restore") {
         
         syncer.waitAllRestoreFinish(dbName)
         
-        def result = sql "SELECT * FROM ${dbName}.${tableName}_state_conflict"
-        assertEquals(1, result.size())
+        def result2 = sql "SELECT * FROM ${dbName}.${tableName}_state_conflict"
+        assertEquals(1, result2.size())
         
         sql "DROP TABLE ${dbName}.${tableName}_state_conflict FORCE"
 
@@ -599,6 +599,240 @@ suite("test_backup_restore_state_and_error_docker", "docker,backup_restore") {
         logger.info("Complex table with same_with_upstream: ${show_create[0][1]}")
         
         sql "DROP TABLE ${dbName}.${tableName}_complex FORCE"
+
+        // Test 8: Table type validation - temporary partitions
+        logger.info("=== Test 8: Restore table with temporary partitions (should fail) ===")
+        
+        sql """
+            CREATE TABLE ${dbName}.${tableName}_temp_part (
+                `id` INT,
+                `value` STRING
+            )
+            PARTITION BY RANGE(`id`) (
+                PARTITION p1 VALUES LESS THAN ("10")
+            )
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            )
+        """
+        
+        sql "INSERT INTO ${dbName}.${tableName}_temp_part VALUES (1, 'test')"
+        
+        // Add a temporary partition
+        sql """
+            ALTER TABLE ${dbName}.${tableName}_temp_part 
+            ADD TEMPORARY PARTITION tp1 VALUES LESS THAN ("20")
+        """
+        
+        // Backup with temp partition
+        sql "BACKUP SNAPSHOT ${dbName}.snap_temp_part TO `${repoName}` ON (${tableName}_temp_part)"
+        syncer.waitSnapshotFinish(dbName)
+        def snapshot8 = syncer.getSnapshotTimestamp(repoName, "snap_temp_part")
+        
+        sql "DROP TABLE ${dbName}.${tableName}_temp_part FORCE"
+        
+        // Create table with temp partition again
+        sql """
+            CREATE TABLE ${dbName}.${tableName}_temp_part (
+                `id` INT,
+                `value` STRING
+            )
+            PARTITION BY RANGE(`id`) (
+                PARTITION p1 VALUES LESS THAN ("10")
+            )
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            )
+        """
+        
+        sql """
+            ALTER TABLE ${dbName}.${tableName}_temp_part 
+            ADD TEMPORARY PARTITION tp1 VALUES LESS THAN ("20")
+        """
+        
+        // Try to restore - should fail because table has temp partitions
+        test {
+            sql """
+                RESTORE SNAPSHOT ${dbName}.snap_temp_part FROM `${repoName}`
+                ON (`${tableName}_temp_part`)
+                PROPERTIES (
+                    "backup_timestamp" = "${snapshot8}"
+                )
+            """
+            exception "Do not support restoring table with temp partitions"
+        }
+        
+        logger.info("✓ Test 8 passed: Correctly rejected restore with temp partitions")
+        sql "DROP TABLE ${dbName}.${tableName}_temp_part FORCE"
+
+        // Test 9: Table type validation - VIEW type conflict
+        logger.info("=== Test 9: Table type conflict - VIEW vs OLAP ===")
+        
+        // Create a normal table and backup
+        sql """
+            CREATE TABLE ${dbName}.${tableName}_type_test (
+                `id` INT,
+                `name` STRING
+            )
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            )
+        """
+        
+        sql "INSERT INTO ${dbName}.${tableName}_type_test VALUES (1, 'test')"
+        
+        sql "BACKUP SNAPSHOT ${dbName}.snap_type_test TO `${repoName}` ON (${tableName}_type_test)"
+        syncer.waitSnapshotFinish(dbName)
+        def snapshot9 = syncer.getSnapshotTimestamp(repoName, "snap_type_test")
+        
+        sql "DROP TABLE ${dbName}.${tableName}_type_test FORCE"
+        
+        // Create a VIEW with same name
+        sql """
+            CREATE TABLE ${dbName}.${tableName}_base (
+                `id` INT,
+                `value` STRING
+            )
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        
+        sql """
+            CREATE VIEW ${dbName}.${tableName}_type_test AS 
+            SELECT * FROM ${dbName}.${tableName}_base
+        """
+        
+        // Try to restore OLAP table when VIEW exists with same name - should fail
+        test {
+            sql """
+                RESTORE SNAPSHOT ${dbName}.snap_type_test FROM `${repoName}`
+                ON (`${tableName}_type_test`)
+                PROPERTIES (
+                    "backup_timestamp" = "${snapshot9}"
+                )
+            """
+            exception "Only support restore OLAP table"
+        }
+        
+        logger.info("✓ Test 9 passed: Correctly rejected restore OLAP table when VIEW exists")
+        sql "DROP VIEW ${dbName}.${tableName}_type_test"
+        sql "DROP TABLE ${dbName}.${tableName}_base FORCE"
+
+        // Test 10: Table state validation - non-NORMAL state
+        logger.info("=== Test 10: Table state validation - SCHEMA_CHANGE state ===")
+        
+        // Create table and backup
+        sql """
+            CREATE TABLE ${dbName}.${tableName}_state_test (
+                `id` INT,
+                `name` STRING
+            )
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            )
+        """
+        
+        sql "INSERT INTO ${dbName}.${tableName}_state_test VALUES (1, 'test')"
+        
+        sql "BACKUP SNAPSHOT ${dbName}.snap_state_test TO `${repoName}` ON (${tableName}_state_test)"
+        syncer.waitSnapshotFinish(dbName)
+        def snapshot10 = syncer.getSnapshotTimestamp(repoName, "snap_state_test")
+        
+        // Start a schema change to put table in SCHEMA_CHANGE state
+        sql "ALTER TABLE ${dbName}.${tableName}_state_test ADD COLUMN new_col INT DEFAULT '0'"
+        
+        // Wait a bit for schema change to start
+        Thread.sleep(1000)
+        
+        // Try to restore while table is in SCHEMA_CHANGE state - should fail
+        // Note: This test is best-effort as schema change might complete quickly
+        def schemaChangeState = sql "SHOW ALTER TABLE COLUMN FROM ${dbName}"
+        if (schemaChangeState.size() > 0 && schemaChangeState[0][9] != "FINISHED") {
+            test {
+                sql """
+                    RESTORE SNAPSHOT ${dbName}.snap_state_test FROM `${repoName}`
+                    ON (`${tableName}_state_test`)
+                    PROPERTIES (
+                        "backup_timestamp" = "${snapshot10}"
+                    )
+                """
+                exception "state is not NORMAL"
+            }
+            logger.info("✓ Test 10 passed: Correctly rejected restore when table state is not NORMAL")
+        } else {
+            logger.info("⚠ Test 10 skipped: Schema change completed too quickly")
+        }
+        
+        // Wait for schema change to complete
+        def maxWait = 30
+        def waited = 0
+        while (waited < maxWait) {
+            def alterResult = sql "SHOW ALTER TABLE COLUMN FROM ${dbName}"
+            if (alterResult.size() == 0 || alterResult[0][9] == "FINISHED") {
+                break
+            }
+            Thread.sleep(1000)
+            waited++
+        }
+        
+        sql "DROP TABLE ${dbName}.${tableName}_state_test FORCE"
+
+        // Test 11: Backup/Restore with VIEW - type mismatch in backup metadata
+        logger.info("=== Test 11: VIEW in backup, different type in local ===")
+        
+        // Create base table and view
+        sql """
+            CREATE TABLE ${dbName}.${tableName}_view_base (
+                `id` INT,
+                `value` STRING
+            )
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        
+        sql "INSERT INTO ${dbName}.${tableName}_view_base VALUES (1, 'view_test')"
+        
+        sql """
+            CREATE VIEW ${dbName}.${tableName}_view AS 
+            SELECT * FROM ${dbName}.${tableName}_view_base
+        """
+        
+        // Backup the view
+        sql "BACKUP SNAPSHOT ${dbName}.snap_view TO `${repoName}` ON (${tableName}_view_base, ${tableName}_view)"
+        syncer.waitSnapshotFinish(dbName)
+        def snapshot11 = syncer.getSnapshotTimestamp(repoName, "snap_view")
+        
+        sql "DROP VIEW ${dbName}.${tableName}_view"
+        
+        // Create an OLAP table with same name as the view
+        sql """
+            CREATE TABLE ${dbName}.${tableName}_view (
+                `id` INT,
+                `data` STRING
+            )
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        
+        // Try to restore - should fail due to type mismatch
+        test {
+            sql """
+                RESTORE SNAPSHOT ${dbName}.snap_view FROM `${repoName}`
+                ON (`${tableName}_view`)
+                PROPERTIES (
+                    "backup_timestamp" = "${snapshot11}"
+                )
+            """
+            exception "with the same name but a different type of backup meta"
+        }
+        
+        logger.info("✓ Test 11 passed: Correctly detected VIEW type mismatch")
+        sql "DROP TABLE ${dbName}.${tableName}_view FORCE"
+        sql "DROP TABLE ${dbName}.${tableName}_view_base FORCE"
 
         sql "DROP DATABASE ${dbName} FORCE"
         sql "DROP REPOSITORY `${repoName}`"

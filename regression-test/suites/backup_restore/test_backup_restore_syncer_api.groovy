@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.BackupRestoreHelper
+
 suite("test_backup_restore_syncer_api", "backup_restore") {
     /**
      * Test Syncer API for backup/restore operations
@@ -44,7 +46,7 @@ suite("test_backup_restore_syncer_api", "backup_restore") {
     String snapshotName = "${suiteName}_snapshot"
     
     def syncer = getSyncer()
-    def helper = new backup_restore.BackupRestoreTestHelper(sql, syncer)
+    def helper = new BackupRestoreHelper(sql, syncer)
     
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
@@ -151,4 +153,3 @@ suite("test_backup_restore_syncer_api", "backup_restore") {
         sql "DROP DATABASE IF EXISTS ${dbName} FORCE"
     }
 }
-

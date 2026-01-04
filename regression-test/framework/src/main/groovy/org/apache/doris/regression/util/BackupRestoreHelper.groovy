@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package backup_restore
+package org.apache.doris.regression.util
 
 /**
  * Unified backup and restore test helper class
@@ -27,7 +27,7 @@ package backup_restore
  * 4. Data verification
  * 5. Debug Point management
  */
-class BackupRestoreTestHelper {
+class BackupRestoreHelper {
     private static final String LOCAL_REPO_NAME = "__keep_on_local__"
     
     private def sql
@@ -41,7 +41,7 @@ class BackupRestoreTestHelper {
     /**
      * Constructor
      */
-    BackupRestoreTestHelper(sql, syncer, String feHost = null, int fePort = 0) {
+    BackupRestoreHelper(sql, syncer, String feHost = null, int fePort = 0) {
         this.sql = sql
         this.syncer = syncer
         this.logger = org.apache.logging.log4j.LogManager.getLogger(this.class)
