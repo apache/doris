@@ -89,7 +89,7 @@ public class AIProperties extends BaseProperties {
 
         // Check 'dimensions'
         temp = properties.get(AIProperties.DIMENSIONS);
-        if (!Strings.isNullOrEmpty(temp) && temp.equals("-1")) {
+        if (!Strings.isNullOrEmpty(temp) && !temp.equals("-1")) {
             int tempVal = Integer.parseInt(temp);
             if (tempVal <= 0) {
                 throw new DdlException("Dimensions must be a positive integer");
