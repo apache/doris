@@ -23,7 +23,7 @@ import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.iceberg.BaseMetastoreCatalog;
+import org.apache.iceberg.catalog.Catalog;
 import software.amazon.s3tables.iceberg.S3TablesCatalog;
 
 import java.util.List;
@@ -49,8 +49,8 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
     }
 
     @Override
-    public BaseMetastoreCatalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                                            List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         checkInitialized();
 
         buildS3CatalogProperties(catalogProps);
