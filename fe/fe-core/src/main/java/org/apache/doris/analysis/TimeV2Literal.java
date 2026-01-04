@@ -63,7 +63,6 @@ public class TimeV2Literal extends LiteralExpr {
             throw new AnalysisException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
         }
         this.nullable = false;
-        analysisDone();
     }
 
     protected TimeV2Literal(TimeV2Literal other) {

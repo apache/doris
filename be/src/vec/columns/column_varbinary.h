@@ -41,10 +41,10 @@ private:
 public:
     using value_type = typename PrimitiveTypeTraits<TYPE_VARBINARY>::ColumnItemType;
     using Container = PaddedPODArray<doris::StringView>;
-    ColumnVarbinary() = default;
-    ColumnVarbinary(const size_t n) : _data(n) {}
 
 private:
+    ColumnVarbinary() = default;
+    ColumnVarbinary(const size_t n) : _data(n) {}
     ColumnVarbinary(const ColumnVarbinary& src) : _data(src._data.begin(), src._data.end()) {}
 
 public:

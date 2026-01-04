@@ -96,6 +96,11 @@ public:
         return *this;
     }
 
+    TQueryOptionsBuilder& set_enable_spill(int64_t enable_spill) {
+        _query_options.__set_enable_spill(enable_spill);
+        return *this;
+    }
+
     TQueryOptions& build() { return _query_options; }
 
     TQueryOptionsBuilder(const TQueryOptionsBuilder&) = delete;
@@ -131,7 +136,6 @@ public:
     }
     TPlanNodeBuilder& append_row_tuples(TTupleId tuple_id, bool nullable) {
         _plan_node.row_tuples.emplace_back(tuple_id);
-        _plan_node.nullable_tuples.emplace_back(nullable);
         return *this;
     }
 

@@ -62,8 +62,25 @@ public:
     void stop() override;
     bool stopped() override;
 
+    /* Parameters:
+     * - tablet_id: the id of tablet to get
+     * - sync_stats: the stats of sync rowset
+     * - force_use_only_cached: whether only use cached tablet meta
+     * - cache_on_miss: whether cache the tablet meta when missing in cache
+     */
     Result<BaseTabletSPtr> get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats = nullptr,
-                                      bool force_use_only_cached = false) override;
+                                      bool force_use_only_cached = false,
+                                      bool cache_on_miss = true) override;
+
+    /*
+     * Get the tablet meta for a specific tablet
+     * Parameters:
+     * - tablet_id: the id of tablet to get meta for
+     * - tablet_meta: output TabletMeta shared pointer
+     * - force_use_only_cached: whether only use cached tablet meta (return NotFound on miss)
+     */
+    Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                           bool force_use_only_cached = false) override;
 
     Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 
@@ -152,6 +169,8 @@ public:
         return *_sync_load_for_tablets_thread_pool;
     }
 
+    ThreadPool& warmup_cache_async_thread_pool() const { return *_warmup_cache_async_thread_pool; }
+
     Status register_compaction_stop_token(CloudTabletSPtr tablet, int64_t initiator);
 
     Status unregister_compaction_stop_token(CloudTabletSPtr tablet, bool clear_ms);
@@ -204,6 +223,7 @@ private:
     std::unique_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
     std::unique_ptr<TabletHotspot> _tablet_hotspot;
     std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
+    std::unique_ptr<ThreadPool> _warmup_cache_async_thread_pool;
     std::unique_ptr<CloudSnapshotMgr> _cloud_snapshot_mgr;
 
     // FileSystem with latest shared storage info, new data will be written to this fs.

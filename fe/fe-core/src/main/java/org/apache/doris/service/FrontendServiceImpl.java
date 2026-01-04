@@ -895,13 +895,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db != null) {
             for (String tableName : tables) {
                 TableIf table = db.getTableNullableIfException(tableName);
-                if (table.isTemporary()) {
-                    // because we return all table names to be,
-                    // so when we skip temporary table, we should add a offset here
-                    tablesOffset.add(columns.size());
-                    continue;
-                }
                 if (table != null) {
+                    if (table.isTemporary()) {
+                        // because we return all table names to be,
+                        // so when we skip temporary table, we should add a offset here
+                        tablesOffset.add(columns.size());
+                        continue;
+                    }
                     table.readLock();
                     try {
                         List<Column> baseSchema = table.getBaseSchemaOrEmpty();
@@ -4197,12 +4197,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetBackendMetaResult result = new TGetBackendMetaResult();
-        TStatus status = checkMaster();
+        TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-
-        if (status.getStatusCode() != TStatusCode.OK) {
-            return result;
-        }
 
         try {
             result = getBackendMetaImpl(request, clientAddr);

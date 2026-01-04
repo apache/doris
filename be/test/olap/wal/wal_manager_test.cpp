@@ -268,7 +268,6 @@ void WalManagerTest::init() {
     _tnode.num_children = 0;
     _tnode.limit = -1;
     _tnode.row_tuples.push_back(0);
-    _tnode.nullable_tuples.push_back(false);
     _tnode.file_scan_node.tuple_id = 0;
     _tnode.__isset.file_scan_node = true;
 

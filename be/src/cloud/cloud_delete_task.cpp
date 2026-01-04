@@ -96,7 +96,13 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     RETURN_IF_ERROR(rowset_writer->build(rowset));
     rowset->rowset_meta()->set_delete_predicate(std::move(del_pred));
 
-    auto st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), "");
+    auto st = engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(), "");
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to prepare rowset, status=" << st.to_string();
+        return st;
+    }
+
+    st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), "");
 
     // Update tablet stats
     tablet->fetch_add_approximate_num_rowsets(1);

@@ -146,7 +146,7 @@ struct TQueryOptions {
   // if set, this will overwrite the BE config.
   30: optional i32 max_pushdown_conditions_per_column
   // whether enable spilling to disk
-  31: optional bool enable_spilling = false;
+  // 31: optional bool enable_spilling = false;
   // whether enable parallel merge in exchange node
   32: optional bool enable_enable_exchange_node_parallel_merge = false; // deprecated
 
@@ -178,7 +178,7 @@ struct TQueryOptions {
   // For debug purpose, skip delete predicates when reading data
   50: optional bool skip_delete_predicate = false
 
-  51: optional bool enable_new_shuffle_hash_method // deprecated
+  51: optional bool enable_new_shuffle_hash_method
 
   52: optional i32 be_exec_version = 0
 

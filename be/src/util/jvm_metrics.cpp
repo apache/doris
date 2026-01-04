@@ -80,7 +80,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(jvm_gc_g1_old_generation_time_ms, MetricUni
 
 const char* JvmMetrics::_s_hook_name = "jvm_metrics";
 
-JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) {
+JvmMetrics::JvmMetrics(MetricRegistry* registry) {
     DCHECK(registry != nullptr);
     _registry = registry;
 
@@ -92,7 +92,7 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) {
             break;
         }
         try {
-            Status st = _jvm_stats.init(env);
+            Status st = _jvm_stats.init();
             if (!st) {
                 LOG(WARNING) << "jvm Stats Init Fail. " << st.to_string();
                 break;
@@ -137,12 +137,22 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) {
     INT_GAUGE_METRIC_REGISTER(_server_entity, jvm_gc_g1_old_generation_time_ms);
 }
 
+JvmMetrics::~JvmMetrics() {
+    if (_jvm_stats.init_complete()) {
+        _server_entity->deregister_hook(_s_hook_name);
+    }
+}
+
 void JvmMetrics::update() {
     // If enable_jvm_monitor is false, the jvm stats object is not initialized. call jvm_stats.refresh() may core.
     if (!doris::config::enable_jvm_monitor) {
         return;
     }
     static long fail_count = 0;
+    if (fail_count >= 30) {
+        return;
+    }
+
     try {
         Status st = _jvm_stats.refresh(this);
         if (!st) {
@@ -159,9 +169,6 @@ void JvmMetrics::update() {
     //When 30 consecutive exceptions occur, turn off jvm information collection.
     if (fail_count >= 30) {
         LOG(WARNING) << "Jvm Stats CLOSE!";
-        _jvm_stats.set_complete(false);
-        _server_entity->deregister_hook(_s_hook_name);
-
         jvm_heap_size_bytes_max->set_value(0);
         jvm_heap_size_bytes_committed->set_value(0);
         jvm_heap_size_bytes_used->set_value(0);
@@ -193,170 +200,98 @@ void JvmMetrics::update() {
     }
 }
 
-Status JvmStats::init(JNIEnv* env) {
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/management/ManagementFactory",
-                                               &_managementFactoryClass));
+Status JvmStats::init() {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getMemoryMXBeanMethod, env,
-                                    GetStaticMethodID(_managementFactoryClass, "getMemoryMXBean",
-                                                      "()Ljava/lang/management/MemoryMXBean;"));
-
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/management/MemoryUsage",
-                                               &_memoryUsageClass));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getMemoryUsageUsedMethod, env,
-                                    GetMethodID(_memoryUsageClass, "getUsed", "()J"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getMemoryUsageCommittedMethod, env,
-                                    GetMethodID(_memoryUsageClass, "getCommitted", "()J"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getMemoryUsageMaxMethod, env,
-                                    GetMethodID(_memoryUsageClass, "getMax", "()J"));
-
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/management/MemoryMXBean",
-                                               &_memoryMXBeanClass));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getHeapMemoryUsageMethod, env,
-                                    GetMethodID(_memoryMXBeanClass, "getHeapMemoryUsage",
-                                                "()Ljava/lang/management/MemoryUsage;"));
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getNonHeapMemoryUsageMethod, env,
-                                    GetMethodID(_memoryMXBeanClass, "getNonHeapMemoryUsage",
-                                                "()Ljava/lang/management/MemoryUsage;"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            , _getMemoryPoolMXBeansMethod, env,
-            GetStaticMethodID(_managementFactoryClass, "getMemoryPoolMXBeans",
-                              "()Ljava/util/List;"));
-
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/util/List", &_listClass));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getListSizeMethod, env,
-                                    GetMethodID(_listClass, "size", "()I"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getListUseIndexMethod, env,
-                                    GetMethodID(_listClass, "get", "(I)Ljava/lang/Object;"));
-
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/management/MemoryPoolMXBean",
-                                               &_memoryPoolMXBeanClass));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getMemoryPoolMXBeanUsageMethod, env,
-                                    GetMethodID(_memoryPoolMXBeanClass, "getUsage",
-                                                "()Ljava/lang/management/MemoryUsage;"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getMemoryPollMXBeanPeakMethod, env,
-                                    GetMethodID(_memoryPoolMXBeanClass, "getPeakUsage",
-                                                "()Ljava/lang/management/MemoryUsage;"));
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            , _getMemoryPollMXBeanNameMethod, env,
-            GetMethodID(_memoryPoolMXBeanClass, "getName", "()Ljava/lang/String;"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(, _getThreadMXBeanMethod, env,
-                                    GetStaticMethodID(_managementFactoryClass, "getThreadMXBean",
-                                                      "()Ljava/lang/management/ThreadMXBean;"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            , _getGarbageCollectorMXBeansMethod, env,
-            GetStaticMethodID(_managementFactoryClass, "getGarbageCollectorMXBeans",
-                              "()Ljava/util/List;"));
-
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/management/GarbageCollectorMXBean",
-                                               &_garbageCollectorMXBeanClass));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            , _getGCNameMethod, env,
-            GetMethodID(_garbageCollectorMXBeanClass, "getName", "()Ljava/lang/String;"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            , _getGCCollectionCountMethod, env,
-            GetMethodID(_garbageCollectorMXBeanClass, "getCollectionCount", "()J"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            , _getGCCollectionTimeMethod, env,
-            GetMethodID(_garbageCollectorMXBeanClass, "getCollectionTime", "()J"));
-
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/management/ThreadMXBean",
-                                               &_threadMXBeanClass));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(,
-
-                                    _getAllThreadIdsMethod, env,
-                                    GetMethodID(_threadMXBeanClass, "getAllThreadIds", "()[J"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(,
-
-                                    _getThreadInfoMethod, env,
-                                    GetMethodID(_threadMXBeanClass, "getThreadInfo",
-                                                "([JI)[Ljava/lang/management/ThreadInfo;"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(,
-
-                                    _getPeakThreadCountMethod, env,
-                                    GetMethodID(_threadMXBeanClass, "getPeakThreadCount", "()I"));
+    RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/management/ManagementFactory",
+                                          &_managementFactoryClass));
+    RETURN_IF_ERROR(_managementFactoryClass.get_static_method(
+            env, "getMemoryMXBean", "()Ljava/lang/management/MemoryMXBean;",
+            &_getMemoryMXBeanMethod));
 
     RETURN_IF_ERROR(
-            JniUtil::GetGlobalClassRef(env, "java/lang/management/ThreadInfo", &_threadInfoClass));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            ,
-
-            _getThreadStateMethod, env,
-            GetMethodID(_threadInfoClass, "getThreadState", "()Ljava/lang/Thread$State;"));
-
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Thread$State", &_threadStateClass));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jfieldID, newThreadFieldID, env,
-            GetStaticFieldID(_threadStateClass, "NEW", "Ljava/lang/Thread$State;"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jfieldID, runnableThreadFieldID, env,
-            GetStaticFieldID(_threadStateClass, "RUNNABLE", "Ljava/lang/Thread$State;"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jfieldID, blockedThreadFieldID, env,
-            GetStaticFieldID(_threadStateClass, "BLOCKED", "Ljava/lang/Thread$State;"));
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jfieldID, waitingThreadFieldID, env,
-            GetStaticFieldID(_threadStateClass, "WAITING", "Ljava/lang/Thread$State;"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jfieldID, timedWaitingThreadFieldID, env,
-            GetStaticFieldID(_threadStateClass, "TIMED_WAITING", "Ljava/lang/Thread$State;"));
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jfieldID, terminatedThreadFieldID, env,
-            GetStaticFieldID(_threadStateClass, "TERMINATED", "Ljava/lang/Thread$State;"));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(jobject, newThreadStateObj, env,
-                                    GetStaticObjectField(_threadStateClass, newThreadFieldID));
-    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, newThreadStateObj, &_newThreadStateObj));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(jobject, runnableThreadStateObj, env,
-                                    GetStaticObjectField(_threadStateClass, runnableThreadFieldID));
+            Jni::Util::find_class(env, "java/lang/management/MemoryUsage", &_memoryUsageClass));
     RETURN_IF_ERROR(
-            JniUtil::LocalToGlobalRef(env, runnableThreadStateObj, &_runnableThreadStateObj));
+            _memoryUsageClass.get_method(env, "getUsed", "()J", &_getMemoryUsageUsedMethod));
+    RETURN_IF_ERROR(_memoryUsageClass.get_method(env, "getCommitted", "()J",
+                                                 &_getMemoryUsageCommittedMethod));
+    RETURN_IF_ERROR(_memoryUsageClass.get_method(env, "getMax", "()J", &_getMemoryUsageMaxMethod));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION(jobject, blockedThreadStateObj, env,
-                                    GetStaticObjectField(_threadStateClass, blockedThreadFieldID));
-    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, blockedThreadStateObj, &_blockedThreadStateObj));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(jobject, waitingThreadStateObj, env,
-                                    GetStaticObjectField(_threadStateClass, waitingThreadFieldID));
-    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, waitingThreadStateObj, &_waitingThreadStateObj));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jobject, timedWaitingThreadStateObj, env,
-            GetStaticObjectField(_threadStateClass, timedWaitingThreadFieldID));
-    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, timedWaitingThreadStateObj,
-                                              &_timedWaitingThreadStateObj));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jobject, terminatedThreadStateObj, env,
-            GetStaticObjectField(_threadStateClass, terminatedThreadFieldID));
     RETURN_IF_ERROR(
-            JniUtil::LocalToGlobalRef(env, terminatedThreadStateObj, &_terminatedThreadStateObj));
+            Jni::Util::find_class(env, "java/lang/management/MemoryMXBean", &_memoryMXBeanClass));
+    RETURN_IF_ERROR(_memoryMXBeanClass.get_method(env, "getHeapMemoryUsage",
+                                                  "()Ljava/lang/management/MemoryUsage;",
+                                                  &_getHeapMemoryUsageMethod));
+    RETURN_IF_ERROR(_memoryMXBeanClass.get_method(env, "getNonHeapMemoryUsage",
+                                                  "()Ljava/lang/management/MemoryUsage;",
+                                                  &_getNonHeapMemoryUsageMethod));
+
+    RETURN_IF_ERROR(_managementFactoryClass.get_static_method(
+            env, "getMemoryPoolMXBeans", "()Ljava/util/List;", &_getMemoryPoolMXBeansMethod));
+
+    RETURN_IF_ERROR(Jni::Util::find_class(env, "java/util/List", &_listClass));
+    RETURN_IF_ERROR(_listClass.get_method(env, "size", "()I", &_getListSizeMethod));
+    RETURN_IF_ERROR(
+            _listClass.get_method(env, "get", "(I)Ljava/lang/Object;", &_getListUseIndexMethod));
+
+    RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/management/MemoryPoolMXBean",
+                                          &_memoryPoolMXBeanClass));
+    RETURN_IF_ERROR(_memoryPoolMXBeanClass.get_method(env, "getUsage",
+                                                      "()Ljava/lang/management/MemoryUsage;",
+                                                      &_getMemoryPoolMXBeanUsageMethod));
+    RETURN_IF_ERROR(_memoryPoolMXBeanClass.get_method(env, "getPeakUsage",
+                                                      "()Ljava/lang/management/MemoryUsage;",
+                                                      &_getMemoryPoolMXBeanPeakMethod));
+    RETURN_IF_ERROR(_memoryPoolMXBeanClass.get_method(env, "getName", "()Ljava/lang/String;",
+                                                      &_getMemoryPoolMXBeanNameMethod));
+
+    RETURN_IF_ERROR(_managementFactoryClass.get_static_method(
+            env, "getThreadMXBean", "()Ljava/lang/management/ThreadMXBean;",
+            &_getThreadMXBeanMethod));
+    RETURN_IF_ERROR(_managementFactoryClass.get_static_method(env, "getGarbageCollectorMXBeans",
+                                                              "()Ljava/util/List;",
+                                                              &_getGarbageCollectorMXBeansMethod));
+
+    RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/management/GarbageCollectorMXBean",
+                                          &_garbageCollectorMXBeanClass));
+    RETURN_IF_ERROR(_garbageCollectorMXBeanClass.get_method(env, "getName", "()Ljava/lang/String;",
+                                                            &_getGCNameMethod));
+    RETURN_IF_ERROR(_garbageCollectorMXBeanClass.get_method(env, "getCollectionCount", "()J",
+                                                            &_getGCCollectionCountMethod));
+    RETURN_IF_ERROR(_garbageCollectorMXBeanClass.get_method(env, "getCollectionTime", "()J",
+                                                            &_getGCCollectionTimeMethod));
+
+    RETURN_IF_ERROR(
+            Jni::Util::find_class(env, "java/lang/management/ThreadMXBean", &_threadMXBeanClass));
+    RETURN_IF_ERROR(
+            _threadMXBeanClass.get_method(env, "getAllThreadIds", "()[J", &_getAllThreadIdsMethod));
+    RETURN_IF_ERROR(_threadMXBeanClass.get_method(env, "getThreadInfo",
+                                                  "([JI)[Ljava/lang/management/ThreadInfo;",
+                                                  &_getThreadInfoMethod));
+    RETURN_IF_ERROR(_threadMXBeanClass.get_method(env, "getPeakThreadCount", "()I",
+                                                  &_getPeakThreadCountMethod));
+
+    RETURN_IF_ERROR(
+            Jni::Util::find_class(env, "java/lang/management/ThreadInfo", &_threadInfoClass));
+    RETURN_IF_ERROR(_threadInfoClass.get_method(env, "getThreadState", "()Ljava/lang/Thread$State;",
+                                                &_getThreadStateMethod));
+
+    RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/Thread$State", &_threadStateClass));
+    RETURN_IF_ERROR(_threadStateClass.get_static_object_field(
+            env, "NEW", "Ljava/lang/Thread$State;", &_newThreadStateObj));
+    RETURN_IF_ERROR(_threadStateClass.get_static_object_field(
+            env, "RUNNABLE", "Ljava/lang/Thread$State;", &_runnableThreadStateObj));
+    RETURN_IF_ERROR(_threadStateClass.get_static_object_field(
+            env, "BLOCKED", "Ljava/lang/Thread$State;", &_blockedThreadStateObj));
+    RETURN_IF_ERROR(_threadStateClass.get_static_object_field(
+            env, "WAITING", "Ljava/lang/Thread$State;", &_waitingThreadStateObj));
+    RETURN_IF_ERROR(_threadStateClass.get_static_object_field(
+            env, "TIMED_WAITING", "Ljava/lang/Thread$State;", &_timedWaitingThreadStateObj));
+    RETURN_IF_ERROR(_threadStateClass.get_static_object_field(
+            env, "TERMINATED", "Ljava/lang/Thread$State;", &_terminatedThreadStateObj));
 
     _init_complete = true;
-
     LOG(INFO) << "Start JVM monitoring.";
     return Status::OK();
 }
@@ -367,85 +302,90 @@ Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
     }
 
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-            jobject, memoryMXBeanObj, env,
-            CallStaticObjectMethod(_managementFactoryClass, _getMemoryMXBeanMethod));
+    Jni::LocalObject memoryMXBeanObj;
+    RETURN_IF_ERROR(_managementFactoryClass.call_static_object_method(env, _getMemoryMXBeanMethod)
+                            .call(&memoryMXBeanObj));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-            jobject, heapMemoryUsageObj, env,
-            CallObjectMethod(memoryMXBeanObj, _getHeapMemoryUsageMethod));
+    Jni::LocalObject heapMemoryUsageObj;
+    RETURN_IF_ERROR(memoryMXBeanObj.call_object_method(env, _getHeapMemoryUsageMethod)
+                            .call(&heapMemoryUsageObj));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION(jlong, heapMemoryUsed, env,
-                                    CallLongMethod(heapMemoryUsageObj, _getMemoryUsageUsedMethod));
+    jlong heapMemoryUsed = 0;
+    RETURN_IF_ERROR(heapMemoryUsageObj.call_long_method(env, _getMemoryUsageUsedMethod)
+                            .call(&heapMemoryUsed));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jlong, heapMemoryCommitted, env,
-            CallLongMethod(heapMemoryUsageObj, _getMemoryUsageCommittedMethod));
+    jlong heapMemoryCommitted = 0;
+    RETURN_IF_ERROR(heapMemoryUsageObj.call_long_method(env, _getMemoryUsageCommittedMethod)
+                            .call(&heapMemoryCommitted));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION(jlong, heapMemoryMax, env,
-                                    CallLongMethod(heapMemoryUsageObj, _getMemoryUsageMaxMethod));
+    jlong heapMemoryMax = 0;
+    RETURN_IF_ERROR(heapMemoryUsageObj.call_long_method(env, _getMemoryUsageMaxMethod)
+                            .call(&heapMemoryMax));
 
     jvm_metrics->jvm_heap_size_bytes_used->set_value(heapMemoryUsed < 0 ? 0 : heapMemoryUsed);
     jvm_metrics->jvm_heap_size_bytes_committed->set_value(
             heapMemoryCommitted < 0 ? 0 : heapMemoryCommitted);
     jvm_metrics->jvm_heap_size_bytes_max->set_value(heapMemoryMax < 0 ? 0 : heapMemoryMax);
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-            jobject, nonHeapMemoryUsageObj, env,
-            CallObjectMethod(memoryMXBeanObj, _getNonHeapMemoryUsageMethod));
+    Jni::LocalObject nonHeapMemoryUsageObj;
+    RETURN_IF_ERROR(memoryMXBeanObj.call_object_method(env, _getNonHeapMemoryUsageMethod)
+                            .call(&nonHeapMemoryUsageObj));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jlong, nonHeapMemoryCommitted, env,
-            CallLongMethod(nonHeapMemoryUsageObj, _getMemoryUsageCommittedMethod));
+    jlong nonHeapMemoryCommitted = 0;
+    RETURN_IF_ERROR(nonHeapMemoryUsageObj.call_long_method(env, _getMemoryUsageCommittedMethod)
+                            .call(&nonHeapMemoryCommitted));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            jlong, nonHeapMemoryUsed, env,
-            CallLongMethod(nonHeapMemoryUsageObj, _getMemoryUsageUsedMethod));
+    jlong nonHeapMemoryUsed = 0;
+    RETURN_IF_ERROR(nonHeapMemoryUsageObj.call_long_method(env, _getMemoryUsageUsedMethod)
+                            .call(&nonHeapMemoryUsed));
 
     jvm_metrics->jvm_non_heap_size_bytes_committed->set_value(
             nonHeapMemoryCommitted < 0 ? 0 : nonHeapMemoryCommitted);
     jvm_metrics->jvm_non_heap_size_bytes_used->set_value(nonHeapMemoryUsed < 0 ? 0
                                                                                : nonHeapMemoryUsed);
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-            jobject, memoryPoolMXBeansList, env,
-            CallStaticObjectMethod(_managementFactoryClass, _getMemoryPoolMXBeansMethod));
+    Jni::LocalObject memoryPoolMXBeansList;
+    RETURN_IF_ERROR(
+            _managementFactoryClass.call_static_object_method(env, _getMemoryPoolMXBeansMethod)
+                    .call(&memoryPoolMXBeansList));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION(jint, size, env,
-                                    CallIntMethod(memoryPoolMXBeansList, _getListSizeMethod));
+    jint beanSize = 0;
+    RETURN_IF_ERROR(memoryPoolMXBeansList.call_int_method(env, _getListSizeMethod).call(&beanSize));
 
-    for (int i = 0; i < size; ++i) {
-        JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-                jobject, memoryPoolMXBean, env,
-                CallObjectMethod(memoryPoolMXBeansList, _getListUseIndexMethod, i));
+    for (int i = 0; i < beanSize; ++i) {
+        Jni::LocalObject memoryPoolMXBean;
+        RETURN_IF_ERROR(memoryPoolMXBeansList.call_object_method(env, _getListUseIndexMethod)
+                                .with_arg(i)
+                                .call(&memoryPoolMXBean));
 
-        JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-                jobject, usageObject, env,
-                CallObjectMethod(memoryPoolMXBean, _getMemoryPoolMXBeanUsageMethod));
+        Jni::LocalObject usageObject;
+        RETURN_IF_ERROR(memoryPoolMXBean.call_object_method(env, _getMemoryPoolMXBeanUsageMethod)
+                                .call(&usageObject));
 
-        JNI_CALL_METHOD_CHECK_EXCEPTION(jlong, used, env,
-                                        CallLongMethod(usageObject, _getMemoryUsageUsedMethod));
+        jlong used = 0;
+        RETURN_IF_ERROR(usageObject.call_long_method(env, _getMemoryUsageUsedMethod).call(&used));
 
-        JNI_CALL_METHOD_CHECK_EXCEPTION(jlong, max, env,
-                                        CallLongMethod(usageObject, _getMemoryUsageMaxMethod));
+        jlong max = 0;
+        RETURN_IF_ERROR(usageObject.call_long_method(env, _getMemoryUsageMaxMethod).call(&max));
 
-        JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-                jobject, peakUsageObject, env,
-                CallObjectMethod(memoryPoolMXBean, _getMemoryPollMXBeanPeakMethod));
+        Jni::LocalObject peakUsageObject;
+        RETURN_IF_ERROR(memoryPoolMXBean.call_object_method(env, _getMemoryPoolMXBeanPeakMethod)
+                                .call(&peakUsageObject));
 
-        JNI_CALL_METHOD_CHECK_EXCEPTION(jlong, peakUsed, env,
-                                        CallLongMethod(peakUsageObject, _getMemoryUsageUsedMethod));
+        jlong peakUsed = 0;
+        RETURN_IF_ERROR(
+                peakUsageObject.call_long_method(env, _getMemoryUsageUsedMethod).call(&peakUsed));
 
-        JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-                jobject, name, env,
-                CallObjectMethod(memoryPoolMXBean, _getMemoryPollMXBeanNameMethod));
+        Jni::LocalString name;
+        RETURN_IF_ERROR(memoryPoolMXBean.call_object_method(env, _getMemoryPoolMXBeanNameMethod)
+                                .call(&name));
 
-        const char* nameStr = env->GetStringUTFChars(
-                (jstring)name, nullptr); // GetStringUTFChars not throw exception
-        if (nameStr != nullptr) {
-            auto it = _memoryPoolName.find(nameStr);
+        Jni::LocalStringBufferGuard nameStr;
+        RETURN_IF_ERROR(name.get_string_chars(env, &nameStr));
+        if (nameStr.get() != nullptr) {
+            auto it = _memoryPoolName.find(nameStr.get());
             if (it == _memoryPoolName.end()) {
                 continue;
             }
@@ -459,58 +399,56 @@ Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
                 jvm_metrics->jvm_old_size_bytes_peak_used->set_value(peakUsed < 0 ? 0 : peakUsed);
                 jvm_metrics->jvm_old_size_bytes_max->set_value(max < 0 ? 0 : max);
             }
-
-            env->ReleaseStringUTFChars((jstring)name,
-                                       nameStr); // ReleaseStringUTFChars not throw exception
         }
     }
-    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-            jobject, threadMXBean, env,
-            CallStaticObjectMethod(_managementFactoryClass, _getThreadMXBeanMethod));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-            jobject, threadIdsObject, env, CallObjectMethod(threadMXBean, _getAllThreadIdsMethod));
+    Jni::LocalObject threadMXBean;
+    RETURN_IF_ERROR(_managementFactoryClass.call_static_object_method(env, _getThreadMXBeanMethod)
+                            .call(&threadMXBean));
 
-    auto threadIds = (jlongArray)threadIdsObject;
+    Jni::LocalArray threadIds;
+    RETURN_IF_ERROR(threadMXBean.call_object_method(env, _getAllThreadIdsMethod).call(&threadIds));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION(jint, threadCount, env, GetArrayLength(threadIds));
+    jsize threadCount = 0;
+    RETURN_IF_ERROR(threadIds.get_length(env, &threadCount));
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-            jobject, threadInfos, env,
-            CallObjectMethod(threadMXBean, _getThreadInfoMethod, (jlongArray)threadIds, 0));
+    Jni::LocalArray threadInfos;
+    RETURN_IF_ERROR(threadMXBean.call_object_method(env, _getThreadInfoMethod)
+                            .with_arg(threadIds)
+                            .with_arg(0)
+                            .call(&threadInfos));
 
     int threadsNew = 0, threadsRunnable = 0, threadsBlocked = 0, threadsWaiting = 0,
         threadsTimedWaiting = 0, threadsTerminated = 0;
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION(jint, peakThreadCount, env,
-                                    CallIntMethod(threadMXBean, _getPeakThreadCountMethod));
+    jint peakThreadCount = 0;
+    RETURN_IF_ERROR(
+            threadMXBean.call_int_method(env, _getPeakThreadCountMethod).call(&peakThreadCount));
 
     jvm_metrics->jvm_thread_peak_count->set_value(peakThreadCount < 0 ? 0 : peakThreadCount);
     jvm_metrics->jvm_thread_count->set_value(threadCount < 0 ? 0 : threadCount);
 
     for (int i = 0; i < threadCount; i++) {
-        JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-                jobject, threadInfo, env, GetObjectArrayElement((jobjectArray)threadInfos, i));
-
-        if (threadInfo == nullptr) {
+        Jni::LocalObject threadInfo;
+        RETURN_IF_ERROR(threadInfos.get_object_array_element(env, i, &threadInfo));
+        if (threadInfo.uninitialized()) {
             continue;
         }
+        Jni::LocalObject threadState;
+        RETURN_IF_ERROR(
+                threadInfo.call_object_method(env, _getThreadStateMethod).call(&threadState));
 
-        JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-                jobject, threadState, env, CallObjectMethod(threadInfo, _getThreadStateMethod));
-
-        //IsSameObject not throw exception
-        if (env->IsSameObject(threadState, _newThreadStateObj)) {
+        if (threadState.equal(env, _newThreadStateObj)) {
             threadsNew++;
-        } else if (env->IsSameObject(threadState, _runnableThreadStateObj)) {
+        } else if (threadState.equal(env, _runnableThreadStateObj)) {
             threadsRunnable++;
-        } else if (env->IsSameObject(threadState, _blockedThreadStateObj)) {
+        } else if (threadState.equal(env, _blockedThreadStateObj)) {
             threadsBlocked++;
-        } else if (env->IsSameObject(threadState, _waitingThreadStateObj)) {
+        } else if (threadState.equal(env, _waitingThreadStateObj)) {
             threadsWaiting++;
-        } else if (env->IsSameObject(threadState, _timedWaitingThreadStateObj)) {
+        } else if (threadState.equal(env, _timedWaitingThreadStateObj)) {
             threadsTimedWaiting++;
-        } else if (env->IsSameObject(threadState, _terminatedThreadStateObj)) {
+        } else if (threadState.equal(env, _terminatedThreadStateObj)) {
             threadsTerminated++;
         }
     }
@@ -524,29 +462,35 @@ Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
     jvm_metrics->jvm_thread_terminated_count->set_value(threadsTerminated < 0 ? 0
                                                                               : threadsTerminated);
 
-    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-            jobject, gcMXBeansList, env,
-            CallStaticObjectMethod(_managementFactoryClass, _getGarbageCollectorMXBeansMethod));
-
-    JNI_CALL_METHOD_CHECK_EXCEPTION(jint, numCollectors, env,
-                                    CallIntMethod(gcMXBeansList, _getListSizeMethod));
+    Jni::LocalObject gcMXBeansList;
+    RETURN_IF_ERROR(_managementFactoryClass
+                            .call_static_object_method(env, _getGarbageCollectorMXBeansMethod)
+                            .call(&gcMXBeansList));
+    jint numCollectors = 0;
+    RETURN_IF_ERROR(gcMXBeansList.call_int_method(env, _getListSizeMethod).call(&numCollectors));
 
     for (int i = 0; i < numCollectors; i++) {
-        JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-                jobject, gcMXBean, env, CallObjectMethod(gcMXBeansList, _getListUseIndexMethod, i));
+        Jni::LocalObject gcMXBean;
+        RETURN_IF_ERROR(gcMXBeansList.call_object_method(env, _getListUseIndexMethod)
+                                .with_arg(i)
+                                .call(&gcMXBean));
 
-        JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(jobject, gcName, env,
-                                                   CallObjectMethod(gcMXBean, _getGCNameMethod));
+        Jni::LocalString gcName;
+        RETURN_IF_ERROR(gcMXBean.call_object_method(env, _getGCNameMethod).call(&gcName));
 
-        JNI_CALL_METHOD_CHECK_EXCEPTION(jlong, gcCollectionCount, env,
-                                        CallLongMethod(gcMXBean, _getGCCollectionCountMethod));
+        jlong gcCollectionCount = 0;
+        RETURN_IF_ERROR(gcMXBean.call_long_method(env, _getGCCollectionCountMethod)
+                                .call(&gcCollectionCount));
 
-        JNI_CALL_METHOD_CHECK_EXCEPTION(jlong, gcCollectionTime, env,
-                                        CallLongMethod(gcMXBean, _getGCCollectionTimeMethod));
+        jlong gcCollectionTime = 0;
+        RETURN_IF_ERROR(
+                gcMXBean.call_long_method(env, _getGCCollectionTimeMethod).call(&gcCollectionTime));
 
-        const char* gcNameStr = env->GetStringUTFChars((jstring)gcName, NULL);
-        if (gcNameStr != nullptr) {
-            if (strcmp(gcNameStr, "G1 Young Generation") == 0) {
+        Jni::LocalStringBufferGuard gcNameStr;
+        RETURN_IF_ERROR(gcName.get_string_chars(env, &gcNameStr));
+
+        if (gcNameStr.get() != nullptr) {
+            if (strcmp(gcNameStr.get(), "G1 Young Generation") == 0) {
                 jvm_metrics->jvm_gc_g1_young_generation_count->set_value(gcCollectionCount);
                 jvm_metrics->jvm_gc_g1_young_generation_time_ms->set_value(gcCollectionTime);
 
@@ -554,43 +498,11 @@ Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
                 jvm_metrics->jvm_gc_g1_old_generation_count->set_value(gcCollectionCount);
                 jvm_metrics->jvm_gc_g1_old_generation_time_ms->set_value(gcCollectionTime);
             }
-
-            env->ReleaseStringUTFChars((jstring)gcName, gcNameStr);
         }
     }
 
     return Status::OK();
 }
-JvmStats::~JvmStats() {
-    if (!_init_complete) {
-        return;
-    }
-    try {
-        JNIEnv* env = nullptr;
-        Status st = JniUtil::GetJNIEnv(&env);
-        if (!st.ok()) {
-            return;
-        }
-        env->DeleteGlobalRef(_managementFactoryClass);
-        env->DeleteGlobalRef(_memoryUsageClass);
-        env->DeleteGlobalRef(_memoryMXBeanClass);
-        env->DeleteGlobalRef(_listClass);
-        env->DeleteGlobalRef(_memoryPoolMXBeanClass);
-        env->DeleteGlobalRef(_threadMXBeanClass);
-        env->DeleteGlobalRef(_threadInfoClass);
-        env->DeleteGlobalRef(_threadStateClass);
-        env->DeleteGlobalRef(_garbageCollectorMXBeanClass);
-
-        env->DeleteGlobalRef(_newThreadStateObj);
-        env->DeleteGlobalRef(_runnableThreadStateObj);
-        env->DeleteGlobalRef(_blockedThreadStateObj);
-        env->DeleteGlobalRef(_waitingThreadStateObj);
-        env->DeleteGlobalRef(_timedWaitingThreadStateObj);
-        env->DeleteGlobalRef(_terminatedThreadStateObj);
-
-    } catch (...) {
-        // In order to exit more gracefully, we catch the exception here.
-    }
-}
+JvmStats::~JvmStats() {}
 
 } // namespace doris

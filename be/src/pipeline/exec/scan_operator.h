@@ -53,16 +53,6 @@ enum class PushDownType {
     PARTIAL_ACCEPTABLE
 };
 
-struct FilterPredicates {
-    // Save all runtime filter predicates which may be pushed down to data source.
-    // column name -> bloom filter function
-    std::vector<FilterOlapParam<std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
-
-    std::vector<FilterOlapParam<std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
-
-    std::vector<FilterOlapParam<std::shared_ptr<HybridSetBase>>> in_filters;
-};
-
 class ScanLocalStateBase : public PipelineXLocalState<> {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
@@ -83,7 +73,6 @@ public:
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
-    virtual int64_t get_push_down_count() = 0;
     // If scan operator is serial operator(like topn), its real parallelism is 1.
     // Otherwise, its real parallelism is query_parallel_instance_num.
     // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
@@ -122,7 +111,6 @@ protected:
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
 
@@ -170,8 +158,6 @@ class ScanLocalState : public ScanLocalStateBase {
 
     TPushAggOp::type get_push_down_agg_type() override;
 
-    int64_t get_push_down_count() override;
-
     std::vector<Dependency*> execution_dependencies() override {
         if (_filter_dependencies.empty()) {
             return {};
@@ -217,6 +203,7 @@ protected:
     virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
+    virtual PushDownType _should_push_down_topn_filter() { return PushDownType::UNACCEPTABLE; }
     virtual PushDownType _should_push_down_bitmap_filter() { return PushDownType::UNACCEPTABLE; }
     virtual PushDownType _should_push_down_is_null_predicate() {
         return PushDownType::UNACCEPTABLE;
@@ -254,6 +241,9 @@ protected:
     Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                    PushDownType* pdt);
+    Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                  std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                  PushDownType* pdt);
 
     Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
                                     std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
@@ -262,8 +252,8 @@ protected:
     Status _normalize_function_filters(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);
 
-    bool _is_predicate_acting_on_slot(const std::shared_ptr<vectorized::VSlotRef>& slot_ref,
-                                      ColumnValueRangeType** range);
+    bool _is_predicate_acting_on_slot(const vectorized::VExprSPtrs& children,
+                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range);
 
     template <PrimitiveType T>
     Status _normalize_in_and_eq_predicate(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
@@ -353,13 +343,13 @@ public:
     }
     [[nodiscard]] bool is_source() const override { return true; }
 
-    [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
-
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state) override;
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;
     }
+
+    [[nodiscard]] virtual int get_column_id(const std::string& col_name) const { return -1; }
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
@@ -379,7 +369,6 @@ public:
         }
     }
 
-    int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::node_id;
     using OperatorX<LocalStateType>::operator_id;
     using OperatorX<LocalStateType>::get_local_state;

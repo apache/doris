@@ -2547,13 +2547,14 @@ TEST(OperationLogRecycleCheckerTest, InitAndBasicCheck) {
     insert_empty_value();
 
     // Test initialization without snapshots
+    OperationLogReferenceInfo reference_info;
     {
         InstanceInfoPB instance_info;
         OperationLogRecycleChecker checker(test_instance_id, txn_kv.get(), instance_info);
         ASSERT_EQ(checker.init(), 0);
 
         // All logs should be recyclable when no snapshots exist
-        ASSERT_TRUE(checker.can_recycle(old_version, 1)) << old_version.version();
+        ASSERT_TRUE(checker.can_recycle(old_version, 1, &reference_info)) << old_version.version();
     }
 
     {
@@ -2563,7 +2564,7 @@ TEST(OperationLogRecycleCheckerTest, InitAndBasicCheck) {
         ASSERT_EQ(checker.init(), 0);
 
         OperationLogPB op_log;
-        ASSERT_TRUE(checker.can_recycle(old_version, op_log.min_timestamp()));
+        ASSERT_TRUE(checker.can_recycle(old_version, op_log.min_timestamp(), &reference_info));
     }
 
     auto write_snapshot = [&]() {
@@ -2591,19 +2592,19 @@ TEST(OperationLogRecycleCheckerTest, InitAndBasicCheck) {
         ASSERT_EQ(checker.init(), 0);
 
         // case 1, old operation log can be recycled.
-        ASSERT_TRUE(checker.can_recycle(old_version, 1));
+        ASSERT_TRUE(checker.can_recycle(old_version, 1, &reference_info));
         // case 2. snapshot exist in the log range, can not be recycled.
-        ASSERT_FALSE(checker.can_recycle(version1, old_version.version()))
+        ASSERT_FALSE(checker.can_recycle(version1, old_version.version(), &reference_info))
                 << "version1: " << version1.version() << ", old_version: " << old_version.version();
 
         Versionstamp version3 = get_current_versionstamp();
         Versionstamp version4(version3.version(), 1);
 
         // case 3. large operation log can not be recycled.
-        ASSERT_FALSE(checker.can_recycle(version4, version2.version()));
+        ASSERT_FALSE(checker.can_recycle(version4, version2.version(), &reference_info));
 
         // case 4: [min_version, operation log version)
-        ASSERT_TRUE(checker.can_recycle(version1, version1.version()));
+        ASSERT_TRUE(checker.can_recycle(version1, version1.version(), &reference_info));
     }
 
     {
@@ -2616,7 +2617,7 @@ TEST(OperationLogRecycleCheckerTest, InitAndBasicCheck) {
 
         Versionstamp version5 = get_current_versionstamp();
 
-        ASSERT_FALSE(checker.can_recycle(version5, version2.version()))
+        ASSERT_FALSE(checker.can_recycle(version5, version2.version(), &reference_info))
                 << "version5: " << version5.version() << ", version2: " << version2.version();
     }
 }

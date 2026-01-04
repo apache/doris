@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -28,6 +29,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
@@ -305,6 +307,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
 
     public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
+
+    public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
     // Force the number of scanners to equal the number of segments in OLAP scan when parallel scan is enabled.
     public static final String OPTIMIZE_INDEX_SCAN_PARALLELISM =
@@ -768,6 +772,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
+    public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
+            "cloud_table_version_cache_ttl_ms";
     // CLOUD_VARIABLES_BEGIN
 
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
@@ -954,6 +960,9 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否启用将公共子表达式作为虚拟列下推到 OlapScan（实验特性）",
                     "Enable pushing common sub-expressions as virtual columns into OlapScan (experimental)"})
     public boolean experimentalEnableVirtualSlotForCse = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
+    public boolean enableNewShffleHashMethod = true;
 
     @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL, needForward = true,
             description = {"是否在查询 ClickHouse JDBC 外部表时，对查询 SQL 添加 FINAL 关键字。",
@@ -1940,7 +1949,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableCommonExprPushdown = true;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = false, flag = VariableMgr.INVISIBLE,
-            varType = VariableAnnotation.DEPRECATED, needForward = true)
+            varType = VariableAnnotation.DEPRECATED)
     public boolean enableLocalExchange = true;
 
     /**
@@ -2839,6 +2848,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean disableEmptyPartitionPrune = false;
     @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
     public static long cloudPartitionVersionCacheTtlMs = 0;
+    @VariableMgr.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
+    public long cloudTableVersionCacheTtlMs = 0;
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout
@@ -4451,7 +4462,15 @@ public class SessionVariable implements Serializable, Writable {
         if (connectContext == null) {
             return true;
         }
-        return connectContext.getSessionVariable().enableNereidsDistributePlanner;
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext != null) {
+            StatementBase parsedStatement = statementContext.getParsedStatement();
+            if (!(parsedStatement instanceof LogicalPlanAdapter)) {
+                return false;
+            }
+        }
+        return sessionVariable.enableNereidsDistributePlanner;
     }
 
     public boolean isEnableNereidsDistributePlanner() {
@@ -4832,6 +4851,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
         tResult.setEnableLocalExchange(enableLocalExchange);
+        tResult.setEnableNewShuffleHashMethod(enableNewShffleHashMethod);
 
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
 

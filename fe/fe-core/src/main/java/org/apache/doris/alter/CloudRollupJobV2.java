@@ -36,6 +36,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTabletType;
@@ -110,7 +111,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         rollupIndexList.add(rollupIndexId);
         try {
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                .commitMaterializedIndex(dbId, tableId, rollupIndexList, false);
+                    .commitMaterializedIndex(dbId, tableId, rollupIndexList, null, false);
         } catch (Exception e) {
             LOG.warn("commitMaterializedIndex Exception:{}", e);
             throw new AlterCancelException(e.getMessage());
@@ -207,7 +208,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             TTabletType tabletType = tbl.getPartitionInfo().getTabletType(partitionId);
             MaterializedIndex rollupIndex = entry.getValue();
             Cloud.CreateTabletsRequest.Builder requestBuilder =
-                    Cloud.CreateTabletsRequest.newBuilder();
+                    Cloud.CreateTabletsRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
             List<String> rowStoreColumns =
                                         tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet rollupTablet : rollupIndex.getTablets()) {
@@ -233,7 +234,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(), null,
                                     tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
-                                    tbl.storageDictPageSize(), true);
+                                    tbl.storageDictPageSize(), true,
+                                    tbl.getColumnSeqMapping());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);

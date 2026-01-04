@@ -35,7 +35,6 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     auto& p = _parent->cast<PartitionSortSinkOperatorX>();
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     _partition_expr_ctxs.resize(p._partition_expr_ctxs.size());
-    _partition_columns.resize(p._partition_expr_ctxs.size());
     for (size_t i = 0; i < p._partition_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._partition_expr_ctxs[i]->clone(state, _partition_expr_ctxs[i]));
     }
@@ -70,7 +69,7 @@ PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int ope
                                                        const DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, tnode.node_id, dest_id),
           _pool(pool),
-          _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+          _row_descriptor(descs, tnode.row_tuples),
           _limit(tnode.limit),
           _partition_exprs_num(static_cast<int>(tnode.partition_sort_node.partition_exprs.size())),
           _topn_phase(tnode.partition_sort_node.ptopn_phase),
@@ -181,15 +180,13 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
 Status PartitionSortSinkOperatorX::_split_block_by_partition(
         vectorized::Block* input_block, PartitionSortSinkLocalState& local_state, bool eos) {
+    vectorized::ColumnRawPtrs key_columns_raw_ptr(_partition_exprs_num);
+    vectorized::Columns key_columns(_partition_exprs_num);
     for (int i = 0; i < _partition_exprs_num; ++i) {
-        int result_column_id = -1;
-        RETURN_IF_ERROR(_partition_expr_ctxs[i]->execute(input_block, &result_column_id));
-        DCHECK(result_column_id != -1);
-        local_state._partition_columns[i] =
-                input_block->get_by_position(result_column_id).column.get();
+        RETURN_IF_ERROR(_partition_expr_ctxs[i]->execute(input_block, key_columns[i]));
+        key_columns_raw_ptr[i] = key_columns[i].get();
     }
-    RETURN_IF_ERROR(_emplace_into_hash_table(local_state._partition_columns, input_block,
-                                             local_state, eos));
+    RETURN_IF_ERROR(_emplace_into_hash_table(key_columns_raw_ptr, input_block, local_state, eos));
     return Status::OK();
 }
 

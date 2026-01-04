@@ -26,6 +26,7 @@
 #include <filesystem>
 #include <mutex>
 #include <system_error>
+#include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -269,17 +270,6 @@ Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const F
     if (key.meta.type != type) {
         BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
         BlockMeta meta(type, size, key.meta.expiration_time);
-        _meta_store->put(mkey, meta);
-    }
-    return Status::OK();
-}
-
-Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
-                                                      const uint64_t expiration,
-                                                      const size_t size) {
-    if (key.meta.expiration_time != expiration) {
-        BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-        BlockMeta meta(key.meta.type, size, expiration);
         _meta_store->put(mkey, meta);
     }
     return Status::OK();
@@ -775,7 +765,6 @@ Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& info
 }
 
 void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mgr) const {
-    TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile1");
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
@@ -788,14 +777,6 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
                 auto block = _mgr->_files[args.hash][args.offset].file_block;
                 if (block->tablet_id() == 0) {
                     block->set_tablet_id(args.ctx.tablet_id);
-                }
-                if (block->cache_type() == io::FileCacheType::TTL &&
-                    block->expiration_time() != args.ctx.expiration_time) {
-                    auto s = block->update_expiration_time(args.ctx.expiration_time);
-                    if (!s.ok()) {
-                        LOG(WARNING) << "update expiration time for " << args.hash.to_string()
-                                     << " offset=" << args.offset;
-                    }
                 }
                 return;
             }
@@ -895,10 +876,10 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
               << ", Estimated FS files: " << estimated_file_count;
 
     // If the difference is more than threshold, load from filesystem as well
-    if (estimated_file_count > 0) {
+    if (estimated_file_count > 100) {
         double difference_ratio =
-                static_cast<double>(estimated_file_count) -
-                static_cast<double>(db_block_count) / static_cast<double>(estimated_file_count);
+                (static_cast<double>(estimated_file_count) - static_cast<double>(db_block_count)) /
+                static_cast<double>(estimated_file_count);
 
         if (difference_ratio > config::file_cache_meta_store_vs_file_system_diff_num_threshold) {
             LOG(WARNING) << "Significant difference between DB blocks (" << db_block_count
@@ -914,6 +895,12 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
                              << st.to_string();
             }
             // TODO(zhengyu): use anti-leak machinism to remove v2 format directory
+        }
+    } else {
+        LOG(INFO) << "FS contains low number of files, num = " << estimated_file_count
+                  << ", skipping FS load.";
+        if (st = write_file_cache_version(); !st.ok()) {
+            LOG(WARNING) << "Failed to write version hints for file cache, err=" << st.to_string();
         }
     }
 }
@@ -953,6 +940,7 @@ Status FSFileCacheStorage::clear(std::string& msg) {
     auto t0 = std::chrono::steady_clock::now();
     for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
         if (!key_it->is_directory()) continue; // all file cache data is in sub-directories
+        if (key_it->path().filename().native() == "meta") continue;
         ++total;
         std::string cache_key = key_it->path().string();
         auto st = global_local_filesystem()->delete_directory(cache_key);
@@ -996,13 +984,53 @@ size_t FSFileCacheStorage::estimate_file_count_from_statfs() const {
     // Get total size of cache directory to estimate file count
     std::error_code ec;
     uintmax_t total_size = 0;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(_cache_base_path, ec)) {
+    std::vector<std::filesystem::path> pending_dirs {std::filesystem::path(_cache_base_path)};
+    while (!pending_dirs.empty()) {
+        auto current_dir = pending_dirs.back();
+        pending_dirs.pop_back();
+
+        std::filesystem::directory_iterator it(current_dir, ec);
         if (ec) {
-            LOG(WARNING) << "Error accessing directory entry: " << ec.message();
+            LOG(WARNING) << "Failed to list directory while estimating file count, dir="
+                         << current_dir << ", err=" << ec.message();
+            ec.clear();
             continue;
         }
-        if (entry.is_regular_file()) {
-            total_size += entry.file_size();
+
+        for (; it != std::filesystem::directory_iterator(); ++it) {
+            std::error_code status_ec;
+            auto entry_status = it->symlink_status(status_ec);
+            TEST_SYNC_POINT_CALLBACK(
+                    "FSFileCacheStorage::estimate_file_count_from_statfs::AfterEntryStatus",
+                    &status_ec);
+            if (status_ec) {
+                LOG(WARNING) << "Failed to stat entry while estimating file count, path="
+                             << it->path() << ", err=" << status_ec.message();
+                continue;
+            }
+
+            if (std::filesystem::is_directory(entry_status)) {
+                auto next_dir = it->path();
+                TEST_SYNC_POINT_CALLBACK(
+                        "FSFileCacheStorage::estimate_file_count_from_statfs::OnDirectory",
+                        &next_dir);
+                pending_dirs.emplace_back(next_dir);
+                continue;
+            }
+
+            if (std::filesystem::is_regular_file(entry_status)) {
+                std::error_code size_ec;
+                auto file_size = it->file_size(size_ec);
+                TEST_SYNC_POINT_CALLBACK(
+                        "FSFileCacheStorage::estimate_file_count_from_statfs::AfterFileSize",
+                        &size_ec);
+                if (size_ec) {
+                    LOG(WARNING) << "Failed to get file size while estimating file count, path="
+                                 << it->path() << ", err=" << size_ec.message();
+                    continue;
+                }
+                total_size += file_size;
+            }
         }
     }
 

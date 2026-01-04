@@ -23,6 +23,7 @@
 
 #include <string>
 
+#include "testutil/datetime_ut_util.h"
 #include "util/timezone_utils.h"
 #include "vec/functions/cast/cast_base.h"
 
